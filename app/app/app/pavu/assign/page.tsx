@@ -1,0 +1,337 @@
+'use client';
+/**
+ * Loom-view Pavu Assignment
+ *
+ * Shows every loom as a card. For each loom, displays the currently mounted
+ * pavu (if any) and an "Assign" button that opens a small modal letting the
+ * user pick an in-stock pavu + quality and create a pavu_assign row in one
+ * click. Designed for the floor operator on a tablet.
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { PageHeader } from '@/app/components/page-header';
+import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2 } from 'lucide-react';
+
+interface Loom {
+  id: number;
+  loom_code: string;
+  loom_type: string;
+  width_in: number | null;
+  status: string;
+}
+
+interface ActiveAssignment {
+  id: number;
+  loom_id: number;
+  status: string;
+  metres_produced: number;
+  start_date: string | null;
+  pavu: {
+    id: number; pavu_code: string; beam_no: string; ends: number; meters: number;
+    sizing_job?: { warp_count?: { code: string } | null } | null;
+  } | null;
+  costing: { id: number; quality_code: string; quality_name: string } | null;
+}
+
+interface PavuInStock {
+  id: number;
+  pavu_code: string;
+  beam_no: string;
+  ends: number;
+  meters: number;
+  sizing_job?: { warp_count?: { code: string } | null } | null;
+}
+
+interface Quality {
+  id: number;
+  quality_code: string;
+  quality_name: string;
+}
+
+const STATUS_STYLE: Record<string, string> = {
+  running:    'bg-emerald-50 text-emerald-700',
+  idle:       'bg-slate-100 text-slate-600',
+  maintenance:'bg-amber-50 text-amber-700',
+  breakdown:  'bg-rose-50 text-rose-700',
+};
+
+export default function PavuAssignPage() {
+  const supabase = createClient();
+  const [looms, setLooms]             = useState<Loom[]>([]);
+  const [active, setActive]           = useState<ActiveAssignment[]>([]);
+  const [stock, setStock]             = useState<PavuInStock[]>([]);
+  const [qualities, setQualities]     = useState<Quality[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+
+  // Modal state — which loom is being assigned right now.
+  const [assignFor, setAssignFor] = useState<Loom | null>(null);
+
+  /** Fetch all four datasets in parallel. Wrapped so we can call again on save. */
+  const reload = useCallback(async () => {
+    setLoading(true); setError(null);
+    const [l, a, p, q] = await Promise.all([
+      supabase.from('loom')
+        .select('id, loom_code, loom_type, width_in, status')
+        .order('loom_code'),
+      supabase.from('pavu_assign')
+        .select(`
+          id, loom_id, status, metres_produced, start_date,
+          pavu:pavu_id (
+            id, pavu_code, beam_no, ends, meters,
+            sizing_job:sizing_job_id ( warp_count:warp_count_id ( code ) )
+          ),
+          costing:costing_id ( id, quality_code, quality_name )
+        `)
+        .in('status', ['queued', 'mounted', 'running']),
+      supabase.from('pavu')
+        .select(`
+          id, pavu_code, beam_no, ends, meters,
+          sizing_job:sizing_job_id ( warp_count:warp_count_id ( code ) )
+        `)
+        .eq('status', 'in_stock')
+        .eq('production_mode', 'in_house')
+        .order('created_at', { ascending: false })
+        .limit(100),
+      supabase.from('costing_master')
+        .select('id, quality_code, quality_name')
+        .eq('status', 'active')
+        .order('quality_code'),
+    ]);
+    if (l.error || a.error || p.error || q.error) {
+      setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? 'Load failed');
+    }
+    setLooms(l.data ?? []);
+    setActive((a.data as any) ?? []);
+    setStock((p.data as any) ?? []);
+    setQualities(q.data ?? []);
+    setLoading(false);
+  }, [supabase]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  /** Quick lookup: loomId → current active assignment (if any). */
+  const activeByLoom = useMemo(() => {
+    const m = new Map<number, ActiveAssignment>();
+    for (const a of active) m.set(a.loom_id, a);
+    return m;
+  }, [active]);
+
+  return (
+    <div>
+      <PageHeader
+        title="Pavu Assignment"
+        subtitle="What's currently mounted on each loom. Tap a loom to assign or change the pavu."
+        actions={
+          <button onClick={reload} className="btn-ghost" disabled={loading}>
+            <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        }
+      />
+
+      {error && (
+        <div className="card p-4 text-sm text-err mb-4">Could not load: {error}</div>
+      )}
+
+      {loading && !looms.length ? (
+        <div className="card p-10 text-center text-ink-soft text-sm">
+          <Loader2 className="w-5 h-5 inline animate-spin mr-2" /> Loading looms…
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {looms.map(l => {
+            const cur = activeByLoom.get(l.id);
+            return (
+              <div key={l.id} className="card p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wrench className="w-4 h-4 text-ink-mute" />
+                    <span className="font-mono font-bold text-ink">{l.loom_code}</span>
+                    <span className="text-xs text-ink-mute">{l.loom_type}</span>
+                  </div>
+                  <span className={`pill ${STATUS_STYLE[l.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                    {l.status}
+                  </span>
+                </div>
+
+                {cur && cur.pavu ? (
+                  <div className="rounded-lg bg-indigo/5 border border-indigo/15 p-3 text-sm space-y-1">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-indigo" />
+                      <span className="font-mono font-semibold text-indigo">{cur.pavu.pavu_code}</span>
+                    </div>
+                    <div className="text-xs text-ink-soft">
+                      Beam {cur.pavu.beam_no} ·{' '}
+                      {cur.pavu.sizing_job?.warp_count?.code ?? '—'} · {cur.pavu.ends} ends ·{' '}
+                      {Number(cur.pavu.meters).toFixed(0)} m
+                    </div>
+                    {cur.costing && (
+                      <div className="text-xs text-ink-soft">
+                        Quality: <span className="font-semibold">{cur.costing.quality_code}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] uppercase tracking-wide text-ink-mute">{cur.status}</span>
+                      <span className="text-xs num">
+                        {Number(cur.metres_produced).toFixed(0)} m made
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-line p-3 text-center text-sm text-ink-mute">
+                    No pavu mounted
+                  </div>
+                )}
+
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => setAssignFor(l)}
+                  disabled={stock.length === 0}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {cur ? 'Replace pavu' : 'Assign pavu'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {looms.length > 0 && stock.length === 0 && (
+        <div className="card p-4 mt-4 text-sm text-amber-700 bg-amber-50/40">
+          No in-house pavu in stock. Create a{' '}
+          <a href="/app/sizing/new" className="underline font-semibold">new sizing job</a>{' '}
+          with in-house beams first.
+        </div>
+      )}
+
+      {assignFor && (
+        <AssignModal
+          loom={assignFor}
+          stock={stock}
+          qualities={qualities}
+          currentAssignment={activeByLoom.get(assignFor.id) ?? null}
+          onClose={() => setAssignFor(null)}
+          onDone={() => { setAssignFor(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Assign modal — picks a pavu + quality and inserts a pavu_assign row.
+// If the loom already has an active assignment we first mark it "removed"
+// so the partial-unique-index constraint stays happy.
+// ───────────────────────────────────────────────────────────────────────────
+function AssignModal({
+  loom, stock, qualities, currentAssignment, onClose, onDone,
+}: {
+  loom: Loom;
+  stock: PavuInStock[];
+  qualities: Quality[];
+  currentAssignment: ActiveAssignment | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const supabase = createClient();
+  const [pavuId, setPavuId] = useState('');
+  const [costingId, setCostingId] = useState('');
+  const [status, setStatus] = useState<'queued' | 'mounted' | 'running'>('mounted');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+
+    // Free up the loom first if something else is on it.
+    if (currentAssignment) {
+      const { error: rmErr } = await supabase
+        .from('pavu_assign')
+        .update({ status: 'removed', end_date: new Date().toISOString().slice(0, 10) })
+        .eq('id', currentAssignment.id);
+      if (rmErr) { setErr(`Could not remove existing: ${rmErr.message}`); setBusy(false); return; }
+    }
+
+    const payload = {
+      pavu_id:       Number(pavuId),
+      loom_id:       loom.id,
+      costing_id:    costingId ? Number(costingId) : null,
+      assigned_date: new Date().toISOString().slice(0, 10),
+      start_date:    status === 'running' || status === 'mounted'
+                       ? new Date().toISOString().slice(0, 10) : null,
+      status,
+    };
+    const { error } = await supabase.from('pavu_assign').insert(payload);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    onDone();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
+        <div className="flex items-center justify-between p-4 border-b border-line/60">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-ink-mute">Assign to</div>
+            <div className="font-mono font-bold">{loom.loom_code}</div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-cloud">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="p-4 space-y-4">
+          {currentAssignment?.pavu && (
+            <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
+              Loom currently has <span className="font-mono font-semibold">{currentAssignment.pavu.pavu_code}</span>.
+              Saving will mark it removed.
+            </div>
+          )}
+
+          <div>
+            <label className="label">Pavu *</label>
+            <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
+              <option value="" disabled>Select an in-stock pavu…</option>
+              {stock.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">Quality being woven</label>
+            <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
+              <option value="">— Not set —</option>
+              {qualities.map(q => (
+                <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">Initial status</label>
+            <select value={status} onChange={e => setStatus(e.target.value as any)} className="input">
+              <option value="queued">Queued (planned)</option>
+              <option value="mounted">Mounted</option>
+              <option value="running">Running</option>
+            </select>
+          </div>
+
+          {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+            <button type="submit" disabled={busy || !pavuId} className="btn-primary">
+              {busy ? 'Saving…' : 'Assign'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

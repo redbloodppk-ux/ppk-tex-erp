@@ -1,0 +1,734 @@
+'use client';
+/**
+ * New Invoice — supports 5 doc types.
+ *
+ *   tax_invoice   → fabric sale  (from Sales Order or from Fabric Stock)
+ *   yarn_sale     → yarn outward (picks yarn_lot, auto-deducts stock)
+ *   general_sale  → rental / scrap / services (free-form lines)
+ *   credit_note   → sales return (picks original invoice, ticks return lines)
+ *   debit_note    → purchase return (against a vendor + free-text supplier bill)
+ *
+ * Tax math: company state = customer state → CGST + SGST.
+ *           Otherwise (interstate) → IGST.
+ *           Each line carries its own GST %.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+import { PageHeader } from '@/app/components/page-header';
+import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
+
+type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
+type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return';
+
+interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null }
+interface Vendor   { id: number; name: string; gstin: string | null; vendor_type: string }
+interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_kg: number;
+                     yarn_count_id: number; mill_id: number;
+                     yarn_count?: { display_name: string } | null;
+                     mill?: { name: string } | null }
+interface SalesOrder { id: number; so_number: string; customer_id: number; total: number; status: string }
+interface SoLine { id: number; so_id: number; quantity_m: number; rate_per_m: number; delivered_m: number;
+                   costing?: { quality_code: string; quality_name: string } | null }
+interface FabricStock { id: number; metres_available: number; cost_per_m_frozen: number;
+                        costing?: { quality_code: string; quality_name: string } | null }
+interface OriginalInvoice { id: number; invoice_no: string; doc_type: string; customer_id: number; total: number;
+                            party_state: string | null; is_interstate: boolean }
+interface OriginalLine    { id: number; description: string; hsn_sac: string | null; uom: string;
+                            quantity: number; rate: number; gst_rate_pct: number; total_amount: number }
+
+interface Row {
+  id: string;                    // local key only
+  description: string;
+  hsn_sac: string;
+  uom: string;
+  quantity: string;
+  rate: string;
+  discount_pct: string;
+  gst_rate_pct: string;
+  // Source linkage (one set per row depending on doc type)
+  yarn_lot_id: string;
+  fabric_stock_id: string;
+  so_line_id: string;
+  original_line_id: string;
+}
+
+const DOC_OPTIONS: { key: DocType; label: string; icon: any; tagline: string }[] = [
+  { key: 'tax_invoice',  label: 'Fabric Sale',     icon: FileText,       tagline: 'Tax invoice — fabric to a customer' },
+  { key: 'yarn_sale',    label: 'Yarn Sale',       icon: Coins,          tagline: 'Sell yarn out of stock' },
+  { key: 'general_sale', label: 'General Sale',    icon: Briefcase,      tagline: 'Rental income, scrap, services' },
+  { key: 'credit_note',  label: 'Sales Return',    icon: RotateCcw,      tagline: 'Customer is returning fabric/yarn' },
+  { key: 'debit_note',   label: 'Purchase Return', icon: ArrowDownLeft,  tagline: 'You are returning yarn to a supplier' },
+];
+
+const FABRIC_HSN = '5208';
+const YARN_HSN   = '5205';
+const GST_DEFAULT = '5';
+
+const newRow = (): Row => ({
+  id: Math.random().toString(36).slice(2),
+  description: '', hsn_sac: '', uom: 'mtr',
+  quantity: '', rate: '', discount_pct: '0', gst_rate_pct: GST_DEFAULT,
+  yarn_lot_id: '', fabric_stock_id: '', so_line_id: '', original_line_id: '',
+});
+
+export default function NewInvoicePage() {
+  const router = useRouter();
+  const supabase = createClient();
+  const params = useSearchParams();
+  const initialType = (params.get('type') as DocType) || 'tax_invoice';
+
+  // ── doc type selection ─────────────────────────────────────────────────────
+  const [docType, setDocType] = useState<DocType>(initialType);
+  const [sourceKind, setSourceKind] = useState<SourceKind>('sales_order');
+
+  // ── party (customer for sales, vendor for debit_note) ──────────────────────
+  const [companyState, setCompanyState] = useState<string>('Tamil Nadu');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [vendors, setVendors]     = useState<Vendor[]>([]);
+  const [customerId, setCustomerId] = useState('');
+  const [vendorId,   setVendorId]   = useState('');
+
+  // ── source masters ─────────────────────────────────────────────────────────
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [soLines,     setSoLines]     = useState<SoLine[]>([]);
+  const [pickedSoId,  setPickedSoId]  = useState('');
+  const [fabricStock, setFabricStock] = useState<FabricStock[]>([]);
+  const [yarnLots,    setYarnLots]    = useState<YarnLot[]>([]);
+
+  // ── credit_note: original invoice picker ───────────────────────────────────
+  const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
+  const [originalInvoiceId, setOriginalInvoiceId] = useState('');
+  const [originalLines,     setOriginalLines]     = useState<OriginalLine[]>([]);
+
+  // ── debit_note extras ──────────────────────────────────────────────────────
+  const [supplierBillNo,   setSupplierBillNo]   = useState('');
+  const [supplierBillDate, setSupplierBillDate] = useState('');
+
+  // ── header ──────────────────────────────────────────────────────────────────
+  const [invoiceDate,  setInvoiceDate]  = useState(() => new Date().toISOString().slice(0,10));
+  const [dueDate,      setDueDate]      = useState('');
+  const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu');
+  const [notes,        setNotes]        = useState('');
+
+  // ── line rows ──────────────────────────────────────────────────────────────
+  const [rows, setRows] = useState<Row[]>([newRow()]);
+
+  // ── ui state ───────────────────────────────────────────────────────────────
+  const [loading, setLoading] = useState(true);
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  // ── load masters ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      const [cp, cu, ve, so, fs, yl, oi] = await Promise.all([
+        supabase.from('company_profile').select('state').single(),
+        supabase.from('customer').select('id, name, gstin, state, billing_address').eq('status','active').order('name'),
+        supabase.from('vendor').select('id, name, gstin, vendor_type').eq('status','active').order('name'),
+        supabase.from('sales_order').select('id, so_number, customer_id, total, status').in('status', ['approved','in_production','partial_dispatch','dispatched','invoiced']).order('order_date', { ascending: false }).limit(100),
+        supabase.from('fabric_stock').select(`
+          id, metres_available, cost_per_m_frozen,
+          costing:costing_id ( quality_code, quality_name )
+        `).gt('metres_available', 0).order('received_at', { ascending: false }).limit(100),
+        supabase.from('yarn_lot').select(`
+          id, lot_code, current_kg, cost_per_kg, yarn_count_id, mill_id,
+          yarn_count:yarn_count_id ( display_name ),
+          mill:mill_id ( name )
+        `).gt('current_kg', 0).order('received_date', { ascending: false }).limit(100),
+        supabase.from('invoice').select('id, invoice_no, doc_type, customer_id, total, party_state, is_interstate')
+          .in('doc_type', ['tax_invoice','yarn_sale','general_sale']).order('invoice_date', { ascending: false }).limit(100),
+      ]);
+      setCompanyState(cp.data?.state ?? 'Tamil Nadu');
+      setCustomers(cu.data ?? []);
+      setVendors(ve.data ?? []);
+      setSalesOrders(so.data ?? []);
+      setFabricStock((fs.data ?? []) as any);
+      setYarnLots((yl.data ?? []) as any);
+      setOriginalInvoices((oi.data ?? []) as any);
+      setLoading(false);
+    })();
+  }, [supabase]);
+
+  // ── reset source when doc type changes ─────────────────────────────────────
+  useEffect(() => {
+    setRows([newRow()]);
+    if (docType === 'tax_invoice')   setSourceKind('sales_order');
+    if (docType === 'yarn_sale')     setSourceKind('yarn_lot');
+    if (docType === 'general_sale')  setSourceKind('free');
+    if (docType === 'credit_note')   setSourceKind('return');
+    if (docType === 'debit_note')    setSourceKind('free');
+    setPickedSoId(''); setSoLines([]);
+    setOriginalInvoiceId(''); setOriginalLines([]);
+    setVendorId(''); setCustomerId('');
+    setError(null);
+  }, [docType]);
+
+  // ── when an SO is picked, load its lines ──────────────────────────────────
+  useEffect(() => {
+    if (!pickedSoId) { setSoLines([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from('sales_order_line')
+        .select('id, so_id, quantity_m, rate_per_m, delivered_m, costing:costing_id ( quality_code, quality_name )')
+        .eq('so_id', Number(pickedSoId));
+      setSoLines((data ?? []) as any);
+      const so = salesOrders.find(s => s.id === Number(pickedSoId));
+      if (so) setCustomerId(String(so.customer_id));
+      // Pre-fill rows from SO lines
+      setRows((data ?? []).map((l: any) => ({
+        ...newRow(),
+        description: l.costing?.quality_name ?? 'Fabric',
+        hsn_sac: FABRIC_HSN,
+        quantity: String(l.quantity_m),
+        rate: String(l.rate_per_m),
+        so_line_id: String(l.id),
+      })));
+    })();
+  }, [pickedSoId, salesOrders, supabase]);
+
+  // ── when an original invoice is picked, load its lines ────────────────────
+  useEffect(() => {
+    if (!originalInvoiceId) { setOriginalLines([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from('invoice_line')
+        .select('id, description, hsn_sac, uom, quantity, rate, gst_rate_pct, total_amount')
+        .eq('invoice_id', Number(originalInvoiceId));
+      setOriginalLines((data ?? []) as any);
+      const ori = originalInvoices.find(o => o.id === Number(originalInvoiceId));
+      if (ori) setCustomerId(String(ori.customer_id));
+      // Pre-fill rows — user can edit qty down to partial return
+      setRows((data ?? []).map((l: any) => ({
+        ...newRow(),
+        description: l.description,
+        hsn_sac: l.hsn_sac ?? '',
+        uom: l.uom,
+        quantity: String(l.quantity),
+        rate: String(l.rate),
+        gst_rate_pct: String(l.gst_rate_pct),
+        original_line_id: String(l.id),
+      })));
+    })();
+  }, [originalInvoiceId, originalInvoices, supabase]);
+
+  // ── derived: customer state → interstate? ─────────────────────────────────
+  const currentCustomer = customers.find(c => c.id === Number(customerId));
+  const customerState = currentCustomer?.state ?? '';
+  const isInterstate = useMemo(() => {
+    if (!customerState || !companyState) return false;
+    return customerState.toLowerCase() !== companyState.toLowerCase();
+  }, [customerState, companyState]);
+
+  useEffect(() => {
+    // Default place of supply to customer's state when one is picked.
+    if (customerState) setPlaceOfSupply(customerState);
+  }, [customerState]);
+
+  // ── row helpers ────────────────────────────────────────────────────────────
+  const updateRow  = (id: string, patch: Partial<Row>) => setRows(r => r.map(x => x.id === id ? { ...x, ...patch } : x));
+  const addRow     = () => setRows(r => [...r, newRow()]);
+  const removeRow  = (id: string) => setRows(r => r.length === 1 ? r : r.filter(x => x.id !== id));
+
+  // When a yarn lot is picked into a row, prefill description / HSN / rate
+  function pickYarnLotForRow(rowId: string, lotId: string) {
+    const lot = yarnLots.find(l => l.id === Number(lotId));
+    if (!lot) { updateRow(rowId, { yarn_lot_id: lotId }); return; }
+    updateRow(rowId, {
+      yarn_lot_id: lotId,
+      description: `${lot.yarn_count?.display_name ?? ''} ${lot.mill?.name ?? ''} (${lot.lot_code})`.trim(),
+      hsn_sac: YARN_HSN,
+      uom: 'kg',
+      rate: String(lot.cost_per_kg),
+    });
+  }
+
+  function pickFabricStockForRow(rowId: string, stockId: string) {
+    const fs = fabricStock.find(f => f.id === Number(stockId));
+    if (!fs) { updateRow(rowId, { fabric_stock_id: stockId }); return; }
+    updateRow(rowId, {
+      fabric_stock_id: stockId,
+      description: fs.costing?.quality_name ?? 'Fabric',
+      hsn_sac: FABRIC_HSN,
+      uom: 'mtr',
+      rate: String(fs.cost_per_m_frozen),
+    });
+  }
+
+  // ── per-row math ───────────────────────────────────────────────────────────
+  const computedRows = useMemo(() => rows.map(r => {
+    const q  = Number(r.quantity) || 0;
+    const rt = Number(r.rate)     || 0;
+    const dp = Number(r.discount_pct) || 0;
+    const gross   = q * rt;
+    const disc    = +(gross * dp / 100).toFixed(2);
+    const taxable = +(gross - disc).toFixed(2);
+    const gstRate = Number(r.gst_rate_pct) || 0;
+    const totalGst = +(taxable * gstRate / 100).toFixed(2);
+    const cgst = isInterstate ? 0 : +(totalGst / 2).toFixed(2);
+    const sgst = isInterstate ? 0 : +(totalGst / 2).toFixed(2);
+    const igst = isInterstate ? totalGst : 0;
+    const total = +(taxable + cgst + sgst + igst).toFixed(2);
+    return { ...r, gross, disc, taxable, cgst, sgst, igst, total };
+  }), [rows, isInterstate]);
+
+  // ── totals ─────────────────────────────────────────────────────────────────
+  const totals = useMemo(() => {
+    let taxable = 0, cgst = 0, sgst = 0, igst = 0;
+    for (const r of computedRows) {
+      taxable += r.taxable; cgst += r.cgst; sgst += r.sgst; igst += r.igst;
+    }
+    const sub = +(taxable + cgst + sgst + igst).toFixed(2);
+    const rounded = Math.round(sub);
+    const roundOff = +(rounded - sub).toFixed(2);
+    return {
+      taxable: +taxable.toFixed(2),
+      cgst:    +cgst.toFixed(2),
+      sgst:    +sgst.toFixed(2),
+      igst:    +igst.toFixed(2),
+      roundOff,
+      total:   rounded,
+    };
+  }, [computedRows]);
+
+  // ── submit ─────────────────────────────────────────────────────────────────
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    // Validate party
+    if (docType === 'debit_note') {
+      if (!vendorId) return setError('Pick a vendor.');
+    } else {
+      if (!customerId) return setError('Pick a customer.');
+    }
+    if (docType === 'credit_note' && !originalInvoiceId) {
+      return setError('Pick the original invoice this return is against.');
+    }
+
+    // Validate rows
+    if (!computedRows.length) return setError('At least one line item is required.');
+    for (const r of computedRows) {
+      if (!r.description.trim()) return setError('Every line needs a description.');
+      if (!Number(r.quantity))   return setError(`"${r.description}": quantity must be > 0.`);
+      if (!Number(r.rate))       return setError(`"${r.description}": rate must be > 0.`);
+    }
+
+    setBusy(true);
+
+    // Party snapshot
+    const party = docType === 'debit_note'
+      ? vendors.find(v => v.id === Number(vendorId))
+      : customers.find(c => c.id === Number(customerId));
+
+    const partyName  = party?.name ?? '';
+    const partyGstin = party?.gstin ?? null;
+    const partyState = docType === 'debit_note'
+      ? null   // vendor table has no state in current schema
+      : (currentCustomer?.state ?? null);
+
+    // Header insert
+    const headerPayload: any = {
+      doc_type:      docType,
+      source_kind:   sourceKind,
+      customer_id:   docType === 'debit_note' ? null : Number(customerId),
+      vendor_id:     docType === 'debit_note' ? Number(vendorId) : null,
+      so_id:         pickedSoId ? Number(pickedSoId) : null,
+      original_invoice_id: originalInvoiceId ? Number(originalInvoiceId) : null,
+      party_name:    partyName,
+      party_gstin:   partyGstin,
+      party_state:   partyState,
+      place_of_supply: placeOfSupply,
+      is_interstate: isInterstate,
+      invoice_date:  invoiceDate,
+      due_date:      dueDate || null,
+      taxable_value: totals.taxable,
+      subtotal:      totals.taxable,        // legacy column kept for back-compat
+      cgst_amount:   totals.cgst,
+      sgst_amount:   totals.sgst,
+      igst_amount:   totals.igst,
+      gst_amount:    +(totals.cgst + totals.sgst + totals.igst).toFixed(2),
+      round_off:     totals.roundOff,
+      total:         totals.total,
+      status:        'issued',
+      notes:         notes.trim() || null,
+      supplier_bill_no:   docType === 'debit_note' ? (supplierBillNo.trim() || null) : null,
+      supplier_bill_date: docType === 'debit_note' && supplierBillDate ? supplierBillDate : null,
+    };
+
+    const { data: inv, error: invErr } = await supabase
+      .from('invoice')
+      .insert(headerPayload)
+      .select('id, invoice_no')
+      .single();
+
+    if (invErr || !inv) {
+      setBusy(false);
+      return setError(invErr?.message ?? 'Could not create invoice.');
+    }
+
+    // Lines insert
+    const lineRows = computedRows.map(r => ({
+      invoice_id:     inv.id,
+      description:    r.description.trim(),
+      hsn_sac:        r.hsn_sac.trim() || null,
+      uom:            r.uom,
+      quantity:       Number(r.quantity),
+      rate:           Number(r.rate),
+      discount_pct:   Number(r.discount_pct) || 0,
+      discount_amount: r.disc,
+      gst_rate_pct:   Number(r.gst_rate_pct) || 0,
+      taxable_amount: r.taxable,
+      cgst_amount:    r.cgst,
+      sgst_amount:    r.sgst,
+      igst_amount:    r.igst,
+      total_amount:   r.total,
+      yarn_lot_id:    r.yarn_lot_id    ? Number(r.yarn_lot_id)    : null,
+      fabric_stock_id: r.fabric_stock_id ? Number(r.fabric_stock_id) : null,
+      so_line_id:     r.so_line_id     ? Number(r.so_line_id)     : null,
+      original_line_id: r.original_line_id ? Number(r.original_line_id) : null,
+    }));
+
+    const { error: lineErr } = await supabase.from('invoice_line').insert(lineRows);
+    if (lineErr) {
+      setBusy(false);
+      return setError(`Invoice ${inv.invoice_no} created but lines failed: ${lineErr.message}`);
+    }
+
+    // Stock deduction for yarn_sale: subtract from yarn_lot.current_kg
+    if (docType === 'yarn_sale') {
+      for (const r of computedRows) {
+        if (!r.yarn_lot_id) continue;
+        const lot = yarnLots.find(l => l.id === Number(r.yarn_lot_id));
+        if (!lot) continue;
+        const newKg = Math.max(0, Number(lot.current_kg) - Number(r.quantity));
+        await supabase.from('yarn_lot').update({ current_kg: newKg }).eq('id', lot.id);
+      }
+    }
+    // Stock add-back for credit_note (sales return) when the return is yarn
+    if (docType === 'credit_note') {
+      for (const r of computedRows) {
+        if (!r.yarn_lot_id) continue;
+        const lot = yarnLots.find(l => l.id === Number(r.yarn_lot_id));
+        if (!lot) continue;
+        const newKg = Number(lot.current_kg) + Number(r.quantity);
+        await supabase.from('yarn_lot').update({ current_kg: newKg }).eq('id', lot.id);
+      }
+    }
+
+    router.push('/app/invoices');
+    router.refresh();
+  }
+
+  // ── render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="max-w-5xl">
+      <PageHeader
+        title="New Invoice"
+        subtitle="Pick the document type — the form adapts to it."
+        crumbs={[{ label: 'Invoices', href: '/app/invoices' }, { label: 'New' }]}
+      />
+
+      {loading ? (
+        <div className="card p-6 text-sm text-ink-soft">Loading masters…</div>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-5">
+          {/* ── Doc-type picker ────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {DOC_OPTIONS.map(opt => {
+              const Icon = opt.icon;
+              const active = docType === opt.key;
+              return (
+                <button
+                  type="button"
+                  key={opt.key}
+                  onClick={() => setDocType(opt.key)}
+                  className={`card p-3 text-left transition border ${active
+                    ? 'border-indigo bg-indigo/5 ring-2 ring-indigo/20'
+                    : 'border-line hover:border-indigo/40'}`}
+                >
+                  <Icon className={`w-4 h-4 mb-1.5 ${active ? 'text-indigo' : 'text-ink-soft'}`} />
+                  <div className={`text-xs font-bold ${active ? 'text-indigo' : 'text-ink'}`}>{opt.label}</div>
+                  <div className="text-[10px] text-ink-mute leading-tight mt-0.5">{opt.tagline}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Header ─────────────────────────────────────────────────────── */}
+          <div className="card p-6 space-y-4">
+            <h3 className="text-sm font-bold text-ink">Document header</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Doc No</label>
+                <div className="input num bg-cloud/60 text-ink-mute flex items-center cursor-not-allowed select-none">
+                  {docType === 'tax_invoice'  ? 'Auto (INV/26-27/NNNN)'
+                  : docType === 'yarn_sale'   ? 'Auto (YS/26-27/NNNN)'
+                  : docType === 'general_sale'? 'Auto (GS/26-27/NNNN)'
+                  : docType === 'credit_note' ? 'Auto (CN/26-27/NNNN)'
+                  :                             'Auto (DN/26-27/NNNN)'}
+                </div>
+              </div>
+              <div>
+                <label className="label">Invoice Date *</label>
+                <input type="date" required value={invoiceDate}
+                  onChange={e => setInvoiceDate(e.target.value)} className="input" />
+              </div>
+
+              {/* Party picker */}
+              {docType === 'debit_note' ? (
+                <div className="sm:col-span-2">
+                  <label className="label">Vendor (supplier) *</label>
+                  <select required value={vendorId} onChange={e => setVendorId(e.target.value)} className="input">
+                    <option value="" disabled>Select vendor…</option>
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.vendor_type})</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="sm:col-span-2">
+                  <label className="label">Customer *</label>
+                  <select required value={customerId} onChange={e => setCustomerId(e.target.value)} className="input">
+                    <option value="" disabled>Select customer…</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.state ? `· ${c.state}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {currentCustomer && (
+                    <p className="text-[11px] text-ink-mute mt-1">
+                      GSTIN: <span className="font-mono">{currentCustomer.gstin ?? '—'}</span>
+                      {' · '}
+                      {isInterstate
+                        ? <span className="text-amber-700 font-semibold">Interstate → IGST</span>
+                        : <span className="text-emerald-700 font-semibold">Intrastate → CGST + SGST</span>}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="label">Place of supply</label>
+                <input value={placeOfSupply} onChange={e => setPlaceOfSupply(e.target.value)}
+                  className="input" placeholder="e.g. Tamil Nadu" />
+              </div>
+              <div>
+                <label className="label">Due date</label>
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="input" />
+              </div>
+            </div>
+
+            {/* Doc-type-specific helpers */}
+            {docType === 'credit_note' && (
+              <div className="border-t pt-4">
+                <label className="label">Against original invoice *</label>
+                <select required value={originalInvoiceId} onChange={e => setOriginalInvoiceId(e.target.value)} className="input">
+                  <option value="" disabled>Pick the invoice being returned…</option>
+                  {originalInvoices.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.invoice_no} — ₹{Number(o.total).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-ink-mute mt-1">
+                  Picking an invoice will pre-fill the rows below. Adjust quantities to match what's actually being returned.
+                </p>
+              </div>
+            )}
+
+            {docType === 'debit_note' && (
+              <div className="border-t pt-4 grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Supplier bill no</label>
+                  <input value={supplierBillNo} onChange={e => setSupplierBillNo(e.target.value)}
+                    className="input" placeholder="Their bill number you're returning against" />
+                </div>
+                <div>
+                  <label className="label">Supplier bill date</label>
+                  <input type="date" value={supplierBillDate}
+                    onChange={e => setSupplierBillDate(e.target.value)} className="input" />
+                </div>
+              </div>
+            )}
+
+            {docType === 'tax_invoice' && (
+              <div className="border-t pt-4">
+                <label className="label">Where is the fabric coming from? *</label>
+                <div className="flex gap-2 mb-3">
+                  <button type="button" onClick={() => { setSourceKind('sales_order'); setRows([newRow()]); }}
+                    className={`btn-sm ${sourceKind === 'sales_order' ? 'btn-primary' : 'btn-ghost'}`}>
+                    From Sales Order
+                  </button>
+                  <button type="button" onClick={() => { setSourceKind('fabric_stock'); setRows([newRow()]); setPickedSoId(''); }}
+                    className={`btn-sm ${sourceKind === 'fabric_stock' ? 'btn-primary' : 'btn-ghost'}`}>
+                    Direct from Stock
+                  </button>
+                </div>
+                {sourceKind === 'sales_order' && (
+                  <>
+                    <label className="label">Pick the Sales Order</label>
+                    <select value={pickedSoId} onChange={e => setPickedSoId(e.target.value)} className="input">
+                      <option value="">— select an SO —</option>
+                      {salesOrders.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.so_number} · ₹{Number(s.total).toFixed(2)} · {s.status}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-ink-mute mt-1">
+                      Selecting an SO will copy its delivered line items into the rows below.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Line items ─────────────────────────────────────────────────── */}
+          <div className="card p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-ink">Line items</h3>
+              <button type="button" onClick={addRow} className="btn-ghost btn-sm">
+                <Plus className="w-3.5 h-3.5" /> Add row
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-ink-mute">
+                  <tr>
+                    <th className="text-left  px-2 py-2 min-w-[220px]">Description</th>
+                    <th className="text-left  px-2 py-2">HSN</th>
+                    <th className="text-right px-2 py-2">Qty</th>
+                    <th className="text-left  px-2 py-2">UOM</th>
+                    <th className="text-right px-2 py-2">Rate</th>
+                    <th className="text-right px-2 py-2">Disc %</th>
+                    <th className="text-right px-2 py-2">GST %</th>
+                    <th className="text-right px-2 py-2">Taxable</th>
+                    <th className="text-right px-2 py-2">{isInterstate ? 'IGST' : 'CGST'}</th>
+                    {!isInterstate && <th className="text-right px-2 py-2">SGST</th>}
+                    <th className="text-right px-2 py-2">Total</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {computedRows.map((r, i) => (
+                    <tr key={r.id} className="border-t border-line/40">
+                      <td className="px-2 py-1.5">
+                        {/* Source picker if applicable */}
+                        {docType === 'yarn_sale' ? (
+                          <select value={r.yarn_lot_id}
+                            onChange={e => pickYarnLotForRow(r.id, e.target.value)}
+                            className="input input-sm w-full mb-1">
+                            <option value="">— pick yarn lot —</option>
+                            {yarnLots.map(l => (
+                              <option key={l.id} value={l.id}>
+                                {l.lot_code} · {l.yarn_count?.display_name ?? ''} · {Number(l.current_kg).toFixed(0)} kg avail
+                              </option>
+                            ))}
+                          </select>
+                        ) : (docType === 'tax_invoice' && sourceKind === 'fabric_stock') ? (
+                          <select value={r.fabric_stock_id}
+                            onChange={e => pickFabricStockForRow(r.id, e.target.value)}
+                            className="input input-sm w-full mb-1">
+                            <option value="">— pick fabric stock —</option>
+                            {fabricStock.map(f => (
+                              <option key={f.id} value={f.id}>
+                                {f.costing?.quality_name ?? 'Fabric'} · {Number(f.metres_available).toFixed(0)} m avail
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                        <input value={r.description}
+                          onChange={e => updateRow(r.id, { description: e.target.value })}
+                          className="input input-sm w-full" placeholder="Item description" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.hsn_sac}
+                          onChange={e => updateRow(r.id, { hsn_sac: e.target.value })}
+                          className="input input-sm w-20 num" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.quantity} onChange={e => updateRow(r.id, { quantity: e.target.value })}
+                          className="input input-sm w-20 num text-right" type="number" step="0.01" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.uom} onChange={e => updateRow(r.id, { uom: e.target.value })}
+                          className="input input-sm w-16" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.rate} onChange={e => updateRow(r.id, { rate: e.target.value })}
+                          className="input input-sm w-24 num text-right" type="number" step="0.01" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.discount_pct}
+                          onChange={e => updateRow(r.id, { discount_pct: e.target.value })}
+                          className="input input-sm w-16 num text-right" type="number" step="0.01" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input value={r.gst_rate_pct}
+                          onChange={e => updateRow(r.id, { gst_rate_pct: e.target.value })}
+                          className="input input-sm w-16 num text-right" type="number" step="0.01" />
+                      </td>
+                      <td className="px-2 py-1.5 text-right num">{r.taxable.toFixed(2)}</td>
+                      <td className="px-2 py-1.5 text-right num">{(isInterstate ? r.igst : r.cgst).toFixed(2)}</td>
+                      {!isInterstate && <td className="px-2 py-1.5 text-right num">{r.sgst.toFixed(2)}</td>}
+                      <td className="px-2 py-1.5 text-right num font-semibold">{r.total.toFixed(2)}</td>
+                      <td className="px-2 py-1.5 text-right">
+                        <button type="button" onClick={() => removeRow(r.id)}
+                          className="text-rose-600 hover:text-rose-700 disabled:opacity-30"
+                          disabled={rows.length === 1}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* ── Totals ─────────────────────────────────────────────────────── */}
+          <div className="card p-6">
+            <h3 className="text-sm font-bold text-ink mb-3">Totals</h3>
+            <div className="max-w-xs ml-auto space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-ink-soft">Taxable value</span><span className="num">{totals.taxable.toFixed(2)}</span></div>
+              {isInterstate ? (
+                <div className="flex justify-between"><span className="text-ink-soft">IGST</span><span className="num">{totals.igst.toFixed(2)}</span></div>
+              ) : (
+                <>
+                  <div className="flex justify-between"><span className="text-ink-soft">CGST</span><span className="num">{totals.cgst.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-soft">SGST</span><span className="num">{totals.sgst.toFixed(2)}</span></div>
+                </>
+              )}
+              <div className="flex justify-between text-ink-mute"><span>Round off</span><span className="num">{totals.roundOff.toFixed(2)}</span></div>
+              <div className="flex justify-between border-t border-line pt-2 text-base font-bold">
+                <span>Grand total</span><span className="num">₹ {totals.total.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Notes + Submit ─────────────────────────────────────────────── */}
+          <div className="card p-6 space-y-3">
+            <div>
+              <label className="label">Notes</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)}
+                className="input" rows={2} placeholder="Internal remarks (won't print)" />
+            </div>
+
+            {error && <div className="text-sm text-rose-600 font-semibold">{error}</div>}
+
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => router.push('/app/invoices')} className="btn-ghost">Cancel</button>
+              <button type="submit" disabled={busy} className="btn-primary">
+                {busy ? 'Saving…' : 'Save invoice'}
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
