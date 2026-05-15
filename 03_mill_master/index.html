@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mill Master · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* ===== Mill master specific ===== */
+
+    /* Hero summary band */
+    .mm-hero {
+      background: var(--grad-brand-deep);
+      color: white;
+      border-radius: var(--r-xl);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-brand);
+    }
+    .mm-hero::before {
+      content: '';
+      position: absolute;
+      top: -40%; right: -10%;
+      width: 60%; height: 200%;
+      background: radial-gradient(circle, rgba(245,158,11,0.18), transparent 65%);
+      pointer-events: none;
+    }
+    .mm-hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+      gap: 24px;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+    .mm-hero-title {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    .mm-hero-sub {
+      font-size: 13px;
+      opacity: 0.78;
+      margin-top: 6px;
+      max-width: 320px;
+    }
+    .mm-hero-stat-label {
+      font-size: 10.5px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      opacity: 0.7;
+      font-weight: 600;
+    }
+    .mm-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.05;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .mm-hero-stat-value small {
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0.7;
+      margin-left: 4px;
+    }
+
+    /* Mill cards grid */
+    .mill-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .mill-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s var(--ease-smooth);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .mill-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--brand-300);
+    }
+    .mill-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--grad-brand);
+    }
+    .mill-card.mill-card-gold::before { background: var(--grad-gold); }
+    .mill-card.mill-card-rose::before { background: var(--grad-rose); }
+    .mill-card.mill-card-success::before { background: var(--grad-success); }
+
+    .mill-card-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .mill-avatar {
+      width: 56px; height: 56px;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      color: white;
+      flex-shrink: 0;
+      box-shadow: var(--inner-light), var(--shadow-sm);
+      letter-spacing: -0.02em;
+    }
+    .mill-avatar-1 { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+    .mill-avatar-2 { background: linear-gradient(135deg, #f59e0b, #d97706); color: var(--brand-900); }
+    .mill-avatar-3 { background: linear-gradient(135deg, #f43f5e, #fb7185); }
+    .mill-avatar-4 { background: linear-gradient(135deg, #10b981, #059669); }
+    .mill-avatar-5 { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .mill-avatar-6 { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+
+    .mill-name {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      line-height: 1.25;
+      margin-bottom: 3px;
+    }
+    .mill-meta {
+      font-size: 12px;
+      color: var(--ink-500);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .mill-meta-dot { color: var(--ink-300); }
+
+    .mill-card-tags {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .mill-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      padding: 14px;
+      background: var(--ink-50);
+      border-radius: var(--r-sm);
+      margin-bottom: 14px;
+    }
+    .mill-stats-item {
+      text-align: center;
+    }
+    .mill-stats-label {
+      font-size: 10px;
+      color: var(--ink-500);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .mill-stats-value {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .mill-stats-value small { font-size: 11px; font-weight: 600; opacity: 0.7; margin-left: 2px; }
+
+    .mill-card-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 14px;
+      border-top: 1px solid var(--ink-100);
+    }
+    .mill-rate {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .mill-rate-amount {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--brand-700);
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .mill-rate-unit {
+      font-size: 11px;
+      color: var(--ink-500);
+      font-weight: 500;
+    }
+    .mill-card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* Status pills with dot */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--r-full);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    .status-pill .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 3px rgba(currentColor, 0.15);
+    }
+    .status-active   { background: var(--success-100); color: var(--success-600); }
+    .status-paused   { background: var(--warning-100); color: var(--gold-700); }
+    .status-archived { background: var(--ink-100);     color: var(--ink-500); }
+
+    .mill-loom-bar {
+      height: 6px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      position: relative;
+      margin-top: 6px;
+    }
+    .mill-loom-bar-fill {
+      height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+      transition: width 0.3s ease;
+    }
+    .mill-loom-bar-fill.warn { background: var(--grad-gold); }
+    .mill-loom-bar-fill.full { background: var(--grad-success); }
+
+    .mill-utilization {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-700);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* List view alternative */
+    .mill-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .mill-toolbar-search {
+      flex: 1;
+      min-width: 280px;
+      max-width: 400px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      background: var(--paper);
+      border: 1.5px solid var(--ink-200);
+      border-radius: var(--r-md);
+      transition: all 0.18s var(--ease-smooth);
+      box-shadow: var(--shadow-xs);
+    }
+    .mill-toolbar-search:focus-within {
+      border-color: var(--brand-400);
+      box-shadow: 0 0 0 4px rgba(99,102,241,0.10), var(--shadow-xs);
+    }
+    .mill-toolbar-search input {
+      flex: 1; border: none; outline: none; background: transparent;
+      font-size: 13.5px; font-family: inherit;
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .filter-chip {
+      padding: 7px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-600);
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-full);
+      cursor: pointer;
+      transition: all 0.15s var(--ease-smooth);
+    }
+    .filter-chip:hover {
+      border-color: var(--brand-300);
+      color: var(--brand-700);
+    }
+    .filter-chip.active {
+      background: var(--grad-brand);
+      color: white;
+      border-color: transparent;
+      box-shadow: var(--shadow-brand);
+    }
+    .filter-chip-count {
+      margin-left: 6px;
+      padding: 1px 7px;
+      background: rgba(255,255,255,0.25);
+      border-radius: var(--r-full);
+      font-size: 10.5px;
+    }
+    .filter-chip:not(.active) .filter-chip-count {
+      background: var(--ink-100);
+      color: var(--ink-600);
+    }
+
+    .view-toggle {
+      display: inline-flex;
+      background: var(--ink-50);
+      padding: 3px;
+      border-radius: var(--r-sm);
+      border: 1px solid var(--ink-200);
+    }
+    .view-toggle button {
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-500);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s var(--ease-smooth);
+    }
+    .view-toggle button.active {
+      background: var(--paper);
+      color: var(--brand-700);
+      box-shadow: var(--shadow-xs);
+    }
+
+    /* Detail drawer (slides in from right) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,10,46,0.55);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 540px;
+      max-width: 100vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 48px rgba(15,10,46,0.18);
+      z-index: 201;
+      transform: translateX(100%);
+      transition: transform 0.32s var(--ease-out);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-head {
+      background: var(--grad-brand-deep);
+      color: white;
+      padding: 24px 28px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .drawer-head::before {
+      content: '';
+      position: absolute;
+      top: -50%; right: -20%;
+      width: 70%; height: 200%;
+      background: radial-gradient(circle, rgba(245,158,11,0.2), transparent 60%);
+      pointer-events: none;
+    }
+    .drawer-close {
+      position: absolute;
+      top: 18px; right: 18px;
+      width: 32px; height: 32px;
+      border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .drawer-close:hover { background: rgba(255,255,255,0.3); }
+
+    .drawer-eyebrow {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-bottom: 8px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .drawer-meta {
+      font-size: 13px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
+    }
+
+    .drawer-tabs {
+      display: flex;
+      padding: 0 28px;
+      background: var(--ink-50);
+      border-bottom: 1px solid var(--ink-200);
+    }
+    .drawer-tab {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-500);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s var(--ease-smooth);
+    }
+    .drawer-tab:hover { color: var(--brand-700); }
+    .drawer-tab.active {
+      color: var(--brand-700);
+      border-bottom-color: var(--brand-500);
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 28px;
+    }
+
+    .drawer-section-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-700);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      margin-top: 24px;
+    }
+    .drawer-section-title:first-child { margin-top: 0; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .info-row {
+      display: flex;
+      flex-direction: column;
+    }
+    .info-row-label {
+      font-size: 11px;
+      color: var(--ink-500);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .info-row-value {
+      font-size: 14px;
+      color: var(--ink-900);
+      font-weight: 600;
+    }
+    .info-row-value.mono {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .activity-row {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .activity-row:last-child { border-bottom: none; }
+    .activity-icon {
+      width: 32px; height: 32px;
+      border-radius: var(--r-sm);
+      background: var(--brand-50);
+      color: var(--brand-600);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    .activity-icon.success { background: var(--success-100); color: var(--success-600); }
+    .activity-icon.warn    { background: var(--warning-100); color: var(--gold-700); }
+    .activity-content { flex: 1; min-width: 0; }
+    .activity-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-900);
+      margin-bottom: 2px;
+    }
+    .activity-meta {
+      font-size: 12px;
+      color: var(--ink-500);
+    }
+
+    .drawer-foot {
+      padding: 16px 28px;
+      border-top: 1px solid var(--ink-200);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: var(--paper-tint);
+    }
+
+    /* Tour banner */
+    .tour {
+      background: linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(99,102,241,0.10) 100%);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: var(--r-lg);
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 13.5px;
+      color: var(--ink-700);
+    }
+    .tour-icon {
+      width: 36px; height: 36px;
+      background: var(--grad-gold);
+      color: var(--brand-900);
+      border-radius: var(--r-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      box-shadow: var(--inner-light), var(--shadow-gold);
+    }
+    .tour-text strong { color: var(--ink-900); display: block; margin-bottom: 2px; }
+
+    @media (max-width: 1024px) {
+      .mm-hero-grid { grid-template-columns: 1fr 1fr 1fr; }
+      .mm-hero-grid > div:nth-child(4),
+      .mm-hero-grid > div:nth-child(5) { display: none; }
+    }
+    @media (max-width: 768px) {
+      .mill-grid { grid-template-columns: 1fr; }
+      .mm-hero-grid { grid-template-columns: 1fr; }
+      .drawer { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="mill"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search mills, locations, machines…"></div>
+
+    <div class="content">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Masters</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Mill Master</span>
+      </div>
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Mill Master</h1>
+          <p class="page-header-sub">Outsource partners, looms, contacts and rate cards — your weaving network</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Export coming soon','info')">
+            <span>↓</span> Export
+          </button>
+          <button class="btn btn-primary" onclick="openDrawer('new')">
+            <span style="font-size:18px;">+</span> Add Mill
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour banner -->
+      <div class="tour">
+        <div class="tour-icon">💡</div>
+        <div class="tour-text">
+          <strong>Mill Master is your partner directory.</strong>
+          Add the weaving mills you outsource to — looms, addresses, GST and rate per metre.
+          Click any card to view full details, recent orders and contact info.
+        </div>
+      </div>
+
+      <!-- Hero summary -->
+      <div class="mm-hero">
+        <div class="mm-hero-grid">
+          <div>
+            <div class="mm-hero-title">Your weaving network at a glance</div>
+            <div class="mm-hero-sub">12 active mills · 384 looms · spread across Tamil Nadu</div>
+          </div>
+          <div>
+            <div class="mm-hero-stat-label">Total Mills</div>
+            <div class="mm-hero-stat-value">14</div>
+          </div>
+          <div>
+            <div class="mm-hero-stat-label">Active Looms</div>
+            <div class="mm-hero-stat-value">384<small>/420</small></div>
+          </div>
+          <div>
+            <div class="mm-hero-stat-label">Avg Rate / Mtr</div>
+            <div class="mm-hero-stat-value">₹14.80</div>
+          </div>
+          <div>
+            <div class="mm-hero-stat-label">This Month Vol</div>
+            <div class="mm-hero-stat-value">2.4L<small>mtr</small></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="mill-toolbar">
+        <div class="mill-toolbar-search">
+          <span style="opacity: 0.5;">⌕</span>
+          <input type="text" placeholder="Search by name, location or contact…">
+        </div>
+
+        <div class="filter-chips">
+          <button class="filter-chip active">All <span class="filter-chip-count">14</span></button>
+          <button class="filter-chip">Active <span class="filter-chip-count">12</span></button>
+          <button class="filter-chip">Paused <span class="filter-chip-count">1</span></button>
+          <button class="filter-chip">Archived <span class="filter-chip-count">1</span></button>
+        </div>
+
+        <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+          <div class="view-toggle">
+            <button class="active">⊞ Cards</button>
+            <button>≡ Table</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mill cards grid -->
+      <div class="mill-grid">
+
+        <!-- Mill 1 -->
+        <div class="mill-card" onclick="openDrawer('sri-balaji')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-1">SB</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Sri Balaji Weaving Mills</div>
+              <div class="mill-meta">
+                <span>📍 Karur</span>
+                <span class="mill-meta-dot">·</span>
+                <span>5 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Cotton 30s</span>
+            <span class="badge badge-cotton">40s</span>
+            <span class="badge badge-violet">Dobby</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">42</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">38</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">8.2<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">90%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 90%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹14.50</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 98765 43210','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('sri-balaji')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 2 -->
+        <div class="mill-card mill-card-gold" onclick="openDrawer('vetri')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-2">VW</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Vetri Weaving Co.</div>
+              <div class="mill-meta">
+                <span>📍 Erode</span>
+                <span class="mill-meta-dot">·</span>
+                <span>8 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-polyester">Polyester 150D</span>
+            <span class="badge badge-cotton">65.5s</span>
+            <span class="badge badge-violet">Dobby Towels</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">68</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">62</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">14<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">91%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 91%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹16.20</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 99441 22335','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('vetri')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 3 -->
+        <div class="mill-card mill-card-success" onclick="openDrawer('senthil')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-3">SK</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Senthil Kumar Textiles</div>
+              <div class="mill-meta">
+                <span>📍 Tiruppur</span>
+                <span class="mill-meta-dot">·</span>
+                <span>3 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Cotton 30s</span>
+            <span class="badge badge-violet">Plain Weave</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">28</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">24</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">5.4<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">86%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 86%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹13.80</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 90030 11522','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('senthil')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 4 -->
+        <div class="mill-card" onclick="openDrawer('annamalai')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-4">AM</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Annamalai Mills Pvt Ltd</div>
+              <div class="mill-meta">
+                <span>📍 Salem</span>
+                <span class="mill-meta-dot">·</span>
+                <span>12 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Combed 40s</span>
+            <span class="badge badge-cotton">65.5s</span>
+            <span class="badge badge-brand">Premium</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">96</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">88</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">22<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">92%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 92%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹15.40</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 94432 88010','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('annamalai')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 5 -->
+        <div class="mill-card" onclick="openDrawer('rajeshwari')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-5">RJ</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Rajeshwari Looms</div>
+              <div class="mill-meta">
+                <span>📍 Coimbatore</span>
+                <span class="mill-meta-dot">·</span>
+                <span>2 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-paused"><span class="dot"></span>Paused</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Cotton 40s</span>
+            <span class="badge badge-violet">Job-work</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">24</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">12</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">2.1<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--gold-700);">50%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill warn" style="width: 50%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹14.00</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 98443 00921','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('rajeshwari')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 6 -->
+        <div class="mill-card mill-card-rose" onclick="openDrawer('thiagarajan')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-6">TG</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Thiagarajan Weavers</div>
+              <div class="mill-meta">
+                <span>📍 Karur</span>
+                <span class="mill-meta-dot">·</span>
+                <span>6 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-polyester">Polyester</span>
+            <span class="badge badge-cotton">Cotton</span>
+            <span class="badge badge-violet">Mixed</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">52</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">48</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">10<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">92%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 92%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹15.10</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 90251 88440','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('thiagarajan')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 7 -->
+        <div class="mill-card" onclick="openDrawer('lakshmi')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-1">LX</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Lakshmi Textile Mills</div>
+              <div class="mill-meta">
+                <span>📍 Madurai</span>
+                <span class="mill-meta-dot">·</span>
+                <span>4 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Cotton 30s</span>
+            <span class="badge badge-cotton">40s</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">36</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">30</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">6.2<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">83%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 83%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹14.20</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 99520 11334','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('lakshmi')">✎</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mill 8 -->
+        <div class="mill-card" onclick="openDrawer('murugan')">
+          <div class="mill-card-head">
+            <div class="mill-avatar mill-avatar-2">MG</div>
+            <div style="flex:1; min-width:0;">
+              <div class="mill-name">Murugan Power Looms</div>
+              <div class="mill-meta">
+                <span>📍 Karur</span>
+                <span class="mill-meta-dot">·</span>
+                <span>7 yrs</span>
+              </div>
+            </div>
+            <span class="status-pill status-active"><span class="dot"></span>Active</span>
+          </div>
+
+          <div class="mill-card-tags">
+            <span class="badge badge-cotton">Cotton 65.5s</span>
+            <span class="badge badge-brand">Premium</span>
+          </div>
+
+          <div class="mill-stats">
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">Looms</div>
+              <div class="mill-stats-value">38</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">In Use</div>
+              <div class="mill-stats-value">36</div>
+            </div>
+            <div class="mill-stats-item">
+              <div class="mill-stats-label">M²/day</div>
+              <div class="mill-stats-value">7.8<small>k</small></div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <div class="mill-utilization">
+              <span>Utilization</span>
+              <span style="color: var(--success-600);">95%</span>
+            </div>
+            <div class="mill-loom-bar">
+              <div class="mill-loom-bar-fill full" style="width: 95%;"></div>
+            </div>
+          </div>
+
+          <div class="mill-card-foot">
+            <div class="mill-rate">
+              <span class="mill-rate-amount">₹15.80</span>
+              <span class="mill-rate-unit">/ mtr</span>
+            </div>
+            <div class="mill-card-actions">
+              <button class="btn-icon" title="Call" onclick="event.stopPropagation();window.showToast('Calling +91 90035 22441','info')">📞</button>
+              <button class="btn-icon" title="WhatsApp" onclick="event.stopPropagation();window.showToast('WhatsApp opened','success')">💬</button>
+              <button class="btn-icon" title="Edit" onclick="event.stopPropagation();openDrawer('murugan')">✎</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Detail Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
+    <div class="drawer-eyebrow">Mill Profile</div>
+    <div class="drawer-title" id="drawerTitle">Sri Balaji Weaving Mills</div>
+    <div class="drawer-meta">
+      <span class="status-pill status-active"><span class="dot"></span>Active</span>
+      <span style="opacity:0.7;">📍 Karur, Tamil Nadu</span>
+      <span style="opacity:0.7;">·</span>
+      <span style="opacity:0.7;">Partner since 2021</span>
+    </div>
+  </div>
+
+  <div class="drawer-tabs">
+    <button class="drawer-tab active">Overview</button>
+    <button class="drawer-tab">Rate Card</button>
+    <button class="drawer-tab">Activity</button>
+    <button class="drawer-tab">Documents</button>
+  </div>
+
+  <div class="drawer-body">
+    <div class="drawer-section-title">Contact Details</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-row-label">Owner / Manager</div>
+        <div class="info-row-value">Mr. Balaji Subramanian</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Phone</div>
+        <div class="info-row-value mono">+91 98765 43210</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">WhatsApp</div>
+        <div class="info-row-value mono">+91 98765 43210</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Email</div>
+        <div class="info-row-value">balaji@sribalaji-weaving.com</div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Address & GST</div>
+    <div class="info-grid">
+      <div class="info-row" style="grid-column: 1 / -1;">
+        <div class="info-row-label">Mill Address</div>
+        <div class="info-row-value" style="font-weight: 500; line-height: 1.5;">
+          12/4, Kuppam Road, Velayuthampalayam,<br>
+          Karur — 639 117, Tamil Nadu
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">GSTIN</div>
+        <div class="info-row-value mono">33AABCS1234E1Z5</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">PAN</div>
+        <div class="info-row-value mono">AABCS1234E</div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Capacity & Specialization</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-row-label">Total Looms</div>
+        <div class="info-row-value">42 power looms</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Currently Engaged</div>
+        <div class="info-row-value">38 looms (90%)</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Daily Capacity</div>
+        <div class="info-row-value">8,200 mtr/day</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Avg Lead Time</div>
+        <div class="info-row-value">5–7 days</div>
+      </div>
+      <div class="info-row" style="grid-column: 1 / -1;">
+        <div class="info-row-label">Yarn Counts Handled</div>
+        <div class="info-row-value" style="display:flex; gap:6px; flex-wrap:wrap;">
+          <span class="badge badge-cotton">Cotton 30s</span>
+          <span class="badge badge-cotton">40s</span>
+          <span class="badge badge-violet">Dobby</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Rate Card (Quoted Cost)</div>
+    <div class="table-wrap" style="margin: 0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Yarn Count</th>
+            <th>Width</th>
+            <th class="num">Rate / mtr</th>
+            <th class="num">True Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-cotton">Cotton 30s</span></td>
+            <td>44"</td>
+            <td class="num cell-bold">₹14.50</td>
+            <td class="num text-muted">₹19.64</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-cotton">Cotton 40s</span></td>
+            <td>44"</td>
+            <td class="num cell-bold">₹15.20</td>
+            <td class="num text-muted">₹20.34</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-violet">Dobby Cotton</span></td>
+            <td>58"</td>
+            <td class="num cell-bold">₹18.40</td>
+            <td class="num text-muted">₹23.54</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="drawer-section-title">Recent Activity</div>
+    <div>
+      <div class="activity-row">
+        <div class="activity-icon success">✓</div>
+        <div class="activity-content">
+          <div class="activity-title">Order #SO-2426 delivered — 4,200 mtr Cotton 40s</div>
+          <div class="activity-meta">2 days ago · Mahalakshmi Garments</div>
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="activity-icon">▤</div>
+        <div class="activity-content">
+          <div class="activity-title">Production started on Order #SO-2431</div>
+          <div class="activity-meta">5 days ago · 6,000 mtr Dobby</div>
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="activity-icon warn">⚠</div>
+        <div class="activity-content">
+          <div class="activity-title">Rate revision proposed: Cotton 30s ₹14.50 → ₹14.80</div>
+          <div class="activity-meta">1 week ago · Pending approval</div>
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="activity-icon success">✓</div>
+        <div class="activity-content">
+          <div class="activity-title">Payment cleared ₹62,400 (Inv #VN-1124)</div>
+          <div class="activity-meta">2 weeks ago</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 24px;"></div>
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-danger btn-sm" onclick="window.showToast('Mill archived','warning')">Archive Mill</button>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-secondary btn-sm" onclick="closeDrawer()">Close</button>
+      <button class="btn btn-primary btn-sm" onclick="window.showToast('Saved','success');closeDrawer()">Edit Mill</button>
+    </div>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  const millData = {
+    'sri-balaji':  { name: 'Sri Balaji Weaving Mills',  loc: 'Karur, Tamil Nadu',     since: '2021' },
+    'vetri':       { name: 'Vetri Weaving Co.',         loc: 'Erode, Tamil Nadu',     since: '2018' },
+    'senthil':     { name: 'Senthil Kumar Textiles',    loc: 'Tiruppur, Tamil Nadu',  since: '2023' },
+    'annamalai':   { name: 'Annamalai Mills Pvt Ltd',   loc: 'Salem, Tamil Nadu',     since: '2014' },
+    'rajeshwari':  { name: 'Rajeshwari Looms',          loc: 'Coimbatore, Tamil Nadu',since: '2024' },
+    'thiagarajan': { name: 'Thiagarajan Weavers',       loc: 'Karur, Tamil Nadu',     since: '2020' },
+    'lakshmi':     { name: 'Lakshmi Textile Mills',     loc: 'Madurai, Tamil Nadu',   since: '2022' },
+    'murugan':     { name: 'Murugan Power Looms',       loc: 'Karur, Tamil Nadu',     since: '2019' },
+    'new':         { name: 'New Mill', loc: '—', since: '—' }
+  };
+
+  function openDrawer(id) {
+    const m = millData[id] || millData['sri-balaji'];
+    document.getElementById('drawerTitle').textContent = m.name;
+    document.querySelector('.drawer-meta').innerHTML = `
+      <span class="status-pill status-active"><span class="dot"></span>Active</span>
+      <span style="opacity:0.7;">📍 ${m.loc}</span>
+      <span style="opacity:0.7;">·</span>
+      <span style="opacity:0.7;">Partner since ${m.since}</span>
+    `;
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // Filter chips toggle (visual only)
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+
+  // View toggle (visual only)
+  document.querySelectorAll('.view-toggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.view-toggle button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+  });
+
+  // Drawer tab toggle (visual only)
+  document.querySelectorAll('.drawer-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.drawer-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

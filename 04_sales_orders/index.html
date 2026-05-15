@@ -1,0 +1,1131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales Orders · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* ===== Sales orders page-specific ===== */
+
+    /* Pipeline strip — shows order counts by stage */
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .pipe-stage {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all 0.2s var(--ease-smooth);
+      position: relative;
+      overflow: hidden;
+    }
+    .pipe-stage::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--ink-300);
+    }
+    .pipe-stage:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--brand-300);
+    }
+    .pipe-stage.active {
+      background: linear-gradient(135deg, var(--brand-50) 0%, #ffffff 100%);
+      border-color: var(--brand-400);
+      box-shadow: var(--shadow-md), 0 0 0 1px var(--brand-400);
+    }
+    .pipe-stage.active::before { background: var(--grad-brand); }
+
+    .pipe-stage[data-color="brand"]::before    { background: var(--grad-brand); }
+    .pipe-stage[data-color="violet"]::before   { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+    .pipe-stage[data-color="gold"]::before     { background: var(--grad-gold); }
+    .pipe-stage[data-color="success"]::before  { background: var(--grad-success); }
+    .pipe-stage[data-color="rose"]::before     { background: var(--grad-rose); }
+    .pipe-stage[data-color="ink"]::before      { background: linear-gradient(135deg, #6b7280, #9ca3af); }
+
+    .pipe-stage-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--ink-500);
+      margin-bottom: 8px;
+    }
+    .pipe-stage-count {
+      font-family: var(--font-display);
+      font-size: 30px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .pipe-stage-meta {
+      font-size: 11.5px;
+      color: var(--ink-500);
+      margin-top: 6px;
+    }
+    .pipe-stage-meta strong { color: var(--ink-700); font-weight: 600; }
+
+    /* Toolbar */
+    .so-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .so-search {
+      flex: 1;
+      min-width: 280px;
+      max-width: 380px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      background: var(--paper);
+      border: 1.5px solid var(--ink-200);
+      border-radius: var(--r-md);
+      transition: all 0.18s var(--ease-smooth);
+      box-shadow: var(--shadow-xs);
+    }
+    .so-search:focus-within {
+      border-color: var(--brand-400);
+      box-shadow: 0 0 0 4px rgba(99,102,241,0.10), var(--shadow-xs);
+    }
+    .so-search input {
+      flex: 1; border: none; outline: none; background: transparent;
+      font-size: 13.5px; font-family: inherit;
+    }
+
+    /* Order table */
+    .order-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .order-table thead th {
+      background: var(--canvas-2);
+      color: var(--ink-700);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .order-table thead th.num { text-align: right; }
+    .order-table tbody td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .order-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .order-table tbody tr {
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .order-table tbody tr:hover { background: var(--brand-50); }
+
+    .so-id {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--brand-700);
+    }
+
+    .customer-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .customer-avatar {
+      width: 34px; height: 34px;
+      border-radius: var(--r-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      color: white;
+      flex-shrink: 0;
+    }
+    .ca-1 { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+    .ca-2 { background: linear-gradient(135deg, #f59e0b, #d97706); color: var(--brand-900); }
+    .ca-3 { background: linear-gradient(135deg, #f43f5e, #fb7185); }
+    .ca-4 { background: linear-gradient(135deg, #10b981, #059669); }
+    .ca-5 { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .ca-6 { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+
+    .customer-name {
+      font-weight: 600;
+      color: var(--ink-900);
+      font-size: 13.5px;
+    }
+    .customer-sub {
+      font-size: 11.5px;
+      color: var(--ink-500);
+    }
+
+    /* Progress bar inline */
+    .so-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 130px;
+    }
+    .so-progress-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      position: relative;
+    }
+    .so-progress-bar-fill {
+      height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .so-progress-bar-fill.gold { background: var(--grad-gold); }
+    .so-progress-bar-fill.success { background: var(--grad-success); }
+    .so-progress-bar-fill.rose { background: var(--grad-rose); }
+    .so-progress-text {
+      font-size: 11.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      min-width: 38px;
+      text-align: right;
+    }
+
+    /* Status badges */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: var(--r-full);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .status-pill .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .st-quote      { background: var(--ink-100);     color: var(--ink-700); }
+    .st-confirmed  { background: var(--brand-100);   color: var(--brand-700); }
+    .st-production { background: #ede9fe;            color: var(--violet-600); }
+    .st-ready      { background: var(--warning-100); color: var(--gold-700); }
+    .st-shipped    { background: var(--info-100);    color: var(--info-500); }
+    .st-delivered  { background: var(--success-100); color: var(--success-600); }
+    .st-paid       { background: var(--success-100); color: var(--success-600); }
+    .st-overdue    { background: var(--error-100);   color: var(--error-600); }
+
+    /* Inline payment indicator */
+    .pay-status {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600;
+    }
+    .pay-status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    .pay-status.paid .pay-status-dot { background: var(--success-500); box-shadow: 0 0 0 3px var(--success-100); }
+    .pay-status.pending .pay-status-dot { background: var(--warning-500); box-shadow: 0 0 0 3px var(--warning-100); }
+    .pay-status.overdue .pay-status-dot { background: var(--error-500); box-shadow: 0 0 0 3px var(--error-100); }
+
+    /* Action menu cell */
+    .action-cell {
+      display: flex; gap: 4px; justify-content: flex-end;
+    }
+    .icon-btn-mini {
+      width: 28px; height: 28px;
+      border: 1px solid var(--ink-200);
+      background: var(--paper);
+      border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--ink-500);
+      transition: all 0.15s;
+    }
+    .icon-btn-mini:hover { color: var(--brand-600); border-color: var(--brand-300); transform: translateY(-1px); }
+
+    /* Filter chips */
+    .filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .filter-chip {
+      padding: 7px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-600);
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-full);
+      cursor: pointer;
+      transition: all 0.15s var(--ease-smooth);
+    }
+    .filter-chip:hover { border-color: var(--brand-300); color: var(--brand-700); }
+    .filter-chip.active {
+      background: var(--grad-brand);
+      color: white;
+      border-color: transparent;
+      box-shadow: var(--shadow-brand);
+    }
+
+    /* Tour banner */
+    .tour {
+      background: linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(99,102,241,0.10) 100%);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: var(--r-lg);
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 13.5px;
+      color: var(--ink-700);
+    }
+    .tour-icon {
+      width: 36px; height: 36px;
+      background: var(--grad-gold);
+      color: var(--brand-900);
+      border-radius: var(--r-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      box-shadow: var(--inner-light), var(--shadow-gold);
+    }
+    .tour-text strong { color: var(--ink-900); display: block; margin-bottom: 2px; }
+
+    /* Drawer (same pattern as mill master) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,10,46,0.55);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 640px;
+      max-width: 100vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 48px rgba(15,10,46,0.18);
+      z-index: 201;
+      transform: translateX(100%);
+      transition: transform 0.32s var(--ease-out);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-head {
+      background: var(--grad-brand-deep);
+      color: white;
+      padding: 24px 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .drawer-head::before {
+      content: '';
+      position: absolute;
+      top: -50%; right: -20%;
+      width: 70%; height: 200%;
+      background: radial-gradient(circle, rgba(245,158,11,0.2), transparent 60%);
+    }
+    .drawer-close {
+      position: absolute;
+      top: 18px; right: 18px;
+      width: 32px; height: 32px;
+      border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .drawer-close:hover { background: rgba(255,255,255,0.3); }
+
+    .drawer-eyebrow {
+      font-size: 10.5px; font-weight: 700;
+      letter-spacing: 1.6px; text-transform: uppercase;
+      opacity: 0.7; margin-bottom: 8px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 24px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+      position: relative; z-index: 1;
+    }
+    .drawer-amount {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      margin-top: 14px;
+      position: relative; z-index: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .drawer-amount small { font-size: 14px; opacity: 0.75; font-weight: 600; }
+
+    .drawer-body { flex: 1; overflow-y: auto; padding: 24px 28px; }
+    .drawer-foot {
+      padding: 16px 28px;
+      border-top: 1px solid var(--ink-200);
+      display: flex; justify-content: flex-end; gap: 12px;
+      background: var(--paper-tint);
+    }
+
+    /* Stepper inside drawer */
+    .stepper {
+      display: flex;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .stepper-step {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+    .stepper-step::after {
+      content: '';
+      position: absolute;
+      top: 16px; left: 50%; right: -50%;
+      height: 2px;
+      background: var(--ink-200);
+      z-index: 0;
+    }
+    .stepper-step:last-child::after { display: none; }
+    .stepper-step.done::after { background: var(--grad-success); }
+    .stepper-step.active::after { background: linear-gradient(90deg, var(--success-500), var(--ink-200)); }
+    .stepper-dot {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--ink-100);
+      border: 2px solid var(--ink-200);
+      color: var(--ink-500);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 13px;
+      position: relative; z-index: 1;
+    }
+    .stepper-step.done .stepper-dot {
+      background: var(--grad-success);
+      color: white;
+      border-color: var(--success-500);
+      box-shadow: 0 0 0 4px rgba(16,185,129,0.15);
+    }
+    .stepper-step.active .stepper-dot {
+      background: var(--grad-brand);
+      color: white;
+      border-color: var(--brand-500);
+      box-shadow: 0 0 0 4px rgba(99,102,241,0.18);
+    }
+    .stepper-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-500);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+    }
+    .stepper-step.done .stepper-label,
+    .stepper-step.active .stepper-label { color: var(--ink-900); }
+
+    .drawer-section-title {
+      font-family: var(--font-display);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-700);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 12px; margin-top: 24px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .info-row-label {
+      font-size: 11px;
+      color: var(--ink-500);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .info-row-value {
+      font-size: 14px;
+      color: var(--ink-900);
+      font-weight: 600;
+    }
+    .info-row-value.mono { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+
+    /* Line items mini-table inside drawer */
+    .line-items {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+    .line-items thead th {
+      background: var(--canvas-2);
+      padding: 10px 14px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-600);
+      text-align: left;
+    }
+    .line-items thead th.num { text-align: right; }
+    .line-items td {
+      padding: 12px 14px;
+      border-top: 1px solid var(--ink-100);
+    }
+    .line-items td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .line-items tfoot td {
+      background: var(--ink-50);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1280px) {
+      .pipeline { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .pipeline { grid-template-columns: 1fr 1fr; }
+      .drawer { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="sales"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search orders, customers, fabrics…"></div>
+
+    <div class="content">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Transactions</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Sales Orders</span>
+      </div>
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Sales Orders</h1>
+          <p class="page-header-sub">Track customer orders from quote to delivery and payment</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Exported 47 orders to Excel','success')">
+            <span>↓</span> Export
+          </button>
+          <button class="btn btn-gold" onclick="window.showToast('New order form opening','info')">
+            <span>+</span> Quick Quote
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('New order form opening','info')">
+            <span style="font-size:18px;">+</span> New Order
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour -->
+      <div class="tour">
+        <div class="tour-icon">📋</div>
+        <div class="tour-text">
+          <strong>Every customer order lives here.</strong>
+          Click a stage card below to filter, or click any order row to see full details, line items and payment status.
+        </div>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="pipeline">
+        <div class="pipe-stage" data-color="ink">
+          <div class="pipe-stage-label">Quotes</div>
+          <div class="pipe-stage-count">8</div>
+          <div class="pipe-stage-meta"><strong>₹12.4L</strong> potential</div>
+        </div>
+        <div class="pipe-stage active" data-color="brand">
+          <div class="pipe-stage-label">Confirmed</div>
+          <div class="pipe-stage-count">7</div>
+          <div class="pipe-stage-meta"><strong>₹9.8L</strong> open</div>
+        </div>
+        <div class="pipe-stage" data-color="violet">
+          <div class="pipe-stage-label">In Production</div>
+          <div class="pipe-stage-count">12</div>
+          <div class="pipe-stage-meta"><strong>32,400 mtr</strong> active</div>
+        </div>
+        <div class="pipe-stage" data-color="gold">
+          <div class="pipe-stage-label">Ready / Shipped</div>
+          <div class="pipe-stage-count">6</div>
+          <div class="pipe-stage-meta"><strong>₹7.2L</strong> in transit</div>
+        </div>
+        <div class="pipe-stage" data-color="success">
+          <div class="pipe-stage-label">Delivered</div>
+          <div class="pipe-stage-count">14</div>
+          <div class="pipe-stage-meta"><strong>This month</strong></div>
+        </div>
+        <div class="pipe-stage" data-color="rose">
+          <div class="pipe-stage-label">Overdue Payment</div>
+          <div class="pipe-stage-count">3</div>
+          <div class="pipe-stage-meta"><strong>₹4.1L</strong> at risk</div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="so-toolbar">
+        <div class="so-search">
+          <span style="opacity: 0.5;">⌕</span>
+          <input type="text" placeholder="Search by order #, customer or fabric…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All</button>
+          <button class="filter-chip">This Month</button>
+          <button class="filter-chip">Overdue</button>
+          <button class="filter-chip">Cotton 30s</button>
+          <button class="filter-chip">Cotton 40s</button>
+          <button class="filter-chip">Polyester</button>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;">⚙ More filters</button>
+      </div>
+
+      <!-- Orders table -->
+      <div class="table-wrap">
+        <table class="order-table">
+          <thead>
+            <tr>
+              <th>Order #</th>
+              <th>Customer</th>
+              <th>Fabric</th>
+              <th class="num">Qty (mtr)</th>
+              <th class="num">Value</th>
+              <th>Progress</th>
+              <th>Status</th>
+              <th>Payment</th>
+              <th>Due</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <!-- Row 1 -->
+            <tr onclick="openDrawer('SO-2438')">
+              <td><span class="so-id">SO-2438</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-1">MG</div>
+                  <div>
+                    <div class="customer-name">Mahalakshmi Garments</div>
+                    <div class="customer-sub">Tiruppur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">Plain weave · Bleached</div>
+              </td>
+              <td class="num cell-bold">8,400</td>
+              <td class="num cell-bold">₹1,28,520</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill" style="width: 65%"></div></div>
+                  <span class="so-progress-text" style="color: var(--brand-700)">65%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-production"><span class="dot"></span>In Production</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>50% Adv.</span></td>
+              <td class="cell-muted">May 18</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2438')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 2 -->
+            <tr onclick="openDrawer('SO-2437')">
+              <td><span class="so-id">SO-2437</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-2">SR</div>
+                  <div>
+                    <div class="customer-name">Sree Ramji Textiles</div>
+                    <div class="customer-sub">Erode</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Polyester 150D · 58"</div>
+                <div class="cell-muted">Dobby towel · Greige</div>
+              </td>
+              <td class="num cell-bold">12,000</td>
+              <td class="num cell-bold">₹2,15,600</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill gold" style="width: 92%"></div></div>
+                  <span class="so-progress-text" style="color: var(--gold-700)">92%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-ready"><span class="dot"></span>Ready</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>30% Adv.</span></td>
+              <td class="cell-muted">May 12</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2437')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 3 -->
+            <tr onclick="openDrawer('SO-2436')">
+              <td><span class="so-id">SO-2436</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-3">VK</div>
+                  <div>
+                    <div class="customer-name">Velmurugan Knitting</div>
+                    <div class="customer-sub">Tiruppur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 30s · 52"</div>
+                <div class="cell-muted">Plain · Dyed indigo</div>
+              </td>
+              <td class="num cell-bold">5,200</td>
+              <td class="num cell-bold">₹74,360</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill success" style="width: 100%"></div></div>
+                  <span class="so-progress-text" style="color: var(--success-600)">100%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-shipped"><span class="dot"></span>Shipped</span></td>
+              <td><span class="pay-status paid"><span class="pay-status-dot"></span>Paid</span></td>
+              <td class="cell-muted">Apr 28</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2436')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 4 -->
+            <tr onclick="openDrawer('SO-2435')">
+              <td><span class="so-id">SO-2435</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-4">PT</div>
+                  <div>
+                    <div class="customer-name">Prakash Textile Traders</div>
+                    <div class="customer-sub">Karur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 65.5s combed · 60"</div>
+                <div class="cell-muted">Premium dobby</div>
+              </td>
+              <td class="num cell-bold">3,600</td>
+              <td class="num cell-bold">₹86,400</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill" style="width: 35%"></div></div>
+                  <span class="so-progress-text" style="color: var(--brand-700)">35%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-production"><span class="dot"></span>In Production</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>Pending</span></td>
+              <td class="cell-muted">May 22</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2435')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 5 -->
+            <tr onclick="openDrawer('SO-2434')">
+              <td><span class="so-id">SO-2434</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-5">SI</div>
+                  <div>
+                    <div class="customer-name">Saravana Industries</div>
+                    <div class="customer-sub">Coimbatore</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">Greige</div>
+              </td>
+              <td class="num cell-bold">15,000</td>
+              <td class="num cell-bold">₹2,28,000</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill success" style="width: 100%"></div></div>
+                  <span class="so-progress-text" style="color: var(--success-600)">100%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-delivered"><span class="dot"></span>Delivered</span></td>
+              <td><span class="pay-status overdue"><span class="pay-status-dot"></span>5d overdue</span></td>
+              <td style="color: var(--error-600); font-weight: 600;">May 1</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Reminder sent','warning')">⚠</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2434')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 6 -->
+            <tr onclick="openDrawer('SO-2433')">
+              <td><span class="so-id">SO-2433</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-6">AS</div>
+                  <div>
+                    <div class="customer-name">Annapoorna Silks</div>
+                    <div class="customer-sub">Madurai</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 30s · 44"</div>
+                <div class="cell-muted">Plain · Bleached</div>
+              </td>
+              <td class="num cell-bold">7,200</td>
+              <td class="num cell-bold">₹1,06,560</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill" style="width: 18%"></div></div>
+                  <span class="so-progress-text" style="color: var(--brand-700)">18%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-confirmed"><span class="dot"></span>Confirmed</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>50% Adv.</span></td>
+              <td class="cell-muted">May 24</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2433')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 7 -->
+            <tr onclick="openDrawer('SO-2432')">
+              <td><span class="so-id">SO-2432</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-1">RT</div>
+                  <div>
+                    <div class="customer-name">Ravi Trading Co.</div>
+                    <div class="customer-sub">Salem</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Polyester 150D · 58"</div>
+                <div class="cell-muted">Dobby towel</div>
+              </td>
+              <td class="num cell-bold">10,000</td>
+              <td class="num cell-bold">₹1,82,000</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill" style="width: 78%"></div></div>
+                  <span class="so-progress-text" style="color: var(--brand-700)">78%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-production"><span class="dot"></span>In Production</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>30% Adv.</span></td>
+              <td class="cell-muted">May 16</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Order printed','success')">🖨</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2432')">→</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Row 8 -->
+            <tr onclick="openDrawer('SO-2431')">
+              <td><span class="so-id">SO-2431</span></td>
+              <td>
+                <div class="customer-cell">
+                  <div class="customer-avatar ca-2">KE</div>
+                  <div>
+                    <div class="customer-name">Kavitha Enterprises</div>
+                    <div class="customer-sub">Erode</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">Plain · Greige</div>
+              </td>
+              <td class="num cell-bold">4,500</td>
+              <td class="num cell-bold">₹68,400</td>
+              <td>
+                <div class="so-progress">
+                  <div class="so-progress-bar"><div class="so-progress-bar-fill rose" style="width: 0%"></div></div>
+                  <span class="so-progress-text" style="color: var(--ink-500)">0%</span>
+                </div>
+              </td>
+              <td><span class="status-pill st-quote"><span class="dot"></span>Quote</span></td>
+              <td><span class="pay-status pending"><span class="pay-status-dot"></span>—</span></td>
+              <td class="cell-muted">—</td>
+              <td>
+                <div class="action-cell">
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();window.showToast('Quote sent via WhatsApp','success')">💬</button>
+                  <button class="icon-btn-mini" onclick="event.stopPropagation();openDrawer('SO-2431')">→</button>
+                </div>
+              </td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; font-size:13px; color: var(--ink-500);">
+        <div>Showing <strong style="color: var(--ink-800);">8</strong> of <strong style="color: var(--ink-800);">47</strong> orders</div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn-icon" disabled style="opacity:0.4;">‹</button>
+          <button class="btn btn-sm btn-primary">1</button>
+          <button class="btn btn-sm btn-secondary">2</button>
+          <button class="btn btn-sm btn-secondary">3</button>
+          <button class="btn btn-sm btn-secondary">…</button>
+          <button class="btn btn-sm btn-secondary">6</button>
+          <button class="btn-icon">›</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Order detail drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <button class="drawer-close" onclick="closeDrawer()">×</button>
+    <div class="drawer-eyebrow" id="drawerOrderId">Order · SO-2438</div>
+    <div class="drawer-title">Mahalakshmi Garments</div>
+    <div class="drawer-amount">₹1,28,520<small> · 8,400 mtr</small></div>
+  </div>
+
+  <div class="drawer-body">
+    <!-- Stepper -->
+    <div class="stepper">
+      <div class="stepper-step done">
+        <div class="stepper-dot">✓</div>
+        <div class="stepper-label">Quote</div>
+      </div>
+      <div class="stepper-step done">
+        <div class="stepper-dot">✓</div>
+        <div class="stepper-label">Confirmed</div>
+      </div>
+      <div class="stepper-step active">
+        <div class="stepper-dot">3</div>
+        <div class="stepper-label">Production</div>
+      </div>
+      <div class="stepper-step">
+        <div class="stepper-dot">4</div>
+        <div class="stepper-label">Ready</div>
+      </div>
+      <div class="stepper-step">
+        <div class="stepper-dot">5</div>
+        <div class="stepper-label">Delivered</div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Customer & Delivery</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-row-label">Customer</div>
+        <div class="info-row-value">Mahalakshmi Garments</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Contact</div>
+        <div class="info-row-value mono">+91 98441 23890</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">PO Reference</div>
+        <div class="info-row-value mono">MG/2026/PO-318</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Required By</div>
+        <div class="info-row-value">May 18, 2026</div>
+      </div>
+      <div class="info-row" style="grid-column: 1 / -1;">
+        <div class="info-row-label">Delivery Address</div>
+        <div class="info-row-value" style="font-weight:500; line-height:1.5;">
+          Plot 14B, Avinashi Road, SIDCO Industrial Estate,<br>
+          Tiruppur — 641 603, Tamil Nadu
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Order Lines</div>
+    <table class="line-items">
+      <thead>
+        <tr>
+          <th>Fabric</th>
+          <th class="num">Qty</th>
+          <th class="num">Rate</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div style="font-weight:600;">Cotton 40s · 44" · Plain</div>
+            <div class="cell-muted">Bleached white</div>
+          </td>
+          <td class="num">6,000 mtr</td>
+          <td class="num">₹15.20</td>
+          <td class="num cell-bold">₹91,200</td>
+        </tr>
+        <tr>
+          <td>
+            <div style="font-weight:600;">Cotton 40s · 44" · Plain</div>
+            <div class="cell-muted">Dyed grey melange</div>
+          </td>
+          <td class="num">2,400 mtr</td>
+          <td class="num">₹15.55</td>
+          <td class="num cell-bold">₹37,320</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="text-align:right;">Subtotal</td>
+          <td class="num">₹1,28,520</td>
+        </tr>
+        <tr>
+          <td colspan="3" style="text-align:right; color: var(--ink-500); font-weight:500;">GST @ 5%</td>
+          <td class="num" style="color: var(--ink-500); font-weight:500;">₹6,426</td>
+        </tr>
+        <tr>
+          <td colspan="3" style="text-align:right;">Total</td>
+          <td class="num" style="color: var(--brand-700); font-size: 16px;">₹1,34,946</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="drawer-section-title">Production & Sourcing</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-row-label">Production Mode</div>
+        <div class="info-row-value">Outsourced</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Mill Assigned</div>
+        <div class="info-row-value">Sri Balaji Weaving Mills</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Started</div>
+        <div class="info-row-value">May 2, 2026</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Expected Out</div>
+        <div class="info-row-value">May 14, 2026</div>
+      </div>
+    </div>
+
+    <div class="drawer-section-title">Payment</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-row-label">Advance Received</div>
+        <div class="info-row-value" style="color: var(--success-600);">₹64,260 (50%)</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Balance Due</div>
+        <div class="info-row-value" style="color: var(--gold-700);">₹70,686</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Terms</div>
+        <div class="info-row-value">50% advance, 50% on delivery</div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-label">Last Payment</div>
+        <div class="info-row-value">Apr 28, 2026 · UPI</div>
+      </div>
+    </div>
+
+    <div style="height: 24px;"></div>
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-secondary btn-sm" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-secondary btn-sm" onclick="window.showToast('Invoice generated','success')">⎙ Invoice</button>
+    <button class="btn btn-primary btn-sm" onclick="window.showToast('Order updated','success');closeDrawer()">Edit Order</button>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer(id) {
+    document.getElementById('drawerOrderId').textContent = 'Order · ' + id;
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('.pipe-stage').forEach(s => {
+    s.addEventListener('click', () => {
+      document.querySelectorAll('.pipe-stage').forEach(x => x.classList.remove('active'));
+      s.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Production · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Production page-specific */
+
+    /* KPI strip */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--grad-brand);
+    }
+    .kpi-card.gold::before    { background: var(--grad-gold); }
+    .kpi-card.success::before { background: var(--grad-success); }
+    .kpi-card.rose::before    { background: var(--grad-rose); }
+
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      margin-bottom: 6px;
+    }
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-value small { font-size: 13px; opacity: 0.65; font-weight: 600; margin-left: 4px; }
+    .kpi-meta { font-size: 11.5px; color: var(--ink-500); margin-top: 4px; }
+    .kpi-meta strong { color: var(--success-600); font-weight: 700; }
+
+    /* Tabs (in-house / outsourced toggle) */
+    .prod-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--ink-50);
+      padding: 4px;
+      border-radius: var(--r-md);
+      border: 1px solid var(--ink-200);
+      margin-bottom: 20px;
+      width: fit-content;
+    }
+    .prod-tab {
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-500);
+      background: transparent;
+      border: none;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      transition: all 0.18s var(--ease-smooth);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: inherit;
+    }
+    .prod-tab:hover { color: var(--brand-600); }
+    .prod-tab.active {
+      background: var(--paper);
+      color: var(--brand-700);
+      box-shadow: var(--shadow-sm);
+    }
+    .prod-tab-count {
+      padding: 1px 8px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      font-size: 11px;
+      color: var(--ink-600);
+    }
+    .prod-tab.active .prod-tab-count {
+      background: var(--brand-100);
+      color: var(--brand-700);
+    }
+
+    /* Loom grid */
+    .loom-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .loom-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 16px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s var(--ease-smooth);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .loom-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--brand-300);
+    }
+    .loom-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--grad-success);
+    }
+    .loom-card.idle::before     { background: var(--ink-300); }
+    .loom-card.warmup::before   { background: var(--grad-gold); }
+    .loom-card.problem::before  { background: var(--grad-error); }
+    .loom-card.maintenance::before { background: linear-gradient(135deg, #6b7280, #9ca3af); }
+
+    .loom-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .loom-id {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+    }
+    .loom-id-sub {
+      font-size: 11px;
+      color: var(--ink-500);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    .loom-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      border-radius: var(--r-full);
+      text-transform: uppercase;
+    }
+    .loom-status-pill .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .loom-status-pill .dot.pulse { animation: pulse-dot 1.5s infinite; }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+      50% { box-shadow: 0 0 0 4px transparent; opacity: 0.6; }
+    }
+    .ls-running     { background: var(--success-100); color: var(--success-600); }
+    .ls-idle        { background: var(--ink-100);     color: var(--ink-600); }
+    .ls-warmup      { background: var(--warning-100); color: var(--gold-700); }
+    .ls-problem     { background: var(--error-100);   color: var(--error-600); }
+    .ls-maintenance { background: var(--ink-100);     color: var(--ink-700); }
+
+    .loom-body {
+      padding: 12px;
+      background: var(--ink-50);
+      border-radius: var(--r-sm);
+      margin-bottom: 12px;
+    }
+    .loom-fabric {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-900);
+      margin-bottom: 4px;
+    }
+    .loom-order {
+      font-size: 11.5px;
+      color: var(--ink-500);
+      font-family: var(--font-mono);
+      font-weight: 500;
+    }
+
+    .loom-progress {
+      margin-bottom: 12px;
+    }
+    .loom-progress-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: 11.5px;
+      color: var(--ink-600);
+      font-weight: 600;
+    }
+    .loom-progress-line .num {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-900);
+      font-weight: 700;
+    }
+    .loom-bar {
+      height: 8px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+    }
+    .loom-bar-fill {
+      height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .loom-bar-fill.gold { background: var(--grad-gold); }
+    .loom-bar-fill.success { background: var(--grad-success); }
+
+    .loom-foot {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      padding-top: 12px;
+      border-top: 1px solid var(--ink-100);
+      font-size: 11.5px;
+    }
+    .loom-foot-item-label {
+      color: var(--ink-500);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .loom-foot-item-value {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--ink-900);
+      font-size: 12.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Daily entry section */
+    .daily-section {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 24px;
+    }
+    .daily-section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .daily-section-title {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--ink-900);
+      letter-spacing: -0.015em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .daily-section-title-icon {
+      width: 28px; height: 28px;
+      background: var(--grad-brand);
+      color: white;
+      border-radius: var(--r-sm);
+      display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow-sm);
+      font-size: 14px;
+    }
+
+    .daily-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .daily-table thead th {
+      background: var(--canvas-2);
+      color: var(--ink-700);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--ink-200);
+    }
+    .daily-table thead th.num { text-align: right; }
+    .daily-table tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .daily-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .daily-table tbody tr:hover { background: var(--brand-50); }
+
+    /* Spark line — for trend */
+    .spark {
+      display: inline-flex;
+      align-items: end;
+      gap: 2px;
+      height: 24px;
+    }
+    .spark span {
+      width: 4px;
+      background: var(--brand-400);
+      border-radius: 1px;
+    }
+
+    /* Filter row */
+    .prod-filters {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .filter-chips {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .filter-chip {
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink-600);
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-full);
+      cursor: pointer;
+      transition: all 0.15s var(--ease-smooth);
+    }
+    .filter-chip:hover { border-color: var(--brand-300); color: var(--brand-700); }
+    .filter-chip.active {
+      background: var(--grad-brand);
+      color: white;
+      border-color: transparent;
+    }
+
+    /* Tour banner */
+    .tour {
+      background: linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(99,102,241,0.10) 100%);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: var(--r-lg);
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 13.5px;
+      color: var(--ink-700);
+    }
+    .tour-icon {
+      width: 36px; height: 36px;
+      background: var(--grad-gold);
+      color: var(--brand-900);
+      border-radius: var(--r-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      box-shadow: var(--inner-light), var(--shadow-gold);
+    }
+    .tour-text strong { color: var(--ink-900); display: block; margin-bottom: 2px; }
+
+    /* Quick entry button (FAB) */
+    .quick-entry-btn {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      padding: 14px 22px;
+      background: var(--grad-brand);
+      color: white;
+      border: none;
+      border-radius: var(--r-full);
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--shadow-brand-lift);
+      z-index: 80;
+      transition: all 0.2s var(--ease-smooth);
+    }
+    .quick-entry-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 24px 48px rgba(99,102,241,0.45);
+    }
+    .quick-entry-icon {
+      width: 28px; height: 28px;
+      background: rgba(255,255,255,0.22);
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 1024px) {
+      .kpi-strip { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 768px) {
+      .kpi-strip { grid-template-columns: 1fr; }
+      .loom-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="production"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search looms, fabrics, orders…"></div>
+
+    <div class="content">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Transactions</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Production</span>
+      </div>
+
+      <!-- Header -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Production Floor</h1>
+          <p class="page-header-sub">Live status of every loom across in-house and outsourced operations</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Yesterday\'s report exported','success')">
+            <span>↓</span> Daily Report
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('New work order opened','info')">
+            <span style="font-size:18px;">+</span> Assign Work
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour -->
+      <div class="tour">
+        <div class="tour-icon">🏭</div>
+        <div class="tour-text">
+          <strong>Production Floor — your live loom dashboard.</strong>
+          Each card is one loom. Green = running, gold = warming up, red = stopped. Click a loom for details, or use the entry table below to log today's output.
+        </div>
+      </div>
+
+      <!-- KPI strip -->
+      <div class="kpi-strip">
+        <div class="kpi-card success">
+          <div class="kpi-label">Today's Output</div>
+          <div class="kpi-value">38,420<small> mtr</small></div>
+          <div class="kpi-meta"><strong>+8%</strong> vs yesterday</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Looms Running</div>
+          <div class="kpi-value">112<small>/128</small></div>
+          <div class="kpi-meta"><strong>87.5%</strong> utilization</div>
+        </div>
+        <div class="kpi-card gold">
+          <div class="kpi-label">In-Hand Orders</div>
+          <div class="kpi-value">1.84<small>L mtr</small></div>
+          <div class="kpi-meta">Across 12 active orders</div>
+        </div>
+        <div class="kpi-card rose">
+          <div class="kpi-label">Stopped / Issue</div>
+          <div class="kpi-value">4<small> looms</small></div>
+          <div class="kpi-meta">2 broken end · 2 warp issue</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="prod-tabs">
+        <button class="prod-tab active">
+          ▤ In-House
+          <span class="prod-tab-count">24</span>
+        </button>
+        <button class="prod-tab">
+          ⇉ Outsourced
+          <span class="prod-tab-count">88</span>
+        </button>
+        <button class="prod-tab">
+          ⇇ Job-work
+          <span class="prod-tab-count">16</span>
+        </button>
+      </div>
+
+      <!-- Filters -->
+      <div class="prod-filters">
+        <div class="filter-chips">
+          <button class="filter-chip active">All Status</button>
+          <button class="filter-chip">Running</button>
+          <button class="filter-chip">Idle</button>
+          <button class="filter-chip">Issue</button>
+        </div>
+        <div style="margin-left:auto; display:flex; gap:10px;">
+          <button class="btn btn-secondary btn-sm">⊞ Grid</button>
+          <button class="btn-icon" title="Refresh" onclick="window.showToast('Refreshed','success')">↻</button>
+        </div>
+      </div>
+
+      <!-- Loom grid -->
+      <div class="loom-grid">
+
+        <!-- Loom 1 — running -->
+        <div class="loom-card" onclick="window.showToast('Loom L-01 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-01</div>
+              <div class="loom-id-sub">Sulzer P7100 · 44"</div>
+            </div>
+            <span class="loom-status-pill ls-running"><span class="dot pulse"></span>Running</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 40s · Plain · 44"</div>
+            <div class="loom-order">SO-2438 · Mahalakshmi</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">182 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill success" style="width: 78%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">420</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--success-600)">94%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Selvam</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 2 — running -->
+        <div class="loom-card" onclick="window.showToast('Loom L-02 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-02</div>
+              <div class="loom-id-sub">Sulzer P7100 · 44"</div>
+            </div>
+            <span class="loom-status-pill ls-running"><span class="dot pulse"></span>Running</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 40s · Plain · 44"</div>
+            <div class="loom-order">SO-2438 · Mahalakshmi</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">175 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill success" style="width: 72%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">410</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--success-600)">91%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Karthik</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 3 — running -->
+        <div class="loom-card" onclick="window.showToast('Loom L-03 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-03</div>
+              <div class="loom-id-sub">Toyoda JAT810 · 58"</div>
+            </div>
+            <span class="loom-status-pill ls-running"><span class="dot pulse"></span>Running</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Polyester 150D · Dobby · 58"</div>
+            <div class="loom-order">SO-2437 · Sree Ramji</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">220 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill success" style="width: 85%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">540</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--success-600)">96%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Murali</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 4 — warmup -->
+        <div class="loom-card warmup" onclick="window.showToast('Loom L-04 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-04</div>
+              <div class="loom-id-sub">Sulzer P7100 · 44"</div>
+            </div>
+            <span class="loom-status-pill ls-warmup"><span class="dot pulse"></span>Warming</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 30s · Plain · 44"</div>
+            <div class="loom-order">SO-2433 · Annapoorna</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Beam Mounting</span>
+              <span class="num">~30 min</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill gold" style="width: 45%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">—</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">ETA</div>
+              <div class="loom-foot-item-value">14:30</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Pandi</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 5 — problem -->
+        <div class="loom-card problem" onclick="window.showToast('Loom L-05: Broken end','warning')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-05</div>
+              <div class="loom-id-sub">Sulzer P7100 · 44"</div>
+            </div>
+            <span class="loom-status-pill ls-problem"><span class="dot"></span>Stopped</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 40s · Plain · 44"</div>
+            <div class="loom-order" style="color: var(--error-600);">⚠ Broken end · 22 min</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">94 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill" style="width: 38%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">0</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--error-600)">62%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Ramesh</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 6 — running -->
+        <div class="loom-card" onclick="window.showToast('Loom L-06 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-06</div>
+              <div class="loom-id-sub">Toyoda JAT810 · 60"</div>
+            </div>
+            <span class="loom-status-pill ls-running"><span class="dot pulse"></span>Running</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 65.5s combed · Dobby · 60"</div>
+            <div class="loom-order">SO-2435 · Prakash Trad.</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">156 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill success" style="width: 68%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">380</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--success-600)">88%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Vignesh</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 7 — running -->
+        <div class="loom-card" onclick="window.showToast('Loom L-07 details','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-07</div>
+              <div class="loom-id-sub">Sulzer P7100 · 52"</div>
+            </div>
+            <span class="loom-status-pill ls-running"><span class="dot pulse"></span>Running</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric">Cotton 30s · Plain · 52"</div>
+            <div class="loom-order">SO-2436 · Velmurugan</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Today's Output</span>
+              <span class="num">198 mtr</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill success" style="width: 82%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">425</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value" style="color: var(--success-600)">93%</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">Suresh</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loom 8 — idle -->
+        <div class="loom-card idle" onclick="window.showToast('Loom L-08: idle - awaiting yarn','info')">
+          <div class="loom-head">
+            <div>
+              <div class="loom-id">L-08</div>
+              <div class="loom-id-sub">Sulzer P7100 · 44"</div>
+            </div>
+            <span class="loom-status-pill ls-idle"><span class="dot"></span>Idle</span>
+          </div>
+          <div class="loom-body">
+            <div class="loom-fabric" style="color: var(--ink-500);">— No assignment —</div>
+            <div class="loom-order">Awaiting weft yarn</div>
+          </div>
+          <div class="loom-progress">
+            <div class="loom-progress-line">
+              <span>Idle Time</span>
+              <span class="num" style="color: var(--gold-700)">2h 14m</span>
+            </div>
+            <div class="loom-bar"><div class="loom-bar-fill" style="width: 0%"></div></div>
+          </div>
+          <div class="loom-foot">
+            <div>
+              <div class="loom-foot-item-label">RPM</div>
+              <div class="loom-foot-item-value">0</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Eff</div>
+              <div class="loom-foot-item-value">—</div>
+            </div>
+            <div>
+              <div class="loom-foot-item-label">Op</div>
+              <div class="loom-foot-item-value" style="font-family: var(--font-body); font-size: 11.5px;">—</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Today's Daily Entry -->
+      <div class="daily-section">
+        <div class="daily-section-head">
+          <div class="daily-section-title">
+            <span class="daily-section-title-icon">📋</span>
+            Today's Production Entry — May 6, 2026
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="window.showToast('Auto-saved','success')">💾 Save Draft</button>
+            <button class="btn btn-primary btn-sm" onclick="window.showToast('Day closed for L-01 to L-08','success')">🔒 Close Day</button>
+          </div>
+        </div>
+
+        <table class="daily-table">
+          <thead>
+            <tr>
+              <th>Loom</th>
+              <th>Fabric / Order</th>
+              <th>Operator</th>
+              <th class="num">Beam Start</th>
+              <th class="num">Beam End</th>
+              <th class="num">Output (mtr)</th>
+              <th class="num">Stops</th>
+              <th class="num">Eff %</th>
+              <th>7-day Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>L-01</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">SO-2438</div>
+              </td>
+              <td>Selvam</td>
+              <td class="num">12,400</td>
+              <td class="num">12,582</td>
+              <td class="num cell-bold">182</td>
+              <td class="num">3</td>
+              <td class="num" style="color: var(--success-600); font-weight: 700;">94%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 60%"></span>
+                  <span style="height: 80%"></span>
+                  <span style="height: 70%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 75%"></span>
+                  <span style="height: 85%"></span>
+                  <span style="height: 95%; background: var(--success-500);"></span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>L-02</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">SO-2438</div>
+              </td>
+              <td>Karthik</td>
+              <td class="num">11,820</td>
+              <td class="num">11,995</td>
+              <td class="num cell-bold">175</td>
+              <td class="num">4</td>
+              <td class="num" style="color: var(--success-600); font-weight: 700;">91%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 70%"></span>
+                  <span style="height: 65%"></span>
+                  <span style="height: 80%"></span>
+                  <span style="height: 75%"></span>
+                  <span style="height: 88%"></span>
+                  <span style="height: 80%"></span>
+                  <span style="height: 90%; background: var(--success-500);"></span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>L-03</strong></td>
+              <td>
+                <div style="font-weight:600;">Polyester 150D · 58"</div>
+                <div class="cell-muted">SO-2437</div>
+              </td>
+              <td>Murali</td>
+              <td class="num">8,640</td>
+              <td class="num">8,860</td>
+              <td class="num cell-bold">220</td>
+              <td class="num">2</td>
+              <td class="num" style="color: var(--success-600); font-weight: 700;">96%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 85%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 88%"></span>
+                  <span style="height: 92%"></span>
+                  <span style="height: 95%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 100%; background: var(--success-500);"></span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>L-04</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 30s · 44"</div>
+                <div class="cell-muted">SO-2433 (warming)</div>
+              </td>
+              <td>Pandi</td>
+              <td class="num">—</td>
+              <td class="num">—</td>
+              <td class="num cell-bold">0</td>
+              <td class="num">—</td>
+              <td class="num" style="color: var(--ink-500); font-weight: 700;">—</td>
+              <td><span style="font-size:11px; color: var(--ink-500);">— new job —</span></td>
+            </tr>
+            <tr>
+              <td><strong>L-05</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 40s · 44"</div>
+                <div class="cell-muted">SO-2438 · ⚠ Stop 22m</div>
+              </td>
+              <td>Ramesh</td>
+              <td class="num">12,400</td>
+              <td class="num">12,494</td>
+              <td class="num cell-bold">94</td>
+              <td class="num" style="color: var(--error-600); font-weight: 700;">8</td>
+              <td class="num" style="color: var(--error-600); font-weight: 700;">62%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 80%"></span>
+                  <span style="height: 75%"></span>
+                  <span style="height: 70%"></span>
+                  <span style="height: 80%"></span>
+                  <span style="height: 65%"></span>
+                  <span style="height: 70%"></span>
+                  <span style="height: 50%; background: var(--error-500);"></span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>L-06</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 65.5s · 60"</div>
+                <div class="cell-muted">SO-2435</div>
+              </td>
+              <td>Vignesh</td>
+              <td class="num">2,840</td>
+              <td class="num">2,996</td>
+              <td class="num cell-bold">156</td>
+              <td class="num">5</td>
+              <td class="num" style="color: var(--success-600); font-weight: 700;">88%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 85%"></span>
+                  <span style="height: 78%"></span>
+                  <span style="height: 82%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 80%"></span>
+                  <span style="height: 86%"></span>
+                  <span style="height: 88%; background: var(--success-500);"></span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>L-07</strong></td>
+              <td>
+                <div style="font-weight:600;">Cotton 30s · 52"</div>
+                <div class="cell-muted">SO-2436</div>
+              </td>
+              <td>Suresh</td>
+              <td class="num">5,180</td>
+              <td class="num">5,378</td>
+              <td class="num cell-bold">198</td>
+              <td class="num">3</td>
+              <td class="num" style="color: var(--success-600); font-weight: 700;">93%</td>
+              <td>
+                <div class="spark">
+                  <span style="height: 88%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 85%"></span>
+                  <span style="height: 95%"></span>
+                  <span style="height: 90%"></span>
+                  <span style="height: 92%"></span>
+                  <span style="height: 93%; background: var(--success-500);"></span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr style="background: var(--canvas-2); font-weight: 700;">
+              <td colspan="5" style="text-align:right; padding: 12px 14px;">Total Today (in-house)</td>
+              <td class="num" style="font-size: 15px; padding: 12px 14px;">1,025 mtr</td>
+              <td class="num" style="padding: 12px 14px;">25</td>
+              <td class="num" style="color: var(--success-600); padding: 12px 14px;">87%</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<button class="quick-entry-btn" onclick="window.showToast('Quick entry form opened','info')">
+  <span class="quick-entry-icon">+</span>
+  Quick Entry
+</button>
+
+<script src="../js/shell.js"></script>
+<script>
+  // Tabs visual toggle
+  document.querySelectorAll('.prod-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.prod-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

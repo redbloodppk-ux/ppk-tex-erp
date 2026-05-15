@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Master · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Fabric Master — page-specific (emerald / teal weave theme) */
+
+    .fab-hero {
+      position: relative;
+      border-radius: var(--r-xl);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      color: white;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(34,197,94,0.42), transparent 55%),
+        radial-gradient(circle at 90% 80%, rgba(20,184,166,0.42), transparent 60%),
+        linear-gradient(135deg, #047857 0%, #0d9488 50%, #14b8a6 100%);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .fab-hero::before {
+      /* Faint weave pattern */
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 8px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 8px);
+      pointer-events: none;
+    }
+    .fab-hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 28px;
+      align-items: center;
+    }
+    .fab-hero-eyebrow {
+      font-family: var(--font-display);
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 1.2px; font-weight: 700;
+      opacity: 0.85; margin-bottom: 8px;
+    }
+    .fab-hero-title {
+      font-family: var(--font-display);
+      font-size: 26px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .fab-hero-sub {
+      font-size: 14px; opacity: 0.88; font-weight: 500;
+    }
+    .fab-hero-stat {
+      border-left: 1px solid rgba(255,255,255,0.18);
+      padding-left: 24px;
+    }
+    .fab-hero-stat-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .fab-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .fab-hero-stat-value small {
+      font-size: 14px; opacity: 0.75; font-weight: 600;
+    }
+    .fab-hero-stat-trend {
+      font-size: 11.5px; opacity: 0.85; margin-top: 6px;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 18px;
+      display: flex; flex-wrap: wrap;
+      gap: 10px; align-items: center;
+    }
+    .search-box {
+      flex: 1; min-width: 240px;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 8px 12px;
+    }
+    .search-box input {
+      flex: 1; border: none; background: transparent;
+      outline: none; font-size: 13px;
+      font-family: inherit; color: var(--ink-900);
+    }
+    .filter-pill {
+      padding: 6px 12px;
+      font-size: 12px; font-weight: 600;
+      color: var(--ink-600);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all var(--t-snap);
+    }
+    .filter-pill:hover { border-color: #14b8a6; color: var(--ink-900); }
+    .filter-pill.active {
+      background: linear-gradient(135deg,#0d9488,#14b8a6);
+      color: white;
+      border-color: transparent;
+    }
+
+    /* Fabric card grid */
+    .fab-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .fab-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all var(--t-snap);
+      overflow: hidden;
+      position: relative;
+    }
+    .fab-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 28px rgba(15,23,42,0.10);
+      border-color: #14b8a6;
+    }
+
+    /* Swatch — visual weave preview */
+    .fab-swatch {
+      height: 110px;
+      position: relative;
+      overflow: hidden;
+    }
+    .fab-swatch.plain-grey {
+      background:
+        repeating-linear-gradient(0deg, #d4d4d8 0 2px, #e4e4e7 2px 4px),
+        repeating-linear-gradient(90deg, rgba(113,113,122,0.18) 0 2px, transparent 2px 4px);
+    }
+    .fab-swatch.plain-bleach {
+      background:
+        repeating-linear-gradient(0deg, #fafafa 0 2px, #f4f4f5 2px 4px),
+        repeating-linear-gradient(90deg, rgba(0,0,0,0.03) 0 2px, transparent 2px 4px);
+    }
+    .fab-swatch.poplin {
+      background:
+        repeating-linear-gradient(0deg, #1e3a8a 0 1.5px, #1e40af 1.5px 3px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 1.5px, transparent 1.5px 3px);
+    }
+    .fab-swatch.dobby {
+      background:
+        repeating-linear-gradient(0deg, #fef3c7 0 2px, #fde68a 2px 4px),
+        repeating-linear-gradient(90deg, rgba(146,64,14,0.18) 0 2px, transparent 2px 4px);
+      background-size: 100% 100%, 12px 12px;
+    }
+    .fab-swatch.twill {
+      background:
+        repeating-linear-gradient(45deg, #15803d 0 4px, #16a34a 4px 8px);
+    }
+    .fab-swatch.satin {
+      background:
+        linear-gradient(135deg, #4c1d95, #6d28d9, #7c3aed),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 2px);
+    }
+    .fab-swatch.towel {
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 1px, transparent 2px),
+        radial-gradient(circle at 60% 60%, rgba(255,255,255,0.4) 1px, transparent 2px),
+        linear-gradient(135deg, #e0f2fe, #bae6fd);
+      background-size: 8px 8px, 8px 8px, 100% 100%;
+    }
+    .fab-swatch.checks {
+      background:
+        repeating-linear-gradient(0deg, #fee2e2 0 14px, #fff 14px 28px),
+        repeating-linear-gradient(90deg, rgba(239,68,68,0.20) 0 14px, transparent 14px 28px);
+    }
+
+    .fab-swatch-overlay {
+      position: absolute; inset: auto 12px 12px auto;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(4px);
+      color: white;
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 700;
+      padding: 4px 8px; border-radius: 6px;
+      letter-spacing: 0.3px;
+    }
+    .fab-badge {
+      position: absolute; top: 12px; left: 12px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      backdrop-filter: blur(6px);
+    }
+    .fab-badge.hero { background: rgba(245,158,11,0.92); color: #fff; }
+    .fab-badge.fast { background: rgba(34,197,94,0.92); color: #fff; }
+    .fab-badge.new  { background: rgba(99,102,241,0.92); color: #fff; }
+    .fab-badge.slow { background: rgba(148,163,184,0.92); color: #fff; }
+
+    .fab-body {
+      padding: 16px 18px;
+    }
+    .fab-name {
+      font-family: var(--font-display);
+      font-size: 15px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      margin: 0 0 4px 0;
+    }
+    .fab-code {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--ink-500);
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .fab-spec-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .fab-spec {
+      background: var(--ink-50);
+      border: 1px solid var(--ink-100);
+      border-radius: 6px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+    .fab-spec-label {
+      font-size: 9.5px; text-transform: uppercase;
+      letter-spacing: 0.4px; color: var(--ink-500);
+      font-weight: 700;
+    }
+    .fab-spec-value {
+      font-family: var(--font-mono);
+      font-size: 12px; font-weight: 700;
+      color: var(--ink-900);
+      margin-top: 2px;
+    }
+
+    .fab-foot {
+      display: flex; justify-content: space-between;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px dashed var(--ink-200);
+    }
+    .fab-price {
+      font-family: var(--font-display);
+      font-size: 18px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
+    }
+    .fab-price small {
+      font-size: 11px; color: var(--ink-500);
+      font-weight: 600;
+    }
+    .fab-meta {
+      font-size: 11px; color: var(--ink-500);
+      text-align: right;
+    }
+    .fab-meta strong { color: var(--ink-700); font-weight: 700; }
+
+    /* Drawer content */
+    .fab-tech-head {
+      display: flex; gap: 16px;
+      padding-bottom: 18px; margin-bottom: 18px;
+      border-bottom: 1px solid var(--ink-200);
+    }
+    .fab-tech-swatch {
+      width: 96px; height: 96px;
+      border-radius: var(--r-md);
+      flex-shrink: 0;
+      box-shadow: var(--shadow-md);
+      background:
+        repeating-linear-gradient(0deg, #d4d4d8 0 2px, #e4e4e7 2px 4px),
+        repeating-linear-gradient(90deg, rgba(113,113,122,0.18) 0 2px, transparent 2px 4px);
+    }
+    .fab-tech-name {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900); margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .fab-tech-code {
+      font-family: var(--font-mono);
+      font-size: 12px; color: var(--ink-500);
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .fab-tech-tags {
+      margin-top: 8px;
+    }
+    .fab-tech-tags .cust-tag {
+      display: inline-block;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--ink-100);
+      color: var(--ink-700);
+      margin-right: 4px;
+    }
+    .cust-tag.hero  { background: #fef3c7; color: #92400e; }
+    .cust-tag.combed { background: #d1fae5; color: #065f46; }
+    .cust-tag.export { background: #dbeafe; color: #1e3a8a; }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700;
+      margin: 0 0 10px 0;
+    }
+
+    .tech-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      overflow: hidden;
+      margin-bottom: 22px;
+      font-size: 13px;
+    }
+    .tech-table tr td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .tech-table tr:last-child td { border-bottom: none; }
+    .tech-table tr td:first-child {
+      color: var(--ink-500);
+      font-weight: 600;
+      width: 40%;
+    }
+    .tech-table tr td:last-child {
+      color: var(--ink-900);
+      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+    }
+
+    .bom-list {
+      list-style: none; padding: 0; margin: 0 0 22px 0;
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+    .bom-list li {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--ink-100);
+      font-size: 13px;
+    }
+    .bom-list li:last-child { border-bottom: none; }
+    .bom-icon {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg,#0d9488,#14b8a6);
+      color: white;
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 700;
+    }
+    .bom-name { font-weight: 700; color: var(--ink-900); }
+    .bom-meta { font-size: 11px; color: var(--ink-500); margin-top: 2px; }
+    .bom-qty {
+      font-family: var(--font-mono);
+      font-weight: 700; color: var(--ink-900);
+    }
+    .bom-cost {
+      font-family: var(--font-mono);
+      font-weight: 700; color: var(--ink-900);
+      min-width: 80px; text-align: right;
+    }
+
+    .price-card {
+      background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+      border: 1px solid #6ee7b7;
+      border-radius: var(--r-md);
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    .price-row {
+      display: flex; justify-content: space-between;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .price-row.total {
+      border-top: 2px solid #047857;
+      margin-top: 8px; padding-top: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink-900);
+    }
+    .price-val {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    /* Drawer (slide-in from right) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 560px;
+      max-width: 95vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(13,148,136,0.06), rgba(20,184,166,0.06));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .drawer-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #047857;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      margin: 4px 0 0 0;
+    }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: var(--ink-100); }
+    .drawer-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .fab-hero-grid { grid-template-columns: 1fr 1fr; }
+      .fab-hero-stat { border-left: none; padding-left: 0; }
+    }
+    @media (max-width: 720px) {
+      .fab-hero-grid { grid-template-columns: 1fr; }
+      .fab-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="fabric"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search fabric, construction, GSM…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Masters</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Fabric Master</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Fabric Master</h1>
+          <p class="page-header-sub">Construction · GSM · BOM — every fabric you weave with full technical specs</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Catalog PDF exported','success')">
+            <span>↓</span> Export Catalog
+          </button>
+          <button class="btn btn-primary" onclick="window.openDrawer && window.openDrawer('new')">
+            <span style="font-size:18px;">+</span> Add Fabric
+          </button>
+        </div>
+      </div>
+
+      <div class="tour-banner">
+        <div class="tour-banner-icon">⊠</div>
+        <div class="tour-banner-text">
+          <strong>18 fabric specs catalogued.</strong>
+          Each one has full BOM (yarn count, EPI × PPI, weight, weave), suggested price band and direct link to costing &amp; production. Click a swatch to see the tech sheet.
+        </div>
+        <button class="tour-banner-close" onclick="this.parentElement.style.display='none'">✕</button>
+      </div>
+
+      <!-- Hero -->
+      <div class="fab-hero">
+        <div class="fab-hero-grid">
+          <div>
+            <div class="fab-hero-eyebrow">Fabric catalogue</div>
+            <h2 class="fab-hero-title">18 specs · 4 weaves</h2>
+            <div class="fab-hero-sub">Plain · Twill · Dobby · Towelling — 30s to 2/40s · 92×88 to 144×80</div>
+          </div>
+          <div class="fab-hero-stat">
+            <div class="fab-hero-stat-label">Hero seller</div>
+            <div class="fab-hero-stat-value" style="font-size:22px;">30s plain grey</div>
+            <div class="fab-hero-stat-trend">42% of last year output</div>
+          </div>
+          <div class="fab-hero-stat">
+            <div class="fab-hero-stat-label">Avg margin</div>
+            <div class="fab-hero-stat-value">12.4<small>%</small></div>
+            <div class="fab-hero-stat-trend">Best · 65.5s combed (18.8%)</div>
+          </div>
+          <div class="fab-hero-stat">
+            <div class="fab-hero-stat-label">New this qtr</div>
+            <div class="fab-hero-stat-value">3</div>
+            <div class="fab-hero-stat-trend">Dobby towel · Satin · Checks</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search fabric name, code, GSM, count…">
+        </div>
+        <button class="filter-pill active">All (18)</button>
+        <button class="filter-pill">Plain (8)</button>
+        <button class="filter-pill">Twill (3)</button>
+        <button class="filter-pill">Dobby (4)</button>
+        <button class="filter-pill">Towelling (2)</button>
+        <button class="filter-pill">Satin (1)</button>
+      </div>
+
+      <!-- Fabric cards -->
+      <div class="fab-grid">
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('30sgrey')">
+          <div class="fab-swatch plain-grey">
+            <span class="fab-badge hero">★ Hero</span>
+            <span class="fab-swatch-overlay">30s × 30s plain</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">30s Combed Grey Plain</h3>
+            <div class="fab-code">FAB-30S-PG-92x88-47</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">92×88</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">47"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">128</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹78<small>/m</small></div>
+              <div class="fab-meta"><strong>42%</strong> of book<br>Last run · 3d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('40sbl')">
+          <div class="fab-swatch plain-bleach">
+            <span class="fab-badge fast">▲ Fast</span>
+            <span class="fab-swatch-overlay">40s × 40s</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">40s Combed Bleached</h3>
+            <div class="fab-code">FAB-40S-BL-110x90-58</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">110×90</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">58"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">112</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹98<small>/m</small></div>
+              <div class="fab-meta"><strong>14%</strong> of book<br>Last run · today</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('65s')">
+          <div class="fab-swatch plain-bleach" style="background: repeating-linear-gradient(0deg, #fffbeb 0 1.5px, #fef3c7 1.5px 3px), repeating-linear-gradient(90deg, rgba(146,64,14,0.06) 0 1.5px, transparent 1.5px 3px);">
+            <span class="fab-badge hero">★ Premium</span>
+            <span class="fab-swatch-overlay">65.5s premium</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">65.5s Combed Premium</h3>
+            <div class="fab-code">FAB-65S-PR-144x80-58</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">144×80</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">58"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">94</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹148<small>/m</small></div>
+              <div class="fab-meta">Margin <strong>18.8%</strong><br>Last run · 8d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('poplin')">
+          <div class="fab-swatch poplin">
+            <span class="fab-badge fast">▲ Fast</span>
+            <span class="fab-swatch-overlay">40s poplin · indigo</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">40s Indigo Poplin</h3>
+            <div class="fab-code">FAB-40S-IN-120x88-58</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">120×88</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">58"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">118</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹114<small>/m</small></div>
+              <div class="fab-meta"><strong>9%</strong> of book<br>Last run · 5d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('dobbytowel')">
+          <div class="fab-swatch dobby">
+            <span class="fab-badge new">+ New</span>
+            <span class="fab-swatch-overlay">Dobby + 150D porvai</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">Dobby Towel · Honeycomb</h3>
+            <div class="fab-code">FAB-DT-HC-100x60-30</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">100×60</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">30"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">280</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹165<small>/m</small></div>
+              <div class="fab-meta">New · <strong>Q2 launch</strong><br>Last run · 18d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('twill')">
+          <div class="fab-swatch twill">
+            <span class="fab-swatch-overlay">2/40s twill</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">2/40s Twill Olive</h3>
+            <div class="fab-code">FAB-2T-OL-104x68-58</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">104×68</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">58"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">186</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹138<small>/m</small></div>
+              <div class="fab-meta"><strong>6%</strong> of book<br>Last run · 21d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('satin')">
+          <div class="fab-swatch satin">
+            <span class="fab-badge new">+ New</span>
+            <span class="fab-swatch-overlay">100s satin</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">100s Satin Lustre</h3>
+            <div class="fab-code">FAB-100-ST-160x90-58</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">160×90</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">58"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">102</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹212<small>/m</small></div>
+              <div class="fab-meta">Trial · <strong>2 lots</strong><br>Last run · 2 mo ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('terry')">
+          <div class="fab-swatch towel">
+            <span class="fab-swatch-overlay">Terry · 320 GSM</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">Terry Towel · 320 GSM</h3>
+            <div class="fab-code">FAB-TT-CW-90x42-30</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">90×42</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">30"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">320</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹185<small>/m</small></div>
+              <div class="fab-meta"><strong>4%</strong> of book<br>Last run · 12d ago</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fab-card" onclick="window.openDrawer && window.openDrawer('checks')">
+          <div class="fab-swatch checks">
+            <span class="fab-badge slow">↓ Slow</span>
+            <span class="fab-swatch-overlay">2/40s gingham</span>
+          </div>
+          <div class="fab-body">
+            <h3 class="fab-name">Gingham Checks · Red</h3>
+            <div class="fab-code">FAB-GC-RD-96x68-44</div>
+            <div class="fab-spec-row">
+              <div class="fab-spec"><div class="fab-spec-label">EPI×PPI</div><div class="fab-spec-value">96×68</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">Width</div><div class="fab-spec-value">44"</div></div>
+              <div class="fab-spec"><div class="fab-spec-label">GSM</div><div class="fab-spec-value">142</div></div>
+            </div>
+            <div class="fab-foot">
+              <div class="fab-price">₹128<small>/m</small></div>
+              <div class="fab-meta">Slow · <strong>1 lot/qtr</strong><br>Last run · 38d ago</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="fabDrawer" role="dialog" aria-label="Fabric tech sheet">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-eyebrow">Tech sheet</div>
+      <h2 class="drawer-title">30s Combed Grey Plain</h2>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+
+  <div class="drawer-content">
+
+    <div class="fab-tech-head">
+      <div class="fab-tech-swatch"></div>
+      <div>
+        <h3 class="fab-tech-name">30s Combed Grey Plain</h3>
+        <div class="fab-tech-code">FAB-30S-PG-92x88-47 · ID 0001 · Rev 4 (Jan 2026)</div>
+        <div class="fab-tech-tags">
+          <span class="cust-tag hero">★ Hero</span>
+          <span class="cust-tag combed">Combed</span>
+          <span class="cust-tag export">Export grade</span>
+        </div>
+      </div>
+    </div>
+
+    <h4 class="section-title">Construction &amp; specs</h4>
+    <table class="tech-table">
+      <tr><td>Weave</td><td>Plain · 1/1</td></tr>
+      <tr><td>Warp count</td><td>30s combed cotton</td></tr>
+      <tr><td>Weft count</td><td>30s combed cotton</td></tr>
+      <tr><td>EPI · PPI</td><td>92 × 88</td></tr>
+      <tr><td>Reed · Pick</td><td>92" reed · 88 picks/in</td></tr>
+      <tr><td>Width on loom</td><td>47" (greige)</td></tr>
+      <tr><td>GSM</td><td>128 g/m²</td></tr>
+      <tr><td>Crimp · take-up</td><td>Warp 6.2% · Weft 5.8%</td></tr>
+      <tr><td>Strength</td><td>Warp 32 kgf · Weft 28 kgf (avg)</td></tr>
+    </table>
+
+    <h4 class="section-title">Bill of materials · per metre</h4>
+    <ul class="bom-list">
+      <li>
+        <div class="bom-icon">W</div>
+        <div>
+          <div class="bom-name">30s Combed cotton · Warp</div>
+          <div class="bom-meta">Sri Selvam Spinning · ₹220/kg avg</div>
+        </div>
+        <div class="bom-qty">88 g</div>
+        <div class="bom-cost">₹19.36</div>
+      </li>
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#f59e0b,#f97316);">W</div>
+        <div>
+          <div class="bom-name">30s Combed cotton · Weft</div>
+          <div class="bom-meta">Sri Selvam Spinning · ₹220/kg avg</div>
+        </div>
+        <div class="bom-qty">82 g</div>
+        <div class="bom-cost">₹18.04</div>
+      </li>
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#6366f1,#8b5cf6);">S</div>
+        <div>
+          <div class="bom-name">Sizing chemicals</div>
+          <div class="bom-meta">Starch · PVA · wax mix</div>
+        </div>
+        <div class="bom-qty">—</div>
+        <div class="bom-cost">₹2.20</div>
+      </li>
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#dc2626,#b91c1c);">L</div>
+        <div>
+          <div class="bom-name">LOOMS overhead</div>
+          <div class="bom-meta">Power · labour · maintenance</div>
+        </div>
+        <div class="bom-qty">—</div>
+        <div class="bom-cost">₹5.14</div>
+      </li>
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#94a3b8,#64748b);">P</div>
+        <div>
+          <div class="bom-name">Packing &amp; label</div>
+          <div class="bom-meta">Roll, cone, hang-tag</div>
+        </div>
+        <div class="bom-qty">—</div>
+        <div class="bom-cost">₹1.40</div>
+      </li>
+    </ul>
+
+    <div class="price-card">
+      <h4 class="section-title" style="color:#047857;">Pricing &amp; margin</h4>
+      <div class="price-row"><span>True cost (inc. LOOMS)</span><span class="price-val">₹46.14</span></div>
+      <div class="price-row"><span>Suggested wholesale</span><span class="price-val">₹78.00</span></div>
+      <div class="price-row"><span>Walk-away floor</span><span class="price-val">₹52.00</span></div>
+      <div class="price-row total"><span>Margin · suggested</span><span class="price-val">₹31.86 · 40.8%</span></div>
+    </div>
+
+    <h4 class="section-title">Recent production</h4>
+    <ul class="bom-list" style="margin-bottom:18px;">
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#0d9488,#14b8a6);">L4</div>
+        <div>
+          <div class="bom-name">Loom #4 · 2,400 m</div>
+          <div class="bom-meta">For SKM Garments · 4 May 2026 · 8.4 hrs</div>
+        </div>
+        <div class="bom-qty">SO-038</div>
+        <div class="bom-cost">₹1,87,200</div>
+      </li>
+      <li>
+        <div class="bom-icon" style="background: linear-gradient(135deg,#0d9488,#14b8a6);">L1</div>
+        <div>
+          <div class="bom-name">Loom #1 · 1,800 m</div>
+          <div class="bom-meta">For Arul Textiles · 28 Apr 2026 · 6.2 hrs</div>
+        </div>
+        <div class="bom-qty">SO-031</div>
+        <div class="bom-cost">₹1,40,400</div>
+      </li>
+    </ul>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-secondary" style="flex:1;">Edit spec</button>
+      <button class="btn btn-primary" style="flex:1;">Use in costing</button>
+    </div>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer(id) {
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.getElementById('fabDrawer').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.getElementById('fabDrawer').classList.remove('open');
+  }
+  window.openDrawer = openDrawer;
+  window.closeDrawer = closeDrawer;
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

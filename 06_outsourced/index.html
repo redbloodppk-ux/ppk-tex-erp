@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outsourced Weaving · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* ============== Outsourced Weaving — page-specific ============== */
+
+    /* Hero band */
+    .ow-hero {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%);
+      border-radius: var(--r-xl);
+      padding: 28px 30px;
+      color: white;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 18px 48px rgba(79, 70, 229, 0.32);
+    }
+    .ow-hero::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      right: -10%;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%);
+      filter: blur(40px);
+    }
+    .ow-hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(4, 1fr);
+      gap: 24px;
+      align-items: center;
+      position: relative;
+    }
+    .ow-hero-title {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin: 0 0 6px 0;
+    }
+    .ow-hero-sub {
+      font-size: 13px;
+      opacity: 0.85;
+      line-height: 1.5;
+      max-width: 340px;
+    }
+    .ow-hero-stat-label {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      opacity: 0.78;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .ow-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .ow-hero-stat-meta {
+      font-size: 11px;
+      opacity: 0.78;
+      margin-top: 2px;
+    }
+    .ow-hero-stat-value small {
+      font-size: 12px;
+      opacity: 0.7;
+      font-weight: 600;
+      margin-left: 3px;
+    }
+
+    /* Mill partner cards */
+    .partner-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .partner-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all 0.22s var(--ease-smooth);
+      position: relative;
+      overflow: hidden;
+    }
+    .partner-card:hover {
+      border-color: var(--brand-300);
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-3px);
+    }
+    .partner-card::before {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+      background: var(--grad-brand);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .partner-card:hover::before { opacity: 1; }
+
+    .partner-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .partner-avatar {
+      width: 44px; height: 44px;
+      border-radius: var(--r-md);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 800;
+      color: white;
+      font-size: 15px;
+      letter-spacing: 0.3px;
+      box-shadow: var(--shadow-sm);
+    }
+    .pa-1 { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+    .pa-2 { background: linear-gradient(135deg, #10b981, #059669); }
+    .pa-3 { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .pa-4 { background: linear-gradient(135deg, #ef4444, #dc2626); }
+    .pa-5 { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
+    .pa-6 { background: linear-gradient(135deg, #ec4899, #be185d); }
+
+    .partner-name {
+      font-weight: 700;
+      font-size: 14.5px;
+      color: var(--ink-900);
+      line-height: 1.2;
+      margin-bottom: 2px;
+    }
+    .partner-sub {
+      font-size: 11.5px;
+      color: var(--ink-500);
+    }
+
+    .partner-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 12px;
+      background: var(--canvas-2);
+      border-radius: var(--r-sm);
+      margin-bottom: 12px;
+    }
+    .partner-stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .partner-stat-value {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
+    }
+    .partner-stat-value small { font-size: 11px; opacity: 0.65; font-weight: 600; }
+
+    .partner-bar {
+      height: 6px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .partner-bar > span {
+      display: block;
+      height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .partner-bar.warn > span { background: var(--grad-gold); }
+    .partner-bar.danger > span { background: var(--grad-rose); }
+
+    .partner-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      color: var(--ink-500);
+    }
+    .partner-foot strong { color: var(--ink-700); font-weight: 700; }
+
+    /* Section header */
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 6px 0 14px 0;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+    }
+    .section-sub {
+      font-size: 12px;
+      color: var(--ink-500);
+      margin-top: 2px;
+    }
+
+    /* Filter toolbar */
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 14px;
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .toolbar-search {
+      flex: 1;
+      min-width: 220px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      background: var(--canvas-2);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      font-size: 13px;
+    }
+    .toolbar-search input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--ink-900);
+    }
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* Jobs table */
+    .ow-table-wrap {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .ow-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ow-table thead th {
+      text-align: left;
+      padding: 12px 14px;
+      background: var(--canvas-2);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .ow-table tbody td {
+      padding: 14px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .ow-table tbody tr {
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    .ow-table tbody tr:hover { background: var(--canvas-2); }
+    .ow-table tbody tr:last-child td { border-bottom: none; }
+
+    .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cell-muted { color: var(--ink-500); font-size: 11.5px; margin-top: 2px; }
+    .cell-bold { font-weight: 700; color: var(--ink-900); }
+    .job-id {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brand-700);
+    }
+
+    .pill-status {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .pill-yarn-sent { background: rgba(99,102,241,0.12); color: var(--brand-700); }
+    .pill-weaving  { background: rgba(245,158,11,0.14); color: #b45309; }
+    .pill-ready    { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .pill-received { background: rgba(99,102,241,0.10); color: var(--brand-700); }
+    .pill-overdue  { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .progress {
+      display: inline-block;
+      width: 110px;
+      height: 6px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    .progress > span {
+      display: block;
+      height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .progress.warn > span { background: var(--grad-gold); }
+    .progress.danger > span { background: var(--grad-rose); }
+
+    .days-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: var(--r-full);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--canvas-2);
+      color: var(--ink-700);
+    }
+    .days-pill.urgent { background: rgba(239,68,68,0.12); color: var(--rose-700); }
+    .days-pill.late { background: var(--rose-600); color: white; }
+
+    .mini-mill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mini-mill-avatar {
+      width: 26px; height: 26px;
+      border-radius: var(--r-sm);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 800;
+      color: white;
+      font-size: 11px;
+    }
+
+    /* Drawer */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 560px;
+      max-width: 95vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-head {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(139,92,246,0.05));
+    }
+    .drawer-head-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .drawer-job-id {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-700);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      margin: 4px 0 6px 0;
+    }
+    .drawer-meta {
+      font-size: 12.5px;
+      color: var(--ink-500);
+    }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: var(--ink-100); }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 22px 24px;
+    }
+
+    /* Stepper */
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      margin-bottom: 24px;
+      padding: 16px;
+      background: var(--canvas-2);
+      border-radius: var(--r-md);
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 14px;
+      left: calc(50% + 18px);
+      right: calc(-50% + 18px);
+      height: 2px;
+      background: var(--ink-200);
+    }
+    .step.done:not(:last-child)::after,
+    .step.current:not(:last-child)::after { background: var(--brand-500); }
+    .step-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--ink-100);
+      border: 2px solid var(--paper);
+      box-shadow: 0 0 0 1px var(--ink-200);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-500);
+      position: relative;
+      z-index: 1;
+    }
+    .step.done .step-dot {
+      background: var(--brand-500);
+      box-shadow: 0 0 0 1px var(--brand-500);
+      color: white;
+    }
+    .step.current .step-dot {
+      background: var(--paper);
+      box-shadow: 0 0 0 2px var(--brand-500);
+      color: var(--brand-700);
+    }
+    .step-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--ink-500);
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .step.current .step-label,
+    .step.done .step-label { color: var(--ink-900); }
+
+    /* Info grid */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px dashed var(--ink-200);
+    }
+    .info-item-label {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .info-item-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-900);
+    }
+    .info-item-value.mono { font-family: var(--font-mono); }
+
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-700);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin: 0 0 12px 0;
+    }
+
+    /* Yarn allocation */
+    .yarn-list {
+      background: var(--canvas-2);
+      border-radius: var(--r-md);
+      padding: 12px;
+      margin-bottom: 20px;
+    }
+    .yarn-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--ink-200);
+      font-size: 13px;
+    }
+    .yarn-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .yarn-row:first-child { padding-top: 0; }
+    .yarn-row strong { color: var(--ink-900); font-weight: 700; }
+    .yarn-row .mono { font-family: var(--font-mono); }
+
+    /* Cost block */
+    .cost-block {
+      background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.06));
+      border: 1px solid rgba(99,102,241,0.15);
+      border-radius: var(--r-md);
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .cost-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+      color: var(--ink-700);
+    }
+    .cost-row.total {
+      border-top: 1px solid var(--ink-200);
+      margin-top: 6px;
+      padding-top: 12px;
+      font-weight: 800;
+      font-size: 15px;
+      color: var(--ink-900);
+    }
+    .cost-row .mono { font-family: var(--font-mono); }
+
+    .drawer-foot {
+      padding: 16px 24px;
+      border-top: 1px solid var(--ink-100);
+      background: var(--canvas-2);
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 1024px) {
+      .ow-hero-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .ow-hero-grid { grid-template-columns: 1fr; }
+      .partner-grid { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+      .stepper { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .step:not(:last-child)::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="outsourced"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search jobs, mills, yarn lots…"></div>
+
+    <div class="content">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Transactions</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Outsourced Weaving</span>
+      </div>
+
+      <!-- Header -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Outsourced Weaving</h1>
+          <p class="page-header-sub">Yarn sent out, fabric coming back — one screen for every partner mill</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Job sheet exported','success')">
+            <span>↓</span> Export Sheet
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('New outsource job started','info')">
+            <span style="font-size:18px;">+</span> New Outsource Job
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour -->
+      <div class="tour">
+        <div class="tour-icon">⇉</div>
+        <div class="tour-text">
+          <strong>Outsourced Weaving — your partner-mill pipeline.</strong>
+          You send yarn (cones, warps, weft) to a mill, they weave it, you receive grey fabric back. Each card below is a partner mill with their current load. Click a job to see yarn allocation, weaving cost, and expected delivery.
+        </div>
+      </div>
+
+      <!-- Hero band -->
+      <div class="ow-hero">
+        <div class="ow-hero-grid">
+          <div>
+            <h2 class="ow-hero-title">12 Active Jobs · 6 Partner Mills</h2>
+            <p class="ow-hero-sub">Total exposure ₹14.2 L in yarn out. 3 jobs land this week, 2 are running late.</p>
+          </div>
+          <div>
+            <div class="ow-hero-stat-label">Yarn Out</div>
+            <div class="ow-hero-stat-value">42,180<small> kg</small></div>
+            <div class="ow-hero-stat-meta">In 48 lots</div>
+          </div>
+          <div>
+            <div class="ow-hero-stat-label">Fabric Expected</div>
+            <div class="ow-hero-stat-value">2.18<small>L mtr</small></div>
+            <div class="ow-hero-stat-meta">Across 12 jobs</div>
+          </div>
+          <div>
+            <div class="ow-hero-stat-label">Avg Weaving Rate</div>
+            <div class="ow-hero-stat-value">₹6.40<small>/mtr</small></div>
+            <div class="ow-hero-stat-meta">Range ₹5.20 – ₹8.00</div>
+          </div>
+          <div>
+            <div class="ow-hero-stat-label">Late Jobs</div>
+            <div class="ow-hero-stat-value">2<small>/12</small></div>
+            <div class="ow-hero-stat-meta">Sundaram &amp; Anand</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Partner mills -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Partner Mills · Live Load</div>
+          <div class="section-sub">Each card shows the mill's current allocation and capacity utilization</div>
+        </div>
+      </div>
+
+      <div class="partner-grid">
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-1">SR</div>
+            <div>
+              <div class="partner-name">Sri Ranga Textiles</div>
+              <div class="partner-sub">Karur · 24 looms · ★ 4.8</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">3</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">8,420<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar"><span style="width: 82%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>82%</strong></span>
+            <span style="color: var(--success-600); font-weight: 700;">● On time</span>
+          </div>
+        </div>
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-2">VK</div>
+            <div>
+              <div class="partner-name">Vinayaga Weavers</div>
+              <div class="partner-sub">Erode · 18 looms · ★ 4.6</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">2</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">6,180<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar"><span style="width: 64%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>64%</strong></span>
+            <span style="color: var(--success-600); font-weight: 700;">● On time</span>
+          </div>
+        </div>
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-3">SD</div>
+            <div>
+              <div class="partner-name">Sundaram Looms</div>
+              <div class="partner-sub">Salem · 32 looms · ★ 4.2</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">3</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">11,240<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar warn"><span style="width: 95%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>95%</strong></span>
+            <span style="color: var(--rose-600); font-weight: 700;">● 1 late</span>
+          </div>
+        </div>
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-4">AN</div>
+            <div>
+              <div class="partner-name">Anand Tex</div>
+              <div class="partner-sub">Karur · 16 looms · ★ 4.0</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">1</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">4,820<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar danger"><span style="width: 72%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>72%</strong></span>
+            <span style="color: var(--rose-600); font-weight: 700;">● 4 days late</span>
+          </div>
+        </div>
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-5">KT</div>
+            <div>
+              <div class="partner-name">Kavitha Textiles</div>
+              <div class="partner-sub">Coimbatore · 22 looms · ★ 4.7</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">2</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">7,360<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar"><span style="width: 78%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>78%</strong></span>
+            <span style="color: var(--success-600); font-weight: 700;">● On time</span>
+          </div>
+        </div>
+
+        <div class="partner-card" onclick="openDrawer()">
+          <div class="partner-head">
+            <div class="partner-avatar pa-6">RM</div>
+            <div>
+              <div class="partner-name">Ramya Weaving</div>
+              <div class="partner-sub">Erode · 14 looms · ★ 4.5</div>
+            </div>
+          </div>
+          <div class="partner-stats">
+            <div>
+              <div class="partner-stat-label">Active Jobs</div>
+              <div class="partner-stat-value">1</div>
+            </div>
+            <div>
+              <div class="partner-stat-label">Yarn Out</div>
+              <div class="partner-stat-value">4,160<small> kg</small></div>
+            </div>
+          </div>
+          <div class="partner-bar"><span style="width: 58%;"></span></div>
+          <div class="partner-foot">
+            <span>Capacity <strong>58%</strong></span>
+            <span style="color: var(--success-600); font-weight: 700;">● On time</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Filter toolbar -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Active Jobs</div>
+          <div class="section-sub">12 jobs across 6 mills · click any row for details</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-search">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by job ID, fabric, mill…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All Status</button>
+          <button class="filter-chip">Yarn Sent</button>
+          <button class="filter-chip">Weaving</button>
+          <button class="filter-chip">Ready</button>
+          <button class="filter-chip">Overdue</button>
+        </div>
+      </div>
+
+      <!-- Jobs table -->
+      <div class="ow-table-wrap">
+        <table class="ow-table">
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Mill</th>
+              <th>Fabric</th>
+              <th class="num">Yarn Out</th>
+              <th class="num">Fabric Exp.</th>
+              <th>Progress</th>
+              <th>Days</th>
+              <th>Status</th>
+              <th class="num">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2618</div>
+                <div class="cell-muted">Sent 21 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-1">SR</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sri Ranga</div>
+                    <div class="cell-muted">Karur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 30s · 52"</div>
+                <div class="cell-muted">Plain · Grey</div>
+              </td>
+              <td class="num">2,840<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">14,200<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 68%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700;">68%</span>
+              </td>
+              <td><span class="days-pill">5 left</span></td>
+              <td><span class="pill-status pill-weaving">Weaving</span></td>
+              <td class="num cell-bold">₹89,460</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2617</div>
+                <div class="cell-muted">Sent 18 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-3">SD</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sundaram</div>
+                    <div class="cell-muted">Salem</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 40s · 60"</div>
+                <div class="cell-muted">Twill · Grey</div>
+              </td>
+              <td class="num">3,180<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">18,400<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress warn"><span style="width: 92%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700;">92%</span>
+              </td>
+              <td><span class="days-pill urgent">1 left</span></td>
+              <td><span class="pill-status pill-weaving">Weaving</span></td>
+              <td class="num cell-bold">₹1,28,800</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2615</div>
+                <div class="cell-muted">Sent 12 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-4">AN</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Anand Tex</div>
+                    <div class="cell-muted">Karur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 30s · 47"</div>
+                <div class="cell-muted">Plain · Grey</div>
+              </td>
+              <td class="num">2,460<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">12,300<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress danger"><span style="width: 55%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700; color: var(--rose-600);">55%</span>
+              </td>
+              <td><span class="days-pill late">−4 days</span></td>
+              <td><span class="pill-status pill-overdue">Overdue</span></td>
+              <td class="num cell-bold">₹76,860</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2614</div>
+                <div class="cell-muted">Sent 08 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-5">KT</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Kavitha</div>
+                    <div class="cell-muted">Coimbatore</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 65.5s · 60"</div>
+                <div class="cell-muted">Combed · Bleached</div>
+              </td>
+              <td class="num">3,840<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">22,800<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 100%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700; color: var(--success-600);">Done</span>
+              </td>
+              <td><span class="days-pill" style="background: rgba(16,185,129,0.14); color: var(--success-700);">Today</span></td>
+              <td><span class="pill-status pill-ready">Ready</span></td>
+              <td class="num cell-bold">₹1,82,400</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2613</div>
+                <div class="cell-muted">Sent 05 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-2">VK</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Vinayaga</div>
+                    <div class="cell-muted">Erode</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">150D Porvai · 84"</div>
+                <div class="cell-muted">Dobby Towel</div>
+              </td>
+              <td class="num">1,680<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">8,400<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 100%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700; color: var(--brand-700);">Received</span>
+              </td>
+              <td><span class="days-pill" style="background: var(--canvas-2); color: var(--ink-500);">Closed</span></td>
+              <td><span class="pill-status pill-received">Received</span></td>
+              <td class="num cell-bold">₹52,920</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2612</div>
+                <div class="cell-muted">Sent 02 Apr</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-1">SR</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sri Ranga</div>
+                    <div class="cell-muted">Karur</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 40s · 52"</div>
+                <div class="cell-muted">Plain · Grey</div>
+              </td>
+              <td class="num">2,920<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">16,200<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 42%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700;">42%</span>
+              </td>
+              <td><span class="days-pill">9 left</span></td>
+              <td><span class="pill-status pill-weaving">Weaving</span></td>
+              <td class="num cell-bold">₹1,03,680</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2611</div>
+                <div class="cell-muted">Sent 28 Mar</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-6">RM</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Ramya</div>
+                    <div class="cell-muted">Erode</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 30s · 56"</div>
+                <div class="cell-muted">Plain · Grey</div>
+              </td>
+              <td class="num">2,180<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">10,900<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 28%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700;">28%</span>
+              </td>
+              <td><span class="days-pill">14 left</span></td>
+              <td><span class="pill-status pill-yarn-sent">Yarn Sent</span></td>
+              <td class="num cell-bold">₹68,670</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td>
+                <div class="job-id">OW-2610</div>
+                <div class="cell-muted">Sent 25 Mar</div>
+              </td>
+              <td>
+                <div class="mini-mill">
+                  <div class="mini-mill-avatar pa-3">SD</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sundaram</div>
+                    <div class="cell-muted">Salem</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="cell-bold">Cotton 40s · 60"</div>
+                <div class="cell-muted">Plain · Grey</div>
+              </td>
+              <td class="num">3,640<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">21,400<small style="opacity:0.6;"> mtr</small></td>
+              <td>
+                <span class="progress"><span style="width: 78%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight:700;">78%</span>
+              </td>
+              <td><span class="days-pill">3 left</span></td>
+              <td><span class="pill-status pill-weaving">Weaving</span></td>
+              <td class="num cell-bold">₹1,49,800</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Drawer (job details) -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-row">
+      <div>
+        <div class="drawer-job-id">OW-2618 · Outsourced Job</div>
+        <div class="drawer-title">Cotton 30s · 52" Plain</div>
+        <div class="drawer-meta">Sri Ranga Textiles · Karur · Sent 21 Apr 2026</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">×</button>
+    </div>
+  </div>
+
+  <div class="drawer-body">
+
+    <!-- Stepper -->
+    <div class="stepper">
+      <div class="step done">
+        <span class="step-dot">✓</span>
+        <div class="step-label">Yarn Sent</div>
+      </div>
+      <div class="step done">
+        <span class="step-dot">✓</span>
+        <div class="step-label">Sizing</div>
+      </div>
+      <div class="step current">
+        <span class="step-dot">3</span>
+        <div class="step-label">Weaving</div>
+      </div>
+      <div class="step">
+        <span class="step-dot">4</span>
+        <div class="step-label">Ready</div>
+      </div>
+      <div class="step">
+        <span class="step-dot">5</span>
+        <div class="step-label">Received</div>
+      </div>
+    </div>
+
+    <!-- Info grid -->
+    <div class="info-grid">
+      <div>
+        <div class="info-item-label">Linked Sales Order</div>
+        <div class="info-item-value mono" style="color: var(--brand-700);">SO-2436</div>
+      </div>
+      <div>
+        <div class="info-item-label">Customer</div>
+        <div class="info-item-value">Vasanth Garments</div>
+      </div>
+      <div>
+        <div class="info-item-label">Sent Date</div>
+        <div class="info-item-value">21 Apr 2026</div>
+      </div>
+      <div>
+        <div class="info-item-label">Expected Return</div>
+        <div class="info-item-value">11 May 2026</div>
+      </div>
+      <div>
+        <div class="info-item-label">Weaving Rate</div>
+        <div class="info-item-value mono">₹6.30 / mtr</div>
+      </div>
+      <div>
+        <div class="info-item-label">Loom Type</div>
+        <div class="info-item-value">Sulzer · 8 looms</div>
+      </div>
+    </div>
+
+    <!-- Yarn allocation -->
+    <h3 class="panel-title">Yarn Allocation</h3>
+    <div class="yarn-list">
+      <div class="yarn-row">
+        <div>
+          <strong>Cotton 30s · Warp</strong>
+          <div style="font-size:11.5px; color: var(--ink-500);">Lot YL-1842 · From PRC Mills</div>
+        </div>
+        <span class="mono"><strong>1,820 kg</strong></span>
+      </div>
+      <div class="yarn-row">
+        <div>
+          <strong>Cotton 30s · Weft</strong>
+          <div style="font-size:11.5px; color: var(--ink-500);">Lot YL-1856 · From PRC Mills</div>
+        </div>
+        <span class="mono"><strong>1,020 kg</strong></span>
+      </div>
+      <div class="yarn-row" style="font-weight:800;">
+        <span>Total Yarn Sent</span>
+        <span class="mono">2,840 kg</span>
+      </div>
+    </div>
+
+    <!-- Cost block -->
+    <h3 class="panel-title">Cost Breakdown</h3>
+    <div class="cost-block">
+      <div class="cost-row">
+        <span>Weaving charge (14,200 mtr × ₹6.30)</span>
+        <span class="mono">₹89,460</span>
+      </div>
+      <div class="cost-row">
+        <span>Sizing charge (lump sum)</span>
+        <span class="mono">₹4,200</span>
+      </div>
+      <div class="cost-row">
+        <span>Transport (yarn out + fabric in)</span>
+        <span class="mono">₹3,800</span>
+      </div>
+      <div class="cost-row">
+        <span>Loss allowance (1.5% on yarn value)</span>
+        <span class="mono">₹4,920</span>
+      </div>
+      <div class="cost-row total">
+        <span>Total Outsource Cost</span>
+        <span class="mono">₹1,02,380</span>
+      </div>
+    </div>
+
+    <!-- Activity -->
+    <h3 class="panel-title">Recent Activity</h3>
+    <div style="font-size: 12.5px; color: var(--ink-700); line-height: 1.7;">
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: var(--brand-600);">●</span>
+        <div>
+          <strong>02 May</strong> · Mill reported 9,656 mtr woven (68%)
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: var(--brand-600);">●</span>
+        <div>
+          <strong>26 Apr</strong> · Sizing complete, weaving started on 8 looms
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0;">
+        <span style="color: var(--brand-600);">●</span>
+        <div>
+          <strong>21 Apr</strong> · 2,840 kg yarn dispatched · DC-1842
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-secondary" onclick="window.showToast('Receipt entry opened','info')">Record Receipt</button>
+    <button class="btn btn-primary" onclick="window.showToast('Mill update SMS sent','success')">Ping Mill</button>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+  }
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

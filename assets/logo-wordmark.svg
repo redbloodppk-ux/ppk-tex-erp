@@ -1,0 +1,51 @@
+<svg viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PPK TEX">
+  <defs>
+    <linearGradient id="wmBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="55%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="wmGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="wmText" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#4c1d95"/>
+    </linearGradient>
+    <linearGradient id="wmShimmer" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Mark (same as logo-mark.svg, scaled into 80×80 area at left) -->
+  <g>
+    <rect width="80" height="80" rx="20" fill="url(#wmBg)"/>
+    <rect width="80" height="40" rx="20" fill="url(#wmShimmer)"/>
+    <g stroke="#ffffff" stroke-width="0.6" opacity="0.08">
+      <line x1="14" y1="14" x2="14" y2="66"/>
+      <line x1="40" y1="14" x2="40" y2="66"/>
+      <line x1="66" y1="14" x2="66" y2="66"/>
+      <line x1="14" y1="14" x2="66" y2="14"/>
+      <line x1="14" y1="40" x2="66" y2="40"/>
+      <line x1="14" y1="66" x2="66" y2="66"/>
+    </g>
+    <g fill="#ffffff">
+      <rect x="20" y="18" width="11" height="44" rx="2.5"/>
+      <path d="M 31 18 L 49 18 A 13 13 0 0 1 49 44 L 31 44 Z"/>
+    </g>
+    <circle cx="56" cy="56" r="7" fill="url(#wmGold)"/>
+    <circle cx="56" cy="56" r="7" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.55"/>
+    <circle cx="53.6" cy="53.6" r="2" fill="#ffffff" opacity="0.55"/>
+  </g>
+
+  <!-- Wordmark "PPK" — bold display -->
+  <text x="100" y="44" font-family="Plus Jakarta Sans, Inter, sans-serif" font-size="32" font-weight="800" fill="url(#wmText)" letter-spacing="-1">PPK</text>
+
+  <!-- Wordmark "TEX" — gold tracking, same baseline -->
+  <text x="178" y="44" font-family="Plus Jakarta Sans, Inter, sans-serif" font-size="32" font-weight="800" fill="url(#wmGold)" letter-spacing="2">TEX</text>
+
+  <!-- Tagline -->
+  <text x="100" y="62" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#64748b" letter-spacing="2.5">TEXTILE · WEAVING · ERP</text>
+</svg>

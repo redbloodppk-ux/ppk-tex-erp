@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Resale · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* ============== Fabric Resale — page-specific ============== */
+
+    /* Hero — amber/orange gradient (trading vibe) */
+    .rs-hero {
+      background: linear-gradient(135deg, #b45309 0%, #ea580c 50%, #f59e0b 100%);
+      border-radius: var(--r-xl);
+      padding: 26px 30px;
+      color: white;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 18px 48px rgba(180, 83, 9, 0.32);
+    }
+    .rs-hero::before {
+      content: ''; position: absolute; top:-40%; right:-10%;
+      width: 320px; height: 320px;
+      background: radial-gradient(circle, rgba(255,255,255,0.20), transparent 65%);
+      filter: blur(40px);
+    }
+    .rs-hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(4, 1fr);
+      gap: 24px;
+      align-items: center;
+      position: relative;
+    }
+    .rs-hero-title {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .rs-hero-sub { font-size: 13px; opacity: 0.88; line-height: 1.5; max-width: 340px; }
+    .rs-hero-stat-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.7px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .rs-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .rs-hero-stat-value small { font-size: 12px; opacity: 0.7; font-weight: 600; margin-left: 3px; }
+    .rs-hero-stat-meta { font-size: 11px; opacity: 0.78; margin-top: 2px; }
+
+    /* Margin scoreboard */
+    .margin-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .m-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .m-card::before {
+      content: ''; position:absolute; inset:0 0 auto 0;
+      height: 3px; background: var(--grad-gold);
+    }
+    .m-card.success::before { background: var(--grad-success); }
+    .m-card.brand::before   { background: var(--grad-brand); }
+    .m-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .m-value {
+      font-family: var(--font-display);
+      font-size: 24px; font-weight: 800; color: var(--ink-900);
+      letter-spacing: -0.025em; line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .m-value small { font-size: 12px; opacity: 0.6; font-weight: 600; }
+    .m-meta { font-size: 11.5px; color: var(--ink-500); margin-top: 4px; }
+    .m-meta strong { color: var(--success-600); font-weight: 700; }
+    .m-meta strong.neg { color: var(--rose-600); }
+
+    /* Tabs (stock vs sales) */
+    .rs-tabs {
+      display: flex; gap: 4px;
+      background: var(--ink-50);
+      padding: 4px; border-radius: var(--r-md);
+      border: 1px solid var(--ink-200);
+      margin-bottom: 18px; width: fit-content;
+    }
+    .rs-tab {
+      padding: 10px 20px; font-size: 13px; font-weight: 600;
+      color: var(--ink-500); background: transparent;
+      border: none; border-radius: var(--r-sm);
+      cursor: pointer; font-family: inherit;
+      transition: all 0.18s var(--ease-smooth);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .rs-tab:hover { color: var(--brand-600); }
+    .rs-tab.active {
+      background: var(--paper);
+      color: var(--brand-700);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Stock cards (lots in stock) */
+    .stock-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stock-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all 0.22s var(--ease-smooth);
+      position: relative;
+      overflow: hidden;
+    }
+    .stock-card:hover {
+      border-color: var(--gold-400);
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-3px);
+    }
+    .stock-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .stock-lot {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brand-700);
+      letter-spacing: 0.4px;
+    }
+    .stock-spec {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 16px;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+      margin: 4px 0 2px 0;
+    }
+    .stock-sub { font-size: 11.5px; color: var(--ink-500); }
+
+    .stock-pill {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .sp-fresh    { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .sp-aging    { background: rgba(245,158,11,0.14); color: #b45309; }
+    .sp-stale    { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .stock-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 12px;
+      background: var(--canvas-2);
+      border-radius: var(--r-sm);
+      margin-bottom: 12px;
+    }
+    .ss-label {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--ink-500);
+      font-weight: 700;
+    }
+    .ss-value {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--ink-900);
+      font-variant-numeric: tabular-nums;
+    }
+    .ss-value small { font-size: 10px; opacity: 0.6; }
+
+    .margin-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--ink-700);
+    }
+    .margin-bar-track {
+      flex: 1;
+      height: 6px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+    }
+    .margin-bar-fill {
+      display: block;
+      height: 100%;
+      background: var(--grad-success);
+      border-radius: var(--r-full);
+    }
+    .margin-bar-fill.warn { background: var(--grad-gold); }
+    .margin-bar-fill.danger { background: var(--grad-rose); }
+
+    /* Section header */
+    .section-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 6px 0 14px 0;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); letter-spacing: -0.01em;
+    }
+    .section-sub { font-size: 12px; color: var(--ink-500); margin-top: 2px; }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 14px;
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .toolbar-search {
+      flex: 1; min-width: 220px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--canvas-2);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      font-size: 13px;
+    }
+    .toolbar-search input {
+      flex: 1; background: transparent; border: none; outline: none;
+      font-size: 13px; font-family: inherit; color: var(--ink-900);
+    }
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* Sales transactions table */
+    .rs-table-wrap {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .rs-table thead th {
+      text-align: left;
+      padding: 12px 14px;
+      background: var(--canvas-2);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .rs-table tbody td {
+      padding: 14px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .rs-table tbody tr {
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    .rs-table tbody tr:hover { background: var(--canvas-2); }
+    .rs-table tbody tr:last-child td { border-bottom: none; }
+
+    .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cell-muted { color: var(--ink-500); font-size: 11.5px; margin-top: 2px; }
+    .cell-bold { font-weight: 700; color: var(--ink-900); }
+
+    .margin-pill {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 800;
+      background: rgba(16,185,129,0.14);
+      color: var(--success-700);
+    }
+    .margin-pill.warn { background: rgba(245,158,11,0.14); color: #b45309; }
+    .margin-pill.thin { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .pill-status {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .pill-stocked  { background: rgba(99,102,241,0.12); color: var(--brand-700); }
+    .pill-sold     { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .pill-partial  { background: rgba(245,158,11,0.14); color: #b45309; }
+
+    /* Drawer */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s; z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .drawer {
+      position: fixed; top: 0; right: 0;
+      width: 540px; max-width: 95vw; height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex; flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(245,158,11,0.06), rgba(234,88,12,0.06));
+    }
+    .drawer-head-row {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 16px;
+    }
+    .drawer-job-id {
+      font-family: var(--font-mono); font-size: 11px;
+      color: #b45309; font-weight: 700; letter-spacing: 0.5px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.02em;
+      margin: 4px 0 6px 0;
+    }
+    .drawer-meta { font-size: 12.5px; color: var(--ink-500); }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 22px 24px; }
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-700); text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin: 0 0 12px 0;
+    }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 14px 18px; margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px dashed var(--ink-200);
+    }
+    .info-item-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .info-item-value {
+      font-size: 14px; font-weight: 600; color: var(--ink-900);
+    }
+    .info-item-value.mono { font-family: var(--font-mono); }
+    .pl-block {
+      background: linear-gradient(135deg, rgba(245,158,11,0.06), rgba(234,88,12,0.06));
+      border: 1px solid rgba(245,158,11,0.18);
+      border-radius: var(--r-md);
+      padding: 16px; margin-bottom: 20px;
+    }
+    .pl-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0; font-size: 13px; color: var(--ink-700);
+    }
+    .pl-row.pos .mono { color: var(--success-700); font-weight: 700; }
+    .pl-row.neg .mono { color: var(--rose-700); }
+    .pl-row.total {
+      border-top: 1px solid rgba(245,158,11,0.32);
+      margin-top: 6px; padding-top: 12px;
+      font-weight: 800; font-size: 15px; color: var(--ink-900);
+    }
+    .pl-row .mono { font-family: var(--font-mono); }
+    .drawer-foot {
+      padding: 16px 24px;
+      border-top: 1px solid var(--ink-100);
+      background: var(--canvas-2);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    @media (max-width: 1024px) {
+      .rs-hero-grid { grid-template-columns: 1fr 1fr; }
+      .margin-strip { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .rs-hero-grid { grid-template-columns: 1fr; }
+      .margin-strip { grid-template-columns: 1fr; }
+      .stock-grid { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="resale"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search lots, suppliers, customers…"></div>
+
+    <div class="content">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Transactions</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Fabric Resale</span>
+      </div>
+
+      <!-- Header -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Fabric Resale</h1>
+          <p class="page-header-sub">Buy finished fabric, sell to customers — pure trading, no weaving</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Resale ledger exported','success')">
+            <span>↓</span> Export
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('New purchase entry','info')">
+            <span style="font-size:18px;">+</span> Buy Lot
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour -->
+      <div class="tour">
+        <div class="tour-icon">↻</div>
+        <div class="tour-text">
+          <strong>Fabric Resale — your trading book.</strong>
+          You buy finished fabric from a mill at one rate and sell it at a higher rate. The gap minus transport &amp; commission = margin. Use the cards below to track lots in stock and the table to see every sale's P&amp;L.
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="rs-hero">
+        <div class="rs-hero-grid">
+          <div>
+            <h2 class="rs-hero-title">14 Lots in Stock · ₹8.4 L Capital Locked</h2>
+            <p class="rs-hero-sub">Average margin 8.6% on May trades. Best deal: SR-Lot-188 at 14.2%.</p>
+          </div>
+          <div>
+            <div class="rs-hero-stat-label">Stock on Hand</div>
+            <div class="rs-hero-stat-value">62,400<small> mtr</small></div>
+            <div class="rs-hero-stat-meta">14 lots</div>
+          </div>
+          <div>
+            <div class="rs-hero-stat-label">Sold (May)</div>
+            <div class="rs-hero-stat-value">28,200<small> mtr</small></div>
+            <div class="rs-hero-stat-meta">9 invoices</div>
+          </div>
+          <div>
+            <div class="rs-hero-stat-label">Margin (May)</div>
+            <div class="rs-hero-stat-value">₹98K</div>
+            <div class="rs-hero-stat-meta">8.6% on sales</div>
+          </div>
+          <div>
+            <div class="rs-hero-stat-label">Aging > 30d</div>
+            <div class="rs-hero-stat-value">3<small> lots</small></div>
+            <div class="rs-hero-stat-meta">Move soon</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Margin scoreboard -->
+      <div class="margin-strip">
+        <div class="m-card success">
+          <div class="m-label">Best Lot This Month</div>
+          <div class="m-value">14.2<small>%</small></div>
+          <div class="m-meta">SR-Lot-188 · 8,400 mtr</div>
+        </div>
+        <div class="m-card brand">
+          <div class="m-label">Avg Cost / mtr</div>
+          <div class="m-value">₹78.40</div>
+          <div class="m-meta">Bought 28k mtr @ ₹22 L</div>
+        </div>
+        <div class="m-card">
+          <div class="m-label">Avg Sell / mtr</div>
+          <div class="m-value">₹85.10</div>
+          <div class="m-meta"><strong>+₹6.70</strong> margin / mtr</div>
+        </div>
+        <div class="m-card success">
+          <div class="m-label">Inventory Turn</div>
+          <div class="m-value">2.3<small>×</small></div>
+          <div class="m-meta">Industry avg 1.6×</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="rs-tabs">
+        <button class="rs-tab active">📦 In Stock <span style="font-family:var(--font-mono); font-size:11px; opacity:0.6;">(14)</span></button>
+        <button class="rs-tab">↗ Sold <span style="font-family:var(--font-mono); font-size:11px; opacity:0.6;">(9)</span></button>
+        <button class="rs-tab">⏱ Aging <span style="font-family:var(--font-mono); font-size:11px; opacity:0.6;">(3)</span></button>
+      </div>
+
+      <!-- Stock cards -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Lots in Stock</div>
+          <div class="section-sub">Click a lot to see purchase, current value, and selling history</div>
+        </div>
+      </div>
+
+      <div class="stock-grid">
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-194</div>
+              <div class="stock-spec">Cotton 40s · 60" Twill</div>
+              <div class="stock-sub">From Sundaram Looms · 24 Apr</div>
+            </div>
+            <span class="stock-pill sp-fresh">Fresh · 12d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">8,400<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹76<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹84<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: var(--success-700);">+10.5%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill" style="width: 70%"></span></span>
+            <span style="font-size: 11px; color: var(--ink-500);">target 12%</span>
+          </div>
+        </div>
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-193</div>
+              <div class="stock-spec">Cotton 30s · 56" Plain</div>
+              <div class="stock-sub">From Sri Ranga · 20 Apr</div>
+            </div>
+            <span class="stock-pill sp-fresh">Fresh · 16d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">5,200<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹72<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹79<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: var(--success-700);">+9.7%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill" style="width: 65%"></span></span>
+            <span style="font-size: 11px; color: var(--ink-500);">target 10%</span>
+          </div>
+        </div>
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-188</div>
+              <div class="stock-spec">Cotton 65.5s · 60" Bleached</div>
+              <div class="stock-sub">From Kavitha Tex · 12 Apr</div>
+            </div>
+            <span class="stock-pill sp-aging">Aging · 24d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">3,640<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹98<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹112<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: var(--success-700);">+14.2%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill" style="width: 95%"></span></span>
+            <span style="font-size: 11px; color: var(--ink-500);">★ best</span>
+          </div>
+        </div>
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-184</div>
+              <div class="stock-spec">Cotton 40s · 47" Plain</div>
+              <div class="stock-sub">From Vinayaga · 02 Apr</div>
+            </div>
+            <span class="stock-pill sp-stale">Stale · 34d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">2,840<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹74<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹78<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: #b45309;">+5.4%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill warn" style="width: 36%"></span></span>
+            <span style="font-size: 11px; color: var(--rose-600);">move soon</span>
+          </div>
+        </div>
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-180</div>
+              <div class="stock-spec">150D Porvai · 84" Towel</div>
+              <div class="stock-sub">From Ramya · 28 Mar</div>
+            </div>
+            <span class="stock-pill sp-stale">Stale · 38d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">1,420<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹64<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹68<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: var(--rose-600);">+6.3%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill danger" style="width: 42%"></span></span>
+            <span style="font-size: 11px; color: var(--rose-600);">price-cut?</span>
+          </div>
+        </div>
+
+        <div class="stock-card" onclick="openDrawer()">
+          <div class="stock-card-head">
+            <div>
+              <div class="stock-lot">RS-Lot-191</div>
+              <div class="stock-spec">Cotton 30s · 52" Plain</div>
+              <div class="stock-sub">From Anand Tex · 18 Apr</div>
+            </div>
+            <span class="stock-pill sp-fresh">Fresh · 18d</span>
+          </div>
+          <div class="stock-stats">
+            <div>
+              <div class="ss-label">In Stock</div>
+              <div class="ss-value">6,840<small> m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Cost</div>
+              <div class="ss-value">₹68<small>/m</small></div>
+            </div>
+            <div>
+              <div class="ss-label">Asking</div>
+              <div class="ss-value">₹74<small>/m</small></div>
+            </div>
+          </div>
+          <div class="margin-bar">
+            <span style="font-weight:700; color: var(--success-700);">+8.8%</span>
+            <span class="margin-bar-track"><span class="margin-bar-fill" style="width: 60%"></span></span>
+            <span style="font-size: 11px; color: var(--ink-500);">target 10%</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Sales table -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Recent Sales</div>
+          <div class="section-sub">Last 9 resale invoices · click for full P&amp;L</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-search">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by invoice, customer, lot…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All</button>
+          <button class="filter-chip">This week</button>
+          <button class="filter-chip">High margin</button>
+          <button class="filter-chip">Pending payment</button>
+        </div>
+      </div>
+
+      <div class="rs-table-wrap">
+        <table class="rs-table">
+          <thead>
+            <tr>
+              <th>Invoice</th>
+              <th>Customer</th>
+              <th>Fabric</th>
+              <th class="num">Qty</th>
+              <th class="num">Cost</th>
+              <th class="num">Sale</th>
+              <th class="num">Margin</th>
+              <th class="num">Profit</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1024</span><div class="cell-muted">04 May</div></td>
+              <td><div class="cell-bold">Vasanth Garments</div><div class="cell-muted">Coimbatore</div></td>
+              <td><div class="cell-bold">40s · 60" Twill</div><div class="cell-muted">RS-Lot-194</div></td>
+              <td class="num">4,200<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹3,19,200</td>
+              <td class="num cell-bold">₹3,52,800</td>
+              <td class="num"><span class="margin-pill">+10.5%</span></td>
+              <td class="num cell-bold" style="color: var(--success-700);">₹33,600</td>
+              <td><span class="pill-status pill-sold">Sold</span></td>
+            </tr>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1023</span><div class="cell-muted">02 May</div></td>
+              <td><div class="cell-bold">Saravana Group</div><div class="cell-muted">Erode</div></td>
+              <td><div class="cell-bold">65.5s · 60" Bleached</div><div class="cell-muted">RS-Lot-188</div></td>
+              <td class="num">4,200<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹4,11,600</td>
+              <td class="num cell-bold">₹4,70,400</td>
+              <td class="num"><span class="margin-pill">+14.2%</span></td>
+              <td class="num cell-bold" style="color: var(--success-700);">₹58,800</td>
+              <td><span class="pill-status pill-sold">Sold</span></td>
+            </tr>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1022</span><div class="cell-muted">01 May</div></td>
+              <td><div class="cell-bold">Prashanth Textiles</div><div class="cell-muted">Tirupur</div></td>
+              <td><div class="cell-bold">30s · 56" Plain</div><div class="cell-muted">RS-Lot-193</div></td>
+              <td class="num">3,800<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹2,73,600</td>
+              <td class="num cell-bold">₹3,00,200</td>
+              <td class="num"><span class="margin-pill">+9.7%</span></td>
+              <td class="num cell-bold" style="color: var(--success-700);">₹26,600</td>
+              <td><span class="pill-status pill-partial">Partial Pay</span></td>
+            </tr>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1021</span><div class="cell-muted">28 Apr</div></td>
+              <td><div class="cell-bold">Ranjini Textiles</div><div class="cell-muted">Karur</div></td>
+              <td><div class="cell-bold">40s · 47" Plain</div><div class="cell-muted">RS-Lot-184</div></td>
+              <td class="num">2,400<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹1,77,600</td>
+              <td class="num cell-bold">₹1,87,200</td>
+              <td class="num"><span class="margin-pill warn">+5.4%</span></td>
+              <td class="num cell-bold">₹9,600</td>
+              <td><span class="pill-status pill-sold">Sold</span></td>
+            </tr>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1020</span><div class="cell-muted">26 Apr</div></td>
+              <td><div class="cell-bold">Devi Knits</div><div class="cell-muted">Tirupur</div></td>
+              <td><div class="cell-bold">30s · 52" Plain</div><div class="cell-muted">RS-Lot-191</div></td>
+              <td class="num">2,800<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹1,90,400</td>
+              <td class="num cell-bold">₹2,07,200</td>
+              <td class="num"><span class="margin-pill">+8.8%</span></td>
+              <td class="num cell-bold" style="color: var(--success-700);">₹16,800</td>
+              <td><span class="pill-status pill-sold">Sold</span></td>
+            </tr>
+            <tr onclick="openDrawer()">
+              <td><span class="cell-bold" style="font-family: var(--font-mono); color: #b45309;">RS-INV-1019</span><div class="cell-muted">24 Apr</div></td>
+              <td><div class="cell-bold">Vasanth Garments</div><div class="cell-muted">Coimbatore</div></td>
+              <td><div class="cell-bold">150D Porvai · 84"</div><div class="cell-muted">RS-Lot-180</div></td>
+              <td class="num">980<small style="opacity:0.6;"> m</small></td>
+              <td class="num">₹62,720</td>
+              <td class="num cell-bold">₹66,640</td>
+              <td class="num"><span class="margin-pill thin">+6.3%</span></td>
+              <td class="num cell-bold">₹3,920</td>
+              <td><span class="pill-status pill-sold">Sold</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-row">
+      <div>
+        <div class="drawer-job-id">RS-Lot-194 · Resale Lot</div>
+        <div class="drawer-title">Cotton 40s · 60" Twill</div>
+        <div class="drawer-meta">Sundaram Looms · Bought 24 Apr 2026 · 12 days old</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">×</button>
+    </div>
+  </div>
+
+  <div class="drawer-body">
+
+    <div class="info-grid">
+      <div>
+        <div class="info-item-label">Purchased From</div>
+        <div class="info-item-value">Sundaram Looms · Salem</div>
+      </div>
+      <div>
+        <div class="info-item-label">Purchase Bill</div>
+        <div class="info-item-value mono" style="color: var(--brand-700);">SL-INV-2418</div>
+      </div>
+      <div>
+        <div class="info-item-label">Bought Qty</div>
+        <div class="info-item-value mono">12,600 mtr</div>
+      </div>
+      <div>
+        <div class="info-item-label">In Stock</div>
+        <div class="info-item-value mono">8,400 mtr</div>
+      </div>
+      <div>
+        <div class="info-item-label">Bought Rate</div>
+        <div class="info-item-value mono">₹76 / mtr</div>
+      </div>
+      <div>
+        <div class="info-item-label">Asking Rate</div>
+        <div class="info-item-value mono">₹84 / mtr</div>
+      </div>
+    </div>
+
+    <h3 class="panel-title">Lot P&amp;L (so far)</h3>
+    <div class="pl-block">
+      <div class="pl-row neg">
+        <span>Purchase (12,600 × ₹76)</span>
+        <span class="mono">−₹9,57,600</span>
+      </div>
+      <div class="pl-row neg">
+        <span>Transport in</span>
+        <span class="mono">−₹4,200</span>
+      </div>
+      <div class="pl-row pos">
+        <span>Sold (4,200 m × ₹84)</span>
+        <span class="mono">+₹3,52,800</span>
+      </div>
+      <div class="pl-row">
+        <span>Stock value (8,400 × ₹76 cost)</span>
+        <span class="mono">₹6,38,400</span>
+      </div>
+      <div class="pl-row total">
+        <span>Realized Margin</span>
+        <span class="mono" style="color: var(--success-700);">+₹33,600 (+10.5%)</span>
+      </div>
+    </div>
+
+    <h3 class="panel-title">Sale History</h3>
+    <div style="font-size: 12.5px; color: var(--ink-700); line-height: 1.7;">
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: #b45309;">●</span>
+        <div><strong>04 May</strong> · 4,200 m → Vasanth Garments @ ₹84/m · ₹33,600 profit</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0;">
+        <span style="color: #b45309;">●</span>
+        <div><strong>24 Apr</strong> · Lot received · 12,600 m at ₹76/m</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-secondary" onclick="window.showToast('Stock adjusted','info')">Adjust Stock</button>
+    <button class="btn btn-primary" onclick="window.showToast('Sale invoice opened','success')">Sell from Lot</button>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+  }
+  document.querySelectorAll('.filter-chip, .rs-tab').forEach(c => {
+    c.addEventListener('click', () => {
+      const peers = c.classList.contains('rs-tab') ? '.rs-tab' : '.filter-chip';
+      document.querySelectorAll(peers).forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Settings — page-specific (slate / neutral admin theme) */
+
+    /* 2-column layout: settings nav + content */
+    .set-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Settings nav */
+    .set-nav {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 8px;
+      box-shadow: var(--shadow-sm);
+      position: sticky;
+      top: 86px;
+    }
+    .set-nav-section {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.6px; font-weight: 700;
+      color: var(--ink-400);
+      padding: 12px 12px 6px;
+    }
+    .set-nav-link {
+      display: flex; align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-700);
+      border-radius: var(--r-md);
+      cursor: pointer;
+      text-decoration: none;
+      transition: background var(--t-snap), color var(--t-snap);
+    }
+    .set-nav-link:hover {
+      background: var(--ink-50);
+      color: var(--ink-900);
+    }
+    .set-nav-link.active {
+      background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.10));
+      color: var(--brand-700);
+    }
+    .set-nav-icon {
+      width: 22px; text-align: center;
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    .set-nav-link.active .set-nav-icon { opacity: 1; }
+    .set-nav-link span:last-child { flex: 1; }
+    .set-nav-pill {
+      font-size: 10px; font-weight: 700;
+      padding: 1px 7px;
+      background: var(--brand-100);
+      color: var(--brand-700);
+      border-radius: 4px;
+    }
+
+    /* Settings panels */
+    .set-content {
+      display: flex; flex-direction: column;
+      gap: 20px;
+    }
+    .set-panel {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-xl);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .set-panel-head {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 16px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .set-panel-title {
+      font-family: var(--font-display);
+      font-size: 17px; font-weight: 800;
+      color: var(--ink-900); margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .set-panel-desc {
+      font-size: 12.5px; color: var(--ink-500);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+    .set-panel-icon {
+      width: 44px; height: 44px;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      color: white;
+      box-shadow: var(--shadow-sm);
+    }
+    .set-panel-icon.company { background: var(--grad-brand); }
+    .set-panel-icon.looms { background: var(--grad-gold); }
+    .set-panel-icon.users { background: linear-gradient(135deg,#0d9488,#06b6d4); }
+    .set-panel-icon.numbering { background: linear-gradient(135deg,#7c3aed,#a855f7); }
+    .set-panel-icon.backup { background: linear-gradient(135deg,#0369a1,#0284c7); }
+
+    /* Form rows */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-grid.full > .form-row { grid-column: 1 / -1; }
+
+    .form-row {
+      display: flex; flex-direction: column;
+      gap: 6px;
+    }
+    .form-row.full { grid-column: 1 / -1; }
+    .form-label {
+      font-size: 11.5px; text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      font-weight: 700;
+    }
+    .form-input, .form-textarea, .form-select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 13.5px;
+      font-family: inherit;
+      color: var(--ink-900);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      outline: none;
+      transition: all var(--t-snap);
+      box-sizing: border-box;
+    }
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
+      background: var(--paper);
+      border-color: var(--brand-500);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    }
+    .form-textarea { min-height: 70px; resize: vertical; }
+    .form-help {
+      font-size: 11px; color: var(--ink-500);
+      margin-top: 2px;
+    }
+
+    /* Logo upload */
+    .logo-row {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 22px;
+    }
+    .logo-preview {
+      width: 80px; height: 80px;
+      border-radius: var(--r-md);
+      background: linear-gradient(135deg, var(--ink-900), var(--brand-700));
+      color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      flex-direction: column;
+      box-shadow: var(--shadow-md);
+    }
+    .logo-preview-main {
+      font-size: 18px;
+    }
+    .logo-preview-main span { color: var(--gold-400); }
+    .logo-preview-sub {
+      font-size: 9px;
+      letter-spacing: 1px;
+      opacity: 0.8;
+      margin-top: 2px;
+    }
+    .logo-upload-btn {
+      padding: 10px 16px;
+      font-size: 12.5px;
+      font-weight: 600;
+      background: var(--paper);
+      border: 1px dashed var(--ink-300);
+      border-radius: var(--r-md);
+      cursor: pointer;
+      color: var(--ink-700);
+      transition: all var(--t-snap);
+    }
+    .logo-upload-btn:hover {
+      border-color: var(--brand-500);
+      color: var(--brand-700);
+      background: var(--ink-50);
+    }
+
+    /* Toggle switches */
+    .toggle-row {
+      display: flex; justify-content: space-between;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-info {
+      flex: 1; padding-right: 16px;
+    }
+    .toggle-name {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--ink-900);
+    }
+    .toggle-desc {
+      font-size: 11.5px;
+      color: var(--ink-500);
+      margin-top: 3px;
+      line-height: 1.5;
+    }
+    .toggle {
+      position: relative;
+      width: 42px; height: 24px;
+      background: var(--ink-200);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background var(--t-snap);
+      flex-shrink: 0;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: var(--shadow-sm);
+      transition: transform var(--t-snap);
+    }
+    .toggle.on {
+      background: linear-gradient(135deg, var(--brand-600), var(--brand-700));
+    }
+    .toggle.on::after {
+      transform: translateX(18px);
+    }
+
+    /* LOOMS overhead breakdown */
+    .looms-card {
+      background: linear-gradient(135deg, #fffbeb, #fef3c7);
+      border: 1px solid #fcd34d;
+      border-radius: var(--r-md);
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+    .looms-headline {
+      display: flex; justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 14px;
+    }
+    .looms-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.6px; font-weight: 700;
+      color: #92400e;
+    }
+    .looms-num {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      color: #78350f;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .looms-num small {
+      font-size: 14px; opacity: 0.78;
+      font-weight: 600;
+    }
+    .looms-rows {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .looms-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0;
+      font-size: 12.5px;
+      border-bottom: 1px dashed rgba(146,64,14,0.18);
+    }
+    .looms-row span:last-child {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    /* Numbering preview */
+    .num-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .num-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .num-row:last-child { border-bottom: none; }
+    .num-doc {
+      font-size: 12.5px; font-weight: 700;
+      color: var(--ink-900);
+    }
+    .num-pattern {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--ink-500);
+      margin-top: 2px;
+    }
+    .num-current {
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 700;
+      color: var(--brand-700);
+      background: var(--brand-50);
+      border: 1px solid var(--brand-100);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* User table */
+    .user-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    .user-table thead th {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+      color: var(--ink-500);
+      padding: 10px 12px;
+      background: var(--ink-50);
+      border-bottom: 1px solid var(--ink-200);
+      text-align: left;
+    }
+    .user-table tbody td {
+      padding: 12px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .user-table tbody tr:hover { background: var(--ink-50); }
+    .u-cell { display: flex; align-items: center; gap: 10px; }
+    .u-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 11px; font-weight: 700;
+      font-family: var(--font-display);
+      flex-shrink: 0;
+    }
+    .u-name { font-weight: 700; color: var(--ink-900); }
+    .u-email { font-size: 11px; color: var(--ink-500); margin-top: 2px; }
+    .role-pill {
+      font-size: 10.5px; font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+    .role-pill.owner { background: #fef3c7; color: #92400e; }
+    .role-pill.mgr   { background: #dbeafe; color: #1e3a8a; }
+    .role-pill.op    { background: #d1fae5; color: #065f46; }
+    .role-pill.fin   { background: #ede9fe; color: #5b21b6; }
+
+    /* Save bar */
+    .save-bar {
+      position: sticky;
+      bottom: 12px;
+      background: linear-gradient(135deg, var(--ink-900) 0%, var(--brand-700) 100%);
+      color: white;
+      border-radius: var(--r-lg);
+      padding: 14px 20px;
+      display: flex; justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 12px 30px rgba(15,23,42,0.30);
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .save-msg {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .save-msg strong { font-weight: 800; }
+    .save-actions {
+      display: flex; gap: 10px;
+    }
+    .save-actions .btn-secondary {
+      background: rgba(255,255,255,0.12);
+      color: white;
+      border-color: rgba(255,255,255,0.18);
+    }
+    .save-actions .btn-secondary:hover {
+      background: rgba(255,255,255,0.20);
+    }
+    .save-actions .btn-primary {
+      background: white;
+      color: var(--ink-900);
+      border-color: transparent;
+    }
+    .save-actions .btn-primary:hover {
+      background: rgba(255,255,255,0.92);
+    }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .set-layout { grid-template-columns: 1fr; }
+      .set-nav { position: relative; top: auto; }
+    }
+    @media (max-width: 720px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .looms-rows { grid-template-columns: 1fr; }
+      .num-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="settings"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search settings, users, integrations…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>System</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Settings</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Settings</h1>
+          <p class="page-header-sub">Company · users · numbering · LOOMS overhead · backups · integrations</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Backup downloaded','success')">
+            <span>↓</span> Download backup
+          </button>
+        </div>
+      </div>
+
+      <div class="tour-banner">
+        <div class="tour-banner-icon">⚙</div>
+        <div class="tour-banner-text">
+          <strong>Configure your ERP.</strong>
+          The most important panel is <em>LOOMS overhead</em> — it drives the True Cost calculation in Fabric Costing. Currently set to ₹5.14/m. Update it if power, labour or maintenance costs change.
+        </div>
+        <button class="tour-banner-close" onclick="this.parentElement.style.display='none'">✕</button>
+      </div>
+
+      <!-- Two-column layout -->
+      <div class="set-layout">
+
+        <!-- Left settings nav -->
+        <nav class="set-nav">
+          <div class="set-nav-section">Organization</div>
+          <a class="set-nav-link active"><span class="set-nav-icon">⌂</span><span>Company profile</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">👥</span><span>Users &amp; roles</span><span class="set-nav-pill">5</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">🔒</span><span>Security · 2FA</span></a>
+
+          <div class="set-nav-section">Business rules</div>
+          <a class="set-nav-link"><span class="set-nav-icon">₹</span><span>LOOMS overhead</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">№</span><span>Numbering · sequences</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">🧾</span><span>GST &amp; tax</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">📋</span><span>Approval flows</span></a>
+
+          <div class="set-nav-section">System</div>
+          <a class="set-nav-link"><span class="set-nav-icon">🔔</span><span>Notifications</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">↻</span><span>Backups &amp; data</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">⇄</span><span>Integrations</span><span class="set-nav-pill">2</span></a>
+          <a class="set-nav-link"><span class="set-nav-icon">🌐</span><span>Localization</span></a>
+        </nav>
+
+        <!-- Right content -->
+        <div class="set-content">
+
+          <!-- Company profile -->
+          <div class="set-panel">
+            <div class="set-panel-head">
+              <div style="display:flex; gap:14px; align-items:flex-start;">
+                <div class="set-panel-icon company">⌂</div>
+                <div>
+                  <h2 class="set-panel-title">Company profile</h2>
+                  <p class="set-panel-desc">Legal name, address and tax IDs that print on every invoice, PO and contract.</p>
+                </div>
+              </div>
+              <button class="btn btn-ghost" style="font-size:12px;">Restore defaults</button>
+            </div>
+
+            <div class="logo-row">
+              <div class="logo-preview">
+                <div class="logo-preview-main">PPK <span>TEX</span></div>
+                <div class="logo-preview-sub">EST. 2010</div>
+              </div>
+              <div>
+                <button class="logo-upload-btn">↑ Replace logo (PNG/SVG, max 1 MB)</button>
+                <div class="form-help" style="margin-top:6px;">Used on invoices, packing slips, hangtags, email signatures.</div>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-row">
+                <label class="form-label">Legal name</label>
+                <input class="form-input" type="text" value="PPK Tex Industries">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Trading name</label>
+                <input class="form-input" type="text" value="PPK TEX">
+              </div>
+              <div class="form-row full">
+                <label class="form-label">Registered address</label>
+                <textarea class="form-textarea">Plot 12, SIDCO Industrial Estate, Coimbatore – 641021, Tamil Nadu, India</textarea>
+              </div>
+              <div class="form-row">
+                <label class="form-label">GSTIN</label>
+                <input class="form-input" type="text" value="33AAAFP1234C1Z5" style="font-family:var(--font-mono);">
+              </div>
+              <div class="form-row">
+                <label class="form-label">PAN</label>
+                <input class="form-input" type="text" value="AAAFP1234C" style="font-family:var(--font-mono);">
+              </div>
+              <div class="form-row">
+                <label class="form-label">CIN / Registration</label>
+                <input class="form-input" type="text" value="—" placeholder="Optional">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Phone</label>
+                <input class="form-input" type="text" value="+91 99765 43210" style="font-family:var(--font-mono);">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Email</label>
+                <input class="form-input" type="email" value="hello@ppktex.in">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Website</label>
+                <input class="form-input" type="text" value="ppktex.in">
+              </div>
+            </div>
+          </div>
+
+          <!-- LOOMS overhead -->
+          <div class="set-panel">
+            <div class="set-panel-head">
+              <div style="display:flex; gap:14px; align-items:flex-start;">
+                <div class="set-panel-icon looms">₹</div>
+                <div>
+                  <h2 class="set-panel-title">LOOMS overhead · True Cost driver</h2>
+                  <p class="set-panel-desc">Power · labour · maintenance · depreciation, allocated per metre. Drives the True Cost calculation in Fabric Costing.</p>
+                </div>
+              </div>
+              <span class="role-pill owner">Critical</span>
+            </div>
+
+            <div class="looms-card">
+              <div class="looms-headline">
+                <div>
+                  <div class="looms-label">Current allocation</div>
+                  <div class="looms-num">₹5.14<small>/metre</small></div>
+                </div>
+                <div style="text-align:right;">
+                  <div class="looms-label" style="text-align:right;">Effective from</div>
+                  <div style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:#78350f;">1 Apr 2026</div>
+                </div>
+              </div>
+              <div class="looms-rows">
+                <div class="looms-row"><span>Power (₹/m)</span><span>₹2.10</span></div>
+                <div class="looms-row"><span>Labour (₹/m)</span><span>₹1.84</span></div>
+                <div class="looms-row"><span>Maintenance</span><span>₹0.62</span></div>
+                <div class="looms-row"><span>Depreciation</span><span>₹0.48</span></div>
+                <div class="looms-row"><span>Insurance + misc</span><span>₹0.10</span></div>
+                <div class="looms-row" style="border-top:2px solid #92400e; padding-top:8px; margin-top:4px; border-bottom:none; font-weight:800;">
+                  <span>Total per metre</span><span style="font-size:14px;">₹5.14</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-row">
+                <label class="form-label">Allocation method</label>
+                <select class="form-select">
+                  <option>Per metre produced</option>
+                  <option>Per loom-hour</option>
+                  <option>% of yarn cost</option>
+                </select>
+                <div class="form-help">Used to spread fixed costs across each unit produced.</div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Recompute frequency</label>
+                <select class="form-select">
+                  <option>Monthly (1st of month)</option>
+                  <option>Quarterly</option>
+                  <option>Manual only</option>
+                </select>
+                <div class="form-help">System will alert you when next recompute is due.</div>
+              </div>
+              <div class="form-row full">
+                <label class="form-label">Auto-update Fabric Costing when this changes?</label>
+                <div class="toggle-row" style="padding:10px 0; border:none;">
+                  <div class="toggle-info">
+                    <div class="toggle-name">Apply new overhead to all open quotations</div>
+                    <div class="toggle-desc">Quotes already sent to customers won't change — only drafts and templates are updated.</div>
+                  </div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Numbering -->
+          <div class="set-panel">
+            <div class="set-panel-head">
+              <div style="display:flex; gap:14px; align-items:flex-start;">
+                <div class="set-panel-icon numbering">№</div>
+                <div>
+                  <h2 class="set-panel-title">Document numbering</h2>
+                  <p class="set-panel-desc">Auto-generated sequences for invoices, orders, POs and other docs. Resets every financial year.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="num-grid">
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Sales Order</div>
+                  <div class="num-pattern">Pattern: SO-YYYY-####</div>
+                </div>
+                <span class="num-current">SO-2026-038</span>
+              </div>
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Invoice (Tax)</div>
+                  <div class="num-pattern">Pattern: INV/26-27/####</div>
+                </div>
+                <span class="num-current">INV/26-27/0142</span>
+              </div>
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Purchase Order</div>
+                  <div class="num-pattern">Pattern: PO-YYYY-####</div>
+                </div>
+                <span class="num-current">PO-2026-018</span>
+              </div>
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Job-work Receipt</div>
+                  <div class="num-pattern">Pattern: JW-YYYY-####</div>
+                </div>
+                <span class="num-current">JW-2026-024</span>
+              </div>
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Outsourced Weaving</div>
+                  <div class="num-pattern">Pattern: OW-YYYY-####</div>
+                </div>
+                <span class="num-current">OW-2026-012</span>
+              </div>
+              <div class="num-row">
+                <div>
+                  <div class="num-doc">Resale Lot</div>
+                  <div class="num-pattern">Pattern: RL-YYYY-####</div>
+                </div>
+                <span class="num-current">RL-2026-008</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Users -->
+          <div class="set-panel">
+            <div class="set-panel-head">
+              <div style="display:flex; gap:14px; align-items:flex-start;">
+                <div class="set-panel-icon users">👥</div>
+                <div>
+                  <h2 class="set-panel-title">Users &amp; roles</h2>
+                  <p class="set-panel-desc">5 active users · 4 roles (Owner, Manager, Operator, Finance). Role-based access controls module visibility.</p>
+                </div>
+              </div>
+              <button class="btn btn-primary" style="font-size:12.5px;">+ Invite user</button>
+            </div>
+
+            <table class="user-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Modules</th>
+                  <th>Last seen</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="u-cell">
+                      <div class="u-avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);">PK</div>
+                      <div>
+                        <div class="u-name">Praveen Kumar</div>
+                        <div class="u-email">redbloodppk@gmail.com</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="role-pill owner">★ Owner</span></td>
+                  <td style="color:var(--ink-500); font-size:12px;">All (18)</td>
+                  <td style="font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500);">Online · now</td>
+                  <td><button class="btn btn-ghost" style="font-size:11px; padding:4px 8px;">⋯</button></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="u-cell">
+                      <div class="u-avatar" style="background:linear-gradient(135deg,#0d9488,#06b6d4);">RS</div>
+                      <div>
+                        <div class="u-name">Ravi Sundaram</div>
+                        <div class="u-email">ravi@ppktex.in</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="role-pill mgr">Mill manager</span></td>
+                  <td style="color:var(--ink-500); font-size:12px;">Production · Inventory · Attendance</td>
+                  <td style="font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500);">2 hrs ago</td>
+                  <td><button class="btn btn-ghost" style="font-size:11px; padding:4px 8px;">⋯</button></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="u-cell">
+                      <div class="u-avatar" style="background:linear-gradient(135deg,#f59e0b,#f97316);">KS</div>
+                      <div>
+                        <div class="u-name">Karthik Selvam</div>
+                        <div class="u-email">karthik@ppktex.in</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="role-pill mgr">Sales manager</span></td>
+                  <td style="color:var(--ink-500); font-size:12px;">Sales · Customers · Reports</td>
+                  <td style="font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500);">today, 9:42 AM</td>
+                  <td><button class="btn btn-ghost" style="font-size:11px; padding:4px 8px;">⋯</button></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="u-cell">
+                      <div class="u-avatar" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">LM</div>
+                      <div>
+                        <div class="u-name">Lakshmi Murthy</div>
+                        <div class="u-email">accounts@ppktex.in</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="role-pill fin">Accounts</span></td>
+                  <td style="color:var(--ink-500); font-size:12px;">Sales · Reports · Settings (read)</td>
+                  <td style="font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500);">yesterday</td>
+                  <td><button class="btn btn-ghost" style="font-size:11px; padding:4px 8px;">⋯</button></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="u-cell">
+                      <div class="u-avatar" style="background:linear-gradient(135deg,#10b981,#0d9488);">SP</div>
+                      <div>
+                        <div class="u-name">Senthil P</div>
+                        <div class="u-email">floor@ppktex.in</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="role-pill op">Floor operator</span></td>
+                  <td style="color:var(--ink-500); font-size:12px;">Production · Bobbin (read+log)</td>
+                  <td style="font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500);">today, 7:02 AM</td>
+                  <td><button class="btn btn-ghost" style="font-size:11px; padding:4px 8px;">⋯</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Backups + integrations -->
+          <div class="set-panel">
+            <div class="set-panel-head">
+              <div style="display:flex; gap:14px; align-items:flex-start;">
+                <div class="set-panel-icon backup">↻</div>
+                <div>
+                  <h2 class="set-panel-title">Backups · data · safety</h2>
+                  <p class="set-panel-desc">Cloud backup runs nightly. Last successful backup: 7 May 2026, 02:00 AM IST · 248 MB.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-name">Nightly automatic backup</div>
+                <div class="toggle-desc">Encrypted snapshot pushed to cloud at 2:00 AM. Retains last 30 days.</div>
+              </div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-name">Email backup confirmation</div>
+                <div class="toggle-desc">Send a "backup ok" email each morning to redbloodppk@gmail.com</div>
+              </div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-name">Audit log retention</div>
+                <div class="toggle-desc">Keep 24 months of activity logs for every user (GST safe-harbour minimum).</div>
+              </div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-name">Allow data export by managers</div>
+                <div class="toggle-desc">Currently only Owner can export full database. Toggle on to allow Mill Manager too.</div>
+              </div>
+              <div class="toggle" onclick="this.classList.toggle('on')"></div>
+            </div>
+          </div>
+
+          <!-- Save bar -->
+          <div class="save-bar">
+            <div class="save-msg">
+              <strong>You have 3 unsaved changes.</strong> &nbsp;Last auto-saved 38 seconds ago.
+            </div>
+            <div class="save-actions">
+              <button class="btn btn-secondary">Discard</button>
+              <button class="btn btn-primary" onclick="window.showToast('Settings saved','success')">Save changes</button>
+            </div>
+          </div>
+
+        </div><!-- /set-content -->
+      </div><!-- /set-layout -->
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<script src="../js/shell.js"></script>
+<script>
+  // Settings nav active state
+  document.querySelectorAll('.set-nav-link').forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('.set-nav-link').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

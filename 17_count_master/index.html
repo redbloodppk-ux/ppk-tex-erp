@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Count Master · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Count Master — page-specific (cyan / sky theme) */
+
+    .cnt-hero {
+      position: relative;
+      border-radius: var(--r-xl);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      color: white;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(56,189,248,0.42), transparent 55%),
+        radial-gradient(circle at 90% 80%, rgba(99,102,241,0.30), transparent 60%),
+        linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #0284c7 100%);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .cnt-hero::before {
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1.5px);
+      background-size: 14px 14px;
+      pointer-events: none;
+    }
+    .cnt-hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 28px;
+      align-items: center;
+    }
+    .cnt-hero-eyebrow {
+      font-family: var(--font-display);
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 1.2px; font-weight: 700;
+      opacity: 0.85; margin-bottom: 8px;
+    }
+    .cnt-hero-title {
+      font-family: var(--font-display);
+      font-size: 26px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .cnt-hero-sub {
+      font-size: 14px; opacity: 0.88; font-weight: 500;
+    }
+    .cnt-hero-stat {
+      border-left: 1px solid rgba(255,255,255,0.18);
+      padding-left: 24px;
+    }
+    .cnt-hero-stat-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .cnt-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .cnt-hero-stat-value small {
+      font-size: 14px; opacity: 0.75; font-weight: 600;
+    }
+    .cnt-hero-stat-trend {
+      font-size: 11.5px; opacity: 0.85; margin-top: 6px;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 18px;
+      display: flex; flex-wrap: wrap;
+      gap: 10px; align-items: center;
+    }
+    .search-box {
+      flex: 1; min-width: 240px;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 8px 12px;
+    }
+    .search-box input {
+      flex: 1; border: none; background: transparent;
+      outline: none; font-size: 13px;
+      font-family: inherit; color: var(--ink-900);
+    }
+    .filter-pill {
+      padding: 6px 12px;
+      font-size: 12px; font-weight: 600;
+      color: var(--ink-600);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all var(--t-snap);
+    }
+    .filter-pill:hover { border-color: #0284c7; color: var(--ink-900); }
+    .filter-pill.active {
+      background: linear-gradient(135deg,#0369a1,#0284c7);
+      color: white;
+      border-color: transparent;
+    }
+
+    /* Count card grid */
+    .cnt-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .cnt-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all var(--t-snap);
+      overflow: hidden;
+      position: relative;
+    }
+    .cnt-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 28px rgba(15,23,42,0.10);
+      border-color: #38bdf8;
+    }
+    .cnt-card::before {
+      content: ''; position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+    }
+    .cnt-card.cotton::before  { background: linear-gradient(90deg,#0d9488,#14b8a6); }
+    .cnt-card.polyester::before { background: linear-gradient(90deg,#7c3aed,#a855f7); }
+    .cnt-card.blend::before   { background: linear-gradient(90deg,#f59e0b,#f97316); }
+    .cnt-card.doubled::before { background: linear-gradient(90deg,#0369a1,#0284c7); }
+
+    .cnt-card-head {
+      padding: 18px 18px 12px 18px;
+      display: flex; gap: 14px; align-items: center;
+    }
+    .cnt-num {
+      width: 56px; height: 56px;
+      flex-shrink: 0;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 18px; font-weight: 800;
+      color: white;
+      box-shadow: var(--shadow-sm);
+      letter-spacing: -0.02em;
+      line-height: 1;
+      flex-direction: column;
+    }
+    .cnt-card.cotton .cnt-num    { background: linear-gradient(135deg,#0d9488,#14b8a6); }
+    .cnt-card.polyester .cnt-num { background: linear-gradient(135deg,#7c3aed,#a855f7); }
+    .cnt-card.blend .cnt-num     { background: linear-gradient(135deg,#f59e0b,#f97316); }
+    .cnt-card.doubled .cnt-num   { background: linear-gradient(135deg,#0369a1,#0284c7); }
+    .cnt-num small {
+      font-size: 9.5px; opacity: 0.85;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .cnt-info { flex: 1; min-width: 0; }
+    .cnt-name {
+      font-family: var(--font-display);
+      font-size: 14.5px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      margin-bottom: 2px;
+    }
+    .cnt-type {
+      font-size: 11.5px; color: var(--ink-500);
+      font-weight: 500;
+    }
+
+    .cnt-stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--ink-100);
+    }
+    .cnt-stat {
+      background: var(--ink-50);
+      padding: 10px 14px;
+    }
+    .cnt-stat-label {
+      font-size: 9.5px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 3px;
+    }
+    .cnt-stat-value {
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-900);
+    }
+
+    .cnt-foot {
+      padding: 10px 18px;
+      display: flex; justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--ink-500);
+      border-top: 1px solid var(--ink-200);
+    }
+    .cnt-foot strong { color: var(--ink-700); font-weight: 700; }
+
+    .stock-pip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .stock-pip.ok    { background: #d1fae5; color: #065f46; }
+    .stock-pip.low   { background: #fef3c7; color: #92400e; }
+    .stock-pip.out   { background: #fee2e2; color: #991b1b; }
+
+    /* Conversion table */
+    .convert-section {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-xl);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 24px;
+    }
+    .convert-head {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 16px;
+    }
+    .convert-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); margin: 0;
+    }
+    .convert-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    .convert-table thead th {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      font-weight: 700;
+      padding: 12px 14px;
+      background: var(--ink-50);
+      border-bottom: 1px solid var(--ink-200);
+      text-align: left;
+    }
+    .convert-table tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--ink-100);
+    }
+    .convert-table tbody tr:hover { background: var(--ink-50); }
+    .convert-name {
+      font-weight: 700; color: var(--ink-900);
+    }
+    .convert-mono {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--ink-700);
+    }
+
+    /* Drawer */
+    .cnt-tech-head {
+      display: flex; gap: 16px;
+      padding-bottom: 18px; margin-bottom: 18px;
+      border-bottom: 1px solid var(--ink-200);
+      align-items: center;
+    }
+    .cnt-tech-num {
+      width: 76px; height: 76px;
+      flex-shrink: 0;
+      border-radius: var(--r-md);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg,#0d9488,#14b8a6);
+      box-shadow: var(--shadow-md);
+      letter-spacing: -0.02em;
+    }
+    .cnt-tech-num small {
+      font-size: 11px; opacity: 0.85;
+      font-weight: 600; margin-top: 4px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .cnt-tech-name {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      color: var(--ink-900); margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .cnt-tech-meta {
+      font-size: 12.5px; color: var(--ink-500);
+      margin-top: 4px;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700;
+      margin: 0 0 10px 0;
+    }
+
+    .conv-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .conv-cell {
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 12px 14px;
+    }
+    .conv-cell-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .conv-cell-value {
+      font-family: var(--font-mono);
+      font-size: 14px; color: var(--ink-900);
+      font-weight: 700;
+    }
+
+    .price-trend {
+      background: linear-gradient(135deg, #ecfeff, #cffafe);
+      border: 1px solid #67e8f9;
+      border-radius: var(--r-md);
+      padding: 14px;
+      margin-bottom: 22px;
+    }
+    .price-trend-head {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-bottom: 10px;
+    }
+    .price-trend-num {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      color: var(--ink-900);
+    }
+    .price-trend-num small { font-size: 12px; color: var(--ink-500); font-weight: 600; }
+    .price-trend-pct {
+      font-size: 12px; font-weight: 700;
+      color: #15803d;
+    }
+    .price-trend-pct.down { color: #b91c1c; }
+
+    .mini-spark {
+      width: 100%; height: 50px;
+      display: block;
+    }
+
+    .supplier-list {
+      list-style: none; padding: 0; margin: 0 0 22px 0;
+    }
+    .supplier-list li {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      align-items: center; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--ink-100);
+      font-size: 13px;
+    }
+    .supplier-list li:last-child { border-bottom: none; }
+    .sup-icon {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg,#0369a1,#0284c7);
+      color: white;
+      font-family: var(--font-display);
+      font-size: 11px; font-weight: 700;
+    }
+    .sup-name { font-weight: 700; color: var(--ink-900); }
+    .sup-meta { font-size: 11px; color: var(--ink-500); margin-top: 2px; }
+    .sup-rate {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--ink-900);
+    }
+
+    /* Drawer (slide-in from right) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 560px;
+      max-width: 95vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(3,105,161,0.06), rgba(2,132,199,0.06));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .drawer-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #0369a1;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      margin: 4px 0 0 0;
+    }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: var(--ink-100); }
+    .drawer-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .cnt-hero-grid { grid-template-columns: 1fr 1fr; }
+      .cnt-hero-stat { border-left: none; padding-left: 0; }
+    }
+    @media (max-width: 720px) {
+      .cnt-hero-grid { grid-template-columns: 1fr; }
+      .cnt-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 480px) {
+      .cnt-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="count"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search count, supplier, equivalent…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Masters</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Count Master</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Count Master</h1>
+          <p class="page-header-sub">Yarn count library · Ne · Nm · Tex · Denier — equivalences, suppliers and price trends</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Count converter opened','info')">
+            <span>⇄</span> Converter
+          </button>
+          <button class="btn btn-primary" onclick="window.openDrawer && window.openDrawer('new')">
+            <span style="font-size:18px;">+</span> Add Count
+          </button>
+        </div>
+      </div>
+
+      <div class="tour-banner">
+        <div class="tour-banner-icon">№</div>
+        <div class="tour-banner-text">
+          <strong>11 yarn counts in your library.</strong>
+          Count Master keeps the math: Ne ⇄ Tex ⇄ Denier conversions, supplier rates, fabrics that use each count and 12-month price trends.
+        </div>
+        <button class="tour-banner-close" onclick="this.parentElement.style.display='none'">✕</button>
+      </div>
+
+      <!-- Hero -->
+      <div class="cnt-hero">
+        <div class="cnt-hero-grid">
+          <div>
+            <div class="cnt-hero-eyebrow">Yarn count library</div>
+            <h2 class="cnt-hero-title">11 counts · 4 categories</h2>
+            <div class="cnt-hero-sub">Cotton (Ne system) · Filament (Denier) · Doubled · Slub specials</div>
+          </div>
+          <div class="cnt-hero-stat">
+            <div class="cnt-hero-stat-label">Most used</div>
+            <div class="cnt-hero-stat-value" style="font-size:24px;">30s combed</div>
+            <div class="cnt-hero-stat-trend">42% of yarn consumption</div>
+          </div>
+          <div class="cnt-hero-stat">
+            <div class="cnt-hero-stat-label">Avg ₹/kg</div>
+            <div class="cnt-hero-stat-value">₹252</div>
+            <div class="cnt-hero-stat-trend">▲ 4.2% over 90 days</div>
+          </div>
+          <div class="cnt-hero-stat">
+            <div class="cnt-hero-stat-label">Below reorder</div>
+            <div class="cnt-hero-stat-value">2</div>
+            <div class="cnt-hero-stat-trend">40s carded · 150D porvai</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search count, supplier or equivalent in Tex/Denier…">
+        </div>
+        <button class="filter-pill active">All (11)</button>
+        <button class="filter-pill">Cotton (7)</button>
+        <button class="filter-pill">Polyester (1)</button>
+        <button class="filter-pill">Doubled (2)</button>
+        <button class="filter-pill">Slub (1)</button>
+      </div>
+
+      <!-- Count cards -->
+      <div class="cnt-grid">
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('30s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">30s<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">30s Combed</div>
+              <div class="cnt-type">Single ply · combed cotton</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">19.7</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹220</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>5 fabrics</strong> use this</span>
+            <span class="stock-pip ok">●&nbsp;420 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('40s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">40s<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">40s Combed</div>
+              <div class="cnt-type">Single ply · combed cotton</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">14.8</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹248</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>4 fabrics</strong> use this</span>
+            <span class="stock-pip ok">●&nbsp;280 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('40c')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">40s<small>Ne · cd</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">40s Carded</div>
+              <div class="cnt-type">Single ply · carded cotton</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">14.8</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹212</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>2 fabrics</strong> use this</span>
+            <span class="stock-pip low">●&nbsp;72 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('65s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">65.5<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">65.5s Combed</div>
+              <div class="cnt-type">Premium · finest cotton</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">9.0</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹362</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>2 fabrics</strong> use this</span>
+            <span class="stock-pip ok">●&nbsp;164 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card polyester" onclick="window.openDrawer && window.openDrawer('150d')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">150<small>Denier</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">150D Porvai</div>
+              <div class="cnt-type">Polyester · multifilament</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">16.7</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹178</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>3 fabrics</strong> use this</span>
+            <span class="stock-pip low">●&nbsp;48 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card doubled" onclick="window.openDrawer && window.openDrawer('240s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">2/40<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">2/40s Doubled</div>
+              <div class="cnt-type">Two-ply · combed cotton</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">29.5</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹284</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>3 fabrics</strong> use this</span>
+            <span class="stock-pip ok">●&nbsp;128 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card doubled" onclick="window.openDrawer && window.openDrawer('220s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">2/20<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">2/20s Doubled</div>
+              <div class="cnt-type">Two-ply · carded</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">59.0</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹192</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>1 fabric</strong> uses this</span>
+            <span class="stock-pip ok">●&nbsp;94 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card blend" onclick="window.openDrawer && window.openDrawer('20slub')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">20s<small>slub</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">20s Slub</div>
+              <div class="cnt-type">Special · texture yarn</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">29.5</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹258</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>2 fabrics</strong> use this</span>
+            <span class="stock-pip ok">●&nbsp;62 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('60s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">60s<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">60s Combed</div>
+              <div class="cnt-type">Single ply · fine combed</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">9.8</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹318</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>1 fabric</strong> uses this</span>
+            <span class="stock-pip ok">●&nbsp;84 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('80s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">80s<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">80s Combed</div>
+              <div class="cnt-type">Single ply · ultra-fine</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">7.4</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹408</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>1 fabric</strong> uses this</span>
+            <span class="stock-pip out">●&nbsp;0 kg</span>
+          </div>
+        </div>
+
+        <div class="cnt-card cotton" onclick="window.openDrawer && window.openDrawer('100s')">
+          <div class="cnt-card-head">
+            <div class="cnt-num">100<small>Ne</small></div>
+            <div class="cnt-info">
+              <div class="cnt-name">100s Combed</div>
+              <div class="cnt-type">Premium · super fine</div>
+            </div>
+          </div>
+          <div class="cnt-stats-row">
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">Tex</div>
+              <div class="cnt-stat-value">5.9</div>
+            </div>
+            <div class="cnt-stat">
+              <div class="cnt-stat-label">₹/kg</div>
+              <div class="cnt-stat-value">₹512</div>
+            </div>
+          </div>
+          <div class="cnt-foot">
+            <span><strong>1 fabric</strong> uses this</span>
+            <span class="stock-pip ok">●&nbsp;42 kg</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Conversion reference table -->
+      <div class="convert-section">
+        <div class="convert-head">
+          <h3 class="convert-title">Conversion reference · all counts</h3>
+          <button class="filter-pill active">Cotton system (Ne)</button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="convert-table">
+            <thead>
+              <tr>
+                <th>Count</th>
+                <th>Type</th>
+                <th>Ne</th>
+                <th>Nm</th>
+                <th>Tex</th>
+                <th>Denier</th>
+                <th>Density (yards/lb)</th>
+                <th style="text-align:right;">Today's ₹/kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="convert-name">30s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">30</td>
+                <td class="convert-mono">50.7</td>
+                <td class="convert-mono">19.7</td>
+                <td class="convert-mono">177</td>
+                <td class="convert-mono">25,200</td>
+                <td class="convert-mono" style="text-align:right;">₹220</td>
+              </tr>
+              <tr>
+                <td class="convert-name">40s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">40</td>
+                <td class="convert-mono">67.6</td>
+                <td class="convert-mono">14.8</td>
+                <td class="convert-mono">133</td>
+                <td class="convert-mono">33,600</td>
+                <td class="convert-mono" style="text-align:right;">₹248</td>
+              </tr>
+              <tr>
+                <td class="convert-name">40s Carded</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">40</td>
+                <td class="convert-mono">67.6</td>
+                <td class="convert-mono">14.8</td>
+                <td class="convert-mono">133</td>
+                <td class="convert-mono">33,600</td>
+                <td class="convert-mono" style="text-align:right;">₹212</td>
+              </tr>
+              <tr>
+                <td class="convert-name">60s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">60</td>
+                <td class="convert-mono">101.5</td>
+                <td class="convert-mono">9.8</td>
+                <td class="convert-mono">88</td>
+                <td class="convert-mono">50,400</td>
+                <td class="convert-mono" style="text-align:right;">₹318</td>
+              </tr>
+              <tr>
+                <td class="convert-name">65.5s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">65.5</td>
+                <td class="convert-mono">110.7</td>
+                <td class="convert-mono">9.0</td>
+                <td class="convert-mono">81</td>
+                <td class="convert-mono">55,020</td>
+                <td class="convert-mono" style="text-align:right;">₹362</td>
+              </tr>
+              <tr>
+                <td class="convert-name">80s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">80</td>
+                <td class="convert-mono">135.3</td>
+                <td class="convert-mono">7.4</td>
+                <td class="convert-mono">66</td>
+                <td class="convert-mono">67,200</td>
+                <td class="convert-mono" style="text-align:right;">₹408</td>
+              </tr>
+              <tr>
+                <td class="convert-name">100s Combed</td>
+                <td>Cotton single</td>
+                <td class="convert-mono">100</td>
+                <td class="convert-mono">169.1</td>
+                <td class="convert-mono">5.9</td>
+                <td class="convert-mono">53</td>
+                <td class="convert-mono">84,000</td>
+                <td class="convert-mono" style="text-align:right;">₹512</td>
+              </tr>
+              <tr>
+                <td class="convert-name">2/40s Doubled</td>
+                <td>Cotton 2-ply</td>
+                <td class="convert-mono">20</td>
+                <td class="convert-mono">33.8</td>
+                <td class="convert-mono">29.5</td>
+                <td class="convert-mono">266</td>
+                <td class="convert-mono">16,800</td>
+                <td class="convert-mono" style="text-align:right;">₹284</td>
+              </tr>
+              <tr>
+                <td class="convert-name">2/20s Doubled</td>
+                <td>Cotton 2-ply</td>
+                <td class="convert-mono">10</td>
+                <td class="convert-mono">16.9</td>
+                <td class="convert-mono">59.0</td>
+                <td class="convert-mono">532</td>
+                <td class="convert-mono">8,400</td>
+                <td class="convert-mono" style="text-align:right;">₹192</td>
+              </tr>
+              <tr>
+                <td class="convert-name">20s Slub</td>
+                <td>Cotton special</td>
+                <td class="convert-mono">20</td>
+                <td class="convert-mono">33.8</td>
+                <td class="convert-mono">29.5</td>
+                <td class="convert-mono">266</td>
+                <td class="convert-mono">16,800</td>
+                <td class="convert-mono" style="text-align:right;">₹258</td>
+              </tr>
+              <tr>
+                <td class="convert-name">150D Porvai</td>
+                <td>Polyester FF</td>
+                <td class="convert-mono">≈ 35.4</td>
+                <td class="convert-mono">59.9</td>
+                <td class="convert-mono">16.7</td>
+                <td class="convert-mono">150</td>
+                <td class="convert-mono">29,800</td>
+                <td class="convert-mono" style="text-align:right;">₹178</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="cntDrawer" role="dialog" aria-label="Count detail">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-eyebrow">Count tech sheet</div>
+      <h2 class="drawer-title">30s Combed Cotton</h2>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+
+  <div class="drawer-content">
+
+    <div class="cnt-tech-head">
+      <div class="cnt-tech-num">30s<small>Ne</small></div>
+      <div>
+        <h3 class="cnt-tech-name">30s Combed Cotton</h3>
+        <div class="cnt-tech-meta">CNT-001 · Single ply · most-used count · 5 fabrics, 42% of consumption</div>
+      </div>
+    </div>
+
+    <h4 class="section-title">Equivalents in other systems</h4>
+    <div class="conv-grid">
+      <div class="conv-cell"><div class="conv-cell-label">Ne (English)</div><div class="conv-cell-value">30</div></div>
+      <div class="conv-cell"><div class="conv-cell-label">Nm (Metric)</div><div class="conv-cell-value">50.7</div></div>
+      <div class="conv-cell"><div class="conv-cell-label">Tex</div><div class="conv-cell-value">19.7 g/km</div></div>
+      <div class="conv-cell"><div class="conv-cell-label">Denier</div><div class="conv-cell-value">177</div></div>
+      <div class="conv-cell"><div class="conv-cell-label">Yards / lb</div><div class="conv-cell-value">25,200</div></div>
+      <div class="conv-cell"><div class="conv-cell-label">Diameter (approx)</div><div class="conv-cell-value">0.18 mm</div></div>
+    </div>
+
+    <h4 class="section-title">Price trend · 12 months</h4>
+    <div class="price-trend">
+      <div class="price-trend-head">
+        <div class="price-trend-num">₹220<small>/kg</small></div>
+        <div class="price-trend-pct">▲ 4.8% vs Jun 2025</div>
+      </div>
+      <svg class="mini-spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,18 8,17 16,19 24,16 32,18 40,15 48,17 56,14 64,16 72,12 80,13 88,11 100,9"
+          fill="none" stroke="#0284c7" stroke-width="2"/>
+        <polyline points="0,18 8,17 16,19 24,16 32,18 40,15 48,17 56,14 64,16 72,12 80,13 88,11 100,9 100,30 0,30"
+          fill="rgba(2,132,199,0.15)" stroke="none"/>
+      </svg>
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-500); margin-top:4px;">
+        <span>Jun '25 · ₹210</span>
+        <span>Apr '26 · ₹220</span>
+      </div>
+    </div>
+
+    <h4 class="section-title">Approved suppliers (3)</h4>
+    <ul class="supplier-list">
+      <li>
+        <div class="sup-icon">SS</div>
+        <div>
+          <div class="sup-name">Sri Selvam Spinning Mills</div>
+          <div class="sup-meta">Tirupur · 4 PO/year · ★ Preferred</div>
+        </div>
+        <div class="sup-rate">₹220</div>
+        <div class="sup-rate" style="font-size:11px; color:var(--ink-500); font-weight:600;">7d lead</div>
+      </li>
+      <li>
+        <div class="sup-icon" style="background:linear-gradient(135deg,#f59e0b,#f97316);">JK</div>
+        <div>
+          <div class="sup-name">JK Cotton Mills</div>
+          <div class="sup-meta">Coimbatore · 3 PO/year</div>
+        </div>
+        <div class="sup-rate">₹224</div>
+        <div class="sup-rate" style="font-size:11px; color:var(--ink-500); font-weight:600;">5d lead</div>
+      </li>
+      <li>
+        <div class="sup-icon" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">RT</div>
+        <div>
+          <div class="sup-name">Ramanathan Textiles</div>
+          <div class="sup-meta">Erode · backup supplier</div>
+        </div>
+        <div class="sup-rate">₹228</div>
+        <div class="sup-rate" style="font-size:11px; color:var(--ink-500); font-weight:600;">10d lead</div>
+      </li>
+    </ul>
+
+    <h4 class="section-title">Used in fabrics (5)</h4>
+    <ul class="supplier-list">
+      <li>
+        <div class="sup-icon" style="background:linear-gradient(135deg,#0d9488,#14b8a6);">F1</div>
+        <div>
+          <div class="sup-name">30s Combed Grey Plain · 92×88</div>
+          <div class="sup-meta">Hero seller · 42% of book</div>
+        </div>
+        <div class="sup-rate">170 g/m</div>
+        <div></div>
+      </li>
+      <li>
+        <div class="sup-icon" style="background:linear-gradient(135deg,#0d9488,#14b8a6);">F2</div>
+        <div>
+          <div class="sup-name">30s × 30s Bleached Plain · 100×80</div>
+          <div class="sup-meta">8% of book</div>
+        </div>
+        <div class="sup-rate">156 g/m</div>
+        <div></div>
+      </li>
+      <li>
+        <div class="sup-icon" style="background:linear-gradient(135deg,#0d9488,#14b8a6);">F3</div>
+        <div>
+          <div class="sup-name">30s Dyed Plain · 88×72</div>
+          <div class="sup-meta">5% of book</div>
+        </div>
+        <div class="sup-rate">148 g/m</div>
+        <div></div>
+      </li>
+    </ul>
+
+    <div style="display:flex; gap:10px; margin-top:18px;">
+      <button class="btn btn-secondary" style="flex:1;">Edit count</button>
+      <button class="btn btn-primary" style="flex:1;">Order now</button>
+    </div>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer(id) {
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.getElementById('cntDrawer').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.getElementById('cntDrawer').classList.remove('open');
+  }
+  window.openDrawer = openDrawer;
+  window.closeDrawer = closeDrawer;
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const group = pill.parentElement;
+      group.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

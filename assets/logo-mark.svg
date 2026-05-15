@@ -1,0 +1,51 @@
+<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PPK TEX logo mark">
+  <defs>
+    <linearGradient id="ppkBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="55%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="ppkGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="ppkShimmer" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ppkShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#3730a3" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Base rounded-square with gradient -->
+  <rect width="80" height="80" rx="20" fill="url(#ppkBg)"/>
+
+  <!-- Glass shimmer overlay top half -->
+  <rect width="80" height="40" rx="20" fill="url(#ppkShimmer)"/>
+
+  <!-- Subtle weave texture: 3 thin warp threads (vertical) and 3 weft threads (horizontal) at low opacity -->
+  <g stroke="#ffffff" stroke-width="0.6" opacity="0.08">
+    <line x1="14" y1="14" x2="14" y2="66"/>
+    <line x1="40" y1="14" x2="40" y2="66"/>
+    <line x1="66" y1="14" x2="66" y2="66"/>
+    <line x1="14" y1="14" x2="66" y2="14"/>
+    <line x1="14" y1="40" x2="66" y2="40"/>
+    <line x1="14" y1="66" x2="66" y2="66"/>
+  </g>
+
+  <!-- Bold geometric P with subtle drop shadow -->
+  <g fill="#ffffff" filter="url(#ppkShadow)">
+    <!-- Vertical stem -->
+    <rect x="20" y="18" width="11" height="44" rx="2.5"/>
+    <!-- Bowl -->
+    <path d="M 31 18 L 49 18 A 13 13 0 0 1 49 44 L 31 44 Z"/>
+  </g>
+
+  <!-- Gold "yarn ball" accent — the textile signature -->
+  <circle cx="56" cy="56" r="7" fill="url(#ppkGold)"/>
+  <!-- thread loop around the ball -->
+  <circle cx="56" cy="56" r="7" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.55"/>
+  <!-- highlight -->
+  <circle cx="53.6" cy="53.6" r="2" fill="#ffffff" opacity="0.55"/>
+</svg>

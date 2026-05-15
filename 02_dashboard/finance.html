@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard · Finance · PPK TEX ERP</title>
+<link rel="stylesheet" href="../css/design-system.css">
+<style>
+  body { background: var(--bg-app); margin: 0; }
+  .content { padding: 32px; max-width: 1600px; }
+
+  .tour-banner { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(99,102,241,0.08)); border: 1px solid rgba(245,158,11,0.2); border-radius: 16px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .tour-banner-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--grad-gold); display: grid; place-items: center; color: white; font-size: 18px; flex-shrink: 0; box-shadow: var(--shadow-gold); }
+  .tour-banner-text { flex: 1; font-size: 13px; color: var(--ink-700); line-height: 1.5; }
+  .tour-banner-text b { color: var(--ink-900); }
+  .tour-banner-close { background: none; border: none; cursor: pointer; color: var(--ink-400); font-size: 18px; padding: 4px 8px; }
+
+  .page-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 8px; }
+  .page-title { font-family: var(--font-display); font-size: 32px; font-weight: 800; background: var(--grad-brand-deep); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 0; letter-spacing: -0.5px; }
+  .page-subtitle { color: var(--ink-500); font-size: 14px; margin-top: 4px; }
+  .live-pill { display: inline-flex; align-items: center; gap: 6px; background: white; border: 1px solid var(--ink-100); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ink-700); }
+
+  .dash-tabs { display: flex; gap: 4px; background: white; padding: 6px; border-radius: 14px; box-shadow: var(--shadow-sm); border: 1px solid var(--ink-100); margin: 24px 0; width: fit-content; }
+  .dash-tab { padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--ink-600); cursor: pointer; transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+  .dash-tab:hover { background: var(--ink-50); color: var(--ink-800); }
+  .dash-tab.active { background: var(--grad-gold); color: white; box-shadow: var(--shadow-gold); }
+
+  .info { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: var(--ink-200); color: var(--ink-600); font-size: 9px; font-weight: 700; cursor: help; margin-left: 4px; position: relative; }
+  .info:hover { background: var(--gold-500); color: white; }
+  .info::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--ink-900); color: white; padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 500; width: max-content; max-width: 240px; text-align: left; line-height: 1.4; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; box-shadow: var(--shadow-xl); }
+  .info::before { content: ''; position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--ink-900); pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; }
+  .info:hover::after, .info:hover::before { opacity: 1; }
+
+  /* KPI cards (finance variant — gold-leading) */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 28px; }
+  .kpi-card { background: white; border-radius: 18px; padding: 20px; border: 1px solid var(--ink-100); box-shadow: var(--shadow-sm); position: relative; overflow: hidden; transition: all 0.3s; }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--grad-gold); }
+  .kpi-card.brand::before { background: var(--grad-brand); }
+  .kpi-card.success::before { background: var(--grad-success); }
+  .kpi-card.danger::before { background: var(--grad-rose); }
+  .kpi-label { font-size: 12px; font-weight: 600; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; }
+  .kpi-value { font-family: var(--font-display); font-size: 32px; font-weight: 800; color: var(--ink-900); margin-top: 8px; letter-spacing: -1px; line-height: 1; }
+  .kpi-value-unit { font-size: 16px; font-weight: 600; color: var(--ink-500); margin-left: 4px; }
+  .kpi-meta { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+  .kpi-delta { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: 11px; }
+  .kpi-delta.up { background: rgba(34,197,94,0.1); color: #15803d; }
+  .kpi-delta.down { background: rgba(244,63,94,0.1); color: #be123c; }
+  .kpi-delta.flat { background: var(--ink-100); color: var(--ink-600); }
+  .kpi-sub { color: var(--ink-500); font-weight: 500; }
+
+  .widget-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .widget-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .widget { background: white; border-radius: 18px; border: 1px solid var(--ink-100); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .widget-header { padding: 18px 20px; border-bottom: 1px solid var(--ink-100); display: flex; align-items: center; justify-content: space-between; }
+  .widget-title { font-size: 15px; font-weight: 700; color: var(--ink-900); display: flex; align-items: center; gap: 8px; }
+  .widget-title-icon { width: 28px; height: 28px; border-radius: 8px; background: var(--brand-50); color: var(--brand-600); display: grid; place-items: center; font-size: 14px; }
+  .widget-title-icon.gold { background: var(--gold-100); color: var(--gold-700); }
+  .widget-title-icon.success { background: rgba(34,197,94,0.1); color: #15803d; }
+  .widget-title-icon.rose { background: var(--rose-100); color: var(--rose-500); }
+  .widget-action { font-size: 12px; font-weight: 600; color: var(--brand-600); text-decoration: none; }
+  .widget-body { padding: 20px; }
+  .widget-body.flush { padding: 0; }
+
+  /* AR / AP aging buckets */
+  .aging-row { display: grid; grid-template-columns: 80px 1fr 100px 60px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--ink-100); }
+  .aging-row:last-child { border-bottom: none; }
+  .aging-bucket { font-size: 12px; font-weight: 700; color: var(--ink-700); }
+  .aging-bar { height: 14px; background: var(--ink-100); border-radius: 7px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
+  .aging-bar-fill { height: 100%; border-radius: 7px; }
+  .aging-bar-fill.b1 { background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .aging-bar-fill.b2 { background: linear-gradient(90deg, #eab308, #ca8a04); }
+  .aging-bar-fill.b3 { background: linear-gradient(90deg, #f59e0b, #d97706); }
+  .aging-bar-fill.b4 { background: linear-gradient(90deg, #ef4444, #dc2626); }
+  .aging-amt { text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--ink-900); font-size: 13px; }
+  .aging-pct { text-align: right; font-size: 11px; color: var(--ink-500); font-weight: 600; }
+
+  .aging-total { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ink-100); }
+  .aging-total-label { font-size: 12px; font-weight: 700; color: var(--ink-700); text-transform: uppercase; letter-spacing: 0.5px; }
+  .aging-total-amt { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--ink-900); }
+
+  /* Mini P&L */
+  .pl-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--ink-100); }
+  .pl-row:last-child { border-bottom: none; }
+  .pl-row.totalrow { font-weight: 800; font-size: 15px; color: var(--ink-900); border-top: 2px solid var(--ink-200); border-bottom: none; padding: 14px 0 6px; margin-top: 6px; }
+  .pl-row.totalrow.net { background: linear-gradient(90deg, rgba(34,197,94,0.05), transparent); margin-left: -20px; margin-right: -20px; padding-left: 20px; padding-right: 20px; border-radius: 0 0 18px 18px; }
+  .pl-row.subtle { color: var(--ink-500); font-size: 13px; }
+  .pl-label { display: flex; align-items: center; gap: 6px; }
+  .pl-amt { font-family: var(--font-mono); font-weight: 700; }
+
+  /* Top customers table */
+  .cust-table { width: 100%; border-collapse: collapse; }
+  .cust-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--ink-100); background: var(--ink-50); }
+  .cust-table th.num { text-align: right; }
+  .cust-table td { padding: 12px; border-bottom: 1px solid var(--ink-100); font-size: 13px; }
+  .cust-table tr:last-child td { border-bottom: none; }
+  .cust-table tr:hover td { background: var(--ink-50); }
+  .cust-name { font-weight: 600; color: var(--ink-900); }
+  .cust-meta { font-size: 11px; color: var(--ink-500); margin-top: 2px; }
+  .cust-amt { font-family: var(--font-mono); font-weight: 700; text-align: right; color: var(--ink-900); }
+  .cust-share { font-size: 11px; color: var(--ink-500); text-align: right; font-family: var(--font-mono); }
+  .cust-rank { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: var(--ink-100); color: var(--ink-600); font-weight: 800; font-size: 11px; font-family: var(--font-mono); }
+  .cust-rank.gold { background: var(--grad-gold); color: white; }
+  .cust-rank.silver { background: linear-gradient(135deg, #cbd5e1, #94a3b8); color: white; }
+  .cust-rank.bronze { background: linear-gradient(135deg, #d97706, #92400e); color: white; }
+
+  /* Cash projection chart */
+  .chart-wrap { padding: 20px; }
+  .cashflow-chart { width: 100%; height: 220px; }
+  .cashflow-stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--ink-100); text-align: center; }
+  .cashflow-stat-num { font-family: var(--font-display); font-weight: 800; font-size: 18px; line-height: 1; color: var(--ink-900); }
+  .cashflow-stat-num.success { color: #15803d; }
+  .cashflow-stat-num.danger { color: var(--rose-500); }
+  .cashflow-stat-label { font-size: 10px; color: var(--ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+  /* Cost variance */
+  .variance-list { list-style: none; padding: 0; margin: 0; }
+  .variance-item { padding: 12px 20px; border-bottom: 1px solid var(--ink-100); display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; }
+  .variance-item:last-child { border-bottom: none; }
+  .variance-name { font-weight: 600; color: var(--ink-900); font-size: 13px; }
+  .variance-meta { font-size: 11px; color: var(--ink-500); margin-top: 2px; font-family: var(--font-mono); }
+  .variance-pct { font-family: var(--font-mono); font-weight: 800; font-size: 14px; padding: 4px 10px; border-radius: 8px; min-width: 64px; text-align: center; }
+  .variance-pct.win { background: rgba(34,197,94,0.1); color: #15803d; }
+  .variance-pct.loss { background: rgba(244,63,94,0.1); color: #be123c; }
+  .variance-pct.flat { background: var(--ink-100); color: var(--ink-600); }
+  .variance-amt { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink-900); }
+
+  /* GST/Tax tile */
+  .tax-tile { background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.06)); border-radius: 16px; padding: 18px; border: 1px solid rgba(99,102,241,0.15); margin-top: 12px; }
+  .tax-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+  .tax-row b { font-family: var(--font-mono); }
+
+  @media (max-width: 1100px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .widget-grid { grid-template-columns: 1fr; }
+    .widget-grid-3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+
+  <aside id="sidebar-slot" data-active="dashboard"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search invoices, customers, payments…"></div>
+
+    <div class="content">
+
+      <div class="tour-banner" id="tour-banner">
+        <div class="tour-banner-icon">₹</div>
+        <div class="tour-banner-text">
+          <b>Finance dashboard.</b>
+          The money view — what's owed to you, what you owe, where margins are healthy. All figures are <b>fake demo numbers</b> for layout review only. Switch tabs above to see Operations or Trends.
+        </div>
+        <button class="tour-banner-close" onclick="document.getElementById('tour-banner').style.display='none'">×</button>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Money &amp; margins</h1>
+          <div class="page-subtitle">May 2026 month-to-date · last refreshed 14 mins ago</div>
+        </div>
+        <span class="live-pill">📊 As of 5 May 09:42</span>
+      </div>
+
+      <div class="dash-tabs">
+        <a class="dash-tab" href="index.html">⊞ Operations</a>
+        <a class="dash-tab active" href="finance.html">₹ Finance</a>
+        <a class="dash-tab" href="trends.html">📈 Trends</a>
+      </div>
+
+      <!-- ──────────────── KPI row ──────────────── -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Cash on hand <span class="info" data-tip="Sum of bank + cash account balances. Updates with each posted payment.">i</span></div>
+          <div class="kpi-value">₹42.8<span class="kpi-value-unit">L</span></div>
+          <div class="kpi-meta">
+            <span class="kpi-delta up">▲ ₹4.2L</span>
+            <span class="kpi-sub">vs last month-end</span>
+          </div>
+        </div>
+        <div class="kpi-card brand">
+          <div class="kpi-label">Receivables (AR) <span class="info" data-tip="Customer invoices not yet paid. Aged below.">i</span></div>
+          <div class="kpi-value">₹68.4<span class="kpi-value-unit">L</span></div>
+          <div class="kpi-meta">
+            <span class="kpi-delta down">▲ 12 invoices overdue</span>
+            <span class="kpi-sub">38 total open</span>
+          </div>
+        </div>
+        <div class="kpi-card danger">
+          <div class="kpi-label">Payables (AP) <span class="info" data-tip="Mill bills + outsourced labour bills not yet paid.">i</span></div>
+          <div class="kpi-value">₹31.6<span class="kpi-value-unit">L</span></div>
+          <div class="kpi-meta">
+            <span class="kpi-delta flat">●</span>
+            <span class="kpi-sub">14 bills · 4 due this week</span>
+          </div>
+        </div>
+        <div class="kpi-card success">
+          <div class="kpi-label">May net (so far) <span class="info" data-tip="Revenue invoiced – COGS – OpEx for May 1–5. True Cost basis.">i</span></div>
+          <div class="kpi-value">₹4.6<span class="kpi-value-unit">L</span></div>
+          <div class="kpi-meta">
+            <span class="kpi-delta up">▲ on track</span>
+            <span class="kpi-sub">target ₹28L for May</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────── AR / AP aging ──────────────── -->
+      <div class="widget-grid">
+        <div class="widget">
+          <div class="widget-header">
+            <div class="widget-title">
+              <div class="widget-title-icon success">↗</div>
+              Receivables aging
+              <span class="info" data-tip="Open customer invoices grouped by how overdue they are.">i</span>
+            </div>
+            <a href="#" class="widget-action">All invoices →</a>
+          </div>
+          <div class="widget-body">
+            <div class="aging-row">
+              <div class="aging-bucket">0–30 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b1" style="width: 100%"></div></div>
+              <div class="aging-amt">₹38.2L</div>
+              <div class="aging-pct">55.8%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">31–60 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b2" style="width: 56%"></div></div>
+              <div class="aging-amt">₹19.4L</div>
+              <div class="aging-pct">28.4%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">61–90 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b3" style="width: 22%"></div></div>
+              <div class="aging-amt">₹7.6L</div>
+              <div class="aging-pct">11.1%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">90+ d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b4" style="width: 9%"></div></div>
+              <div class="aging-amt">₹3.2L</div>
+              <div class="aging-pct">4.7%</div>
+            </div>
+            <div class="aging-total">
+              <div>
+                <div class="aging-total-label">Total receivable</div>
+                <div style="font-size:11px; color: var(--ink-500); margin-top:4px;">38 open invoices</div>
+              </div>
+              <div class="aging-total-amt">₹68.4L</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="widget">
+          <div class="widget-header">
+            <div class="widget-title">
+              <div class="widget-title-icon rose">↘</div>
+              Payables aging
+              <span class="info" data-tip="Bills you've received but not yet paid.">i</span>
+            </div>
+            <a href="#" class="widget-action">All bills →</a>
+          </div>
+          <div class="widget-body">
+            <div class="aging-row">
+              <div class="aging-bucket">0–30 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b1" style="width: 100%"></div></div>
+              <div class="aging-amt">₹22.4L</div>
+              <div class="aging-pct">70.9%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">31–60 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b2" style="width: 32%"></div></div>
+              <div class="aging-amt">₹7.2L</div>
+              <div class="aging-pct">22.8%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">61–90 d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b3" style="width: 8%"></div></div>
+              <div class="aging-amt">₹1.8L</div>
+              <div class="aging-pct">5.7%</div>
+            </div>
+            <div class="aging-row">
+              <div class="aging-bucket">90+ d</div>
+              <div class="aging-bar"><div class="aging-bar-fill b4" style="width: 1%"></div></div>
+              <div class="aging-amt">₹0.2L</div>
+              <div class="aging-pct">0.6%</div>
+            </div>
+            <div class="aging-total">
+              <div>
+                <div class="aging-total-label">Total payable</div>
+                <div style="font-size:11px; color: var(--ink-500); margin-top:4px;">14 open bills</div>
+              </div>
+              <div class="aging-total-amt">₹31.6L</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────── 30-day cashflow projection ──────────────── -->
+      <div class="widget" style="margin-bottom: 20px;">
+        <div class="widget-header">
+          <div class="widget-title">
+            <div class="widget-title-icon gold">≈</div>
+            30-day cashflow projection
+            <span class="info" data-tip="Expected cash in (from open invoices on terms) minus expected cash out (bills due, payroll, OpEx).">i</span>
+          </div>
+          <a href="#" class="widget-action">Detail →</a>
+        </div>
+        <div class="chart-wrap">
+          <svg class="cashflow-chart" viewBox="0 0 800 220" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="cashIn" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#22c55e" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="cashOut" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="#f43f5e" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="cashNet" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#8b5cf6"/>
+              </linearGradient>
+            </defs>
+            <!-- Grid lines -->
+            <line x1="40" y1="40" x2="780" y2="40" stroke="#f1f5f9" stroke-width="1"/>
+            <line x1="40" y1="90" x2="780" y2="90" stroke="#f1f5f9" stroke-width="1"/>
+            <line x1="40" y1="140" x2="780" y2="140" stroke="#e5e7eb" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <line x1="40" y1="190" x2="780" y2="190" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="34" y="44" text-anchor="end" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">+30L</text>
+            <text x="34" y="94" text-anchor="end" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">+15L</text>
+            <text x="34" y="144" text-anchor="end" font-size="10" fill="#64748b" font-family="JetBrains Mono">0</text>
+            <text x="34" y="194" text-anchor="end" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">-15L</text>
+
+            <!-- Cash IN area -->
+            <path d="M 40 130 L 90 110 L 140 95 L 190 100 L 240 80 L 290 65 L 340 90 L 390 70 L 440 50 L 490 75 L 540 60 L 590 45 L 640 70 L 690 55 L 740 65 L 780 60 L 780 140 L 40 140 Z" fill="url(#cashIn)"/>
+
+            <!-- Cash OUT area (mirrored downward) -->
+            <path d="M 40 150 L 90 165 L 140 175 L 190 160 L 240 180 L 290 170 L 340 190 L 390 175 L 440 165 L 490 185 L 540 170 L 590 160 L 640 180 L 690 165 L 740 175 L 780 180 L 780 140 L 40 140 Z" fill="url(#cashOut)"/>
+
+            <!-- Net line -->
+            <path d="M 40 130 L 90 122 L 140 118 L 190 122 L 240 110 L 290 102 L 340 118 L 390 110 L 440 95 L 490 115 L 540 100 L 590 88 L 640 110 L 690 96 L 740 102 L 780 100"
+                  fill="none" stroke="url(#cashNet)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+            <!-- Today marker -->
+            <line x1="40" y1="20" x2="40" y2="200" stroke="#f59e0b" stroke-width="2" stroke-dasharray="3 3"/>
+            <text x="44" y="18" font-size="10" fill="#f59e0b" font-family="JetBrains Mono" font-weight="700">TODAY · ₹42.8L</text>
+
+            <!-- X axis labels -->
+            <text x="40" y="214" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">5 May</text>
+            <text x="240" y="214" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">12 May</text>
+            <text x="440" y="214" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">19 May</text>
+            <text x="640" y="214" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">26 May</text>
+            <text x="780" y="214" text-anchor="end" font-size="10" fill="#94a3b8" font-family="JetBrains Mono">3 Jun</text>
+          </svg>
+          <div class="cashflow-stat-row">
+            <div>
+              <div class="cashflow-stat-num success">₹54.8L</div>
+              <div class="cashflow-stat-label">Expected in</div>
+            </div>
+            <div>
+              <div class="cashflow-stat-num danger">−₹38.2L</div>
+              <div class="cashflow-stat-label">Expected out</div>
+            </div>
+            <div>
+              <div class="cashflow-stat-num">+₹16.6L</div>
+              <div class="cashflow-stat-label">Net change</div>
+            </div>
+            <div>
+              <div class="cashflow-stat-num" style="background:var(--grad-brand);-webkit-background-clip:text;background-clip:text;color:transparent;">₹59.4L</div>
+              <div class="cashflow-stat-label">Cash in 30 d</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────── Top customers + Mini P&L ──────────────── -->
+      <div class="widget-grid">
+        <div class="widget">
+          <div class="widget-header">
+            <div class="widget-title">
+              <div class="widget-title-icon gold">★</div>
+              Top customers · last 90 days
+              <span class="info" data-tip="By revenue invoiced. Margin = (Quoted − True Cost) / Quoted.">i</span>
+            </div>
+            <a href="#" class="widget-action">All →</a>
+          </div>
+          <table class="cust-table">
+            <thead>
+              <tr>
+                <th style="width:30px"></th>
+                <th>Customer</th>
+                <th class="num">Revenue</th>
+                <th class="num">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="cust-rank gold">1</span></td>
+                <td>
+                  <div class="cust-name">Welspun India Ltd.</div>
+                  <div class="cust-meta">14 orders · Bath, Hand</div>
+                </td>
+                <td class="cust-amt">₹84.2L<div class="cust-share">28.4%</div></td>
+                <td class="cust-amt" style="color:#15803d">22.4%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank silver">2</span></td>
+                <td>
+                  <div class="cust-name">Trident Group</div>
+                  <div class="cust-meta">11 orders · Hand, Kitchen</div>
+                </td>
+                <td class="cust-amt">₹62.4L<div class="cust-share">21.0%</div></td>
+                <td class="cust-amt" style="color:#15803d">19.8%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank bronze">3</span></td>
+                <td>
+                  <div class="cust-name">Vardhman Textiles</div>
+                  <div class="cust-meta">8 orders · Dobby</div>
+                </td>
+                <td class="cust-amt">₹41.6L<div class="cust-share">14.0%</div></td>
+                <td class="cust-amt" style="color:#15803d">26.1%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank">4</span></td>
+                <td>
+                  <div class="cust-name">Loyal Textile Mills</div>
+                  <div class="cust-meta">6 orders · Kitchen, Bath</div>
+                </td>
+                <td class="cust-amt">₹28.4L<div class="cust-share">9.6%</div></td>
+                <td class="cust-amt" style="color:#15803d">17.2%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank">5</span></td>
+                <td>
+                  <div class="cust-name">Arvind Ltd.</div>
+                  <div class="cust-meta">5 orders · Bath</div>
+                </td>
+                <td class="cust-amt">₹22.8L<div class="cust-share">7.7%</div></td>
+                <td class="cust-amt" style="color:#b45309">11.4%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank">6</span></td>
+                <td>
+                  <div class="cust-name">Bombay Dyeing</div>
+                  <div class="cust-meta">4 orders · Resale</div>
+                </td>
+                <td class="cust-amt">₹18.2L<div class="cust-share">6.1%</div></td>
+                <td class="cust-amt" style="color:#15803d">14.6%</td>
+              </tr>
+              <tr>
+                <td><span class="cust-rank">7</span></td>
+                <td>
+                  <div class="cust-name">Others (12)</div>
+                  <div class="cust-meta">Mixed</div>
+                </td>
+                <td class="cust-amt">₹38.4L<div class="cust-share">13.0%</div></td>
+                <td class="cust-amt" style="color:var(--ink-600)">15.8%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="widget">
+          <div class="widget-header">
+            <div class="widget-title">
+              <div class="widget-title-icon">⚖</div>
+              May P&amp;L (so far)
+              <span class="info" data-tip="Revenue, costs, and margin for the current month-to-date. True Cost basis (with LOOMS overhead).">i</span>
+            </div>
+            <a href="#" class="widget-action">Full report →</a>
+          </div>
+          <div class="widget-body">
+            <div class="pl-row">
+              <span class="pl-label">Revenue (invoiced)</span>
+              <span class="pl-amt">₹38.4L</span>
+            </div>
+            <div class="pl-row subtle">
+              <span class="pl-label">— In-house weaving</span>
+              <span class="pl-amt">₹24.6L</span>
+            </div>
+            <div class="pl-row subtle">
+              <span class="pl-label">— Outsourced</span>
+              <span class="pl-amt">₹8.2L</span>
+            </div>
+            <div class="pl-row subtle">
+              <span class="pl-label">— OB labour</span>
+              <span class="pl-amt">₹3.4L</span>
+            </div>
+            <div class="pl-row subtle">
+              <span class="pl-label">— Resale</span>
+              <span class="pl-amt">₹2.2L</span>
+            </div>
+            <div class="pl-row">
+              <span class="pl-label">COGS (True Cost)</span>
+              <span class="pl-amt" style="color:var(--rose-500)">−₹28.6L</span>
+            </div>
+            <div class="pl-row totalrow">
+              <span class="pl-label">Gross margin</span>
+              <span class="pl-amt" style="color:#15803d">₹9.8L · 25.5%</span>
+            </div>
+            <div class="pl-row">
+              <span class="pl-label">Operating expenses</span>
+              <span class="pl-amt" style="color:var(--rose-500)">−₹5.2L</span>
+            </div>
+            <div class="pl-row totalrow net">
+              <span class="pl-label">Net profit</span>
+              <span class="pl-amt" style="color:#15803d">₹4.6L · 12.0%</span>
+            </div>
+
+            <div class="tax-tile">
+              <div style="font-size:11px; font-weight:700; color:var(--brand-700); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">GST Snapshot · May</div>
+              <div class="tax-row"><span>Output GST collected</span><b>₹6.91L</b></div>
+              <div class="tax-row"><span>Input GST credit</span><b>−₹4.84L</b></div>
+              <div class="tax-row" style="border-top: 1px dashed var(--ink-200); padding-top: 8px; margin-top: 4px; font-weight: 700;"><span>Net GST liability</span><b>₹2.07L</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────── Cost variance ──────────────── -->
+      <div class="widget" style="margin-top: 20px;">
+        <div class="widget-header">
+          <div class="widget-title">
+            <div class="widget-title-icon">⇄</div>
+            Quoted vs True Cost · last 10 closed jobs
+            <span class="info" data-tip="Quoted Cost = market price you used to bid. True Cost = actual cost with LOOMS overhead. Positive % means you priced above true cost — healthy.">i</span>
+          </div>
+          <a href="#" class="widget-action">All variances →</a>
+        </div>
+        <ul class="variance-list">
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0089 · Welspun · Bath towel 1,200m</div>
+              <div class="variance-meta">Quoted ₹178.50/m · True ₹158.20/m</div>
+            </div>
+            <span class="variance-amt">+₹24,360</span>
+            <span class="variance-pct win">+12.8%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0091 · Trident · Hand towel 800m</div>
+              <div class="variance-meta">Quoted ₹148.00/m · True ₹121.40/m</div>
+            </div>
+            <span class="variance-amt">+₹21,280</span>
+            <span class="variance-pct win">+21.9%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0094 · Vardhman · Dobby 600m</div>
+              <div class="variance-meta">Quoted ₹312.00/m · True ₹241.60/m</div>
+            </div>
+            <span class="variance-amt">+₹42,240</span>
+            <span class="variance-pct win">+29.1%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0096 · Loyal · Kitchen 1,000m</div>
+              <div class="variance-meta">Quoted ₹138.00/m · True ₹140.80/m</div>
+            </div>
+            <span class="variance-amt">−₹2,800</span>
+            <span class="variance-pct loss">−2.0%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0098 · Arvind · Bath 600m</div>
+              <div class="variance-meta">Quoted ₹172.00/m · True ₹167.80/m</div>
+            </div>
+            <span class="variance-amt">+₹2,520</span>
+            <span class="variance-pct win">+2.5%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0102 · Welspun · Bath 1,500m</div>
+              <div class="variance-meta">Quoted ₹178.50/m · True ₹162.40/m</div>
+            </div>
+            <span class="variance-amt">+₹24,150</span>
+            <span class="variance-pct win">+9.9%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0105 · Bombay Dyeing · Resale 800m</div>
+              <div class="variance-meta">Quoted ₹142.00/m · True ₹138.20/m</div>
+            </div>
+            <span class="variance-amt">+₹3,040</span>
+            <span class="variance-pct win">+2.7%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0108 · Trident · Hand 1,000m</div>
+              <div class="variance-meta">Quoted ₹148.00/m · True ₹128.60/m</div>
+            </div>
+            <span class="variance-amt">+₹19,400</span>
+            <span class="variance-pct win">+15.1%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0112 · Vardhman · Dobby 400m</div>
+              <div class="variance-meta">Quoted ₹312.00/m · True ₹289.40/m</div>
+            </div>
+            <span class="variance-amt">+₹9,040</span>
+            <span class="variance-pct win">+7.8%</span>
+          </li>
+          <li class="variance-item">
+            <div>
+              <div class="variance-name">SO-2026-0115 · Welspun · Bath 800m</div>
+              <div class="variance-meta">Quoted ₹178.50/m · True ₹191.20/m</div>
+            </div>
+            <span class="variance-amt">−₹10,160</span>
+            <span class="variance-pct loss">−7.1%</span>
+          </li>
+        </ul>
+      </div>
+
+      <div style="height: 40px;"></div>
+    </div>
+  </main>
+</div>
+
+<script src="../js/shell.js"></script>
+</body>
+</html>

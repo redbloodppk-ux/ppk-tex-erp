@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPK TEX ERP · Architecture & Design System</title>
+<link rel="stylesheet" href="css/design-system.css">
+<style>
+/* Page-specific styles for architecture diagram */
+
+.hero {
+  position: relative;
+  padding: var(--s-12) var(--s-8) var(--s-16);
+  text-align: center;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.25), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(245,158,11,0.18), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 20% 100%, rgba(139,92,246,0.20), transparent 70%);
+}
+.hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(99,102,241,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 70%);
+  pointer-events: none;
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: var(--r-full);
+  font-size: 12px; font-weight: 600;
+  color: var(--brand-700);
+  margin-bottom: var(--s-5);
+  box-shadow: var(--shadow-sm);
+}
+.hero-badge::before {
+  content: '●';
+  color: var(--success-500);
+  animation: pulse 2s infinite;
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(38px, 6vw, 76px);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  margin-bottom: var(--s-5);
+}
+.hero-title-grad {
+  background: linear-gradient(135deg, #1e1b4b 0%, #6366f1 40%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-sub {
+  font-size: 18px;
+  color: var(--ink-600);
+  max-width: 680px;
+  margin: 0 auto var(--s-8);
+  line-height: 1.5;
+}
+.hero-actions { display: flex; gap: var(--s-3); justify-content: center; flex-wrap: wrap; }
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-4);
+  max-width: 920px;
+  margin: var(--s-12) auto 0;
+}
+.hero-stat {
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  text-align: left;
+  box-shadow: var(--shadow-md);
+}
+.hero-stat-value {
+  font-family: var(--font-display);
+  font-size: 36px; font-weight: 800;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1; letter-spacing: -0.03em;
+}
+.hero-stat-label {
+  font-size: 12px; font-weight: 600;
+  color: var(--ink-500);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-top: 6px;
+}
+
+/* Section header */
+.section { padding: var(--s-12) var(--s-8); max-width: 1480px; margin: 0 auto; }
+.section-eyebrow {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  padding: 4px 12px;
+  background: var(--brand-100);
+  color: var(--brand-700);
+  border-radius: var(--r-full);
+  font-size: 11.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  margin-bottom: var(--s-4);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink-900);
+  margin-bottom: var(--s-3);
+  line-height: 1.1;
+}
+.section-sub { font-size: 16px; color: var(--ink-600); max-width: 720px; margin-bottom: var(--s-8); line-height: 1.55; }
+
+/* === MODULE MAP === */
+.module-map {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-4);
+  margin-top: var(--s-6);
+}
+.module-card {
+  position: relative;
+  background: var(--paper);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.25s var(--ease-smooth);
+  cursor: pointer;
+  overflow: hidden;
+}
+.module-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--grad-brand);
+}
+.module-card.gold::before { background: var(--grad-gold); }
+.module-card.success::before { background: var(--grad-success); }
+.module-card.violet::before { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+.module-card.rose::before { background: var(--grad-rose); }
+.module-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-xl);
+  border-color: var(--brand-300);
+}
+.module-card-num {
+  position: absolute; top: var(--s-4); right: var(--s-4);
+  width: 28px; height: 28px;
+  background: var(--ink-100);
+  color: var(--ink-500);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700;
+}
+.module-icon {
+  width: 48px; height: 48px;
+  border-radius: var(--r-md);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  margin-bottom: var(--s-4);
+  box-shadow: var(--inner-light), 0 4px 8px rgba(99,102,241,0.12);
+  transition: all 0.25s var(--ease-bounce);
+}
+.module-card.gold .module-icon { background: var(--gold-100); color: var(--gold-700); box-shadow: var(--inner-light), 0 4px 8px rgba(245,158,11,0.18); }
+.module-card.success .module-icon { background: var(--success-100); color: var(--success-600); }
+.module-card.violet .module-icon { background: #ede9fe; color: var(--violet-600); }
+.module-card.rose .module-icon { background: var(--rose-100); color: var(--rose-500); }
+.module-card:hover .module-icon { transform: scale(1.1) rotate(-3deg); }
+
+.module-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink-900);
+  margin-bottom: 4px;
+  letter-spacing: -0.015em;
+}
+.module-desc { font-size: 12.5px; color: var(--ink-500); line-height: 1.5; }
+.module-tags { margin-top: var(--s-3); display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* === FLOW DIAGRAM === */
+.flow-diagram {
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: var(--r-xl);
+  padding: var(--s-8);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+}
+.flow-row {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin-bottom: var(--s-5);
+  flex-wrap: wrap;
+}
+.flow-row:last-child { margin-bottom: 0; }
+.flow-row-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-900);
+  flex-shrink: 0;
+  min-width: 220px;
+  padding: 12px 16px;
+  background: var(--grad-brand);
+  color: white;
+  border-radius: var(--r-sm);
+  box-shadow: var(--inner-light), 0 4px 12px rgba(99,102,241,0.3);
+  display: flex; align-items: center; gap: var(--s-2);
+}
+.flow-row-label.model-2 { background: var(--grad-gold); color: var(--brand-900); box-shadow: var(--inner-light), 0 4px 12px rgba(245,158,11,0.3); }
+.flow-row-label.model-3 { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: var(--inner-light), 0 4px 12px rgba(139,92,246,0.3); }
+.flow-row-label.model-4 { background: var(--grad-rose); box-shadow: var(--inner-light), 0 4px 12px rgba(244,63,94,0.3); }
+
+.flow-step {
+  padding: 10px 14px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink-200);
+  border-radius: var(--r-sm);
+  font-size: 12.5px; font-weight: 600;
+  color: var(--ink-700);
+  box-shadow: var(--shadow-xs);
+  white-space: nowrap;
+}
+.flow-arrow {
+  color: var(--brand-400);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+/* === DESIGN SYSTEM SHOWCASE === */
+.swatch-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-3); }
+.swatch {
+  border-radius: var(--r-md);
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: var(--s-3);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+.swatch::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 30%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15), transparent);
+}
+.swatch-name { font-size: 13px; font-weight: 700; font-family: var(--font-body); margin-bottom: 2px; }
+
+.demo-block {
+  background: var(--paper);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-lg);
+  padding: var(--s-6);
+  box-shadow: var(--shadow-sm);
+}
+.demo-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--ink-500);
+  margin-bottom: var(--s-3);
+}
+
+/* CTA banner */
+.cta-banner {
+  background: var(--grad-brand-deep);
+  color: white;
+  border-radius: var(--r-xl);
+  padding: var(--s-10);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-xl), var(--inner-light);
+}
+.cta-banner::before {
+  content: '';
+  position: absolute;
+  top: -50%; right: -20%;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(245,158,11,0.4), transparent 60%);
+  pointer-events: none;
+}
+.cta-banner::after {
+  content: '';
+  position: absolute;
+  bottom: -50%; left: -10%;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(139,92,246,0.4), transparent 60%);
+  pointer-events: none;
+}
+.cta-banner > * { position: relative; z-index: 1; }
+.cta-title {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--s-3);
+  color: white;
+}
+.cta-sub { font-size: 17px; opacity: 0.85; max-width: 600px; margin: 0 auto var(--s-6); line-height: 1.5; }
+
+/* Footer */
+.site-foot {
+  text-align: center;
+  padding: var(--s-8);
+  font-size: 12px;
+  color: var(--ink-500);
+  border-top: 1px solid var(--ink-200);
+  margin-top: var(--s-8);
+}
+
+/* Loom thread decorative animation */
+.thread-divider {
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(99,102,241,0.3) 20%,
+    rgba(245,158,11,0.5) 50%,
+    rgba(139,92,246,0.3) 80%,
+    transparent 100%);
+  margin: var(--s-12) 0;
+}
+
+/* Phone preview frame */
+.phone {
+  width: 280px;
+  height: 560px;
+  background: var(--ink-900);
+  border-radius: 36px;
+  padding: 12px;
+  box-shadow: var(--shadow-2xl), var(--inner-glass);
+  position: relative;
+  margin: 0 auto;
+}
+.phone-screen {
+  width: 100%; height: 100%;
+  background: var(--canvas);
+  border-radius: 26px;
+  overflow: hidden;
+  position: relative;
+  display: flex; flex-direction: column;
+}
+.phone-notch {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  width: 90px; height: 22px;
+  background: var(--ink-900);
+  border-radius: 0 0 14px 14px;
+  z-index: 10;
+}
+.phone-statusbar {
+  padding: 14px 20px 6px;
+  display: flex; justify-content: space-between;
+  font-size: 11px; font-weight: 600;
+  color: var(--ink-800);
+}
+.phone-content { flex: 1; padding: var(--s-3) var(--s-4); overflow: hidden; }
+.phone-tab-bar {
+  display: flex;
+  background: var(--paper);
+  border-top: 1px solid var(--ink-200);
+  padding: 6px 4px 14px;
+}
+.phone-tab {
+  flex: 1; text-align: center;
+  padding: 6px 0;
+  font-size: 9.5px; font-weight: 600;
+  color: var(--ink-400);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.phone-tab.active { color: var(--brand-600); }
+.phone-tab-icon {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  border-radius: 8px;
+}
+.phone-tab.active .phone-tab-icon { background: var(--brand-100); }
+
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<div class="hero">
+  <div class="hero-badge">v3.0 Master Spec · APPROVED · Ready to build</div>
+  <h1 class="hero-title">
+    <span class="hero-title-grad">PPK TEX ERP</span><br>
+    <span style="color: var(--ink-700); font-weight: 700;">Cloud-based weaving operations,</span><br>
+    <span style="color: var(--ink-700); font-weight: 700;">end to end.</span>
+  </h1>
+  <p class="hero-sub">
+    From yarn purchase to fabric sale — 11 modules, 4 business models, one system.
+    Web + mobile (PWA), works offline, with the math frozen and tested.
+  </p>
+  <div class="hero-actions">
+    <button class="btn btn-primary btn-lg">
+      <span>Explore Architecture</span>
+      <span style="font-size: 16px;">→</span>
+    </button>
+    <button class="btn btn-secondary btn-lg">
+      <span>📱</span>
+      <span>View Mobile Preview</span>
+    </button>
+  </div>
+
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-value">11</div>
+      <div class="hero-stat-label">Modules</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-value">4</div>
+      <div class="hero-stat-label">Business Models</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-value">26<span style="font-size: 22px; opacity: 0.7;">wk</span></div>
+      <div class="hero-stat-label">Build Timeline</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-value">4-Layer</div>
+      <div class="hero-stat-label">Test Protocol</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 1 — MODULE MAP
+     ============================================================ -->
+<section class="section">
+  <div class="section-eyebrow">★ The Map</div>
+  <h2 class="section-title">11 modules, working together</h2>
+  <p class="section-sub">
+    Each module has one focused job. Masters feed Transactions. Transactions feed Reports.
+    Every screen below will get its own modern HTML prototype before any code is written.
+  </p>
+
+  <div class="module-map">
+
+    <!-- 1 -->
+    <div class="module-card">
+      <div class="module-card-num">01</div>
+      <div class="module-icon">⚙</div>
+      <div class="module-name">Admin & Profile</div>
+      <div class="module-desc">Company info, users, roles, permissions, settings.</div>
+      <div class="module-tags">
+        <span class="badge badge-brand">Foundation</span>
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="module-card violet">
+      <div class="module-card-num">02</div>
+      <div class="module-icon">🗂</div>
+      <div class="module-name">Masters</div>
+      <div class="module-desc">Mill, Count, Customer, Vendor, Bobbin, Costing, Sizing, Employee.</div>
+      <div class="module-tags">
+        <span class="badge badge-violet">8 sub-masters</span>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="module-card success">
+      <div class="module-card-num">03</div>
+      <div class="module-icon">🧵</div>
+      <div class="module-name">Production</div>
+      <div class="module-desc">Fabric Receipt with dynamic columns, batch costing, lot trace.</div>
+      <div class="module-tags">
+        <span class="badge badge-success">In-house + Vendor</span>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="module-card">
+      <div class="module-card-num">04</div>
+      <div class="module-icon">🛒</div>
+      <div class="module-name">Purchase</div>
+      <div class="module-desc">Yarn invoices, polyester (Denier), bobbin purchase, vendor ledger.</div>
+      <div class="module-tags">
+        <span class="badge badge-cotton">Cotton</span>
+        <span class="badge badge-polyester">Polyester</span>
+      </div>
+    </div>
+
+    <!-- 5 -->
+    <div class="module-card">
+      <div class="module-card-num">05</div>
+      <div class="module-icon">🪡</div>
+      <div class="module-name">Sizing</div>
+      <div class="module-desc">Issue warp yarn to sizing vendor, receive Pavu (warped beam) back.</div>
+      <div class="module-tags">
+        <span class="badge badge-info">Vendor Flow</span>
+      </div>
+    </div>
+
+    <!-- 6 -->
+    <div class="module-card success">
+      <div class="module-card-num">06</div>
+      <div class="module-icon">⚒</div>
+      <div class="module-name">Weaving + Job Work</div>
+      <div class="module-desc">Issue to weaver, fabric receipt, job-work received from customer.</div>
+      <div class="module-tags">
+        <span class="badge badge-success">3 of 4 models</span>
+      </div>
+    </div>
+
+    <!-- 7 -->
+    <div class="module-card violet">
+      <div class="module-card-num">07</div>
+      <div class="module-icon">📦</div>
+      <div class="module-name">Warehouse</div>
+      <div class="module-desc">Yarn stock (cotton + polyester), bobbin stock at 3 locations, decimal balances.</div>
+      <div class="module-tags">
+        <span class="badge badge-violet">3-location bobbin</span>
+      </div>
+    </div>
+
+    <!-- 8 -->
+    <div class="module-card gold">
+      <div class="module-card-num">08</div>
+      <div class="module-icon">💼</div>
+      <div class="module-name">Sales</div>
+      <div class="module-desc">Quotes, sales orders, invoices, customer pricing memory, quick-quote.</div>
+      <div class="module-tags">
+        <span class="badge badge-warning">Quick Costing</span>
+      </div>
+    </div>
+
+    <!-- 9 -->
+    <div class="module-card">
+      <div class="module-card-num">09</div>
+      <div class="module-icon">💰</div>
+      <div class="module-name">Accounts</div>
+      <div class="module-desc">Customer/vendor payments, wages, P&amp;L (own + job-work separate).</div>
+      <div class="module-tags">
+        <span class="badge badge-brand">Dual P&L</span>
+      </div>
+    </div>
+
+    <!-- 10 -->
+    <div class="module-card gold">
+      <div class="module-card-num">10</div>
+      <div class="module-icon">📊</div>
+      <div class="module-name">Dashboard</div>
+      <div class="module-desc">3 tabs — Operations / Finance / Trends. ~18 widgets, live data.</div>
+      <div class="module-tags">
+        <span class="badge badge-warning">Quick widgets</span>
+      </div>
+    </div>
+
+    <!-- 11 -->
+    <div class="module-card rose">
+      <div class="module-card-num">11</div>
+      <div class="module-icon">👥</div>
+      <div class="module-name">Attendance</div>
+      <div class="module-desc">Two 12-hr shifts, role grouping, holiday flags, monthly summary.</div>
+      <div class="module-tags">
+        <span class="badge badge-error">NEW addendum</span>
+      </div>
+    </div>
+
+    <!-- Mobile -->
+    <div class="module-card violet">
+      <div class="module-card-num">📱</div>
+      <div class="module-icon">📲</div>
+      <div class="module-name">Mobile (PWA)</div>
+      <div class="module-desc">Install to home screen. Online: full ERP. Offline: 5 critical features.</div>
+      <div class="module-tags">
+        <span class="badge badge-violet">Web + Mobile parallel</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="thread-divider"></div>
+
+<!-- ============================================================
+     SECTION 2 — BUSINESS MODELS FLOW
+     ============================================================ -->
+<section class="section">
+  <div class="section-eyebrow">⚡ The Flows</div>
+  <h2 class="section-title">4 business models, one system</h2>
+  <p class="section-sub">
+    Your business runs four ways. The ERP tracks each separately so the P&amp;L tells you which one really makes money.
+  </p>
+
+  <div class="flow-diagram">
+
+    <div class="flow-row">
+      <div class="flow-row-label">
+        <span>1</span> In-house Full
+      </div>
+      <div class="flow-step">Buy Yarn</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Sizing</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Weave</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Fold</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Sell</div>
+    </div>
+
+    <div class="flow-row">
+      <div class="flow-row-label model-2">
+        <span>2</span> Outsourced Weaving
+      </div>
+      <div class="flow-step">Buy Yarn</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Sizing</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Issue to Weaver</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Receive Fabric</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Sell</div>
+    </div>
+
+    <div class="flow-row">
+      <div class="flow-row-label model-3">
+        <span>3</span> Job Work (OB)
+      </div>
+      <div class="flow-step">Customer brings yarn + bobbin</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Weave</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Return Goods</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Wages Invoice (5% GST)</div>
+    </div>
+
+    <div class="flow-row">
+      <div class="flow-row-label model-4">
+        <span>4</span> Fabric Resale
+      </div>
+      <div class="flow-step">Buy Fabric</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Stock</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Sell</div>
+    </div>
+
+  </div>
+</section>
+
+<div class="thread-divider"></div>
+
+<!-- ============================================================
+     SECTION 3 — KEY CONCEPTS
+     ============================================================ -->
+<section class="section">
+  <div class="section-eyebrow">📐 The Math</div>
+  <h2 class="section-title">Two cost numbers, not one</h2>
+  <p class="section-sub">
+    The single most important idea in this ERP: separate what you charge from what it really costs you.
+  </p>
+
+  <div class="grid grid-2">
+
+    <div class="card-gradient">
+      <div style="font-size: 13px; font-weight: 600; opacity: 0.85; margin-bottom: 8px; letter-spacing: 0.8px; text-transform: uppercase;">
+        ◆ Quoted Cost
+      </div>
+      <div style="font-family: var(--font-display); font-size: 32px; font-weight: 800; line-height: 1.1; margin-bottom: var(--s-4); letter-spacing: -0.02em;">
+        What customers see
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 12px; background: rgba(0,0,0,0.18); padding: 12px 14px; border-radius: var(--r-sm); margin-bottom: var(--s-3);">
+        Warp + Weft + Pick (market) +<br>
+        Bobbin + Porvai + Commissions
+      </div>
+      <p style="font-size: 13.5px; opacity: 0.9; line-height: 1.5;">
+        Used for quotations, price lists, sales invoices.
+        Pick paise reflects market rate, not your real overhead.
+      </p>
+    </div>
+
+    <div class="card-gold">
+      <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.8px; text-transform: uppercase;">
+        ★ True Cost
+      </div>
+      <div style="font-family: var(--font-display); font-size: 32px; font-weight: 800; line-height: 1.1; margin-bottom: var(--s-4); letter-spacing: -0.02em;">
+        What it really costs
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 12px; background: rgba(255,255,255,0.5); padding: 12px 14px; border-radius: var(--r-sm); margin-bottom: var(--s-3); color: var(--brand-900);">
+        Warp + Weft + LOOMS overhead +<br>
+        Bobbin + Porvai + Commissions
+      </div>
+      <p style="font-size: 13.5px; line-height: 1.5;">
+        Used for stock valuation and real P&amp;L.
+        Includes ₹5.14/mtr of factory overhead.
+      </p>
+    </div>
+
+  </div>
+
+  <div style="margin-top: var(--s-6); padding: var(--s-5) var(--s-6); background: var(--canvas-2); border-left: 4px solid var(--gold-500); border-radius: var(--r-md);">
+    <div style="font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--ink-900); margin-bottom: 6px;">
+      The Pricing Gap = Quoted − True
+    </div>
+    <div style="font-size: 13px; color: var(--ink-700);">
+      Positive = safe margin · Negative = under-priced (the ERP flashes red so you can decide: raise price, route to vendor, or discontinue)
+    </div>
+  </div>
+</section>
+
+<div class="thread-divider"></div>
+
+<!-- ============================================================
+     SECTION 4 — DESIGN SYSTEM SHOWCASE
+     ============================================================ -->
+<section class="section" style="background: rgba(255,255,255,0.4); border-radius: var(--r-2xl); margin-left: var(--s-6); margin-right: var(--s-6); margin-top: var(--s-6); margin-bottom: var(--s-6); padding: var(--s-12) var(--s-8);">
+  <div class="section-eyebrow">🎨 The Look</div>
+  <h2 class="section-title">A modern visual language</h2>
+  <p class="section-sub">
+    Glass surfaces, layered shadows, 3D embossed buttons, warm gradients — every screen will share this vocabulary.
+  </p>
+
+  <!-- Color palette -->
+  <div class="demo-block mb-6">
+    <div class="demo-label">Brand Palette · Indigo → Violet → Gold</div>
+    <div class="swatch-row">
+      <div class="swatch" style="background: linear-gradient(135deg, #1e1b4b, #312e81);">
+        <div class="swatch-name">Midnight</div><div>#1e1b4b</div>
+      </div>
+      <div class="swatch" style="background: linear-gradient(135deg, #4338ca, #6366f1);">
+        <div class="swatch-name">Indigo</div><div>#4338ca</div>
+      </div>
+      <div class="swatch" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+        <div class="swatch-name">Brand</div><div>#6366f1</div>
+      </div>
+      <div class="swatch" style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
+        <div class="swatch-name">Violet</div><div>#8b5cf6</div>
+      </div>
+      <div class="swatch" style="background: linear-gradient(135deg, #d97706, #fbbf24); color: #1e1b4b;">
+        <div class="swatch-name">Gold</div><div>#f59e0b</div>
+      </div>
+      <div class="swatch" style="background: linear-gradient(135deg, #f43f5e, #fb7185);">
+        <div class="swatch-name">Coral</div><div>#fb7185</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="demo-block mb-6">
+    <div class="demo-label">3D Embossed Buttons · Hover to lift</div>
+    <div class="flex gap-3" style="flex-wrap: wrap; align-items: center;">
+      <button class="btn btn-primary">＋ New Costing</button>
+      <button class="btn btn-gold">★ Quick Quote</button>
+      <button class="btn btn-success">✓ Approve</button>
+      <button class="btn btn-secondary">Cancel</button>
+      <button class="btn btn-danger">Delete</button>
+      <button class="btn btn-ghost">Skip for now</button>
+      <button class="btn btn-primary btn-sm">Small</button>
+      <button class="btn btn-primary btn-lg">Large</button>
+      <button class="btn btn-gold btn-xl">★ Hero Action</button>
+    </div>
+  </div>
+
+  <!-- Stats / cards / inputs grid -->
+  <div class="grid grid-3 mb-6">
+
+    <div class="stat">
+      <div class="stat-icon">📈</div>
+      <div class="stat-label">Today's Revenue</div>
+      <div class="stat-value">₹84,250</div>
+      <div class="stat-delta stat-delta-up">▲ 12.4%</div>
+    </div>
+
+    <div class="stat stat-gold">
+      <div class="stat-icon" style="background: var(--gold-100); color: var(--gold-700);">🧵</div>
+      <div class="stat-label">Yarn Stock Value</div>
+      <div class="stat-value">₹6.82L</div>
+      <div class="stat-delta stat-delta-up">▲ 3.1%</div>
+    </div>
+
+    <div class="stat stat-success">
+      <div class="stat-icon" style="background: var(--success-100); color: var(--success-600);">✓</div>
+      <div class="stat-label">Production Today</div>
+      <div class="stat-value">1,248<span style="font-size: 18px; opacity: 0.6;"> mtr</span></div>
+      <div class="stat-delta stat-delta-up">▲ 5.6%</div>
+    </div>
+
+  </div>
+
+  <!-- Inputs + table demo -->
+  <div class="grid grid-2 mb-6">
+
+    <div class="demo-block">
+      <div class="demo-label">Form Fields · with focus states</div>
+      <div class="form-grid" style="gap: var(--s-4);">
+        <div class="form-field">
+          <label class="form-label">Quality Code <span class="required">*</span></label>
+          <input class="input" value="120HT" placeholder="e.g. 120HT">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Fabric Type <span class="required">*</span></label>
+          <select class="select">
+            <option>Towel</option>
+            <option>Plain Woven</option>
+            <option>Dupatta</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Warp Yarn Rate</label>
+          <div class="input-group">
+            <span class="input-group-prefix">₹</span>
+            <input class="input" value="192">
+            <span class="input-group-suffix">/ kg</span>
+          </div>
+          <span class="form-helper">Live from latest weighted average</span>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Use Porvai (Polyester)</label>
+          <label class="switch" style="margin-top: 6px;">
+            <input type="checkbox" checked>
+            <span class="switch-track"></span>
+            <span class="switch-label">Yes — for dobby towels</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block" style="padding: 0; overflow: hidden;">
+      <div class="demo-label" style="padding: var(--s-6) var(--s-6) 0;">Data Table · with hover states</div>
+      <table class="data-table" style="margin-top: var(--s-4);">
+        <thead>
+          <tr>
+            <th>Quality</th>
+            <th>Type</th>
+            <th class="num">Cost ₹/m</th>
+            <th class="center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="cell-bold">120HT</span><div class="cell-muted">30.32 NeC</div></td>
+            <td><span class="badge badge-cotton">Cotton</span></td>
+            <td class="num cell-bold">25.07</td>
+            <td class="center"><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td>
+          </tr>
+          <tr>
+            <td><span class="cell-bold">DOBBY-150</span><div class="cell-muted">40 NeC + 150D</div></td>
+            <td><span class="badge badge-polyester">Porvai</span></td>
+            <td class="num cell-bold">26.57</td>
+            <td class="center"><span class="badge badge-warning"><span class="badge-dot"></span>Pending</span></td>
+          </tr>
+          <tr>
+            <td><span class="cell-bold">CT-1.65</span><div class="cell-muted">40 NeC towel</div></td>
+            <td><span class="badge badge-cotton">Cotton</span></td>
+            <td class="num cell-bold">21.85</td>
+            <td class="center"><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Tabs + Glass Card -->
+  <div class="grid grid-2">
+    <div class="demo-block">
+      <div class="demo-label">Tabs · Dashboard navigation</div>
+      <div class="tabs" style="margin-bottom: var(--s-5);">
+        <button class="tab active">⚡ Operations</button>
+        <button class="tab">💰 Finance</button>
+        <button class="tab">📈 Trends</button>
+      </div>
+      <div style="display: flex; gap: var(--s-2); flex-wrap: wrap;">
+        <span class="badge badge-success"><span class="badge-dot"></span> Active</span>
+        <span class="badge badge-warning"><span class="badge-dot"></span> Pending</span>
+        <span class="badge badge-error"><span class="badge-dot"></span> Low Stock</span>
+        <span class="badge badge-brand"><span class="badge-dot"></span> In-house</span>
+        <span class="badge badge-violet"><span class="badge-dot"></span> Job-work</span>
+        <span class="badge badge-cotton">Cotton</span>
+        <span class="badge badge-polyester">Polyester 150D</span>
+      </div>
+    </div>
+
+    <div class="card-glass" style="padding: var(--s-6);">
+      <div class="demo-label" style="color: var(--ink-700);">Glass Card · backdrop blur</div>
+      <h3 style="margin-bottom: var(--s-2);">Quick Fabric Costing</h3>
+      <p style="font-size: 13px; color: var(--ink-600); margin-bottom: var(--s-4); line-height: 1.5;">
+        The single most-used calculator in your business. Quote a new construction in minutes.
+      </p>
+      <div style="display: flex; gap: var(--s-3);">
+        <button class="btn btn-gold btn-sm">★ Calculate</button>
+        <button class="btn btn-secondary btn-sm">Save Quick Quote</button>
+      </div>
+    </div>
+
+  </div>
+
+</section>
+
+<div class="thread-divider"></div>
+
+<!-- ============================================================
+     SECTION 5 — MOBILE PREVIEW
+     ============================================================ -->
+<section class="section">
+  <div class="section-eyebrow">📱 Mobile First</div>
+  <h2 class="section-title">PWA — install to home screen</h2>
+  <p class="section-sub">
+    Same login as web. Online: full ERP. Offline: 5 critical features cached locally — wages, customer payment, purchase payment, quick costing, attendance.
+  </p>
+
+  <div style="display: flex; gap: var(--s-8); align-items: center; flex-wrap: wrap; justify-content: center;">
+
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="phone-notch"></div>
+        <div class="phone-statusbar">
+          <span>9:41</span>
+          <span style="display: flex; gap: 4px;">●●● 5G ▮</span>
+        </div>
+        <div class="phone-content">
+          <div style="font-family: var(--font-display); font-size: 11px; font-weight: 600; color: var(--ink-500); letter-spacing: 0.4px; text-transform: uppercase;">Tuesday · 5 May</div>
+          <div style="font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--ink-900); margin-bottom: var(--s-3); letter-spacing: -0.02em;">Hi Praveen 👋</div>
+
+          <div style="background: var(--grad-brand); color: white; padding: 12px; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 8px 16px rgba(99,102,241,0.3);">
+            <div style="font-size: 10px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.5px;">Today's Revenue</div>
+            <div style="font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.1; margin-top: 2px;">₹84,250</div>
+            <div style="font-size: 10px; opacity: 0.85; margin-top: 4px;">▲ 12.4% vs yesterday</div>
+          </div>
+
+          <div style="background: var(--grad-gold); color: var(--brand-900); padding: 12px; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 8px 16px rgba(245,158,11,0.3);">
+            <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">★ Quick Quote</div>
+            <div style="font-family: var(--font-display); font-size: 14px; font-weight: 700; margin-top: 4px;">Calculate fabric cost</div>
+          </div>
+
+          <div style="background: white; padding: 10px; border-radius: 10px; margin-bottom: 8px; border: 1px solid var(--ink-200);">
+            <div style="font-size: 10px; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.4px;">Production today</div>
+            <div style="font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink-900);">1,248 mtr</div>
+          </div>
+
+          <div style="background: white; padding: 10px; border-radius: 10px; border: 1px solid var(--ink-200);">
+            <div style="font-size: 10px; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.4px;">Yarn stock</div>
+            <div style="font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink-900);">₹6.82L</div>
+          </div>
+        </div>
+        <div class="phone-tab-bar">
+          <div class="phone-tab active"><div class="phone-tab-icon">⊞</div>Home</div>
+          <div class="phone-tab"><div class="phone-tab-icon">★</div>Quick</div>
+          <div class="phone-tab"><div class="phone-tab-icon">📦</div>Stock</div>
+          <div class="phone-tab"><div class="phone-tab-icon">⚙</div>More</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="max-width: 480px;">
+      <h3 style="font-size: 22px; margin-bottom: var(--s-3);">Works the way you work</h3>
+      <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--s-3);">
+        <li style="display: flex; gap: var(--s-3); align-items: flex-start;">
+          <div style="width: 32px; height: 32px; background: var(--brand-100); color: var(--brand-600); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 700;">📲</div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: var(--ink-900);">Install like an app</div>
+            <div style="font-size: 13px; color: var(--ink-600);">Add to home screen. No App Store. Updates instant.</div>
+          </div>
+        </li>
+        <li style="display: flex; gap: var(--s-3); align-items: flex-start;">
+          <div style="width: 32px; height: 32px; background: var(--success-100); color: var(--success-600); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 700;">⊘</div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: var(--ink-900);">Offline-first for shop floor</div>
+            <div style="font-size: 13px; color: var(--ink-600);">Wages, payments, costing, attendance keep working without signal. Auto-sync when WiFi returns.</div>
+          </div>
+        </li>
+        <li style="display: flex; gap: var(--s-3); align-items: flex-start;">
+          <div style="width: 32px; height: 32px; background: var(--gold-100); color: var(--gold-700); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 700;">⚡</div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: var(--ink-900);">One-tap quotes during customer visits</div>
+            <div style="font-size: 13px; color: var(--ink-600);">Customer asks for a price → quote in 30 seconds, save as quick-quote linked to the SO.</div>
+          </div>
+        </li>
+        <li style="display: flex; gap: var(--s-3); align-items: flex-start;">
+          <div style="width: 32px; height: 32px; background: #ede9fe; color: var(--violet-600); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 700;">🔄</div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: var(--ink-900);">Same login as web</div>
+            <div style="font-size: 13px; color: var(--ink-600);">Conflict queue handles offline-vs-online clashes with admin verification.</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<div class="thread-divider"></div>
+
+<!-- ============================================================
+     SECTION 6 — BUILD ROADMAP
+     ============================================================ -->
+<section class="section">
+  <div class="section-eyebrow">🛠 The Plan</div>
+  <h2 class="section-title">26 weeks, end-to-end</h2>
+  <p class="section-sub">
+    Phases A–D (build) → Phase E (30-day parallel run) → Phase F (60-day shakedown) → steady state.
+  </p>
+
+  <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-3); margin-top: var(--s-6);">
+
+    <div class="card" style="border-top: 4px solid var(--brand-500); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--brand-600); text-transform: uppercase; letter-spacing: 0.6px;">Phase A</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Foundations</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 1–3</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Auth, masters, costing master, yarn invoice.</div>
+    </div>
+
+    <div class="card" style="border-top: 4px solid var(--violet-500); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--violet-600); text-transform: uppercase; letter-spacing: 0.6px;">Phase B</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Transactions</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 4–7</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Sizing, weaving, sales, payments, quick costing.</div>
+    </div>
+
+    <div class="card" style="border-top: 4px solid var(--gold-500); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--gold-700); text-transform: uppercase; letter-spacing: 0.6px;">Phase C</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Reports</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 8–10</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Stock, P&amp;L, dashboard 3 tabs, lot tracing.</div>
+    </div>
+
+    <div class="card" style="border-top: 4px solid var(--rose-400); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--rose-500); text-transform: uppercase; letter-spacing: 0.6px;">Phase D</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Improvements</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 11–13</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Customer pricing, vendor scoreboard, mobile PWA.</div>
+    </div>
+
+    <div class="card" style="border-top: 4px solid var(--success-500); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--success-600); text-transform: uppercase; letter-spacing: 0.6px;">Phase E</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Parallel Run</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 14–17 · 30 days</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Excel + ERP. Daily reconciliation. 95%+ pass rate target.</div>
+    </div>
+
+    <div class="card" style="border-top: 4px solid var(--ink-700); padding: var(--s-5);">
+      <div style="font-size: 11px; font-weight: 700; color: var(--ink-700); text-transform: uppercase; letter-spacing: 0.6px;">Phase F</div>
+      <div style="font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--ink-900); margin: 6px 0;">Shakedown</div>
+      <div style="font-size: 12px; color: var(--ink-500); margin-bottom: var(--s-3);">Week 18–26 · 60 days</div>
+      <div style="font-size: 12px; color: var(--ink-700); line-height: 1.5;">Excel retired. Owner P&amp;L review daily. Rollback enabled.</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     CTA
+     ============================================================ -->
+<section class="section">
+  <div class="cta-banner">
+    <h2 class="cta-title">Next: every screen, in this style.</h2>
+    <p class="cta-sub">
+      Login → Dashboard → Masters → Transactions → Reports → Mobile.
+      Click-through HTML prototypes for all 25+ screens before a single line of production code is written.
+    </p>
+    <div style="display: flex; gap: var(--s-3); justify-content: center; flex-wrap: wrap;">
+      <button class="btn btn-gold btn-lg">★ Approve this design</button>
+      <button class="btn btn-secondary btn-lg" style="background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); backdrop-filter: blur(10px);">Suggest changes</button>
+    </div>
+  </div>
+</section>
+
+<div class="site-foot">
+  PPK TEX ERP · Visual Architecture &amp; Design System v2.0 · Built for Praveen Kumar · May 2026
+</div>
+
+<script>
+// Smooth-scroll behavior already in CSS. Add a tiny click feedback.
+document.querySelectorAll('.module-card').forEach(card => {
+  card.addEventListener('click', () => {
+    card.style.transform = 'translateY(-2px) scale(0.98)';
+    setTimeout(() => card.style.transform = '', 150);
+  });
+});
+
+// Hero CTA scrolls to architecture section
+document.querySelector('.hero-actions .btn-primary')?.addEventListener('click', () => {
+  document.querySelector('.module-map')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+document.querySelector('.hero-actions .btn-secondary')?.addEventListener('click', () => {
+  document.querySelector('.phone')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+</script>
+
+</body>
+</html>

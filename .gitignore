@@ -1,0 +1,41 @@
+﻿# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+app/.next/
+app/out/
+app/build/
+
+# Production / env
+.env
+.env*.local
+app/.env
+app/.env*.local
+
+# Vercel
+.vercel
+app/.vercel
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing / coverage
+coverage/
+.nyc_output/
+
+# Dropbox conflict copies (this project sits inside Dropbox)
+*conflicted copy*
+*.~lock.*

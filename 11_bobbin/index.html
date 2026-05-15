@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bobbin Stock · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Bobbin Stock — page-specific */
+
+    /* Status cards */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .status-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .status-card::before {
+      content: ''; position: absolute; inset: 0 0 auto 0;
+      height: 4px; background: var(--ink-300);
+    }
+    .status-card.empty::before    { background: var(--grad-brand); }
+    .status-card.wound::before    { background: var(--grad-gold); }
+    .status-card.issued::before   { background: var(--grad-success); }
+    .status-card.damaged::before  { background: var(--grad-rose); }
+    .status-icon {
+      width: 44px; height: 44px;
+      border-radius: var(--r-md);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 20px; color: white;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+    .status-card.empty .status-icon    { background: var(--grad-brand); }
+    .status-card.wound .status-icon    { background: var(--grad-gold); }
+    .status-card.issued .status-icon   { background: var(--grad-success); }
+    .status-card.damaged .status-icon  { background: var(--grad-rose); }
+    .status-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .status-value {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.025em;
+      line-height: 1.05; font-variant-numeric: tabular-nums;
+    }
+    .status-value small { font-size: 14px; opacity: 0.6; font-weight: 600; }
+    .status-meta { font-size: 11.5px; color: var(--ink-500); margin-top: 6px; }
+    .status-meta strong { color: var(--ink-700); font-weight: 700; }
+
+    /* Visual flow */
+    .flow-card {
+      background: linear-gradient(135deg, rgba(99,102,241,0.04), rgba(139,92,246,0.04));
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-xl);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .flow-title {
+      font-family: var(--font-display);
+      font-size: 14px; font-weight: 700;
+      color: var(--ink-700); text-transform: uppercase;
+      letter-spacing: 0.6px; margin: 0 0 16px 0;
+    }
+    .flow-stages {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+    .flow-stage {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 14px;
+      text-align: center;
+      box-shadow: var(--shadow-sm);
+    }
+    .flow-stage-icon {
+      width: 40px; height: 40px;
+      border-radius: var(--r-md);
+      margin: 0 auto 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: white;
+      box-shadow: var(--shadow-sm);
+    }
+    .flow-stage-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      margin-bottom: 4px;
+    }
+    .flow-stage-value {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.02em;
+    }
+    .flow-arrow {
+      color: var(--ink-400);
+      font-size: 22px;
+      text-align: center;
+    }
+
+    /* Section */
+    .section-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 6px 0 14px 0;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); letter-spacing: -0.01em;
+    }
+    .section-sub { font-size: 12px; color: var(--ink-500); margin-top: 2px; }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 14px;
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .toolbar-search {
+      flex: 1; min-width: 220px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--canvas-2);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      font-size: 13px;
+    }
+    .toolbar-search input {
+      flex: 1; background: transparent; border: none; outline: none;
+      font-size: 13px; font-family: inherit; color: var(--ink-900);
+    }
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* Movement table */
+    .b-table-wrap {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .b-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .b-table thead th {
+      text-align: left;
+      padding: 12px 14px;
+      background: var(--canvas-2);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .b-table tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .b-table tbody tr:last-child td { border-bottom: none; }
+    .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cell-muted { color: var(--ink-500); font-size: 11.5px; margin-top: 2px; }
+    .cell-bold { font-weight: 700; color: var(--ink-900); }
+
+    .move-pill {
+      display: inline-flex;
+      align-items: center; gap: 4px;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .move-in    { background: rgba(99,102,241,0.12); color: var(--brand-700); }
+    .move-out   { background: rgba(245,158,11,0.14); color: #b45309; }
+    .move-done  { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .move-scrap { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .ts {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-700);
+    }
+
+    /* By count grid */
+    .count-bobbin-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .count-bb {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all 0.18s var(--ease-smooth);
+    }
+    .count-bb:hover { border-color: var(--brand-300); transform: translateY(-2px); }
+    .count-bb-name {
+      font-family: var(--font-display);
+      font-size: 14px; font-weight: 800;
+      color: var(--ink-900); margin-bottom: 8px;
+    }
+    .count-bb-bar {
+      display: flex;
+      gap: 1px;
+      height: 14px;
+      background: var(--ink-100);
+      border-radius: var(--r-sm);
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .count-bb-bar > span {
+      display: block;
+      height: 100%;
+    }
+    .count-bb-bar .empty   { background: #6366f1; }
+    .count-bb-bar .wound   { background: #f59e0b; }
+    .count-bb-bar .issued  { background: #10b981; }
+    .count-bb-bar .damaged { background: #ef4444; }
+    .count-bb-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      font-size: 11px;
+      color: var(--ink-700);
+    }
+    .count-bb-legend > span {
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .count-bb-legend .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      display: inline-block;
+    }
+
+    @media (max-width: 1024px) {
+      .status-grid { grid-template-columns: 1fr 1fr; }
+      .flow-stages { grid-template-columns: 1fr; gap: 8px; }
+      .flow-arrow { transform: rotate(90deg); }
+    }
+    @media (max-width: 720px) {
+      .status-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="bobbin"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search bobbins, batches, looms…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Inventory</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Bobbin Stock</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Bobbin Stock</h1>
+          <p class="page-header-sub">Empty · Wound · Issued · Damaged — track every bobbin on the shop floor</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Bobbin audit exported','success')">
+            <span>↓</span> Stock Audit
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('Movement entry started','info')">
+            <span style="font-size:18px;">+</span> Log Movement
+          </button>
+        </div>
+      </div>
+
+      <div class="tour">
+        <div class="tour-icon">◉</div>
+        <div class="tour-text">
+          <strong>Bobbin Stock — your shop-floor heartbeat.</strong>
+          A bobbin starts <em>Empty</em>, gets <em>Wound</em> with yarn at the winding section, then <em>Issued</em> to a loom for weaving. After weaving it returns Empty (or Damaged if the spool cracks). The flow below shows live counts at each stage.
+        </div>
+      </div>
+
+      <!-- Status cards -->
+      <div class="status-grid">
+        <div class="status-card empty">
+          <div class="status-icon">○</div>
+          <div class="status-label">Empty Bobbins</div>
+          <div class="status-value">1,840</div>
+          <div class="status-meta"><strong>Available for winding</strong> · 320 returned today</div>
+        </div>
+        <div class="status-card wound">
+          <div class="status-icon">●</div>
+          <div class="status-label">Wound (in winding)</div>
+          <div class="status-value">624</div>
+          <div class="status-meta">8 winding machines · <strong>92 wound today</strong></div>
+        </div>
+        <div class="status-card issued">
+          <div class="status-icon">▶</div>
+          <div class="status-label">Issued to Looms</div>
+          <div class="status-value">2,180</div>
+          <div class="status-meta">112 looms running · <strong>~ 19 per loom</strong></div>
+        </div>
+        <div class="status-card damaged">
+          <div class="status-icon">⚠</div>
+          <div class="status-label">Damaged / Scrap</div>
+          <div class="status-value">68</div>
+          <div class="status-meta">This month · <strong>2.4% scrap rate</strong></div>
+        </div>
+      </div>
+
+      <!-- Visual flow -->
+      <div class="flow-card">
+        <h3 class="flow-title">Bobbin Lifecycle · Live Count</h3>
+        <div class="flow-stages">
+          <div class="flow-stage">
+            <div class="flow-stage-icon" style="background: var(--grad-brand);">○</div>
+            <div class="flow-stage-title">Empty Stock</div>
+            <div class="flow-stage-value">1,840</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-stage">
+            <div class="flow-stage-icon" style="background: var(--grad-gold);">⤴</div>
+            <div class="flow-stage-title">Winding</div>
+            <div class="flow-stage-value">624</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-stage">
+            <div class="flow-stage-icon" style="background: var(--grad-success);">▶</div>
+            <div class="flow-stage-title">On Looms</div>
+            <div class="flow-stage-value">2,180</div>
+          </div>
+          <div class="flow-arrow">↩</div>
+          <div class="flow-stage">
+            <div class="flow-stage-icon" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">⤵</div>
+            <div class="flow-stage-title">Returned</div>
+            <div class="flow-stage-value">320</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bobbins by count -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Wound Bobbins by Yarn Count</div>
+          <div class="section-sub">624 wound bobbins ready for issue · breakdown by count</div>
+        </div>
+      </div>
+
+      <div class="count-bobbin-grid">
+        <div class="count-bb">
+          <div class="count-bb-name">Cotton 30s · Karur</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 28%;"></span>
+            <span class="wound" style="width: 18%;"></span>
+            <span class="issued" style="width: 50%;"></span>
+            <span class="damaged" style="width: 4%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>520 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>180 w</span>
+            <span><span class="dot" style="background:#10b981"></span>720 ◯</span>
+          </div>
+        </div>
+
+        <div class="count-bb">
+          <div class="count-bb-name">Cotton 40s · Premium</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 32%;"></span>
+            <span class="wound" style="width: 22%;"></span>
+            <span class="issued" style="width: 42%;"></span>
+            <span class="damaged" style="width: 4%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>440 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>140 w</span>
+            <span><span class="dot" style="background:#10b981"></span>520 ◯</span>
+          </div>
+        </div>
+
+        <div class="count-bb">
+          <div class="count-bb-name">Cotton 65.5s · Gassed</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 20%;"></span>
+            <span class="wound" style="width: 14%;"></span>
+            <span class="issued" style="width: 60%;"></span>
+            <span class="damaged" style="width: 6%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>180 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>92 w</span>
+            <span><span class="dot" style="background:#10b981"></span>340 ◯</span>
+          </div>
+        </div>
+
+        <div class="count-bb">
+          <div class="count-bb-name">150D · Porvai</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 38%;"></span>
+            <span class="wound" style="width: 22%;"></span>
+            <span class="issued" style="width: 36%;"></span>
+            <span class="damaged" style="width: 4%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>240 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>112 w</span>
+            <span><span class="dot" style="background:#10b981"></span>180 ◯</span>
+          </div>
+        </div>
+
+        <div class="count-bb">
+          <div class="count-bb-name">2/40s · Doubled</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 36%;"></span>
+            <span class="wound" style="width: 20%;"></span>
+            <span class="issued" style="width: 42%;"></span>
+            <span class="damaged" style="width: 2%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>320 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>100 w</span>
+            <span><span class="dot" style="background:#10b981"></span>220 ◯</span>
+          </div>
+        </div>
+
+        <div class="count-bb">
+          <div class="count-bb-name">20s · Slub</div>
+          <div class="count-bb-bar">
+            <span class="empty" style="width: 26%;"></span>
+            <span class="wound" style="width: 16%;"></span>
+            <span class="issued" style="width: 54%;"></span>
+            <span class="damaged" style="width: 4%;"></span>
+          </div>
+          <div class="count-bb-legend">
+            <span><span class="dot" style="background:#6366f1"></span>140 e</span>
+            <span><span class="dot" style="background:#f59e0b"></span>0 w</span>
+            <span><span class="dot" style="background:#10b981"></span>200 ◯</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Movement log -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Today's Movements</div>
+          <div class="section-sub">Live log of every bobbin movement on the floor</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-search">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by batch, loom, count, operator…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All Today</button>
+          <button class="filter-chip">Wind In</button>
+          <button class="filter-chip">Issue Out</button>
+          <button class="filter-chip">Returned</button>
+          <button class="filter-chip">Damaged</button>
+        </div>
+      </div>
+
+      <div class="b-table-wrap">
+        <table class="b-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Movement</th>
+              <th>Count</th>
+              <th>Batch</th>
+              <th>Loom / Section</th>
+              <th>Operator</th>
+              <th class="num">Bobbins</th>
+              <th class="num">Yarn (kg)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="ts">14:42</td>
+              <td><span class="move-pill move-out">▶ Issue Out</span></td>
+              <td class="cell-bold">30s · Karur</td>
+              <td>BB-WND-3842</td>
+              <td><span class="cell-bold">L-04</span></td>
+              <td>Suresh</td>
+              <td class="num cell-bold">12</td>
+              <td class="num">76</td>
+            </tr>
+            <tr>
+              <td class="ts">14:18</td>
+              <td><span class="move-pill move-in">⤴ Wound In</span></td>
+              <td class="cell-bold">40s · Premium</td>
+              <td>BB-WND-3845</td>
+              <td>Winding · W-3</td>
+              <td>Mahesh</td>
+              <td class="num cell-bold">18</td>
+              <td class="num">110</td>
+            </tr>
+            <tr>
+              <td class="ts">13:54</td>
+              <td><span class="move-pill move-done">↩ Returned</span></td>
+              <td class="cell-bold">65.5s · Gassed</td>
+              <td>BB-RET-1842</td>
+              <td><span class="cell-bold">L-12</span></td>
+              <td>Karthik</td>
+              <td class="num cell-bold">24</td>
+              <td class="num">—</td>
+            </tr>
+            <tr>
+              <td class="ts">13:32</td>
+              <td><span class="move-pill move-out">▶ Issue Out</span></td>
+              <td class="cell-bold">150D · Porvai</td>
+              <td>BB-WND-3838</td>
+              <td><span class="cell-bold">L-21</span> · Job-work</td>
+              <td>Ramesh</td>
+              <td class="num cell-bold">14</td>
+              <td class="num">82</td>
+            </tr>
+            <tr>
+              <td class="ts">12:48</td>
+              <td><span class="move-pill move-scrap">⚠ Damaged</span></td>
+              <td class="cell-bold">30s · Karur</td>
+              <td>BB-DMG-241</td>
+              <td><span class="cell-bold">L-07</span></td>
+              <td>Suresh</td>
+              <td class="num cell-bold" style="color: var(--rose-600);">3</td>
+              <td class="num">—</td>
+            </tr>
+            <tr>
+              <td class="ts">12:14</td>
+              <td><span class="move-pill move-in">⤴ Wound In</span></td>
+              <td class="cell-bold">2/40s · Doubled</td>
+              <td>BB-WND-3844</td>
+              <td>Winding · W-1</td>
+              <td>Mahesh</td>
+              <td class="num cell-bold">16</td>
+              <td class="num">98</td>
+            </tr>
+            <tr>
+              <td class="ts">11:38</td>
+              <td><span class="move-pill move-out">▶ Issue Out</span></td>
+              <td class="cell-bold">40s · Premium</td>
+              <td>BB-WND-3841</td>
+              <td><span class="cell-bold">L-09, L-10</span></td>
+              <td>Vignesh</td>
+              <td class="num cell-bold">22</td>
+              <td class="num">132</td>
+            </tr>
+            <tr>
+              <td class="ts">11:04</td>
+              <td><span class="move-pill move-done">↩ Returned</span></td>
+              <td class="cell-bold">30s · Karur</td>
+              <td>BB-RET-1840</td>
+              <td><span class="cell-bold">L-04, L-05</span></td>
+              <td>Suresh</td>
+              <td class="num cell-bold">28</td>
+              <td class="num">—</td>
+            </tr>
+            <tr>
+              <td class="ts">10:32</td>
+              <td><span class="move-pill move-in">⤴ Wound In</span></td>
+              <td class="cell-bold">65.5s · Gassed</td>
+              <td>BB-WND-3840</td>
+              <td>Winding · W-5</td>
+              <td>Pradeep</td>
+              <td class="num cell-bold">14</td>
+              <td class="num">86</td>
+            </tr>
+            <tr>
+              <td class="ts">09:48</td>
+              <td><span class="move-pill move-out">▶ Issue Out</span></td>
+              <td class="cell-bold">30s · Karur</td>
+              <td>BB-WND-3837</td>
+              <td><span class="cell-bold">L-15, L-16</span> · JW</td>
+              <td>Karthik</td>
+              <td class="num cell-bold">20</td>
+              <td class="num">122</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="../js/shell.js"></script>
+<script>
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

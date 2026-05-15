@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yarn Purchase · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Yarn Purchase — page-specific */
+
+    .yp-hero {
+      background: linear-gradient(135deg, #581c87 0%, #6d28d9 50%, #8b5cf6 100%);
+      border-radius: var(--r-xl);
+      padding: 26px 30px; color: white; margin-bottom: 24px;
+      position: relative; overflow: hidden;
+      box-shadow: 0 18px 48px rgba(88, 28, 135, 0.32);
+    }
+    .yp-hero::before {
+      content:''; position:absolute; top:-40%; right:-10%;
+      width: 320px; height: 320px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%);
+      filter: blur(40px);
+    }
+    .yp-hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(4, 1fr);
+      gap: 24px; align-items: center; position: relative;
+    }
+    .yp-hero-title {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .yp-hero-sub { font-size: 13px; opacity: 0.88; line-height: 1.5; max-width: 340px; }
+    .yp-hero-stat-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.7px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .yp-hero-stat-value {
+      font-family: var(--font-display); font-size: 22px;
+      font-weight: 800; letter-spacing: -0.02em;
+      line-height: 1.05; font-variant-numeric: tabular-nums;
+    }
+    .yp-hero-stat-value small { font-size: 12px; opacity: 0.7; font-weight: 600; margin-left: 3px; }
+    .yp-hero-stat-meta { font-size: 11px; opacity: 0.78; margin-top: 2px; }
+
+    /* Pipeline strip */
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .pipe-stage {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 14px 16px;
+      position: relative;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all 0.18s var(--ease-smooth);
+    }
+    .pipe-stage:hover {
+      border-color: var(--brand-300);
+      transform: translateY(-2px);
+    }
+    .pipe-stage.active {
+      border-color: var(--brand-500);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.14), var(--shadow-sm);
+    }
+    .pipe-stage::before {
+      content: ''; position: absolute; inset: 0 0 auto 0;
+      height: 3px; border-radius: var(--r-lg) var(--r-lg) 0 0;
+      background: var(--ink-300);
+    }
+    .pipe-stage[data-stage="draft"]::before    { background: var(--ink-400); }
+    .pipe-stage[data-stage="ordered"]::before  { background: var(--grad-brand); }
+    .pipe-stage[data-stage="transit"]::before  { background: var(--grad-gold); }
+    .pipe-stage[data-stage="received"]::before { background: var(--grad-success); }
+    .pipe-stage[data-stage="paid"]::before     { background: var(--grad-success); }
+
+    .pipe-label {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .pipe-count {
+      font-family: var(--font-display);
+      font-size: 26px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.02em;
+      line-height: 1.05;
+    }
+    .pipe-meta { font-size: 11.5px; color: var(--ink-500); margin-top: 4px; }
+    .pipe-meta strong { color: var(--ink-700); font-weight: 700; }
+
+    /* Toolbar + table */
+    .section-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 6px 0 14px 0;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); letter-spacing: -0.01em;
+    }
+    .section-sub { font-size: 12px; color: var(--ink-500); margin-top: 2px; }
+
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 14px;
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .toolbar-search {
+      flex: 1; min-width: 220px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--canvas-2);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      font-size: 13px;
+    }
+    .toolbar-search input {
+      flex: 1; background: transparent; border: none; outline: none;
+      font-size: 13px; font-family: inherit; color: var(--ink-900);
+    }
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .yp-table-wrap {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .yp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .yp-table thead th {
+      text-align: left;
+      padding: 12px 14px;
+      background: var(--canvas-2);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .yp-table tbody td {
+      padding: 14px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .yp-table tbody tr {
+      transition: background 0.15s; cursor: pointer;
+    }
+    .yp-table tbody tr:hover { background: var(--canvas-2); }
+    .yp-table tbody tr:last-child td { border-bottom: none; }
+
+    .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cell-muted { color: var(--ink-500); font-size: 11.5px; margin-top: 2px; }
+    .cell-bold { font-weight: 700; color: var(--ink-900); }
+
+    .po-id {
+      font-family: var(--font-mono);
+      font-size: 12px; font-weight: 700;
+      color: #6d28d9;
+    }
+
+    .pill-status {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: var(--r-full);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .ps-draft    { background: var(--ink-100); color: var(--ink-700); }
+    .ps-ordered  { background: rgba(99,102,241,0.12); color: var(--brand-700); }
+    .ps-transit  { background: rgba(245,158,11,0.14); color: #b45309; }
+    .ps-received { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .ps-paid     { background: rgba(16,185,129,0.18); color: var(--success-700); }
+
+    .pay-pill {
+      display: inline-flex;
+      align-items: center; gap: 4px;
+      padding: 3px 8px;
+      border-radius: var(--r-full);
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 700;
+      background: var(--canvas-2); color: var(--ink-700);
+    }
+    .pay-pill.paid    { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .pay-pill.partial { background: rgba(245,158,11,0.14); color: #b45309; }
+    .pay-pill.due     { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .supplier-mini {
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .supplier-avatar {
+      width: 26px; height: 26px;
+      border-radius: var(--r-sm);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 800; color: white; font-size: 11px;
+    }
+    .sa-1 { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+    .sa-2 { background: linear-gradient(135deg, #0ea5e9, #0369a1); }
+    .sa-3 { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .sa-4 { background: linear-gradient(135deg, #10b981, #047857); }
+    .sa-5 { background: linear-gradient(135deg, #f59e0b, #b45309); }
+
+    /* Drawer */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s; z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0;
+      width: 560px; max-width: 95vw; height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex; flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(139,92,246,0.06), rgba(109,40,217,0.06));
+    }
+    .drawer-head-row {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 16px;
+    }
+    .drawer-job-id {
+      font-family: var(--font-mono); font-size: 11px;
+      color: #6d28d9; font-weight: 700; letter-spacing: 0.5px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.02em;
+      margin: 4px 0 6px 0;
+    }
+    .drawer-meta { font-size: 12.5px; color: var(--ink-500); }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 22px 24px; }
+
+    /* Stepper */
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      margin-bottom: 24px;
+      padding: 16px;
+      background: var(--canvas-2);
+      border-radius: var(--r-md);
+    }
+    .step { text-align: center; position: relative; }
+    .step:not(:last-child)::after {
+      content: ''; position: absolute; top: 14px;
+      left: calc(50% + 18px); right: calc(-50% + 18px);
+      height: 2px; background: var(--ink-200);
+    }
+    .step.done:not(:last-child)::after,
+    .step.current:not(:last-child)::after { background: #8b5cf6; }
+    .step-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--ink-100);
+      border: 2px solid var(--paper);
+      box-shadow: 0 0 0 1px var(--ink-200);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: var(--ink-500);
+      position: relative; z-index: 1;
+    }
+    .step.done .step-dot {
+      background: #8b5cf6; box-shadow: 0 0 0 1px #8b5cf6; color: white;
+    }
+    .step.current .step-dot {
+      background: var(--paper); box-shadow: 0 0 0 2px #8b5cf6; color: #6d28d9;
+    }
+    .step-label {
+      font-size: 10.5px; font-weight: 700;
+      color: var(--ink-500); margin-top: 6px;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .step.current .step-label, .step.done .step-label { color: var(--ink-900); }
+
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 14px 18px; margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px dashed var(--ink-200);
+    }
+    .info-item-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .info-item-value {
+      font-size: 14px; font-weight: 600; color: var(--ink-900);
+    }
+    .info-item-value.mono { font-family: var(--font-mono); }
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-700); text-transform: uppercase;
+      letter-spacing: 0.6px; margin: 0 0 12px 0;
+    }
+    .lines-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 12.5px; margin-bottom: 20px;
+    }
+    .lines-table th {
+      text-align: left;
+      padding: 8px 10px;
+      background: var(--canvas-2);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--ink-500);
+      font-weight: 700;
+    }
+    .lines-table td {
+      padding: 10px;
+      border-bottom: 1px dashed var(--ink-200);
+      vertical-align: top;
+    }
+    .lines-table tfoot td {
+      font-weight: 800;
+      background: var(--canvas-2);
+      color: var(--ink-900);
+    }
+    .pay-block {
+      background: linear-gradient(135deg, rgba(139,92,246,0.06), rgba(99,102,241,0.06));
+      border: 1px solid rgba(139,92,246,0.18);
+      border-radius: var(--r-md);
+      padding: 16px; margin-bottom: 20px;
+    }
+    .pay-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0; font-size: 13px; color: var(--ink-700);
+    }
+    .pay-row.total {
+      border-top: 1px solid rgba(139,92,246,0.32);
+      margin-top: 6px; padding-top: 12px;
+      font-weight: 800; font-size: 15px; color: var(--ink-900);
+    }
+    .pay-row .mono { font-family: var(--font-mono); }
+    .drawer-foot {
+      padding: 16px 24px;
+      border-top: 1px solid var(--ink-100);
+      background: var(--canvas-2);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    @media (max-width: 1024px) {
+      .yp-hero-grid { grid-template-columns: 1fr 1fr; }
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .yp-hero-grid { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+      .stepper { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .step:not(:last-child)::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="yarn-buy"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search POs, suppliers, lots…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Inventory</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Yarn Purchase</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Yarn Purchase</h1>
+          <p class="page-header-sub">Purchase orders to spinners · GRN · supplier payments</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Purchase ledger exported','success')">
+            <span>↓</span> Export
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('New purchase order draft','info')">
+            <span style="font-size:18px;">+</span> New Purchase Order
+          </button>
+        </div>
+      </div>
+
+      <div class="tour">
+        <div class="tour-icon">⊕</div>
+        <div class="tour-text">
+          <strong>Yarn Purchase — buy yarn from spinners.</strong>
+          Each row is one purchase order. The pipeline above shows where every PO sits — Draft, Ordered, In Transit, Received, Paid. Click a PO to record a GRN, mark a payment, or upload the bill.
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="yp-hero">
+        <div class="yp-hero-grid">
+          <div>
+            <h2 class="yp-hero-title">8 Open POs · ₹26.4 L Pending</h2>
+            <p class="yp-hero-sub">3 in transit, 2 ready for GRN. ₹4.2 L overdue payment · highest spend on PRC Mills.</p>
+          </div>
+          <div>
+            <div class="yp-hero-stat-label">YTD Spend</div>
+            <div class="yp-hero-stat-value">₹2.84<small>Cr</small></div>
+            <div class="yp-hero-stat-meta">120 POs</div>
+          </div>
+          <div>
+            <div class="yp-hero-stat-label">This Month</div>
+            <div class="yp-hero-stat-value">₹38<small>L</small></div>
+            <div class="yp-hero-stat-meta">12 POs</div>
+          </div>
+          <div>
+            <div class="yp-hero-stat-label">Avg PO Value</div>
+            <div class="yp-hero-stat-value">₹2.36<small>L</small></div>
+            <div class="yp-hero-stat-meta">For 8,200 kg avg</div>
+          </div>
+          <div>
+            <div class="yp-hero-stat-label">Overdue Pay</div>
+            <div class="yp-hero-stat-value">₹4.2<small>L</small></div>
+            <div class="yp-hero-stat-meta">3 invoices</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="pipeline">
+        <div class="pipe-stage" data-stage="draft">
+          <div class="pipe-label">Draft</div>
+          <div class="pipe-count">2</div>
+          <div class="pipe-meta">₹4.6 L value</div>
+        </div>
+        <div class="pipe-stage active" data-stage="ordered">
+          <div class="pipe-label">Ordered</div>
+          <div class="pipe-count">3</div>
+          <div class="pipe-meta">₹9.8 L · awaiting dispatch</div>
+        </div>
+        <div class="pipe-stage" data-stage="transit">
+          <div class="pipe-label">In Transit</div>
+          <div class="pipe-count">3</div>
+          <div class="pipe-meta">₹12.0 L · ETA 2-5d</div>
+        </div>
+        <div class="pipe-stage" data-stage="received">
+          <div class="pipe-label">Received</div>
+          <div class="pipe-count">5</div>
+          <div class="pipe-meta">Pending bill / pay</div>
+        </div>
+        <div class="pipe-stage" data-stage="paid">
+          <div class="pipe-label">Paid (May)</div>
+          <div class="pipe-count">7</div>
+          <div class="pipe-meta">₹22.4 L cleared</div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="toolbar-search">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by PO #, supplier, count…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All</button>
+          <button class="filter-chip">Open POs</button>
+          <button class="filter-chip">In Transit</button>
+          <button class="filter-chip">Pending Payment</button>
+          <button class="filter-chip">This Month</button>
+        </div>
+      </div>
+
+      <!-- PO table -->
+      <div class="yp-table-wrap">
+        <table class="yp-table">
+          <thead>
+            <tr>
+              <th>PO #</th>
+              <th>Supplier</th>
+              <th>Yarn</th>
+              <th class="num">Qty</th>
+              <th class="num">Rate</th>
+              <th class="num">Value</th>
+              <th>Status</th>
+              <th>Payment</th>
+              <th>ETA / Recd</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1188</span><div class="cell-muted">04 May</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-1">PR</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">PRC Mills</div>
+                    <div class="cell-muted">Tirupur</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">30s Combed</div><div class="cell-muted">Karur cotton</div></td>
+              <td class="num">3,000<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹284</td>
+              <td class="num cell-bold">₹8,52,000</td>
+              <td><span class="pill-status ps-ordered">Ordered</span></td>
+              <td><span class="pay-pill">Advance ₹2L</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px;">ETA 09 May</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1187</span><div class="cell-muted">02 May</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-2">LT</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Loyal Textiles</div>
+                    <div class="cell-muted">Coimbatore</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">65.5s Combed</div><div class="cell-muted">Gassed</div></td>
+              <td class="num">1,800<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹442</td>
+              <td class="num cell-bold">₹7,95,600</td>
+              <td><span class="pill-status ps-transit">In Transit</span></td>
+              <td><span class="pay-pill">30 days credit</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px;">ETA 07 May</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1186</span><div class="cell-muted">28 Apr</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-3">RI</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Reliance Industries</div>
+                    <div class="cell-muted">Direct</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">150D Porvai</div><div class="cell-muted">Polyester</div></td>
+              <td class="num">2,000<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹186</td>
+              <td class="num cell-bold">₹3,72,000</td>
+              <td><span class="pill-status ps-transit">In Transit</span></td>
+              <td><span class="pay-pill paid">Prepaid</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px;">ETA 06 May</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1184</span><div class="cell-muted">22 Apr</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-4">SS</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sangam Spinners</div>
+                    <div class="cell-muted">Bhilwara</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">40s Combed</div><div class="cell-muted">Premium</div></td>
+              <td class="num">3,200<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹318</td>
+              <td class="num cell-bold">₹10,17,600</td>
+              <td><span class="pill-status ps-received">Received</span></td>
+              <td><span class="pay-pill partial">₹4L due</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--success-700);">Recd 28 Apr</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1182</span><div class="cell-muted">18 Apr</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-1">PR</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">PRC Mills</div>
+                    <div class="cell-muted">Tirupur</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">2/40s Combed</div><div class="cell-muted">Doubled</div></td>
+              <td class="num">2,200<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹364</td>
+              <td class="num cell-bold">₹8,00,800</td>
+              <td><span class="pill-status ps-received">Received</span></td>
+              <td><span class="pay-pill paid">Paid ✓</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--success-700);">Recd 24 Apr</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1180</span><div class="cell-muted">14 Apr</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-5">VN</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Vardhman Yarn</div>
+                    <div class="cell-muted">Ludhiana</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">20s Slub</div><div class="cell-muted">Fancy</div></td>
+              <td class="num">2,800<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹258</td>
+              <td class="num cell-bold">₹7,22,400</td>
+              <td><span class="pill-status ps-paid">Paid</span></td>
+              <td><span class="pay-pill paid">Paid ✓</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--success-700);">Recd 21 Apr</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1178</span><div class="cell-muted">10 Apr</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-1">PR</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">PRC Mills</div>
+                    <div class="cell-muted">Tirupur</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">30s Combed</div><div class="cell-muted">Karur cotton</div></td>
+              <td class="num">3,000<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹278</td>
+              <td class="num cell-bold">₹8,34,000</td>
+              <td><span class="pill-status ps-paid">Paid</span></td>
+              <td><span class="pay-pill paid">Paid ✓</span></td>
+              <td><span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--success-700);">Recd 16 Apr</span></td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="po-id">PO-1190</span><div class="cell-muted">06 May</div></td>
+              <td>
+                <div class="supplier-mini">
+                  <div class="supplier-avatar sa-4">SS</div>
+                  <div>
+                    <div class="cell-bold" style="font-size:12.5px;">Sangam Spinners</div>
+                    <div class="cell-muted">Bhilwara</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="cell-bold">40s Combed</div><div class="cell-muted">Premium</div></td>
+              <td class="num">2,400<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">₹322</td>
+              <td class="num cell-bold">₹7,72,800</td>
+              <td><span class="pill-status ps-draft">Draft</span></td>
+              <td><span class="pay-pill" style="opacity:0.6;">Not yet</span></td>
+              <td><span class="cell-muted">Awaiting approval</span></td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-row">
+      <div>
+        <div class="drawer-job-id">PO-1187 · Purchase Order</div>
+        <div class="drawer-title">Cotton 65.5s Combed · Gassed</div>
+        <div class="drawer-meta">Loyal Textiles · Coimbatore · Issued 02 May 2026</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">×</button>
+    </div>
+  </div>
+  <div class="drawer-body">
+
+    <div class="stepper">
+      <div class="step done"><span class="step-dot">✓</span><div class="step-label">Draft</div></div>
+      <div class="step done"><span class="step-dot">✓</span><div class="step-label">Ordered</div></div>
+      <div class="step current"><span class="step-dot">3</span><div class="step-label">Transit</div></div>
+      <div class="step"><span class="step-dot">4</span><div class="step-label">Received</div></div>
+      <div class="step"><span class="step-dot">5</span><div class="step-label">Paid</div></div>
+    </div>
+
+    <div class="info-grid">
+      <div>
+        <div class="info-item-label">Supplier</div>
+        <div class="info-item-value">Loyal Textiles, Coimbatore</div>
+      </div>
+      <div>
+        <div class="info-item-label">PO Date</div>
+        <div class="info-item-value">02 May 2026</div>
+      </div>
+      <div>
+        <div class="info-item-label">Payment Terms</div>
+        <div class="info-item-value">30 days credit</div>
+      </div>
+      <div>
+        <div class="info-item-label">Expected Delivery</div>
+        <div class="info-item-value">07 May 2026</div>
+      </div>
+      <div>
+        <div class="info-item-label">Transport</div>
+        <div class="info-item-value">By road · Sundaram Logistics</div>
+      </div>
+      <div>
+        <div class="info-item-label">Approved By</div>
+        <div class="info-item-value">Praveen Kumar</div>
+      </div>
+    </div>
+
+    <h3 class="panel-title">Order Lines</h3>
+    <table class="lines-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="num">Qty</th>
+          <th class="num">Rate</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="cell-bold">Cotton 65.5s Combed Gassed</div>
+            <div class="cell-muted">100 cones × 18 kg avg</div>
+          </td>
+          <td class="num">1,800 kg</td>
+          <td class="num">₹442</td>
+          <td class="num cell-bold">₹7,95,600</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="text-align:right;">Sub-total</td>
+          <td class="num">₹7,95,600</td>
+        </tr>
+        <tr>
+          <td colspan="3" style="text-align:right;">GST 5%</td>
+          <td class="num">₹39,780</td>
+        </tr>
+        <tr style="font-size:14px;">
+          <td colspan="3" style="text-align:right;">Total</td>
+          <td class="num">₹8,35,380</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <h3 class="panel-title">Payment Schedule</h3>
+    <div class="pay-block">
+      <div class="pay-row">
+        <span>PO Total (incl. GST)</span>
+        <span class="mono">₹8,35,380</span>
+      </div>
+      <div class="pay-row">
+        <span>Advance paid (10%)</span>
+        <span class="mono" style="color: var(--success-700);">−₹83,538</span>
+      </div>
+      <div class="pay-row total">
+        <span>Due on receipt + 30d</span>
+        <span class="mono">₹7,51,842</span>
+      </div>
+    </div>
+
+    <h3 class="panel-title">Activity</h3>
+    <div style="font-size: 12.5px; color: var(--ink-700); line-height: 1.7;">
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: #6d28d9;">●</span>
+        <div><strong>04 May</strong> · Lorry departed Coimbatore · LR-8842</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: #6d28d9;">●</span>
+        <div><strong>03 May</strong> · Advance ₹83,538 paid · UTR ICICI8842</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0;">
+        <span style="color: #6d28d9;">●</span>
+        <div><strong>02 May</strong> · PO issued to Loyal Textiles</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-secondary" onclick="window.showToast('GRN draft opened','info')">Record GRN</button>
+    <button class="btn btn-primary" onclick="window.showToast('Payment screen opened','success')">Make Payment</button>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+  }
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+  document.querySelectorAll('.pipe-stage').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.pipe-stage').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

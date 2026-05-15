@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer Master · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Customer Master — page-specific (rose / pink theme) */
+
+    /* Hero */
+    .cust-hero {
+      position: relative;
+      border-radius: var(--r-xl);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      color: white;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(251,113,133,0.45), transparent 55%),
+        radial-gradient(circle at 80% 80%, rgba(236,72,153,0.35), transparent 60%),
+        linear-gradient(135deg, #be185d 0%, #db2777 50%, #f43f5e 100%);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .cust-hero::before {
+      content: ''; position: absolute; inset: 0;
+      background:
+        radial-gradient(circle at 80% 20%, rgba(255,255,255,0.18) 0%, transparent 28%),
+        radial-gradient(circle at 30% 70%, rgba(255,255,255,0.10) 0%, transparent 24%);
+      pointer-events: none;
+    }
+    .cust-hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 28px;
+      align-items: center;
+    }
+    .cust-hero-eyebrow {
+      font-family: var(--font-display);
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 1.2px; font-weight: 700;
+      opacity: 0.85; margin-bottom: 8px;
+    }
+    .cust-hero-title {
+      font-family: var(--font-display);
+      font-size: 26px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .cust-hero-sub {
+      font-size: 14px; opacity: 0.88;
+      font-weight: 500;
+    }
+    .cust-hero-stat {
+      border-left: 1px solid rgba(255,255,255,0.18);
+      padding-left: 24px;
+    }
+    .cust-hero-stat-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .cust-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 32px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .cust-hero-stat-value small {
+      font-size: 14px; opacity: 0.75; font-weight: 600;
+    }
+    .cust-hero-stat-trend {
+      font-size: 11.5px; opacity: 0.85; margin-top: 6px;
+    }
+
+    /* Filter toolbar */
+    .toolbar {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 18px;
+      display: flex; flex-wrap: wrap;
+      gap: 10px; align-items: center;
+    }
+    .search-box {
+      flex: 1; min-width: 240px;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 8px 12px;
+    }
+    .search-box input {
+      flex: 1; border: none; background: transparent;
+      outline: none; font-size: 13px;
+      font-family: inherit; color: var(--ink-900);
+    }
+    .filter-pill {
+      padding: 6px 12px;
+      font-size: 12px; font-weight: 600;
+      color: var(--ink-600);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all var(--t-snap);
+    }
+    .filter-pill:hover { border-color: var(--brand-400); color: var(--ink-900); }
+    .filter-pill.active {
+      background: linear-gradient(135deg,#db2777,#f43f5e);
+      color: white;
+      border-color: transparent;
+    }
+    .view-toggle {
+      display: flex;
+      background: var(--ink-100);
+      border-radius: var(--r-md);
+      padding: 3px;
+      margin-left: auto;
+    }
+    .view-toggle button {
+      padding: 5px 10px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 14px;
+      color: var(--ink-500);
+      transition: all var(--t-snap);
+    }
+    .view-toggle button.active {
+      background: var(--paper);
+      color: var(--ink-900);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Customer card grid */
+    .cust-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .cust-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 0;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all var(--t-snap);
+      overflow: hidden;
+      position: relative;
+    }
+    .cust-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 28px rgba(15,23,42,0.10);
+      border-color: #f43f5e;
+    }
+    .cust-card-head {
+      padding: 18px 18px 14px 18px;
+      display: flex; gap: 14px; align-items: flex-start;
+    }
+    .cust-avatar {
+      width: 52px; height: 52px; flex-shrink: 0;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 18px; font-weight: 800;
+      color: white;
+      box-shadow: var(--shadow-sm);
+      letter-spacing: -0.01em;
+    }
+    .cust-info { flex: 1; min-width: 0; }
+    .cust-name {
+      font-family: var(--font-display);
+      font-size: 15.5px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+      margin-bottom: 3px;
+      white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cust-loc {
+      font-size: 12px; color: var(--ink-500);
+      margin-bottom: 2px;
+    }
+    .cust-tag {
+      display: inline-block;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-top: 4px;
+      background: var(--ink-100);
+      color: var(--ink-700);
+    }
+    .cust-tag.vip { background: #fef3c7; color: #92400e; }
+    .cust-tag.repeat { background: #d1fae5; color: #065f46; }
+    .cust-tag.new { background: #dbeafe; color: #1e3a8a; }
+    .cust-tag.dormant { background: var(--ink-100); color: var(--ink-500); }
+
+    .cust-stat-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--ink-100);
+    }
+    .cust-stat {
+      background: var(--ink-50);
+      padding: 12px 16px;
+    }
+    .cust-stat-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .cust-stat-value {
+      font-family: var(--font-display);
+      font-size: 18px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .cust-stat-value small {
+      font-size: 12px; color: var(--ink-500);
+      font-weight: 600;
+    }
+
+    .cust-foot {
+      padding: 12px 18px;
+      display: flex; justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      color: var(--ink-500);
+      border-top: 1px solid var(--ink-200);
+    }
+    .cust-foot strong { color: var(--ink-700); font-weight: 700; }
+    .health-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .health-dot.good { background: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.18); }
+    .health-dot.watch { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.18); }
+    .health-dot.bad { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
+
+    /* Drawer customer profile */
+    .cust-profile-head {
+      display: flex; gap: 16px;
+      padding-bottom: 18px; margin-bottom: 18px;
+      border-bottom: 1px solid var(--ink-200);
+    }
+    .cust-profile-avatar {
+      width: 64px; height: 64px;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg,#db2777,#f43f5e);
+      box-shadow: var(--shadow-md);
+    }
+    .cust-profile-name {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900); margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .cust-profile-meta {
+      font-size: 12.5px; color: var(--ink-500);
+      margin-top: 4px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    .info-cell {
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 12px;
+    }
+    .info-cell.full { grid-column: 1 / -1; }
+    .info-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .info-value {
+      font-size: 13px; color: var(--ink-900);
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .info-value.mono {
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700;
+      margin: 0 0 10px 0;
+    }
+
+    .order-mini-list {
+      list-style: none; padding: 0; margin: 0 0 18px 0;
+    }
+    .order-mini-list li {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px; align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--ink-100);
+      font-size: 12.5px;
+    }
+    .order-mini-list li:last-child { border-bottom: none; }
+    .order-mini-name {
+      font-weight: 700; color: var(--ink-900);
+    }
+    .order-mini-date {
+      font-size: 11px; color: var(--ink-500);
+      margin-top: 2px;
+    }
+    .order-mini-amount {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--ink-900);
+    }
+    .order-mini-status {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: var(--ink-100);
+      color: var(--ink-600);
+    }
+    .order-mini-status.paid { background: #d1fae5; color: #065f46; }
+    .order-mini-status.due  { background: #fef3c7; color: #92400e; }
+
+    .pl-card {
+      background: linear-gradient(135deg, #fff1f2, #ffe4e6);
+      border: 1px solid #fda4af;
+      border-radius: var(--r-md);
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    .pl-row {
+      display: flex; justify-content: space-between;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .pl-row.total {
+      border-top: 2px solid #f43f5e;
+      margin-top: 8px; padding-top: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink-900);
+    }
+    .pl-val {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    /* Drawer (slide-in from right) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 560px;
+      max-width: 95vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(219,39,119,0.06), rgba(244,63,94,0.06));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .drawer-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #be185d;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      margin: 4px 0 0 0;
+    }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: var(--ink-100); }
+    .drawer-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .cust-hero-grid { grid-template-columns: 1fr 1fr; }
+      .cust-hero-stat { border-left: none; padding-left: 0; }
+    }
+    @media (max-width: 720px) {
+      .cust-hero-grid { grid-template-columns: 1fr; }
+      .cust-grid { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="customer"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search customer name, GSTIN, city…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Masters</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Customer Master</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Customer Master</h1>
+          <p class="page-header-sub">Buyers · Garment exporters · Wholesalers · Retailers — relationships, billing & history</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('CSV import opened','info')">
+            <span>↑</span> Import CSV
+          </button>
+          <button class="btn btn-primary" onclick="window.openDrawer && window.openDrawer('new')">
+            <span style="font-size:18px;">+</span> Add Customer
+          </button>
+        </div>
+      </div>
+
+      <div class="tour-banner">
+        <div class="tour-banner-icon">👥</div>
+        <div class="tour-banner-text">
+          <strong>32 customers in your book.</strong>
+          18 active this quarter, 6 VIP (₹50K+ in last 12 months). Click any card to see full history, P&amp;L per customer and outstanding.
+        </div>
+        <button class="tour-banner-close" onclick="this.parentElement.style.display='none'">✕</button>
+      </div>
+
+      <!-- Hero -->
+      <div class="cust-hero">
+        <div class="cust-hero-grid">
+          <div>
+            <div class="cust-hero-eyebrow">Customer book · live</div>
+            <h2 class="cust-hero-title">32 active relationships</h2>
+            <div class="cust-hero-sub">Coimbatore, Tirupur, Salem, Erode, Karur, Mumbai · 6 cities</div>
+          </div>
+          <div class="cust-hero-stat">
+            <div class="cust-hero-stat-label">Lifetime revenue</div>
+            <div class="cust-hero-stat-value">₹2.86<small>Cr</small></div>
+            <div class="cust-hero-stat-trend">All-time · 38 mo trading</div>
+          </div>
+          <div class="cust-hero-stat">
+            <div class="cust-hero-stat-label">Top customer</div>
+            <div class="cust-hero-stat-value" style="font-size:22px;">SKM Garments</div>
+            <div class="cust-hero-stat-trend">₹48.2L · 18.6% of book</div>
+          </div>
+          <div class="cust-hero-stat">
+            <div class="cust-hero-stat-label">Outstanding</div>
+            <div class="cust-hero-stat-value">₹6.2<small>L</small></div>
+            <div class="cust-hero-stat-trend">12 invoices · DSO 42d</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by name, GSTIN, phone or city…">
+        </div>
+        <button class="filter-pill active">All (32)</button>
+        <button class="filter-pill">VIP (6)</button>
+        <button class="filter-pill">Active 90d (18)</button>
+        <button class="filter-pill">Dormant (5)</button>
+        <button class="filter-pill">Overdue (4)</button>
+        <div class="view-toggle">
+          <button class="active" title="Grid view">▦</button>
+          <button title="List view">≡</button>
+        </div>
+      </div>
+
+      <!-- Customer cards -->
+      <div class="cust-grid">
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('skm')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#db2777,#f43f5e);">SK</div>
+            <div class="cust-info">
+              <div class="cust-name">SKM Garments Pvt Ltd</div>
+              <div class="cust-loc">Tirupur, Tamil Nadu · Garment exporter</div>
+              <span class="cust-tag vip">★ VIP</span>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹48.2<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹8.4<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>Healthy</strong> · paid on time</span>
+            <span>Last order · <strong>3 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('arul')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#0d9488,#06b6d4);">AR</div>
+            <div class="cust-info">
+              <div class="cust-name">Arul Textiles</div>
+              <div class="cust-loc">Coimbatore, Tamil Nadu · Wholesaler</div>
+              <span class="cust-tag vip">★ VIP</span>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹32.6<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹4.2<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>Healthy</strong> · 0 overdue</span>
+            <span>Last order · <strong>5 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('ravi')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#6366f1,#8b5cf6);">RT</div>
+            <div class="cust-info">
+              <div class="cust-name">Ravi Tex Trading</div>
+              <div class="cust-loc">Erode, Tamil Nadu · Wholesaler</div>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹24.8<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹3.6<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot watch"></span><strong>Watch</strong> · 1 invoice 45d</span>
+            <span>Last order · <strong>12 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('ganesh')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#f59e0b,#f97316);">GE</div>
+            <div class="cust-info">
+              <div class="cust-name">Ganesh Apparels</div>
+              <div class="cust-loc">Tirupur, Tamil Nadu · Garment maker</div>
+              <span class="cust-tag vip">★ VIP</span>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹19.4<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹2.8<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>Healthy</strong> · always advance</span>
+            <span>Last order · <strong>8 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('priya')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#7c3aed,#a855f7);">PT</div>
+            <div class="cust-info">
+              <div class="cust-name">Priya Textiles</div>
+              <div class="cust-loc">Karur, Tamil Nadu · Home furnishing</div>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹14.6<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹1.8<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>Healthy</strong></span>
+            <span>Last order · <strong>22 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('venkat')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#dc2626,#b91c1c);">VS</div>
+            <div class="cust-info">
+              <div class="cust-name">Venkateshwara Silks</div>
+              <div class="cust-loc">Salem, Tamil Nadu · Retailer</div>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹11.2<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹0</div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot bad"></span><strong>Overdue</strong> · ₹1.2L · 78d</span>
+            <span>Last order · <strong>108 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('mohan')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#0891b2,#0e7490);">MA</div>
+            <div class="cust-info">
+              <div class="cust-name">Mohan Apparels</div>
+              <div class="cust-loc">Tirupur, Tamil Nadu · Garment maker</div>
+              <span class="cust-tag new">New</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹3.4<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹3.4<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>New · 2 orders</strong></span>
+            <span>Joined · <strong>Mar 2026</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('lakshmi')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#16a34a,#15803d);">LF</div>
+            <div class="cust-info">
+              <div class="cust-name">Lakshmi Fabrics</div>
+              <div class="cust-loc">Coimbatore, Tamil Nadu · Wholesaler</div>
+              <span class="cust-tag repeat">Repeat</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹9.8<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹1.2<small>L</small></div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot good"></span><strong>Healthy</strong></span>
+            <span>Last order · <strong>14 days</strong></span>
+          </div>
+        </div>
+
+        <div class="cust-card" onclick="window.openDrawer && window.openDrawer('mumbai')">
+          <div class="cust-card-head">
+            <div class="cust-avatar" style="background: linear-gradient(135deg,#94a3b8,#64748b);">BT</div>
+            <div class="cust-info">
+              <div class="cust-name">Bombay Textile Co.</div>
+              <div class="cust-loc">Mumbai, Maharashtra · Trading house</div>
+              <span class="cust-tag dormant">Dormant</span>
+            </div>
+          </div>
+          <div class="cust-stat-row">
+            <div class="cust-stat">
+              <div class="cust-stat-label">Lifetime</div>
+              <div class="cust-stat-value">₹6.2<small>L</small></div>
+            </div>
+            <div class="cust-stat">
+              <div class="cust-stat-label">Last 90d</div>
+              <div class="cust-stat-value">₹0</div>
+            </div>
+          </div>
+          <div class="cust-foot">
+            <span><span class="health-dot watch"></span><strong>Re-engage</strong></span>
+            <span>Last order · <strong>9 months</strong></span>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="custDrawer" role="dialog" aria-label="Customer detail">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-eyebrow">Customer profile</div>
+      <h2 class="drawer-title">SKM Garments Pvt Ltd</h2>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+
+  <div class="drawer-content">
+
+    <div class="cust-profile-head">
+      <div class="cust-profile-avatar">SK</div>
+      <div>
+        <h3 class="cust-profile-name">SKM Garments Pvt Ltd</h3>
+        <div class="cust-profile-meta">CUST-0007 · Garment exporter · Tirupur · Customer since Aug 2022</div>
+      </div>
+    </div>
+
+    <h4 class="section-title">Contact &amp; billing</h4>
+    <div class="info-grid">
+      <div class="info-cell">
+        <div class="info-label">Primary contact</div>
+        <div class="info-value">Karthik Subramanian</div>
+        <div class="info-value" style="font-size:11.5px; color:var(--ink-500); font-weight:500; margin-top:2px;">Sourcing Manager</div>
+      </div>
+      <div class="info-cell">
+        <div class="info-label">Phone · email</div>
+        <div class="info-value mono">+91 98765 43210</div>
+        <div class="info-value" style="font-size:11.5px; font-weight:500; margin-top:2px;">karthik@skmgarments.in</div>
+      </div>
+      <div class="info-cell full">
+        <div class="info-label">Billing address</div>
+        <div class="info-value" style="font-size:12.5px; line-height:1.5;">
+          Plot 47, Avinashi Road Industrial Estate,<br>
+          Tirupur – 641603, Tamil Nadu, India
+        </div>
+      </div>
+      <div class="info-cell">
+        <div class="info-label">GSTIN</div>
+        <div class="info-value mono">33AABCS4567K1Z9</div>
+      </div>
+      <div class="info-cell">
+        <div class="info-label">PAN</div>
+        <div class="info-value mono">AABCS4567K</div>
+      </div>
+      <div class="info-cell">
+        <div class="info-label">Payment terms</div>
+        <div class="info-value">Net 45 days · 1.5% cash discount in 7d</div>
+      </div>
+      <div class="info-cell">
+        <div class="info-label">Credit limit</div>
+        <div class="info-value">₹15,00,000 · ₹2.4L used</div>
+      </div>
+    </div>
+
+    <h4 class="section-title">Recent orders</h4>
+    <ul class="order-mini-list">
+      <li>
+        <div>
+          <div class="order-mini-name">SO-2026-038 · 30s combed grey · 2,400 m</div>
+          <div class="order-mini-date">Placed 4 May 2026 · Ship 18 May</div>
+        </div>
+        <div class="order-mini-amount">₹1,87,200</div>
+        <span class="order-mini-status">In production</span>
+      </li>
+      <li>
+        <div>
+          <div class="order-mini-name">SO-2026-031 · 40s combed bleached · 1,800 m</div>
+          <div class="order-mini-date">Shipped 22 Apr 2026</div>
+        </div>
+        <div class="order-mini-amount">₹1,62,000</div>
+        <span class="order-mini-status paid">Paid</span>
+      </li>
+      <li>
+        <div>
+          <div class="order-mini-name">SO-2026-024 · 30s × 30s plain · 3,200 m</div>
+          <div class="order-mini-date">Shipped 8 Apr 2026</div>
+        </div>
+        <div class="order-mini-amount">₹2,40,000</div>
+        <span class="order-mini-status due">Due 22d</span>
+      </li>
+      <li>
+        <div>
+          <div class="order-mini-name">SO-2026-018 · 65.5s premium · 1,200 m</div>
+          <div class="order-mini-date">Shipped 28 Mar 2026</div>
+        </div>
+        <div class="order-mini-amount">₹1,32,000</div>
+        <span class="order-mini-status paid">Paid</span>
+      </li>
+    </ul>
+
+    <div class="pl-card">
+      <h4 class="section-title" style="color:#be185d;">P&amp;L · this customer · YTD</h4>
+      <div class="pl-row"><span>Revenue · 7 orders</span><span class="pl-val">₹14,82,000</span></div>
+      <div class="pl-row"><span>True cost (incl. LOOMS)</span><span class="pl-val">₹12,84,400</span></div>
+      <div class="pl-row"><span>Discount &amp; freight</span><span class="pl-val">₹38,200</span></div>
+      <div class="pl-row total"><span>Net contribution</span><span class="pl-val">₹1,59,400 · 10.8%</span></div>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-secondary" style="flex:1;">View all orders</button>
+      <button class="btn btn-primary" style="flex:1;">New quote</button>
+    </div>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer(id) {
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.getElementById('custDrawer').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.getElementById('custDrawer').classList.remove('open');
+  }
+  window.openDrawer = openDrawer;
+  window.closeDrawer = closeDrawer;
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('.view-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

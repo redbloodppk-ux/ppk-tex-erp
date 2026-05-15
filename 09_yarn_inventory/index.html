@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yarn Inventory · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Yarn Inventory — page-specific */
+
+    /* Hero */
+    .yi-hero {
+      background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #0ea5e9 100%);
+      border-radius: var(--r-xl);
+      padding: 26px 30px;
+      color: white;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 18px 48px rgba(12, 74, 110, 0.32);
+    }
+    .yi-hero::before {
+      content:''; position:absolute; top:-40%; right:-10%;
+      width: 320px; height: 320px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%);
+      filter: blur(40px);
+    }
+    .yi-hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(4, 1fr);
+      gap: 24px; align-items: center; position: relative;
+    }
+    .yi-hero-title {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 6px 0;
+    }
+    .yi-hero-sub { font-size: 13px; opacity: 0.88; line-height: 1.5; max-width: 340px; }
+    .yi-hero-stat-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.7px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .yi-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .yi-hero-stat-value small { font-size: 12px; opacity: 0.7; font-weight: 600; margin-left: 3px; }
+    .yi-hero-stat-meta { font-size: 11px; opacity: 0.78; margin-top: 2px; }
+
+    /* Count summary cards */
+    .count-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .count-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 16px 18px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.2s var(--ease-smooth);
+      cursor: pointer;
+    }
+    .count-card:hover {
+      border-color: var(--brand-300);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    .count-card::before {
+      content: ''; position: absolute; inset: 0 0 auto 0;
+      height: 3px; background: var(--grad-brand);
+    }
+    .count-card.warn::before { background: var(--grad-gold); }
+    .count-card.low::before  { background: var(--grad-rose); }
+    .count-head {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 10px;
+    }
+    .count-name {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.01em;
+    }
+    .count-name small {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-500);
+      margin-left: 6px;
+    }
+    .count-pill {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      padding: 2px 8px;
+      border-radius: var(--r-full);
+      text-transform: uppercase;
+    }
+    .cp-ok   { background: rgba(16,185,129,0.14); color: var(--success-700); }
+    .cp-warn { background: rgba(245,158,11,0.14); color: #b45309; }
+    .cp-low  { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .count-stock {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+    }
+    .count-stock small { font-size: 12px; opacity: 0.6; font-weight: 600; }
+    .count-meta {
+      font-size: 11.5px;
+      color: var(--ink-500);
+      margin-top: 4px;
+    }
+    .count-bar {
+      height: 5px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .count-bar > span {
+      display: block; height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .count-bar.warn > span { background: var(--grad-gold); }
+    .count-bar.low > span { background: var(--grad-rose); }
+
+    /* Section header */
+    .section-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 6px 0 14px 0;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); letter-spacing: -0.01em;
+    }
+    .section-sub { font-size: 12px; color: var(--ink-500); margin-top: 2px; }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 14px;
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .toolbar-search {
+      flex: 1; min-width: 220px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      background: var(--canvas-2);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      font-size: 13px;
+    }
+    .toolbar-search input {
+      flex: 1; background: transparent; border: none; outline: none;
+      font-size: 13px; font-family: inherit; color: var(--ink-900);
+    }
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* Lot table */
+    .yi-table-wrap {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .yi-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .yi-table thead th {
+      text-align: left;
+      padding: 12px 14px;
+      background: var(--canvas-2);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--ink-500);
+      font-weight: 700;
+      border-bottom: 1px solid var(--ink-200);
+      white-space: nowrap;
+    }
+    .yi-table tbody td {
+      padding: 14px;
+      border-bottom: 1px solid var(--ink-100);
+      vertical-align: middle;
+    }
+    .yi-table tbody tr {
+      transition: background 0.15s; cursor: pointer;
+    }
+    .yi-table tbody tr:hover { background: var(--canvas-2); }
+    .yi-table tbody tr:last-child td { border-bottom: none; }
+
+    .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cell-muted { color: var(--ink-500); font-size: 11.5px; margin-top: 2px; }
+    .cell-bold { font-weight: 700; color: var(--ink-900); }
+
+    .lot-id {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brand-700);
+    }
+
+    .age-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: var(--r-full);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(16,185,129,0.14);
+      color: var(--success-700);
+    }
+    .age-pill.warn { background: rgba(245,158,11,0.14); color: #b45309; }
+    .age-pill.old  { background: rgba(239,68,68,0.14); color: var(--rose-700); }
+
+    .loc-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--r-sm);
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--canvas-2);
+      color: var(--ink-700);
+      border: 1px solid var(--ink-200);
+    }
+
+    .stock-bar {
+      display: inline-block;
+      width: 90px;
+      height: 5px;
+      background: var(--ink-100);
+      border-radius: var(--r-full);
+      overflow: hidden;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    .stock-bar > span {
+      display: block; height: 100%;
+      background: var(--grad-brand);
+      border-radius: var(--r-full);
+    }
+    .stock-bar.warn > span { background: var(--grad-gold); }
+    .stock-bar.low > span  { background: var(--grad-rose); }
+
+    /* Reorder banner */
+    .reorder-band {
+      background: linear-gradient(135deg, rgba(245,158,11,0.06), rgba(239,68,68,0.06));
+      border: 1px solid rgba(245,158,11,0.32);
+      border-radius: var(--r-lg);
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .reorder-icon {
+      width: 38px; height: 38px;
+      background: var(--grad-gold);
+      border-radius: var(--r-md);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 18px; color: white;
+      flex-shrink: 0;
+    }
+    .reorder-text {
+      flex: 1;
+      font-size: 13px;
+      color: var(--ink-700);
+      line-height: 1.5;
+    }
+    .reorder-text strong { color: #b45309; font-weight: 700; }
+
+    /* Drawer */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s; z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0;
+      width: 540px; max-width: 95vw; height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex; flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(14,165,233,0.05), rgba(99,102,241,0.05));
+    }
+    .drawer-head-row {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 16px;
+    }
+    .drawer-job-id {
+      font-family: var(--font-mono); font-size: 11px;
+      color: #0369a1; font-weight: 700; letter-spacing: 0.5px;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900); letter-spacing: -0.02em;
+      margin: 4px 0 6px 0;
+    }
+    .drawer-meta { font-size: 12.5px; color: var(--ink-500); }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 22px 24px; }
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-700); text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin: 0 0 12px 0;
+    }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 14px 18px; margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px dashed var(--ink-200);
+    }
+    .info-item-label {
+      font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .info-item-value {
+      font-size: 14px; font-weight: 600; color: var(--ink-900);
+    }
+    .info-item-value.mono { font-family: var(--font-mono); }
+    .drawer-foot {
+      padding: 16px 24px;
+      border-top: 1px solid var(--ink-100);
+      background: var(--canvas-2);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    @media (max-width: 1024px) {
+      .yi-hero-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .yi-hero-grid { grid-template-columns: 1fr; }
+      .info-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="yarn-inv"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search yarn lots, count, supplier…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Inventory</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Yarn Inventory</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Yarn Inventory</h1>
+          <p class="page-header-sub">Live stock by count and lot · FIFO ageing · reorder alerts</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Stock report exported','success')">
+            <span>↓</span> Stock Report
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('Stock movement entry','info')">
+            <span style="font-size:18px;">+</span> Issue / Receive
+          </button>
+        </div>
+      </div>
+
+      <div class="tour">
+        <div class="tour-icon">▦</div>
+        <div class="tour-text">
+          <strong>Yarn Inventory — every cone, every count, every lot.</strong>
+          Each card below is one count of yarn. The table shows individual lots with FIFO age. Red lots are aging — issue them next. The system warns when stock for any count drops below your reorder level.
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="yi-hero">
+        <div class="yi-hero-grid">
+          <div>
+            <h2 class="yi-hero-title">28,420 kg in Stock · ₹84 L Capital</h2>
+            <p class="yi-hero-sub">Across 7 counts and 32 lots. 3 counts below reorder level · oldest lot 62 days.</p>
+          </div>
+          <div>
+            <div class="yi-hero-stat-label">Total Yarn</div>
+            <div class="yi-hero-stat-value">28,420<small> kg</small></div>
+            <div class="yi-hero-stat-meta">32 lots</div>
+          </div>
+          <div>
+            <div class="yi-hero-stat-label">Inventory Value</div>
+            <div class="yi-hero-stat-value">₹84.2<small>L</small></div>
+            <div class="yi-hero-stat-meta">@ avg ₹296/kg</div>
+          </div>
+          <div>
+            <div class="yi-hero-stat-label">Below Reorder</div>
+            <div class="yi-hero-stat-value">3<small>/7</small></div>
+            <div class="yi-hero-stat-meta">counts low</div>
+          </div>
+          <div>
+            <div class="yi-hero-stat-label">Oldest Lot</div>
+            <div class="yi-hero-stat-value">62<small> days</small></div>
+            <div class="yi-hero-stat-meta">YL-1782 · 30s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reorder banner -->
+      <div class="reorder-band">
+        <div class="reorder-icon">⚠</div>
+        <div class="reorder-text">
+          <strong>3 counts need reorder.</strong> Cotton 65.5s combed (380 kg, below 500 kg trigger), 150D porvai (210 kg, below 400 kg), and Cotton 40s carded (820 kg, below 1,000 kg). Click "Issue Reorder" to draft a yarn purchase.
+        </div>
+        <button class="btn btn-secondary" onclick="window.showToast('Reorder PO drafted','success')">
+          Issue Reorder
+        </button>
+      </div>
+
+      <!-- Count summary -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Stock by Count</div>
+          <div class="section-sub">7 counts · click any card to filter the lot table</div>
+        </div>
+      </div>
+
+      <div class="count-grid">
+        <div class="count-card">
+          <div class="count-head">
+            <div class="count-name">30s <small>Combed</small></div>
+            <span class="count-pill cp-ok">Healthy</span>
+          </div>
+          <div class="count-stock">8,420<small> kg</small></div>
+          <div class="count-meta">9 lots · ~ 28 days cover</div>
+          <div class="count-bar"><span style="width: 84%;"></span></div>
+        </div>
+
+        <div class="count-card">
+          <div class="count-head">
+            <div class="count-name">40s <small>Combed</small></div>
+            <span class="count-pill cp-ok">Healthy</span>
+          </div>
+          <div class="count-stock">6,180<small> kg</small></div>
+          <div class="count-meta">7 lots · ~ 22 days cover</div>
+          <div class="count-bar"><span style="width: 72%;"></span></div>
+        </div>
+
+        <div class="count-card warn">
+          <div class="count-head">
+            <div class="count-name">40s <small>Carded</small></div>
+            <span class="count-pill cp-warn">Low</span>
+          </div>
+          <div class="count-stock">820<small> kg</small></div>
+          <div class="count-meta">2 lots · ~ 4 days cover</div>
+          <div class="count-bar warn"><span style="width: 32%;"></span></div>
+        </div>
+
+        <div class="count-card low">
+          <div class="count-head">
+            <div class="count-name">65.5s <small>Combed</small></div>
+            <span class="count-pill cp-low">Critical</span>
+          </div>
+          <div class="count-stock">380<small> kg</small></div>
+          <div class="count-meta">1 lot · ~ 2 days cover</div>
+          <div class="count-bar low"><span style="width: 14%;"></span></div>
+        </div>
+
+        <div class="count-card low">
+          <div class="count-head">
+            <div class="count-name">150D <small>Porvai</small></div>
+            <span class="count-pill cp-low">Critical</span>
+          </div>
+          <div class="count-stock">210<small> kg</small></div>
+          <div class="count-meta">1 lot · ~ 3 days cover</div>
+          <div class="count-bar low"><span style="width: 18%;"></span></div>
+        </div>
+
+        <div class="count-card">
+          <div class="count-head">
+            <div class="count-name">2/40s <small>Combed</small></div>
+            <span class="count-pill cp-ok">Healthy</span>
+          </div>
+          <div class="count-stock">3,840<small> kg</small></div>
+          <div class="count-meta">4 lots · ~ 18 days cover</div>
+          <div class="count-bar"><span style="width: 64%;"></span></div>
+        </div>
+
+        <div class="count-card">
+          <div class="count-head">
+            <div class="count-name">20s <small>Slub</small></div>
+            <span class="count-pill cp-ok">Healthy</span>
+          </div>
+          <div class="count-stock">8,570<small> kg</small></div>
+          <div class="count-meta">8 lots · ~ 32 days cover</div>
+          <div class="count-bar"><span style="width: 88%;"></span></div>
+        </div>
+      </div>
+
+      <!-- Lot table -->
+      <div class="section-head">
+        <div>
+          <div class="section-title">Yarn Lots · FIFO View</div>
+          <div class="section-sub">32 active lots · oldest first · click any row for lot detail</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-search">
+          <span style="opacity:0.5;">⌕</span>
+          <input type="text" placeholder="Search by lot, count, supplier, location…">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip active">All Counts</button>
+          <button class="filter-chip">30s</button>
+          <button class="filter-chip">40s</button>
+          <button class="filter-chip">65.5s</button>
+          <button class="filter-chip">150D</button>
+          <button class="filter-chip">Aging > 30d</button>
+        </div>
+      </div>
+
+      <div class="yi-table-wrap">
+        <table class="yi-table">
+          <thead>
+            <tr>
+              <th>Lot #</th>
+              <th>Count</th>
+              <th>Supplier</th>
+              <th class="num">Bought</th>
+              <th class="num">Issued</th>
+              <th class="num">In Stock</th>
+              <th>Stock %</th>
+              <th>Age</th>
+              <th>Location</th>
+              <th class="num">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1782</span><div class="cell-muted">Recd 04 Mar</div></td>
+              <td><div class="cell-bold">30s Combed</div><div class="cell-muted">Karur cotton</div></td>
+              <td><div class="cell-bold">PRC Mills</div><div class="cell-muted">Tirupur</div></td>
+              <td class="num">2,400<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">2,180<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">220<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar low"><span style="width: 9%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">9%</span>
+              </td>
+              <td><span class="age-pill old">62 days</span></td>
+              <td><span class="loc-pill">Godown A · R-3</span></td>
+              <td class="num cell-bold">₹278</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1798</span><div class="cell-muted">Recd 18 Mar</div></td>
+              <td><div class="cell-bold">40s Combed</div><div class="cell-muted">Premium</div></td>
+              <td><div class="cell-bold">Sangam Spinners</div><div class="cell-muted">Bhilwara</div></td>
+              <td class="num">3,200<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">2,460<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">740<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar warn"><span style="width: 23%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">23%</span>
+              </td>
+              <td><span class="age-pill warn">48 days</span></td>
+              <td><span class="loc-pill">Godown A · R-7</span></td>
+              <td class="num cell-bold">₹312</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1812</span><div class="cell-muted">Recd 28 Mar</div></td>
+              <td><div class="cell-bold">65.5s Combed</div><div class="cell-muted">Gassed</div></td>
+              <td><div class="cell-bold">Loyal Textiles</div><div class="cell-muted">Coimbatore</div></td>
+              <td class="num">1,800<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">1,420<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold" style="color: var(--rose-600);">380<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar low"><span style="width: 21%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--rose-600);">21%</span>
+              </td>
+              <td><span class="age-pill warn">38 days</span></td>
+              <td><span class="loc-pill">Godown B · R-2</span></td>
+              <td class="num cell-bold">₹442</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1820</span><div class="cell-muted">Recd 02 Apr</div></td>
+              <td><div class="cell-bold">150D Porvai</div><div class="cell-muted">Polyester</div></td>
+              <td><div class="cell-bold">Reliance Industries</div><div class="cell-muted">Direct</div></td>
+              <td class="num">980<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">770<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold" style="color: var(--rose-600);">210<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar low"><span style="width: 21%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--rose-600);">21%</span>
+              </td>
+              <td><span class="age-pill warn">34 days</span></td>
+              <td><span class="loc-pill">Godown B · R-5</span></td>
+              <td class="num cell-bold">₹186</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1832</span><div class="cell-muted">Recd 10 Apr</div></td>
+              <td><div class="cell-bold">30s Combed</div><div class="cell-muted">Karur</div></td>
+              <td><div class="cell-bold">PRC Mills</div><div class="cell-muted">Tirupur</div></td>
+              <td class="num">3,000<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">1,180<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">1,820<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar"><span style="width: 61%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">61%</span>
+              </td>
+              <td><span class="age-pill">26 days</span></td>
+              <td><span class="loc-pill">Godown A · R-4</span></td>
+              <td class="num cell-bold">₹284</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1842</span><div class="cell-muted">Recd 18 Apr</div></td>
+              <td><div class="cell-bold">30s Combed</div><div class="cell-muted">Karur</div></td>
+              <td><div class="cell-bold">Sangam Spinners</div><div class="cell-muted">Bhilwara</div></td>
+              <td class="num">2,800<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">980<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">1,820<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar"><span style="width: 65%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">65%</span>
+              </td>
+              <td><span class="age-pill">18 days</span></td>
+              <td><span class="loc-pill">Godown A · R-5</span></td>
+              <td class="num cell-bold">₹288</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1856</span><div class="cell-muted">Recd 28 Apr</div></td>
+              <td><div class="cell-bold">40s Combed</div><div class="cell-muted">Premium</div></td>
+              <td><div class="cell-bold">Loyal Textiles</div><div class="cell-muted">Coimbatore</div></td>
+              <td class="num">3,400<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">920<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">2,480<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar"><span style="width: 73%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700;">73%</span>
+              </td>
+              <td><span class="age-pill">8 days</span></td>
+              <td><span class="loc-pill">Godown A · R-8</span></td>
+              <td class="num cell-bold">₹318</td>
+            </tr>
+
+            <tr onclick="openDrawer()">
+              <td><span class="lot-id">YL-1862</span><div class="cell-muted">Recd 01 May</div></td>
+              <td><div class="cell-bold">2/40s Combed</div><div class="cell-muted">Doubled</div></td>
+              <td><div class="cell-bold">PRC Mills</div><div class="cell-muted">Tirupur</div></td>
+              <td class="num">2,200<small style="opacity:0.6;"> kg</small></td>
+              <td class="num">320<small style="opacity:0.6;"> kg</small></td>
+              <td class="num cell-bold">1,880<small style="opacity:0.6;"> kg</small></td>
+              <td>
+                <span class="stock-bar"><span style="width: 85%;"></span></span>
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--success-600);">85%</span>
+              </td>
+              <td><span class="age-pill">5 days</span></td>
+              <td><span class="loc-pill">Godown C · R-1</span></td>
+              <td class="num cell-bold">₹364</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-row">
+      <div>
+        <div class="drawer-job-id">YL-1782 · Yarn Lot</div>
+        <div class="drawer-title">Cotton 30s Combed · Karur</div>
+        <div class="drawer-meta">PRC Mills · Recd 04 Mar 2026 · 62 days old</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">×</button>
+    </div>
+  </div>
+
+  <div class="drawer-body">
+
+    <div class="info-grid">
+      <div>
+        <div class="info-item-label">Supplier</div>
+        <div class="info-item-value">PRC Mills, Tirupur</div>
+      </div>
+      <div>
+        <div class="info-item-label">Purchase Bill</div>
+        <div class="info-item-value mono" style="color: var(--brand-700);">PRC-2614</div>
+      </div>
+      <div>
+        <div class="info-item-label">Bought Qty</div>
+        <div class="info-item-value mono">2,400 kg</div>
+      </div>
+      <div>
+        <div class="info-item-label">Cones</div>
+        <div class="info-item-value mono">200 cones × 12 kg</div>
+      </div>
+      <div>
+        <div class="info-item-label">Rate</div>
+        <div class="info-item-value mono">₹278 / kg</div>
+      </div>
+      <div>
+        <div class="info-item-label">Lot Value Bought</div>
+        <div class="info-item-value mono">₹6,67,200</div>
+      </div>
+      <div>
+        <div class="info-item-label">Issued</div>
+        <div class="info-item-value mono">2,180 kg</div>
+      </div>
+      <div>
+        <div class="info-item-label">In Stock</div>
+        <div class="info-item-value mono" style="color: var(--rose-600);">220 kg</div>
+      </div>
+    </div>
+
+    <h3 class="panel-title">Issue History</h3>
+    <div style="font-size: 12.5px; color: var(--ink-700); line-height: 1.7;">
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: var(--brand-600);">●</span>
+        <div><strong>02 May</strong> · Issued 480 kg → JW-1842 (Prashanth job)</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: var(--brand-600);">●</span>
+        <div><strong>21 Apr</strong> · Issued 1,820 kg → OW-2618 (Sri Ranga warp)</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--ink-200);">
+        <span style="color: var(--brand-600);">●</span>
+        <div><strong>02 Apr</strong> · Issued 380 kg → in-house L-04, L-05</div>
+      </div>
+      <div style="display:flex; gap:10px; padding:8px 0;">
+        <span style="color: var(--brand-600);">●</span>
+        <div><strong>04 Mar</strong> · Lot received from PRC against PRC-2614</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" onclick="closeDrawer()">Close</button>
+    <button class="btn btn-secondary" onclick="window.showToast('Stock adjustment opened','info')">Adjust</button>
+    <button class="btn btn-primary" onclick="window.showToast('Issue slip opened','success')">Issue Yarn</button>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawerBackdrop').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+  }
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

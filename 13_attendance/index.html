@@ -1,0 +1,1140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attendance · PPK TEX ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/logo-mark.svg">
+  <link rel="stylesheet" href="../css/design-system.css">
+  <style>
+    /* Attendance — page-specific (teal / cyan theme) */
+
+    /* Hero — gradient teal band */
+    .att-hero {
+      position: relative;
+      border-radius: var(--r-xl);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      color: white;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(255,255,255,0.18), transparent 55%),
+        radial-gradient(circle at 88% 90%, rgba(56,189,248,0.35), transparent 60%),
+        linear-gradient(135deg, #0f766e 0%, #0891b2 50%, #06b6d4 100%);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .att-hero::before {
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 14px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 14px);
+      pointer-events: none;
+    }
+    .att-hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 28px;
+      align-items: center;
+    }
+    .att-hero-title {
+      font-family: var(--font-display);
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 1.2px; font-weight: 700;
+      opacity: 0.85; margin-bottom: 8px;
+    }
+    .att-hero-date {
+      font-family: var(--font-display);
+      font-size: 28px; font-weight: 800;
+      letter-spacing: -0.02em; margin: 0 0 4px 0;
+      line-height: 1.1;
+    }
+    .att-hero-day {
+      font-size: 14px; opacity: 0.85;
+      font-weight: 500;
+    }
+    .att-hero-stat {
+      border-left: 1px solid rgba(255,255,255,0.18);
+      padding-left: 24px;
+    }
+    .att-hero-stat-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; opacity: 0.78;
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .att-hero-stat-value {
+      font-family: var(--font-display);
+      font-size: 36px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .att-hero-stat-value small {
+      font-size: 16px; opacity: 0.75; font-weight: 600;
+    }
+    .att-hero-stat-trend {
+      font-size: 11.5px; opacity: 0.85; margin-top: 6px;
+    }
+
+    /* Pulse dot for "live" indicator */
+    .live-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      background: #4ade80; border-radius: 50%;
+      margin-right: 6px;
+      box-shadow: 0 0 0 0 rgba(74,222,128,0.7);
+      animation: pulseDot 1.6s infinite;
+      vertical-align: middle;
+    }
+    @keyframes pulseDot {
+      0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); }
+      70%  { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
+      100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    }
+
+    /* Department strip */
+    .dept-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .dept-card {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-lg);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      transition: transform var(--t-snap), box-shadow var(--t-snap);
+    }
+    .dept-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .dept-card::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 4px;
+    }
+    .dept-card.weaving::before { background: linear-gradient(180deg, #0d9488, #0891b2); }
+    .dept-card.winding::before { background: linear-gradient(180deg, #f59e0b, #f97316); }
+    .dept-card.qc::before      { background: linear-gradient(180deg, #6366f1, #8b5cf6); }
+    .dept-card.dispatch::before{ background: linear-gradient(180deg, #ec4899, #f43f5e); }
+
+    .dept-name {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 6px;
+    }
+    .dept-count {
+      font-family: var(--font-display);
+      font-size: 24px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .dept-count small {
+      font-size: 13px; color: var(--ink-500);
+      font-weight: 600;
+    }
+    .dept-bar {
+      height: 5px; border-radius: 3px;
+      background: var(--ink-100);
+      margin-top: 10px;
+      position: relative; overflow: hidden;
+    }
+    .dept-bar-fill {
+      position: absolute; inset: 0 auto 0 0;
+      border-radius: 3px;
+    }
+    .dept-card.weaving .dept-bar-fill  { background: linear-gradient(90deg, #0d9488, #06b6d4); }
+    .dept-card.winding .dept-bar-fill  { background: linear-gradient(90deg, #f59e0b, #f97316); }
+    .dept-card.qc .dept-bar-fill       { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+    .dept-card.dispatch .dept-bar-fill { background: linear-gradient(90deg, #ec4899, #f43f5e); }
+
+    .dept-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: var(--ink-500);
+      margin-top: 6px;
+    }
+
+    /* Quick mark grid */
+    .mark-section {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-xl);
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .mark-header {
+      display: flex; justify-content: space-between;
+      align-items: center; flex-wrap: wrap; gap: 12px;
+      margin-bottom: 18px;
+    }
+    .mark-title {
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      color: var(--ink-900); margin: 0;
+    }
+    .mark-title small {
+      font-size: 12px; color: var(--ink-500);
+      font-weight: 500; margin-left: 8px;
+    }
+    .mark-tabs {
+      display: flex; gap: 4px;
+      background: var(--ink-100);
+      padding: 4px; border-radius: var(--r-md);
+    }
+    .mark-tab {
+      padding: 6px 14px;
+      font-size: 12.5px; font-weight: 600;
+      color: var(--ink-600);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all var(--t-snap);
+    }
+    .mark-tab.active {
+      background: var(--paper);
+      color: var(--ink-900);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .mark-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .op-card {
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 14px;
+      display: flex; align-items: center;
+      gap: 12px;
+      transition: all var(--t-snap);
+      position: relative;
+    }
+    .op-card:hover {
+      border-color: #06b6d4;
+      box-shadow: 0 4px 14px rgba(6,182,212,0.12);
+    }
+    .op-card.present { background: linear-gradient(135deg, #ecfeff, #f0fdfa); border-color: #5eead4; }
+    .op-card.absent  { background: linear-gradient(135deg, #fff1f2, #ffe4e6); border-color: #fda4af; }
+    .op-card.late    { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: #fcd34d; }
+    .op-card.leave   { background: linear-gradient(135deg, #f5f3ff, #ede9fe); border-color: #c4b5fd; }
+
+    .op-avatar {
+      width: 40px; height: 40px; flex-shrink: 0;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 14px; font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, #0d9488, #06b6d4);
+      box-shadow: var(--shadow-sm);
+    }
+    .op-info {
+      flex: 1; min-width: 0;
+    }
+    .op-name {
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-900);
+      white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .op-role {
+      font-size: 11px; color: var(--ink-500);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+    .op-status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .op-card.present .op-status-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.18); }
+    .op-card.absent  .op-status-dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
+    .op-card.late    .op-status-dot { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
+    .op-card.leave   .op-status-dot { background: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.18); }
+
+    .op-time {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--ink-600);
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Weekly view */
+    .weekly-section {
+      background: var(--paper);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-xl);
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .weekly-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    .weekly-table thead th {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700; text-align: center;
+      padding: 12px 8px;
+      border-bottom: 1px solid var(--ink-200);
+      background: var(--ink-50);
+      position: sticky; top: 0;
+    }
+    .weekly-table thead th.op-col {
+      text-align: left; padding-left: 16px;
+      width: 220px;
+    }
+    .weekly-table tbody td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--ink-100);
+      text-align: center;
+    }
+    .weekly-table tbody td.op-cell {
+      text-align: left; padding-left: 16px;
+    }
+    .weekly-op {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .weekly-op-avatar {
+      width: 32px; height: 32px; flex-shrink: 0;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 11px; font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, #0d9488, #06b6d4);
+    }
+    .weekly-op-name {
+      font-size: 13px; font-weight: 600;
+      color: var(--ink-900);
+    }
+    .weekly-op-role {
+      font-size: 11px; color: var(--ink-500);
+    }
+    .day-mark {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 700;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: transform var(--t-snap);
+    }
+    .day-mark:hover { transform: scale(1.1); }
+    .day-mark.p   { background: #d1fae5; color: #065f46; }
+    .day-mark.a   { background: #fee2e2; color: #991b1b; }
+    .day-mark.l   { background: #fef3c7; color: #92400e; }
+    .day-mark.lv  { background: #ede9fe; color: #5b21b6; }
+    .day-mark.h   { background: var(--ink-100); color: var(--ink-500); }
+    .day-mark.ot  { background: #cffafe; color: #155e75; position: relative; }
+    .day-mark.ot::after {
+      content: '+';
+      position: absolute; top: -3px; right: -3px;
+      width: 12px; height: 12px;
+      background: #0891b2; color: white;
+      border-radius: 50%;
+      font-size: 10px; line-height: 12px;
+      text-align: center;
+    }
+
+    .totals-cell {
+      font-family: var(--font-mono);
+      font-size: 13px; font-weight: 700;
+      color: var(--ink-900);
+    }
+    .totals-cell small {
+      font-weight: 500; color: var(--ink-500);
+      font-size: 11px;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex; flex-wrap: wrap;
+      gap: 14px; align-items: center;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--ink-100);
+      font-size: 11.5px; color: var(--ink-500);
+    }
+    .legend-item {
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .legend-swatch {
+      width: 16px; height: 16px;
+      border-radius: 4px;
+    }
+
+    /* Drawer body */
+    .op-profile {
+      display: flex; gap: 16px; align-items: center;
+      padding-bottom: 18px; margin-bottom: 18px;
+      border-bottom: 1px solid var(--ink-200);
+    }
+    .op-profile-avatar {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, #0d9488, #06b6d4);
+      box-shadow: var(--shadow-md);
+    }
+    .op-profile-name {
+      font-family: var(--font-display);
+      font-size: 18px; font-weight: 800;
+      color: var(--ink-900); margin: 0;
+    }
+    .op-profile-role {
+      font-size: 12.5px; color: var(--ink-500);
+      margin-top: 4px; font-weight: 500;
+    }
+    .op-profile-id {
+      font-family: var(--font-mono);
+      font-size: 11px; color: var(--ink-400);
+      margin-top: 2px;
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .mini-stat {
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      border-radius: var(--r-md);
+      padding: 12px;
+      text-align: center;
+    }
+    .mini-stat-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .mini-stat-value {
+      font-family: var(--font-display);
+      font-size: 20px; font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .mini-stat-value small {
+      font-size: 12px; color: var(--ink-500);
+      font-weight: 600;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--ink-500);
+      font-weight: 700;
+      margin: 0 0 10px 0;
+    }
+
+    .punch-list {
+      list-style: none; padding: 0; margin: 0;
+    }
+    .punch-list li {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--ink-100);
+      font-size: 12.5px;
+    }
+    .punch-list li:last-child { border-bottom: none; }
+    .punch-icon {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+      background: var(--ink-100);
+    }
+    .punch-icon.in  { background: #d1fae5; color: #065f46; }
+    .punch-icon.out { background: #fee2e2; color: #991b1b; }
+    .punch-info { flex: 1; }
+    .punch-label {
+      font-weight: 700; color: var(--ink-900);
+    }
+    .punch-time {
+      font-family: var(--font-mono);
+      font-size: 11.5px; color: var(--ink-500);
+      margin-top: 2px;
+    }
+    .punch-loom {
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 700;
+      color: var(--ink-700);
+      background: var(--ink-100);
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    .pay-summary {
+      background: linear-gradient(135deg, #ecfeff, #f0fdfa);
+      border: 1px solid #5eead4;
+      border-radius: var(--r-md);
+      padding: 14px;
+      margin-top: 18px;
+    }
+    .pay-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+    }
+    .pay-row.total {
+      border-top: 2px solid #0d9488;
+      margin-top: 6px; padding-top: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink-900);
+    }
+    .pay-row .pay-val {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    /* Drawer (slide-in from right) */
+    .drawer-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.36);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 90;
+    }
+    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 560px;
+      max-width: 95vw;
+      height: 100vh;
+      background: var(--paper);
+      box-shadow: -16px 0 64px rgba(15,23,42,0.18);
+      transform: translateX(100%);
+      transition: transform 0.3s var(--ease-smooth);
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--ink-100);
+      background: linear-gradient(135deg, rgba(13,148,136,0.06), rgba(6,182,212,0.06));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    .drawer-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #0d9488;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink-900);
+      letter-spacing: -0.02em;
+      margin: 4px 0 0 0;
+    }
+    .drawer-close {
+      width: 34px; height: 34px;
+      border-radius: var(--r-md);
+      background: var(--ink-50);
+      border: 1px solid var(--ink-200);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--ink-700);
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: var(--ink-100); }
+    .drawer-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .att-hero-grid { grid-template-columns: 1fr 1fr; }
+      .att-hero-stat { border-left: none; padding-left: 0; }
+      .dept-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .att-hero-grid { grid-template-columns: 1fr; }
+      .dept-grid { grid-template-columns: 1fr; }
+      .weekly-table thead th.op-col { width: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell-v2">
+  <aside id="sidebar-slot" data-active="attendance"></aside>
+
+  <main class="app-main">
+    <div id="topbar-slot" data-search="Search operators, payroll, leaves…"></div>
+
+    <div class="content">
+
+      <div class="breadcrumb">
+        <a href="../02_dashboard/index.html">Dashboard</a>
+        <span class="breadcrumb-sep">›</span>
+        <span>Tools</span>
+        <span class="breadcrumb-sep">›</span>
+        <span style="color: var(--ink-700); font-weight: 600;">Attendance</span>
+      </div>
+
+      <div class="page-header">
+        <div>
+          <h1 class="page-header-title">Attendance</h1>
+          <p class="page-header-sub">Daily punch-in · OT · Department-wise — operator workforce live status</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" onclick="window.showToast('Payroll sheet exported','success')">
+            <span>↓</span> Export Payroll
+          </button>
+          <button class="btn btn-primary" onclick="window.showToast('Bulk attendance opened','info')">
+            <span style="font-size:18px;">+</span> Mark All Present
+          </button>
+        </div>
+      </div>
+
+      <!-- Tour banner -->
+      <div class="tour-banner">
+        <div class="tour-banner-icon">⏱</div>
+        <div class="tour-banner-text">
+          <strong>Today's snapshot.</strong>
+          22 operators marked Present, 2 Late and 1 on approved Leave. Click any operator card to record check-out time, OT or notes.
+        </div>
+        <button class="tour-banner-close" onclick="this.parentElement.style.display='none'">✕</button>
+      </div>
+
+      <!-- Hero -->
+      <div class="att-hero">
+        <div class="att-hero-grid">
+          <div>
+            <div class="att-hero-title"><span class="live-dot"></span>Live attendance · Today</div>
+            <h2 class="att-hero-date">Thu, 7 May 2026</h2>
+            <div class="att-hero-day">Shift A · 7:00 AM – 7:00 PM · 26 operators rostered</div>
+          </div>
+          <div class="att-hero-stat">
+            <div class="att-hero-stat-label">Present</div>
+            <div class="att-hero-stat-value">22<small>/26</small></div>
+            <div class="att-hero-stat-trend">▲ 2 vs yesterday · 84.6% turnout</div>
+          </div>
+          <div class="att-hero-stat">
+            <div class="att-hero-stat-label">Late · Leave</div>
+            <div class="att-hero-stat-value">2 · 1</div>
+            <div class="att-hero-stat-trend">Avg lateness 22 min</div>
+          </div>
+          <div class="att-hero-stat">
+            <div class="att-hero-stat-label">OT booked</div>
+            <div class="att-hero-stat-value">14<small>hrs</small></div>
+            <div class="att-hero-stat-trend">5 operators · ₹2,940 OT cost</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Department breakdown -->
+      <div class="dept-grid">
+        <div class="dept-card weaving">
+          <div class="dept-name">Weaving floor</div>
+          <div class="dept-count">14<small>/16</small></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width: 87.5%;"></div></div>
+          <div class="dept-meta"><span>87.5% present</span><span>2 absent</span></div>
+        </div>
+        <div class="dept-card winding">
+          <div class="dept-name">Winding · Warping</div>
+          <div class="dept-count">5<small>/6</small></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width: 83.3%;"></div></div>
+          <div class="dept-meta"><span>83.3% present</span><span>1 leave</span></div>
+        </div>
+        <div class="dept-card qc">
+          <div class="dept-name">Quality · Folding</div>
+          <div class="dept-count">2<small>/2</small></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width: 100%;"></div></div>
+          <div class="dept-meta"><span>100% present</span><span>full team</span></div>
+        </div>
+        <div class="dept-card dispatch">
+          <div class="dept-name">Dispatch · Helpers</div>
+          <div class="dept-count">1<small>/2</small></div>
+          <div class="dept-bar"><div class="dept-bar-fill" style="width: 50%;"></div></div>
+          <div class="dept-meta"><span>50% present</span><span>1 late</span></div>
+        </div>
+      </div>
+
+      <!-- Quick mark grid -->
+      <div class="mark-section">
+        <div class="mark-header">
+          <h3 class="mark-title">Quick mark <small>Click an operator to update status</small></h3>
+          <div class="mark-tabs">
+            <button class="mark-tab active">All (26)</button>
+            <button class="mark-tab">Weaving (16)</button>
+            <button class="mark-tab">Winding (6)</button>
+            <button class="mark-tab">QC · Dispatch (4)</button>
+          </div>
+        </div>
+
+        <div class="mark-grid">
+          <div class="op-card present" onclick="window.openDrawer && window.openDrawer('selvam')">
+            <div class="op-avatar">SE</div>
+            <div class="op-info">
+              <div class="op-name">Selvam M</div>
+              <div class="op-role">Loom #1 · Weaver</div>
+              <div class="op-time">In 6:52 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#f59e0b,#f97316);">RA</div>
+            <div class="op-info">
+              <div class="op-name">Ramaswamy K</div>
+              <div class="op-role">Loom #2 · Weaver</div>
+              <div class="op-time">In 6:55 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#6366f1,#8b5cf6);">MU</div>
+            <div class="op-info">
+              <div class="op-name">Murugan R</div>
+              <div class="op-role">Loom #3 · Weaver</div>
+              <div class="op-time">In 7:00 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card late">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#ec4899,#f43f5e);">SU</div>
+            <div class="op-info">
+              <div class="op-name">Sundaram P</div>
+              <div class="op-role">Loom #4 · Weaver</div>
+              <div class="op-time">In 7:38 AM (38m late)</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#10b981,#0d9488);">BA</div>
+            <div class="op-info">
+              <div class="op-name">Balu S</div>
+              <div class="op-role">Loom #5 · Weaver</div>
+              <div class="op-time">In 6:48 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card absent">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#94a3b8,#64748b);">PA</div>
+            <div class="op-info">
+              <div class="op-name">Pandian V</div>
+              <div class="op-role">Loom #6 · Weaver</div>
+              <div class="op-time">No punch-in</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#06b6d4,#0891b2);">KU</div>
+            <div class="op-info">
+              <div class="op-name">Kumar N</div>
+              <div class="op-role">Loom #7 · Weaver</div>
+              <div class="op-time">In 6:50 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#a855f7,#7e22ce);">VE</div>
+            <div class="op-info">
+              <div class="op-name">Velu M</div>
+              <div class="op-role">Loom #8 · Weaver</div>
+              <div class="op-time">In 6:58 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card leave">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#8b5cf6,#7c3aed);">LA</div>
+            <div class="op-info">
+              <div class="op-name">Lakshmi D</div>
+              <div class="op-role">Winding</div>
+              <div class="op-time">CL · approved</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#f43f5e,#e11d48);">KO</div>
+            <div class="op-info">
+              <div class="op-name">Komala R</div>
+              <div class="op-role">Winding</div>
+              <div class="op-time">In 6:55 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card present">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#22c55e,#16a34a);">KA</div>
+            <div class="op-info">
+              <div class="op-name">Kala T</div>
+              <div class="op-role">Warping</div>
+              <div class="op-time">In 6:50 AM</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+          <div class="op-card late">
+            <div class="op-avatar" style="background: linear-gradient(135deg,#fb923c,#ea580c);">SA</div>
+            <div class="op-info">
+              <div class="op-name">Saraswathi</div>
+              <div class="op-role">Folding · QC</div>
+              <div class="op-time">In 7:15 AM (15m late)</div>
+            </div>
+            <div class="op-status-dot"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly view -->
+      <div class="weekly-section">
+        <div class="mark-header">
+          <h3 class="mark-title">Weekly view <small>Mon 4 May – Sun 10 May · Week 19</small></h3>
+          <div class="mark-tabs">
+            <button class="mark-tab">‹ Prev</button>
+            <button class="mark-tab active">This week</button>
+            <button class="mark-tab">Next ›</button>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="weekly-table">
+            <thead>
+              <tr>
+                <th class="op-col">Operator</th>
+                <th>Mon 4</th>
+                <th>Tue 5</th>
+                <th>Wed 6</th>
+                <th>Thu 7</th>
+                <th>Fri 8</th>
+                <th>Sat 9</th>
+                <th>Sun 10</th>
+                <th>Days</th>
+                <th>OT hrs</th>
+                <th style="text-align:right; padding-right:16px;">Pay (week)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="window.openDrawer && window.openDrawer('selvam')" style="cursor:pointer;">
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar">SE</div>
+                    <div>
+                      <div class="weekly-op-name">Selvam M</div>
+                      <div class="weekly-op-role">EMP-001 · Loom #1</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark ot">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark ot">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">6 <small>/6</small></td>
+                <td class="totals-cell">5.5</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹3,495</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#f59e0b,#f97316);">RA</div>
+                    <div>
+                      <div class="weekly-op-name">Ramaswamy K</div>
+                      <div class="weekly-op-role">EMP-002 · Loom #2</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">6 <small>/6</small></td>
+                <td class="totals-cell">0</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹3,000</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#6366f1,#8b5cf6);">MU</div>
+                    <div>
+                      <div class="weekly-op-name">Murugan R</div>
+                      <div class="weekly-op-role">EMP-003 · Loom #3</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark l">L</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">5.75 <small>/6</small></td>
+                <td class="totals-cell">2</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹3,025</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#ec4899,#f43f5e);">SU</div>
+                    <div>
+                      <div class="weekly-op-name">Sundaram P</div>
+                      <div class="weekly-op-role">EMP-004 · Loom #4</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark a">A</span></td>
+                <td><span class="day-mark l">L</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">4.75 <small>/6</small></td>
+                <td class="totals-cell">0</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹2,375</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#10b981,#0d9488);">BA</div>
+                    <div>
+                      <div class="weekly-op-name">Balu S</div>
+                      <div class="weekly-op-role">EMP-005 · Loom #5</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark ot">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">6 <small>/6</small></td>
+                <td class="totals-cell">3</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹3,270</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#94a3b8,#64748b);">PA</div>
+                    <div>
+                      <div class="weekly-op-name">Pandian V</div>
+                      <div class="weekly-op-role">EMP-006 · Loom #6</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark a">A</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">5 <small>/6</small></td>
+                <td class="totals-cell">0</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹2,500</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#8b5cf6,#7c3aed);">LA</div>
+                    <div>
+                      <div class="weekly-op-name">Lakshmi D</div>
+                      <div class="weekly-op-role">EMP-014 · Winding</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark lv">CL</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">5 <small>/6</small></td>
+                <td class="totals-cell">0</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹2,250</td>
+              </tr>
+              <tr>
+                <td class="op-cell">
+                  <div class="weekly-op">
+                    <div class="weekly-op-avatar" style="background: linear-gradient(135deg,#f43f5e,#e11d48);">KO</div>
+                    <div>
+                      <div class="weekly-op-name">Komala R</div>
+                      <div class="weekly-op-role">EMP-015 · Winding</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark ot">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark p">P</span></td>
+                <td><span class="day-mark h">H</span></td>
+                <td class="totals-cell">6 <small>/6</small></td>
+                <td class="totals-cell">2.5</td>
+                <td class="totals-cell" style="text-align:right; padding-right:16px;">₹2,825</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:#d1fae5;"></span> P · Present</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#fee2e2;"></span> A · Absent</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#fef3c7;"></span> L · Late</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#ede9fe;"></span> CL · Casual leave</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--ink-100);"></span> H · Holiday / weekly off</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#cffafe;"></span> + Overtime booked</span>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="opDrawer" role="dialog" aria-label="Operator detail">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-eyebrow">Operator profile</div>
+      <h2 class="drawer-title">Selvam M</h2>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+
+  <div class="drawer-content">
+    <div class="op-profile">
+      <div class="op-profile-avatar">SE</div>
+      <div>
+        <h3 class="op-profile-name">Selvam Murugan</h3>
+        <div class="op-profile-role">Senior Weaver · Loom #1 · Weaving floor</div>
+        <div class="op-profile-id">EMP-001 · Joined 12 Apr 2019 · 7 yrs · Coimbatore</div>
+      </div>
+    </div>
+
+    <h4 class="section-title">This month · May 2026</h4>
+    <div class="stat-row">
+      <div class="mini-stat">
+        <div class="mini-stat-label">Days worked</div>
+        <div class="mini-stat-value">6<small>/7</small></div>
+      </div>
+      <div class="mini-stat">
+        <div class="mini-stat-label">OT hours</div>
+        <div class="mini-stat-value">5.5</div>
+      </div>
+      <div class="mini-stat">
+        <div class="mini-stat-label">Avg punch-in</div>
+        <div class="mini-stat-value" style="font-size:18px;">6:54</div>
+      </div>
+    </div>
+
+    <h4 class="section-title">Today's punches</h4>
+    <ul class="punch-list">
+      <li>
+        <div class="punch-icon in">↓</div>
+        <div class="punch-info">
+          <div class="punch-label">Punch in</div>
+          <div class="punch-time">06:52 AM · 8 min early · Biometric (palm)</div>
+        </div>
+        <div class="punch-loom">L-01</div>
+      </li>
+      <li>
+        <div class="punch-icon">⏸</div>
+        <div class="punch-info">
+          <div class="punch-label">Tea break</div>
+          <div class="punch-time">10:18 AM – 10:32 AM · 14 min</div>
+        </div>
+        <div class="punch-loom">—</div>
+      </li>
+      <li>
+        <div class="punch-icon">⏸</div>
+        <div class="punch-info">
+          <div class="punch-label">Lunch break</div>
+          <div class="punch-time">12:45 PM – 1:18 PM · 33 min</div>
+        </div>
+        <div class="punch-loom">—</div>
+      </li>
+      <li>
+        <div class="punch-icon out">↑</div>
+        <div class="punch-info">
+          <div class="punch-label">Punch out · expected</div>
+          <div class="punch-time">7:00 PM (in 4h 12m) · OT 1.5 hrs requested</div>
+        </div>
+        <div class="punch-loom">L-01</div>
+      </li>
+    </ul>
+
+    <div class="pay-summary">
+      <h4 class="section-title" style="color:#0d9488;">Week pay estimate</h4>
+      <div class="pay-row"><span>Base · 6 days × ₹500</span><span class="pay-val">₹3,000.00</span></div>
+      <div class="pay-row"><span>OT · 5.5 hrs × ₹90</span><span class="pay-val">₹495.00</span></div>
+      <div class="pay-row"><span>Tea + lunch allowance</span><span class="pay-val">₹0.00</span></div>
+      <div class="pay-row total"><span>This week total</span><span class="pay-val">₹3,495.00</span></div>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:18px;">
+      <button class="btn btn-secondary" style="flex:1;">View full month</button>
+      <button class="btn btn-primary" style="flex:1;">Mark check-out</button>
+    </div>
+  </div>
+</aside>
+
+<script src="../js/shell.js"></script>
+<script>
+  function openDrawer(id) {
+    document.getElementById('drawerBackdrop').classList.add('open');
+    document.getElementById('opDrawer').classList.add('open');
+  }
+  function closeDrawer() {
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    document.getElementById('opDrawer').classList.remove('open');
+  }
+  window.openDrawer = openDrawer;
+  window.closeDrawer = closeDrawer;
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // Mark tabs
+  document.querySelectorAll('.mark-tabs').forEach(group => {
+    group.querySelectorAll('.mark-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        group.querySelectorAll('.mark-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
