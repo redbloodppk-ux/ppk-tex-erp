@@ -4,6 +4,12 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
+import type { Database } from '@/lib/database.types';
+
+// `code` is omitted from the payload — trg_customer_autogen_code fills it
+// from the doc_sequence registry. We cast to Insert at the call site so the
+// rest of the payload is type-checked against the table schema.
+type CustomerInsert = Database['public']['Tables']['customer']['Insert'];
 
 export default function NewCustomerPage() {
   const router = useRouter();
@@ -69,7 +75,7 @@ export default function NewCustomerPage() {
       status: 'active' as const,
     };
 
-    const { error } = await supabase.from('customer').insert(payload);
+    const { error } = await supabase.from('customer').insert(payload as CustomerInsert);
     setBusy(false);
     if (error) {
       setError(error.message);

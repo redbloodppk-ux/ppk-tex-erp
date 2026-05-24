@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, Calculator, Package, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
   CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
-  Factory, X, Disc3, Layers,
+  Factory, X, Disc3, Layers, Warehouse, Gauge,
 } from 'lucide-react';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
@@ -28,8 +28,10 @@ const NAV: NavItem[] = [
   { href: '/app/yarn',          label: 'Yarn & Mills',       icon: Boxes,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/pavu',          label: 'Pavu (Sized Beams)', icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
+  { href: '/app/warehouse',     label: 'Warehouse',          icon: Warehouse,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/bobbin',        label: 'Bobbin Stock',       icon: Package,         group: 'production', roles: ['owner','mill_manager','auditor'] },
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
+  { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/outsource',     label: 'Outsource Weaving',  icon: Truck,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
@@ -52,12 +54,6 @@ const GROUP_LABEL: Record<NavItem['group'], string> = {
   admin:      'Administration',
 };
 
-/**
- * The shared nav body — used by both the desktop sidebar and the mobile drawer.
- * Tapping a link automatically closes the drawer on mobile (route change → effect
- * in AppShell), and we additionally fire onItemClick so the drawer animates out
- * before the route transition completes.
- */
 function NavBody({
   role,
   onItemClick,
@@ -125,7 +121,7 @@ function Brand() {
 function Footer() {
   return (
     <div className="px-4 py-3 border-t border-line/60 text-[10px] text-ink-mute">
-      v0.1 · {new Date().getFullYear()} PPK Tex Industries
+      v0.1 - {new Date().getFullYear()} PPK Tex Industries
     </div>
   );
 }
@@ -141,16 +137,14 @@ export function Sidebar({
 }) {
   return (
     <>
-      {/* ── Desktop sidebar (md and up) ───────────────────────────────────── */}
+      {/* Desktop sidebar (md and up) */}
       <aside className="hidden md:flex w-64 shrink-0 flex-col bg-paper border-r border-line/60 sticky top-0 h-screen">
         <Brand />
         <NavBody role={role} />
         <Footer />
       </aside>
 
-      {/* ── Mobile drawer (below md) ───────────────────────────────────────
-          Rendered always so the slide animation can play; visibility and
-          interactivity are toggled by `mobileOpen`. */}
+      {/* Mobile drawer (below md) */}
       <div
         className={cn(
           'md:hidden fixed inset-0 z-50 transition-opacity duration-200',

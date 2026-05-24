@@ -7,6 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "typegen": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts"
   },
   "dependencies": {
@@ -14,7 +19,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@supabase/supabase-js": "^2.45.4",
-    "@supabase/ssr": "^0.5.1",
+    "@supabase/ssr": "^0.7.0",
     "tailwindcss": "^3.4.14",
     "@tailwindcss/forms": "^0.5.9",
     "@tailwindcss/typography": "^0.5.15",
@@ -23,6 +28,7 @@
     "tailwind-merge": "^2.5.4",
     "lucide-react": "^0.460.0",
     "date-fns": "^4.1.0",
+    "decimal.js": "^10.4.3",
     "zod": "^3.23.8",
     "react-hook-form": "^7.53.2",
     "@hookform/resolvers": "^3.9.1",
@@ -38,6 +44,12 @@
     "postcss": "^8.4.49",
     "eslint": "^9.15.0",
     "eslint-config-next": "^15.1.0",
-    "supabase": "^1.219.2"
+    "supabase": "^1.219.2",
+    "vitest": "^2.1.5",
+    "@vitest/coverage-v8": "^2.1.5",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "jsdom": "^25.0.1",
+    "@playwright/test": "^1.49.0"
   }
 }

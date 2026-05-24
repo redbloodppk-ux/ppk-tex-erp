@@ -18,6 +18,13 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Trash2 } from 'lucide-react';
+import type { Database } from '@/lib/database.types';
+
+// Insert types — the form builds payloads in plain shapes (string-coerced
+// from <input>) and we cast at the .insert() call so the typed client is
+// satisfied without forcing every state field to match the DB column type.
+type SizingJobInsert = Database['public']['Tables']['sizing_job']['Insert'];
+type PavuInsert      = Database['public']['Tables']['pavu']['Insert'];
 
 interface Vendor      { id: number; code: string; name: string; vendor_type: string }
 interface Mill        { id: number; code: string; name: string }
@@ -204,7 +211,7 @@ export default function NewSizingJobPage() {
 
     const { data: job, error: jobErr } = await supabase
       .from('sizing_job')
-      .insert(headerPayload)
+      .insert(headerPayload as SizingJobInsert)
       .select('id')
       .single();
 
@@ -223,7 +230,7 @@ export default function NewSizingJobPage() {
       outsource_vendor_id: b.production_mode === 'outsource' && b.outsource_vendor_id
                              ? Number(b.outsource_vendor_id) : null,
     }));
-    const { error: beamErr } = await supabase.from('pavu').insert(beamRows);
+    const { error: beamErr } = await supabase.from('pavu').insert(beamRows as PavuInsert[]);
     if (beamErr) {
       setBusy(false);
       return setError(`Job created but beams failed: ${beamErr.message}`);

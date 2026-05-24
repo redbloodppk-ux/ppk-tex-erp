@@ -20,21 +20,27 @@ export default async function DashboardPage() {
     { data: lowYarn },
     { data: recentOrders },
     { data: recentInvoices },
+    { data: loomUtil },
   ] = await Promise.all([
-    supabase.from('customer').select('id', { count: 'exact', head: true }).eq('is_active', true),
-    supabase.from('sales_order').select('id', { count: 'exact', head: true }).in('status', ['open','partially_invoiced']),
+    supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+    // "Open" = not yet in a terminal state. Excludes paid + cancelled.
+    supabase.from('sales_order').select('id', { count: 'exact', head: true })
+      .in('status', ['draft', 'pending_approval', 'approved', 'in_production', 'partial_dispatch']),
     supabase.from('v_customer_outstanding').select('outstanding_amount').limit(500),
     supabase.from('v_yarn_days_of_cover').select('yarn_count_code, days_of_cover, on_hand_kg').lte('days_of_cover', 14).order('days_of_cover', { ascending: true }).limit(5),
     supabase.from('sales_order').select('doc_no, customer_name, total_amount, status, order_date').order('order_date', { ascending: false }).limit(5),
     supabase.from('invoice').select('doc_no, customer_name, total_amount, status, invoice_date').order('invoice_date', { ascending: false }).limit(5),
+    supabase.from('v_loom_shift_utilisation').select('loom_code, shift_count, total_metres, avg_metres_per_shift, uptime_pct, last_log_date').order('loom_code'),
   ]);
+
+  const loggedLooms = (loomUtil ?? []).filter((r: any) => Number(r.shift_count ?? 0) > 0);
 
   const totalOutstanding = (outstanding ?? []).reduce((s, r: any) => s + Number(r.outstanding_amount ?? 0), 0);
 
   const cards = [
     { label: 'Active Customers', value: customerCount ?? 0,         icon: Users,        href: '/app/customers',  tone: 'from-indigo to-violet' },
     { label: 'Open Sales Orders', value: openOrderCount ?? 0,        icon: ShoppingCart, href: '/app/orders',     tone: 'from-emerald-500 to-teal-500' },
-    { label: 'Outstanding (₹)',   value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
+    { label: 'Outstanding (Rs)',  value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
     { label: 'Low-Stock Yarn',    value: lowYarn?.length ?? 0,       icon: Boxes,        href: '/app/yarn',       tone: 'from-amber-500 to-yellow-500' },
   ];
 
@@ -43,7 +49,7 @@ export default async function DashboardPage() {
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-display font-extrabold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-ink-soft mt-0.5">Today’s snapshot of PPK Tex operations.</p>
+          <p className="text-sm text-ink-soft mt-0.5">Today&rsquo;s snapshot of PPK Tex operations.</p>
         </div>
         <div className="flex gap-2">
           <Link href="/app/costing" className="btn-ghost">New Costing</Link>
@@ -76,10 +82,10 @@ export default async function DashboardPage() {
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-display font-bold text-base">Recent Sales Orders</h2>
-            <Link href="/app/orders" className="text-xs text-indigo font-semibold">View all →</Link>
+            <Link href="/app/orders" className="text-xs text-indigo font-semibold">View all &rarr;</Link>
           </div>
           {!recentOrders?.length ? (
-            <EmptyHint icon={ShoppingCart} text="No sales orders yet — create your first one." href="/app/orders/new" cta="New SO" />
+            <EmptyHint icon={ShoppingCart} text="No sales orders yet - create your first one." href="/app/orders/new" cta="New SO" />
           ) : (
             <table className="w-full text-sm">
               <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
@@ -118,14 +124,67 @@ export default async function DashboardPage() {
               ))}
             </ul>
           )}
-          <Link href="/app/yarn" className="mt-4 block text-xs text-indigo font-semibold">Manage yarn lots →</Link>
+          <Link href="/app/yarn" className="mt-4 block text-xs text-indigo font-semibold">Manage yarn lots &rarr;</Link>
         </div>
       </section>
 
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Factory className="w-4 h-4 text-indigo" />
+            <h2 className="font-display font-bold text-base">Loom Utilisation</h2>
+          </div>
+          <Link href="/app/production/shift-log" className="text-xs text-indigo font-semibold">Log a shift &rarr;</Link>
+        </div>
+        {!loggedLooms.length ? (
+          <EmptyHint
+            icon={Factory}
+            text="No shifts logged yet - record loom output to see uptime here."
+            href="/app/production/shift-log"
+            cta="Log a Shift"
+          />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
+              <tr>
+                <th className="text-left py-2">Loom</th>
+                <th className="text-right">Shifts</th>
+                <th className="text-right">Metres / Shift</th>
+                <th className="text-right">Total Metres</th>
+                <th className="text-right">Uptime</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loggedLooms.map((l: any) => {
+                const up = l.uptime_pct == null ? null : Number(l.uptime_pct);
+                const upTone =
+                  up == null ? 'text-ink-soft'
+                  : up >= 90 ? 'text-emerald-600'
+                  : up >= 75 ? 'text-amber-600'
+                  : 'text-rose-600';
+                return (
+                  <tr key={l.loom_code} className="border-b border-line/40 last:border-0">
+                    <td className="py-2.5 font-mono text-xs">{l.loom_code}</td>
+                    <td className="text-right num">{l.shift_count}</td>
+                    <td className="text-right num">
+                      {l.avg_metres_per_shift == null ? '-' : formatMetres(l.avg_metres_per_shift)}
+                    </td>
+                    <td className="text-right num">{formatMetres(l.total_metres)}</td>
+                    <td className={`text-right num font-semibold ${upTone}`}>
+                      {up == null ? '-' : `${up.toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="card p-5">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="font-display font-bold text-base">Recent Invoices</h2>
-          <Link href="/app/invoices" className="text-xs text-indigo font-semibold">View all →</Link>
+          <Link href="/app/invoices" className="text-xs text-indigo font-semibold">View all &rarr;</Link>
         </div>
         {!recentInvoices?.length ? (
           <EmptyHint icon={Receipt} text="No invoices yet." href="/app/invoices/new" cta="New Invoice" />

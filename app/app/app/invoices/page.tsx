@@ -62,7 +62,10 @@ export default async function InvoicesPage({
     .limit(200);
 
   if (activeTab !== 'all') {
-    q = q.eq('doc_type', activeTab);
+    // activeTab is a URL param (string). Cast to the enum so the typed
+    // filter accepts it. Invalid values just return an empty list.
+    type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
+    q = q.eq('doc_type', activeTab as DocType);
   }
 
   const { data: invoices, error } = await q;

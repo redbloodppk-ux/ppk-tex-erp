@@ -711,6 +711,7 @@ CREATE TABLE production_batch (
   porvai_lot_id       bigint REFERENCES yarn_lot(id),
   bobbin_1_id         bigint REFERENCES bobbin(id),
   bobbin_2_id         bigint REFERENCES bobbin(id),
+  pavu_assign_id      bigint REFERENCES pavu_assign(id),  -- CORR-T4: trace to sizing_job
   start_date          date,
   end_date            date,
   produced_m          numeric(12,2) NOT NULL DEFAULT 0,
@@ -722,6 +723,8 @@ CREATE TABLE production_batch (
   actual_bobbin_cost_per_m numeric(10,4),
   actual_porvai_cost_per_m numeric(10,4),
   actual_overhead_per_m   numeric(10,4),            -- LOOMS overhead snapshot
+  actual_sizing_cost_per_m numeric(10,4),           -- planned sizing ₹/m (CORR-T3)
+  actual_sizing_rate_per_kg numeric(10,4),          -- snapshot sizing ₹/kg (CORR-T4)
   actual_true_cost_per_m  numeric(10,4),            -- frozen at batch close
   notes               text,
   created_at          timestamptz NOT NULL DEFAULT NOW(),

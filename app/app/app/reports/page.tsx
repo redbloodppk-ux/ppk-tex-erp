@@ -1,10 +1,146 @@
-import { PageHeader, ComingSoon } from '@/app/components/page-header';
+import Link from 'next/link';
+import { PageHeader } from '@/app/components/page-header';
+import { FileText, ArrowRight } from 'lucide-react';
+
 export const metadata = { title: 'Reports' };
-export default function Page() {
+
+interface ReportLink {
+  href: string;
+  title: string;
+  description: string;
+  ready: boolean;
+}
+
+const REPORTS: ReportLink[] = [
+  {
+    href: '/app/reports/sizing-spend',
+    title: 'Sizing Spend',
+    description:
+      'Monthly spend, per-vendor breakdown, and planned-vs-actual variance for sizing jobs.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/sales-register',
+    title: 'Sales Register',
+    description:
+      'Every billed invoice with GST split (CGST/SGST/IGST). Credit notes net out automatically.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/stock-on-hand',
+    title: 'Stock on Hand',
+    description:
+      'Yarn lots on hand with weighted-average cost, reorder alerts, and days of cover.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/customer-ageing',
+    title: 'Customer Ageing',
+    description: 'Outstanding receivables bucketed 0-30 / 31-60 / 61-90 / 90+.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/profit-by-quality',
+    title: 'Profit by Quality',
+    description: 'Margin per quality from costing snapshot to invoice.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/correction-status',
+    title: 'Correction Status',
+    description:
+      'Build progress against the 42-card Correction Guide v1.1 with a pending list.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/cashflow',
+    title: 'Cash-flow Snapshot',
+    description:
+      'Money in vs out for 7/30/90 days, plus upcoming receivables and payables on both sides.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/variance',
+    title: 'Variance Dashboard',
+    description:
+      'Planned cost-per-metre vs the actual cost frozen onto each batch, rolled up by quality and listed by batch.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/loom-utilisation',
+    title: 'Loom Utilisation',
+    description:
+      'Per-loom workload from production batches: metres woven, rejection %, active days, and idle looms.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/days-of-cover',
+    title: 'Yarn Days-of-Cover',
+    description:
+      'How long each yarn count will last at the recent run-rate, with out-of-stock and reorder alerts.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/bobbin-consumption',
+    title: 'Bobbin Consumption',
+    description:
+      'Cost per metre of each warp beam plus a split-piece reconciliation of how many bobbins have been used up.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/invoice-delivery',
+    title: 'Invoice Delivery Status',
+    description:
+      'Which sales invoices still need a Delivery Challan — missing, partial, or fully delivered.',
+    ready: true,
+  },
+];
+
+export default function ReportsIndex() {
   return (
     <div>
-      <PageHeader title="Reports" subtitle="Sales register, stock report, customer ageing, profit by quality." />
-      <ComingSoon />
+      <PageHeader
+        title="Reports"
+        subtitle="Read-only dashboards for understanding what happened. Add filters and export later."
+      />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {REPORTS.map(r => (
+          <ReportCard key={r.title} report={r} />
+        ))}
+      </div>
     </div>
+  );
+}
+
+function ReportCard({ report }: { report: ReportLink }) {
+  const inner = (
+    <div className="card p-4 flex items-start gap-3 h-full">
+      <span className="text-ink-mute mt-0.5">
+        <FileText className="w-4 h-4" />
+      </span>
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold">{report.title}</h3>
+          {!report.ready && (
+            <span className="text-xs text-ink-mute bg-cloud/60 px-2 py-0.5 rounded">
+              Soon
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-ink-soft mt-1">{report.description}</p>
+      </div>
+      {report.ready && (
+        <span className="text-ink-mute mt-0.5">
+          <ArrowRight className="w-4 h-4" />
+        </span>
+      )}
+    </div>
+  );
+
+  if (!report.ready) return <div className="opacity-60">{inner}</div>;
+  return (
+    <Link href={report.href} className="block hover:opacity-90">
+      {inner}
+    </Link>
   );
 }
