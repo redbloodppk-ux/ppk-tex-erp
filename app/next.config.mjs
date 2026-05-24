@@ -37,6 +37,19 @@ const nextConfig = {
   // Pin the workspace root so Next.js stops picking up the stray
   // package-lock.json in C:\Users\Admin\ on Windows.
   outputFileTracingRoot: __dirname,
+  // Force the "@/" path alias to resolve in EVERY webpack layer
+  // (server, client/'use client', edge). Next.js normally wires this
+  // up from tsconfig "paths", but the client-component layer was not
+  // picking it up on Vercel — which broke @/ imports inside the
+  // 'use client' costing screens (CORR-P4 build failure). Setting the
+  // alias explicitly here makes resolution deterministic everywhere.
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': __dirname,
+    };
+    return config;
+  },
   experimental: {
     optimizePackageImports: ['lucide-react', 'date-fns'],
   },
