@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { HolidayModal } from '@/app/components/attendance/holiday-modal';
 import { Loader2, Save, CheckCircle2, CalendarOff, Undo2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 
@@ -67,6 +68,7 @@ export default function AttendanceMarkPage() {
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
   const [holidayReason, setHolidayReason] = useState<NonWorkingReason>('national_holiday');
   const [holidayRemark, setHolidayRemark] = useState<string>('');
+  const [holidayModalOpen, setHolidayModalOpen] = useState<boolean>(false);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -230,17 +232,6 @@ export default function AttendanceMarkPage() {
     setSavedMsg(`Saved attendance for ${rows.length} employees.`);
   }
 
-  async function handleSaveHoliday(): Promise<void> {
-    setError(null);
-    setSavedMsg(null);
-    setSaving(true);
-    const dayId = await ensureDay(false);
-    setSaving(false);
-    if (dayId == null) return;
-    setIsHoliday(true);
-    setSavedMsg('Day marked as a holiday — no attendance needed.');
-  }
-
   async function handleClearHoliday(): Promise<void> {
     setError(null);
     setSavedMsg(null);
@@ -376,49 +367,12 @@ export default function AttendanceMarkPage() {
               <button
                 type="button"
                 className="btn-ghost flex items-center gap-1.5 min-h-[44px]"
-                onClick={handleSaveHoliday}
+                onClick={() => setHolidayModalOpen(true)}
                 disabled={saving}
               >
                 <CalendarOff className="h-4 w-4" />
                 Mark day as holiday
               </button>
-            </div>
-
-            {/* Holiday reason picker (used by "Mark day as holiday"). */}
-            <div className="flex flex-wrap items-end gap-3 rounded-lg border border-line bg-paper p-3">
-              <div>
-                <label className="label" htmlFor="holiday-reason">
-                  Holiday reason
-                </label>
-                <select
-                  id="holiday-reason"
-                  className="input"
-                  value={holidayReason}
-                  onChange={(e) => setHolidayReason(e.target.value as NonWorkingReason)}
-                >
-                  {HOLIDAY_REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1 min-w-[12rem]">
-                <label className="label" htmlFor="holiday-remark">
-                  Holiday remark (optional)
-                </label>
-                <input
-                  id="holiday-remark"
-                  type="text"
-                  className="input w-full"
-                  value={holidayRemark}
-                  onChange={(e) => setHolidayRemark(e.target.value)}
-                  placeholder="e.g. Diwali"
-                />
-              </div>
-              <span className="text-xs text-ink-mute">
-                Set the reason, then tap “Mark day as holiday”.
-              </span>
             </div>
 
             <div className="overflow-x-auto">
@@ -492,6 +446,18 @@ export default function AttendanceMarkPage() {
           </>
         )}
       </div>
+
+      <HolidayModal
+        open={holidayModalOpen}
+        date={markDate}
+        defaultShift={shift}
+        onClose={() => setHolidayModalOpen(false)}
+        onSaved={() => {
+          setHolidayModalOpen(false);
+          setSavedMsg('Day marked as a holiday.');
+          void loadDay();
+        }}
+      />
     </div>
   );
 }
