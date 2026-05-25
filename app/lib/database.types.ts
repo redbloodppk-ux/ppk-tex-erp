@@ -1767,6 +1767,7 @@ export type Database = {
           loom_code: string
           loom_type: string
           notes: string | null
+          shed_no: number | null
           status: string
           width_in: number | null
         }
@@ -1775,6 +1776,7 @@ export type Database = {
           loom_code: string
           loom_type: string
           notes?: string | null
+          shed_no?: number | null
           status?: string
           width_in?: number | null
         }
@@ -1783,6 +1785,7 @@ export type Database = {
           loom_code?: string
           loom_type?: string
           notes?: string | null
+          shed_no?: number | null
           status?: string
           width_in?: number | null
         }
@@ -4696,4 +4699,3 @@ export const Constants = {
     },
   },
 } as const
-

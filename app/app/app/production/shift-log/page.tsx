@@ -4,11 +4,12 @@
  *
  * Flow:
  *   1. Pick a date (default today) and a shift (day / night).
- *   2. All looms appear in one grid. For each loom enter:
+ *   2. Looms are split across 4 shed tabs. For each loom enter:
  *        • metres woven (good metres only)
  *        • downtime minutes (0-720) + a reason if downtime > 0
  *        • weaver name (optional)
- *   3. One Save writes every non-blank row for that date + shift.
+ *   3. One Save writes every non-blank row across all sheds for that
+ *      date + shift.
  *
  * Rows left completely blank (no metres, no downtime, no weaver) are skipped.
  * Existing rows for the selected date + shift are loaded so edits overwrite
@@ -35,17 +36,21 @@ interface Loom {
   loom_code: string;
   loom_type: string;
   status: string;
+  shed_no: number | null;
 }
 
 interface RowState {
   loom_id: number;
   loom_code: string;
   loom_type: string;
+  shed_no: number | null;
   metres_woven: string;
   downtime_minutes: string;
   downtime_reason: string;
   weaver_name: string;
 }
+
+const SHEDS = [1, 2, 3, 4] as const;
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
@@ -54,6 +59,7 @@ function blankRow(loom: Loom): RowState {
     loom_id: loom.id,
     loom_code: loom.loom_code,
     loom_type: loom.loom_type,
+    shed_no: loom.shed_no,
     metres_woven: '',
     downtime_minutes: '',
     downtime_reason: '',
@@ -75,6 +81,7 @@ export default function ShiftLogPage() {
 
   const [logDate, setLogDate] = useState<string>(today());
   const [shift, setShift] = useState<'day' | 'night'>('day');
+  const [activeShed, setActiveShed] = useState<number>(1);
 
   const [looms, setLooms] = useState<Loom[]>([]);
   const [rows, setRows] = useState<RowState[]>([]);
@@ -90,7 +97,7 @@ export default function ShiftLogPage() {
     (async () => {
       const { data, error: err } = await supabase
         .from('loom')
-        .select('id, loom_code, loom_type, status')
+        .select('id, loom_code, loom_type, status, shed_no')
         .order('loom_code');
       if (!active) return;
       if (err) {
@@ -135,6 +142,7 @@ export default function ShiftLogPage() {
           loom_id: loom.id,
           loom_code: loom.loom_code,
           loom_type: loom.loom_type,
+          shed_no: loom.shed_no,
           metres_woven: e.metres_woven ? String(e.metres_woven) : '',
           downtime_minutes: e.downtime_minutes ? String(e.downtime_minutes) : '',
           downtime_reason: e.downtime_reason ?? '',
@@ -219,7 +227,9 @@ export default function ShiftLogPage() {
     setSavedMsg(`Saved ${toSave.length} loom row${toSave.length === 1 ? '' : 's'}.`);
   }
 
-  const totalMetres = rows.reduce((sum, r) => {
+  const visibleRows = rows.filter((r) => (r.shed_no ?? 0) === activeShed);
+
+  const totalMetres = visibleRows.reduce((sum, r) => {
     const n = Number(r.metres_woven);
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
@@ -269,6 +279,29 @@ export default function ShiftLogPage() {
           </div>
         </div>
 
+        {/* Shed tabs */}
+        <div className="flex flex-wrap gap-1 border-b border-line/60">
+          {SHEDS.map((s) => {
+            const count = rows.filter((r) => (r.shed_no ?? 0) === s).length;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setActiveShed(s)}
+                className={
+                  'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition ' +
+                  (activeShed === s
+                    ? 'border-indigo-600 text-indigo-700'
+                    : 'border-transparent text-ink-mute hover:text-ink')
+                }
+              >
+                Shed {s}
+                <span className="ml-1.5 text-xs text-ink-mute">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
         {error && <p className="text-sm text-err">{error}</p>}
         {savedMsg && (
           <p className="flex items-center gap-1.5 text-sm text-green-600">
@@ -295,7 +328,14 @@ export default function ShiftLogPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {visibleRows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-6 text-center text-ink-soft">
+                      No looms in Shed {activeShed}.
+                    </td>
+                  </tr>
+                )}
+                {visibleRows.map((r) => (
                   <tr key={r.loom_id} className="border-b border-line/60">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{r.loom_code}</div>
@@ -361,7 +401,7 @@ export default function ShiftLogPage() {
               </tbody>
               <tfoot>
                 <tr className="text-ink-soft">
-                  <td className="py-2 pr-3 font-medium">Total</td>
+                  <td className="py-2 pr-3 font-medium">Shed {activeShed} total</td>
                   <td className="py-2 pr-3 font-medium">
                     {totalMetres.toLocaleString('en-IN')} m
                   </td>
