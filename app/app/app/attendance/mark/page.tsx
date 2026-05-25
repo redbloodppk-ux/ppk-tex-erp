@@ -1,6 +1,6 @@
 'use client';
 /**
- * Daily Attendance Marking — CORR-A2.
+ * Daily Attendance Marking — CORR-A2 / CORR-A4.
  *
  * Flow:
  *   1. Pick a date (default today) and a shift (Morning / Night).
@@ -15,6 +15,10 @@
  * non-working day (attendance_day.is_working = false) with a reason.
  * On a holiday no per-employee rows are needed, so the grid is hidden.
  *
+ * Edit windows (CORR-A4): an already-marked day is free to edit for
+ * 24 hours, then owner/mill-manager only for the next 6 days, then
+ * locked. Every save is appended to audit_log by a table trigger.
+ *
  * Data model (existing schema):
  *   attendance_day    one row per (attendance_date, shift)
  *   attendance_entry  one row per (attendance_day_id, employee_id)
@@ -23,7 +27,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
-import { Loader2, Save, CheckCircle2, CalendarOff, Undo2 } from 'lucide-react';
+import { canEdit, type EditorRole } from '@/lib/attendance/canEdit';
+import { Loader2, Save, CheckCircle2, CalendarOff, Undo2, Lock } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 
 type AttendanceStatus = Database['public']['Enums']['attendance_status'];
@@ -75,6 +80,31 @@ export default function AttendanceMarkPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
+  // Edit-window gate (CORR-A4). dayMarkedAt is null for a day that has
+  // not been marked yet — such a day is always freely editable.
+  const [userRole, setUserRole] = useState<EditorRole | null>(null);
+  const [dayMarkedAt, setDayMarkedAt] = useState<string | null>(null);
+
+  // Load the current user's app role once (drives the edit window).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: me } = await supabase
+        .from('app_user')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (!active) return;
+      const r = (me as { role: string } | null)?.role;
+      if (r) setUserRole(r as EditorRole);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
+
   // Load the active employee list once.
   useEffect(() => {
     let active = true;
@@ -103,10 +133,11 @@ export default function AttendanceMarkPage() {
     setLoading(true);
     setError(null);
     setSavedMsg(null);
+    setDayMarkedAt(null);
 
     const { data: day, error: dayErr } = await supabase
       .from('attendance_day')
-      .select('id, is_working, reason, remark')
+      .select('id, is_working, reason, remark, marked_at')
       .eq('attendance_date', markDate)
       .eq('shift', shift)
       .maybeSingle();
@@ -128,6 +159,7 @@ export default function AttendanceMarkPage() {
 
     setIsHoliday(false);
     setHolidayRemark('');
+    setDayMarkedAt(day?.marked_at ?? null);
 
     let entries: { employee_id: number; status: AttendanceStatus }[] = [];
     if (day) {
@@ -203,6 +235,10 @@ export default function AttendanceMarkPage() {
   async function handleSaveAttendance(): Promise<void> {
     setError(null);
     setSavedMsg(null);
+    if (saveBlocked) {
+      setError(editGate.reason);
+      return;
+    }
     setSaving(true);
 
     const dayId = await ensureDay(true);
@@ -247,6 +283,16 @@ export default function AttendanceMarkPage() {
     ...s,
     count: visible.filter((e) => statusByEmp[e.id] === s.value).length,
   }));
+
+  // Edit-window gate. A day not yet marked (dayMarkedAt == null) is freely
+  // editable. Once marked: free < 24h, owner/manager-only 24-168h, locked
+  // after 7 days.
+  const editGate = canEdit({
+    markedAt: dayMarkedAt ?? new Date().toISOString(),
+    role: userRole ?? 'floor_operator',
+  });
+  const editingExisting = dayMarkedAt !== null;
+  const saveBlocked = editingExisting && !editGate.allowed;
 
   return (
     <div>
@@ -344,6 +390,21 @@ export default function AttendanceMarkPage() {
           </div>
         ) : (
           <>
+            {/* Edit-window banner (CORR-A4) */}
+            {editingExisting && editGate.window !== 'free' && (
+              <div
+                className={
+                  'flex items-start gap-2 rounded-lg border p-3 text-sm ' +
+                  (editGate.allowed
+                    ? 'border-amber-200 bg-amber-50 text-amber-800'
+                    : 'border-rose-200 bg-rose-50 text-rose-800')
+                }
+              >
+                <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{editGate.reason}</span>
+              </div>
+            )}
+
             {/* Summary chips */}
             <div className="flex flex-wrap gap-2 text-xs">
               {summary.map((s) => (
@@ -396,7 +457,7 @@ export default function AttendanceMarkPage() {
                       <td className="py-2 pr-3">
                         <div className="font-medium">{emp.full_name}</div>
                         <div className="text-xs text-ink-mute capitalize">
-                          {emp.code} · {emp.role}
+                          {emp.code} &middot; {emp.role}
                         </div>
                       </td>
                       <td className="py-2 pr-3">
@@ -430,7 +491,7 @@ export default function AttendanceMarkPage() {
                 type="button"
                 className="btn-primary flex items-center gap-1.5 min-h-[44px]"
                 onClick={handleSaveAttendance}
-                disabled={saving || loading}
+                disabled={saving || loading || saveBlocked}
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -440,7 +501,9 @@ export default function AttendanceMarkPage() {
                 Save attendance
               </button>
               <span className="text-xs text-ink-mute">
-                Saving again overwrites the earlier entry for this date and shift.
+                {saveBlocked
+                  ? 'Editing is closed for this date and shift.'
+                  : 'Saving again overwrites the earlier entry for this date and shift.'}
               </span>
             </div>
           </>
