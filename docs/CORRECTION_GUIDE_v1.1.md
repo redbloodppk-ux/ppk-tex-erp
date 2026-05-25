@@ -13,9 +13,9 @@
 | 2. True Cost Engine (T1–T4)         | 4  | — | — | 4 |
 | 3. Production Intelligence (P1–P5)  | 5  | — | — | 5 |
 | 4. Reports & Dashboards (R1–R12)    | 12 | — | — | 12 |
-| 5. Attendance (A1–A7)               | 7  | — | — | 7 |
+| 5. Attendance (A1–A7)               | 7  | 2 | — | 5 |
 | 6. Production Hardening (H1–H9)     | 9  | — | — | 9 |
-| **Totals**                          | **42** | **5** | **0** | **37** |
+| **Totals**                          | **42** | **7** | **0** | **35** |
 
 **F5 was added mid-batch** after a live Supabase advisor scan turned up 7
 ERROR-level RLS-bypassing views, a permissive `notification` INSERT policy,
@@ -508,3 +508,4 @@ without a fresh owner decision.
 **Cards unblocked**: CORR-H1 (PWA install flow needs a stable Site URL),
 CORR-H8 (rollback runbook needs a known production target),
 CORR-H9 (Playwright E2E suite will smoke-test against the production URL).
+  
