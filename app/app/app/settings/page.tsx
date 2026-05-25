@@ -2,17 +2,33 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ChevronRight, Settings2, Factory } from 'lucide-react';
+import { NightShiftToggle } from './night-shift-toggle';
 
 export const metadata = { title: 'Settings' };
 
 export default async function SettingsPage() {
   const supabase = await createClient();
-  const [{ data: company }, { data: users }, { data: overhead }] = await Promise.all([
+  const { data: { user } } = await supabase.auth.getUser();
+  const [
+    { data: company },
+    { data: users },
+    { data: overhead },
+    { data: nightCfg },
+    { data: me },
+  ] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
     supabase.from('app_user').select('id, email, full_name, role, is_active').order('full_name'),
     supabase.from('v_looms_overhead').select('total_per_m').maybeSingle(),
+    supabase.from('system_config').select('value').eq('key', 'shift_log_night_enabled').maybeSingle(),
+    user
+      ? supabase.from('app_user').select('role').eq('id', user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const overheadTotal = (overhead as { total_per_m: number | null } | null)?.total_per_m;
+  const nightEnabled = Boolean(
+    (nightCfg as { value: { enabled?: boolean } | null } | null)?.value?.enabled,
+  );
+  const canEditNight = (me as { role: string } | null)?.role === 'owner';
 
   return (
     <div className="space-y-6">
@@ -70,6 +86,12 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
+      {/* Shift settings */}
+      <div className="card p-5">
+        <h2 className="font-display font-bold text-base mb-3">Shift settings</h2>
+        <NightShiftToggle initialEnabled={nightEnabled} canEdit={canEditNight} />
+      </div>
+
       <div className="card p-5">
         <h2 className="font-display font-bold text-base mb-3">Company</h2>
         {company ? (
@@ -89,7 +111,7 @@ export default async function SettingsPage() {
       </div>
 
       <div className="card p-5">
-        <h2 className="font-display font-bold text-base mb-3">Users & Roles</h2>
+        <h2 className="font-display font-bold text-base mb-3">Users &amp; Roles</h2>
         <table className="w-full text-sm">
           <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
             <tr>

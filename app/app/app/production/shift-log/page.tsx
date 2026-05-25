@@ -11,6 +11,10 @@
  *   3. One Save writes every non-blank row across all sheds for that
  *      date + shift.
  *
+ * The Night shift is only offered when the `shift_log_night_enabled` setting
+ * is on (Settings → Shift settings). When off, the Shift selector is hidden
+ * and everything is recorded against the day shift.
+ *
  * Rows left completely blank (no metres, no downtime, no weaver) are skipped.
  * Existing rows for the selected date + shift are loaded so edits overwrite
  * them via the (log_date, shift, loom_id) unique constraint.
@@ -81,6 +85,7 @@ export default function ShiftLogPage() {
 
   const [logDate, setLogDate] = useState<string>(today());
   const [shift, setShift] = useState<'day' | 'night'>('day');
+  const [nightEnabled, setNightEnabled] = useState<boolean>(false);
   const [activeShed, setActiveShed] = useState<number>(1);
 
   const [looms, setLooms] = useState<Loom[]>([]);
@@ -106,6 +111,27 @@ export default function ShiftLogPage() {
         return;
       }
       setLooms((data ?? []) as Loom[]);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
+
+  // Load the night-shift setting. When off, the Shift selector is hidden and
+  // every entry is recorded against the day shift.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from('system_config')
+        .select('value')
+        .eq('key', 'shift_log_night_enabled')
+        .maybeSingle();
+      if (!active) return;
+      const v = (data as { value: { enabled?: boolean } | null } | null)?.value;
+      const on = Boolean(v?.enabled);
+      setNightEnabled(on);
+      if (!on) setShift('day');
     })();
     return () => {
       active = false;
@@ -260,23 +286,25 @@ export default function ShiftLogPage() {
               onChange={(e) => setLogDate(e.target.value)}
             />
           </div>
-          <div>
-            <span className="label">Shift</span>
-            <div className="flex gap-2">
-              {(['day', 'night'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setShift(s)}
-                  className={
-                    shift === s ? 'btn-primary capitalize' : 'btn-ghost capitalize'
-                  }
-                >
-                  {s}
-                </button>
-              ))}
+          {nightEnabled && (
+            <div>
+              <span className="label">Shift</span>
+              <div className="flex gap-2">
+                {(['day', 'night'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setShift(s)}
+                    className={
+                      shift === s ? 'btn-primary capitalize' : 'btn-ghost capitalize'
+                    }
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Shed tabs */}
