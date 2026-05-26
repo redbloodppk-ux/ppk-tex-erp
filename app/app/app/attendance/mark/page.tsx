@@ -219,7 +219,10 @@ export default function AttendanceMarkPage() {
         setLoading(false);
         return;
       }
-      entries = (ent ?? []) as EntryRow[];
+      // actual_in_time / actual_out_time were added in migration 029 after
+      // the last database.types regen — cast through unknown until typegen
+      // is re-run.
+      entries = (ent ?? []) as unknown as EntryRow[];
     }
 
     const statusMap = new Map<number, AttendanceStatus>();
