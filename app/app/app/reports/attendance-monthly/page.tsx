@@ -59,7 +59,10 @@ export default async function MonthlyAttendanceReport({
     .eq('month', month)
     .order('employee_name');
 
-  if (role) query = query.eq('employee_role', role);
+  // role is a free-form string from the query string; the view column is
+  // typed as the employee_role enum so we cast to satisfy supabase-js's
+  // generated types. Bad values just return zero rows.
+  if (role) query = query.eq('employee_role', role as never);
 
   const { data, error } = await query;
   const rows = (data as unknown as MonthlyRow[]) ?? [];

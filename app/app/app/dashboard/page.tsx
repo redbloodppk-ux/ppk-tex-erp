@@ -5,6 +5,7 @@ import {
   TrendingUp, AlertTriangle, Package, Users, Factory, Receipt,
   ClockAlert, ArrowUpRight, Boxes, ShoppingCart,
 } from 'lucide-react';
+import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -77,6 +78,8 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </section>
+
+      <TodayAttendanceWidget />
 
       <section className="grid lg:grid-cols-3 gap-4">
         <div className="card p-5 lg:col-span-2">
