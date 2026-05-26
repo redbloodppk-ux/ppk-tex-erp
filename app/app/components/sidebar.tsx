@@ -35,6 +35,7 @@ const NAV: NavItem[] = [
   { href: '/app/outsource',     label: 'Outsource Weaving',  icon: Truck,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'finance',    roles: ['owner','accounts','sales_manager','auditor'] },
