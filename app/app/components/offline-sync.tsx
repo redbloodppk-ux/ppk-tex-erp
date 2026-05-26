@@ -10,7 +10,7 @@
  * It also shows a small pill in the corner whenever the device is offline
  * or there is at least one pending save.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   listQueued,
@@ -20,7 +20,7 @@ import {
 } from '@/lib/attendance/offlineQueue';
 import { WifiOff, RefreshCw, CheckCircle2 } from 'lucide-react';
 
-export function OfflineSync(): JSX.Element | null {
+export function OfflineSync(): ReactElement | null {
   const supabase = createClient();
   const [online, setOnline] = useState<boolean>(true);
   const [pending, setPending] = useState<number>(0);
