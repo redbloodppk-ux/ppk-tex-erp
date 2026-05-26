@@ -23,6 +23,7 @@ interface EmployeeRow {
   id_last4: string | null;
   status: string;
   notes: string | null;
+  attendance_required: boolean | null;
 }
 
 export default async function EditEmployeePage({
@@ -37,7 +38,7 @@ export default async function EditEmployeePage({
   const supabase = await createClient();
   const { data } = await supabase
     .from('employee')
-    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes')
+    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes, attendance_required')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -54,6 +55,9 @@ export default async function EditEmployeePage({
     id_last4:        emp.id_last4 ?? '',
     status:          emp.status,
     notes:           emp.notes ?? '',
+    // attendance_required defaults to true for legacy rows where the column
+    // was just added (migration 030).
+    attendance_required: emp.attendance_required ?? true,
   };
 
   return (

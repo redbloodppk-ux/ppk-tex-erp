@@ -20,6 +20,9 @@ export interface EmployeeFormValues {
   id_last4: string;
   status: string;
   notes: string;
+  // CORR-A8: when false, this employee is hidden from /attendance/mark.
+  // They still appear on wage reports — useful for salaried staff.
+  attendance_required: boolean;
 }
 
 interface Props {
@@ -65,13 +68,14 @@ export function EmployeeForm({ initial, employeeId }: Props) {
     const payload = {
       code,
       full_name,
-      role:            values.role,
-      default_shift:   values.default_shift,
-      date_of_joining: values.date_of_joining || null,
-      phone:           values.phone.trim() || null,
-      id_last4:        id4 || null,
-      status:          values.status,
-      notes:           values.notes.trim() || null,
+      role:                values.role,
+      default_shift:       values.default_shift,
+      date_of_joining:     values.date_of_joining || null,
+      phone:               values.phone.trim() || null,
+      id_last4:            id4 || null,
+      status:              values.status,
+      notes:               values.notes.trim() || null,
+      attendance_required: values.attendance_required,
     };
 
     const { error: dbError } = isEdit
@@ -183,6 +187,24 @@ export function EmployeeForm({ initial, employeeId }: Props) {
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-line bg-slate-50 p-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={values.attendance_required}
+            onChange={(e) => set('attendance_required', e.target.checked)}
+            className="mt-0.5 h-4 w-4"
+          />
+          <span className="text-sm">
+            <span className="font-medium">Mark attendance for this employee</span>
+            <span className="block text-xs text-ink-mute mt-0.5">
+              Uncheck for salaried staff who don&apos;t need a daily mark.
+              They&apos;ll still appear on wages and reports, just not on the Mark Attendance screen.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

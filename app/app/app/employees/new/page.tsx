@@ -43,6 +43,7 @@ export default async function NewEmployeePage() {
     id_last4:        '',
     status:          'active',
     notes:           '',
+    attendance_required: true,
   };
 
   return (

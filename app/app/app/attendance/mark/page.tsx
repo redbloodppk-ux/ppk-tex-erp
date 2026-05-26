@@ -42,6 +42,8 @@ interface Employee {
   full_name: string;
   role: string;
   default_shift: 'morning' | 'night' | 'either' | null;
+  // Added in migration 030. Defaults to true so existing rows keep behaviour.
+  attendance_required: boolean;
 }
 
 // CORR-A7 / shop-floor feedback:
@@ -146,13 +148,16 @@ export default function AttendanceMarkPage() {
     };
   }, [supabase]);
 
-  // Load the active employee list once.
+  // Load the active employee list once. Employees with attendance_required
+  // = false (e.g. salaried staff) are excluded entirely — they still appear
+  // on wages but not on this screen. attendance_required was added in
+  // migration 030; the `as never` keeps tsc happy until typegen is re-run.
   useEffect(() => {
     let active = true;
     (async () => {
       const { data, error: err } = await supabase
         .from('employee')
-        .select('id, code, full_name, role, default_shift')
+        .select('id, code, full_name, role, default_shift, attendance_required')
         .eq('status', 'active')
         .order('full_name');
       if (!active) return;
@@ -161,7 +166,9 @@ export default function AttendanceMarkPage() {
         setLoading(false);
         return;
       }
-      setEmployees((data ?? []) as Employee[]);
+      const all = (data ?? []) as unknown as Employee[];
+      // attendance_required defaults to true; only hide ones explicitly false.
+      setEmployees(all.filter((e) => e.attendance_required !== false));
     })();
     return () => {
       active = false;
@@ -234,13 +241,45 @@ export default function AttendanceMarkPage() {
       outMap.set(e.employee_id, e.actual_out_time);
     }
 
-    // Fresh / unmarked employees start on 'present', except those whose
-    // default_shift doesn't match the picked shift — they start on 'none'.
+    // Cross-shift default: when marking Night, anyone already saved as
+    // 'present' on today's Morning shift should pre-default to 'none' on
+    // Night (they already worked the day). The supervisor can still flip
+    // them back if a weaver pulls a double shift.
+    const morningPresent = new Set<number>();
+    if (shift === 'night') {
+      const { data: mDay } = await supabase
+        .from('attendance_day')
+        .select('id')
+        .eq('attendance_date', markDate)
+        .eq('shift', 'morning')
+        .maybeSingle();
+      if (mDay) {
+        const { data: mEnt } = await supabase
+          .from('attendance_entry')
+          .select('employee_id, status')
+          .eq('attendance_day_id', (mDay as { id: number }).id)
+          .eq('status', 'present');
+        for (const row of (mEnt ?? []) as { employee_id: number }[]) {
+          morningPresent.add(row.employee_id);
+        }
+      }
+    }
+
+    // Fresh / unmarked employees start on 'present', except:
+    //   - their default_shift doesn't match the picked shift  → 'none'
+    //   - on Night and they were Present in today's Morning   → 'none'
     const nextStatus: Record<number, AttendanceStatus> = {};
     const nextIn: Record<number, string | null> = {};
     const nextOut: Record<number, string | null> = {};
     for (const emp of employees) {
-      nextStatus[emp.id] = statusMap.get(emp.id) ?? defaultStatusFor(emp, shift);
+      const stored = statusMap.get(emp.id);
+      if (stored !== undefined) {
+        nextStatus[emp.id] = stored;
+      } else if (shift === 'night' && morningPresent.has(emp.id)) {
+        nextStatus[emp.id] = 'none' as AttendanceStatus;
+      } else {
+        nextStatus[emp.id] = defaultStatusFor(emp, shift);
+      }
       nextIn[emp.id] = inMap.get(emp.id) ?? null;
       nextOut[emp.id] = outMap.get(emp.id) ?? null;
     }
