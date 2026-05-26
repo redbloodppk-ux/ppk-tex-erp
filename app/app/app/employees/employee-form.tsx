@@ -84,6 +84,36 @@ export function EmployeeForm({ initial, employeeId }: Props) {
     router.refresh();
   }
 
+  async function onDelete() {
+    if (!isEdit) return;
+    const ok = window.confirm(
+      `Permanently delete ${values.full_name} (${values.code})?\n\n` +
+      `This cannot be undone. If the employee has attendance or wage history, ` +
+      `the delete will fail — set status to "resigned" instead.`,
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    setError(null);
+    const { error: dbError } = await supabase
+      .from('employee')
+      .delete()
+      .eq('id', employeeId as never);
+    setBusy(false);
+
+    if (dbError) {
+      // FK violation from attendance_entry / wage_entry rows.
+      setError(
+        dbError.message.includes('foreign key')
+          ? 'This employee has linked attendance or wage records and cannot be deleted. Set status to "resigned" instead.'
+          : dbError.message,
+      );
+      return;
+    }
+    router.push('/app/employees');
+    router.refresh();
+  }
+
   return (
     <form onSubmit={onSubmit} className="card p-6 space-y-4 max-w-2xl">
       <div className="grid grid-cols-2 gap-4">
@@ -209,13 +239,27 @@ export function EmployeeForm({ initial, employeeId }: Props) {
         <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{error}</div>
       )}
 
-      <div className="flex justify-end gap-2 pt-2">
-        <button type="button" onClick={() => router.back()} className="btn-ghost">
-          Cancel
-        </button>
-        <button type="submit" disabled={busy} className="btn-primary">
-          {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Employee'}
-        </button>
+      <div className="flex justify-between items-center gap-2 pt-2">
+        <div>
+          {isEdit && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={busy}
+              className="text-sm text-rose-600 hover:text-rose-700 hover:underline font-medium"
+            >
+              Delete employee
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => router.back()} className="btn-ghost">
+            Cancel
+          </button>
+          <button type="submit" disabled={busy} className="btn-primary">
+            {busy ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Employee'}
+          </button>
+        </div>
       </div>
     </form>
   );

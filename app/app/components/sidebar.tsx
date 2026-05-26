@@ -11,48 +11,79 @@ import {
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
+type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'people' | 'insights' | 'admin';
+
 interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: Role[];
-  group: 'core' | 'sales' | 'production' | 'finance' | 'admin';
+  group: GroupKey;
 }
 
+/**
+ * Sidebar order follows a typical day:
+ *  Overview  → check the dashboard
+ *  Sales     → quote → order → invoice → collect
+ *  Inventory → buy yarn → bobbins → store finished goods → pay vendors
+ *  Production→ size warp → weave → outsource/jobwork → resale
+ *  People    → master → mark attendance → pay wages
+ *  Insights  → reports, alerts, notifications
+ *  Admin     → settings + audit (owner/auditor only)
+ */
 const NAV: NavItem[] = [
-  { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'core',       roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
+  // Overview
+  { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'overview',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
+
+  // Sales
   { href: '/app/customers',     label: 'Customers',          icon: Users,           group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
   { href: '/app/costing',       label: 'Fabric Costing',     icon: Calculator,      group: 'sales',      roles: ['owner','mill_manager','sales_manager','auditor'] },
   { href: '/app/orders',        label: 'Sales Orders',       icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',      label: 'Invoices',           icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
-  { href: '/app/yarn',          label: 'Yarn & Mills',       icon: Boxes,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
+
+  // Inventory
+  { href: '/app/yarn',          label: 'Yarn & Mills',       icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/bobbin',        label: 'Bobbin Stock',       icon: Package,         group: 'inventory',  roles: ['owner','mill_manager','auditor'] },
+  { href: '/app/warehouse',     label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/pay-purchase',  label: 'Purchase Payments',  icon: CreditCard,      group: 'inventory',  roles: ['owner','accounts','auditor'] },
+
+  // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/pavu',          label: 'Pavu (Sized Beams)', icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
-  { href: '/app/warehouse',     label: 'Warehouse',          icon: Warehouse,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/bobbin',        label: 'Bobbin Stock',       icon: Package,         group: 'production', roles: ['owner','mill_manager','auditor'] },
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/outsource',     label: 'Outsource Weaving',  icon: Truck,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
-  { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
-  { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'finance',    roles: ['owner','accounts','sales_manager','auditor'] },
-  { href: '/app/pay-purchase',  label: 'Purchase Payments',  icon: CreditCard,      group: 'finance',    roles: ['owner','accounts','auditor'] },
-  { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'finance',    roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
-  { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
-  { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'admin',      roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
-  { href: '/app/alerts',        label: 'Stale Alerts',       icon: ClockAlert,      group: 'admin',      roles: ['owner','mill_manager','accounts','auditor'] },
+
+  // People (HR)
+  { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'people',     roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
+  { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
+
+  // Insights
+  { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
+  { href: '/app/alerts',        label: 'Stale Alerts',       icon: ClockAlert,      group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
+
+  // Admin
   { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'admin',      roles: ['owner','auditor'] },
+  { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
 ];
 
-const GROUP_LABEL: Record<NavItem['group'], string> = {
-  core:       'Overview',
-  sales:      'Sales',
+const GROUP_ORDER: readonly GroupKey[] = [
+  'overview', 'sales', 'inventory', 'production', 'people', 'insights', 'admin',
+];
+
+const GROUP_LABEL: Record<GroupKey, string> = {
+  overview:   'Overview',
+  sales:      'Sales & Customers',
+  inventory:  'Inventory & Purchases',
   production: 'Production',
-  finance:    'Finance',
-  admin:      'Administration',
+  people:     'People & Payroll',
+  insights:   'Reports & Alerts',
+  admin:      'Admin',
 };
 
 function NavBody({
@@ -64,7 +95,7 @@ function NavBody({
 }) {
   const pathname = usePathname();
   const visible = NAV.filter(n => n.roles.includes(role));
-  const grouped = (['core','sales','production','finance','admin'] as const).map(g => ({
+  const grouped = GROUP_ORDER.map(g => ({
     group: g,
     items: visible.filter(i => i.group === g),
   })).filter(g => g.items.length > 0);
