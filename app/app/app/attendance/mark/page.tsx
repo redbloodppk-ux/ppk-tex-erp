@@ -28,7 +28,8 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
 import { canEdit, type EditorRole } from '@/lib/attendance/canEdit';
-import { Loader2, Save, CheckCircle2, CalendarOff, Undo2, Lock } from 'lucide-react';
+import { enqueue as enqueueOffline, queueCount } from '@/lib/attendance/offlineQueue';
+import { Loader2, Save, CheckCircle2, CalendarOff, Undo2, Lock, WifiOff } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 
 type AttendanceStatus = Database['public']['Enums']['attendance_status'];
@@ -40,15 +41,35 @@ interface Employee {
   code: string;
   full_name: string;
   role: string;
+  default_shift: 'morning' | 'night' | 'either' | null;
 }
 
+// CORR-A7 / shop-floor feedback:
+//   'none' is rendered as a grey button and means "this employee was not
+//   scheduled this shift" — it does NOT count against him in wage reports.
+//   Used for e.g. a morning-only weaver on the night shift screen.
 const STATUSES: { value: AttendanceStatus; label: string; on: string; off: string }[] = [
   { value: 'present', label: 'Present', on: 'bg-emerald-600 text-white', off: 'hover:bg-emerald-50 text-emerald-700' },
   { value: 'absent', label: 'Absent', on: 'bg-rose-600 text-white', off: 'hover:bg-rose-50 text-rose-700' },
   { value: 'half_day', label: 'Half day', on: 'bg-amber-500 text-white', off: 'hover:bg-amber-50 text-amber-700' },
   { value: 'late', label: 'Late', on: 'bg-orange-500 text-white', off: 'hover:bg-orange-50 text-orange-700' },
   { value: 'early_leave', label: 'Early leave', on: 'bg-sky-600 text-white', off: 'hover:bg-sky-50 text-sky-700' },
+  { value: 'none' as AttendanceStatus, label: 'None', on: 'bg-slate-500 text-white', off: 'hover:bg-slate-100 text-slate-600' },
 ];
+
+// Statuses where the supervisor needs to record the real in / out time.
+const TIME_STATUSES: ReadonlySet<AttendanceStatus> = new Set<AttendanceStatus>([
+  'late',
+  'early_leave',
+  'half_day',
+]);
+
+function defaultStatusFor(emp: Employee, shift: ShiftCode): AttendanceStatus {
+  if (emp.default_shift && emp.default_shift !== 'either' && emp.default_shift !== shift) {
+    return 'none' as AttendanceStatus;
+  }
+  return 'present';
+}
 
 const HOLIDAY_REASONS: { value: NonWorkingReason; label: string }[] = [
   { value: 'power_cut', label: 'Power cut' },
@@ -68,6 +89,9 @@ export default function AttendanceMarkPage() {
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [statusByEmp, setStatusByEmp] = useState<Record<number, AttendanceStatus>>({});
+  // CORR-A7 in/out time per employee. Stored as "HH:MM" or null.
+  const [inTimeByEmp, setInTimeByEmp] = useState<Record<number, string | null>>({});
+  const [outTimeByEmp, setOutTimeByEmp] = useState<Record<number, string | null>>({});
 
   // Holiday state for the selected date + shift.
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
@@ -79,6 +103,23 @@ export default function AttendanceMarkPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [offlineMsg, setOfflineMsg] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState<number>(0);
+
+  // Track pending offline saves so we can show the count on the page. Also
+  // refresh when the OfflineSync flush event fires.
+  useEffect(() => {
+    setPendingCount(queueCount());
+    function refresh(): void {
+      setPendingCount(queueCount());
+    }
+    window.addEventListener('ppk:queue-changed', refresh);
+    window.addEventListener('online', refresh);
+    return () => {
+      window.removeEventListener('ppk:queue-changed', refresh);
+      window.removeEventListener('online', refresh);
+    };
+  }, []);
 
   // Edit-window gate (CORR-A4). dayMarkedAt is null for a day that has
   // not been marked yet — such a day is always freely editable.
@@ -111,7 +152,7 @@ export default function AttendanceMarkPage() {
     (async () => {
       const { data, error: err } = await supabase
         .from('employee')
-        .select('id, code, full_name, role')
+        .select('id, code, full_name, role, default_shift')
         .eq('status', 'active')
         .order('full_name');
       if (!active) return;
@@ -161,28 +202,48 @@ export default function AttendanceMarkPage() {
     setHolidayRemark('');
     setDayMarkedAt(day?.marked_at ?? null);
 
-    let entries: { employee_id: number; status: AttendanceStatus }[] = [];
+    type EntryRow = {
+      employee_id: number;
+      status: AttendanceStatus;
+      actual_in_time: string | null;
+      actual_out_time: string | null;
+    };
+    let entries: EntryRow[] = [];
     if (day) {
       const { data: ent, error: entErr } = await supabase
         .from('attendance_entry')
-        .select('employee_id, status')
+        .select('employee_id, status, actual_in_time, actual_out_time')
         .eq('attendance_day_id', day.id);
       if (entErr) {
         setError(entErr.message);
         setLoading(false);
         return;
       }
-      entries = (ent ?? []) as typeof entries;
+      entries = (ent ?? []) as EntryRow[];
     }
 
-    const byEmp = new Map<number, AttendanceStatus>();
-    for (const e of entries) byEmp.set(e.employee_id, e.status);
+    const statusMap = new Map<number, AttendanceStatus>();
+    const inMap = new Map<number, string | null>();
+    const outMap = new Map<number, string | null>();
+    for (const e of entries) {
+      statusMap.set(e.employee_id, e.status);
+      inMap.set(e.employee_id, e.actual_in_time);
+      outMap.set(e.employee_id, e.actual_out_time);
+    }
 
-    // Fresh / unmarked employees start on "present" so only exceptions
-    // need a tap.
-    const next: Record<number, AttendanceStatus> = {};
-    for (const emp of employees) next[emp.id] = byEmp.get(emp.id) ?? 'present';
-    setStatusByEmp(next);
+    // Fresh / unmarked employees start on 'present', except those whose
+    // default_shift doesn't match the picked shift — they start on 'none'.
+    const nextStatus: Record<number, AttendanceStatus> = {};
+    const nextIn: Record<number, string | null> = {};
+    const nextOut: Record<number, string | null> = {};
+    for (const emp of employees) {
+      nextStatus[emp.id] = statusMap.get(emp.id) ?? defaultStatusFor(emp, shift);
+      nextIn[emp.id] = inMap.get(emp.id) ?? null;
+      nextOut[emp.id] = outMap.get(emp.id) ?? null;
+    }
+    setStatusByEmp(nextStatus);
+    setInTimeByEmp(nextIn);
+    setOutTimeByEmp(nextOut);
     setLoading(false);
   }, [supabase, employees, markDate, shift]);
 
@@ -195,13 +256,32 @@ export default function AttendanceMarkPage() {
 
   function setStatus(empId: number, status: AttendanceStatus): void {
     setStatusByEmp((prev) => ({ ...prev, [empId]: status }));
+    // Clear in/out times when the status no longer requires them.
+    if (!TIME_STATUSES.has(status)) {
+      setInTimeByEmp((prev) => ({ ...prev, [empId]: null }));
+      setOutTimeByEmp((prev) => ({ ...prev, [empId]: null }));
+    }
+    setSavedMsg(null);
+  }
+
+  function setInTime(empId: number, value: string): void {
+    setInTimeByEmp((prev) => ({ ...prev, [empId]: value || null }));
+    setSavedMsg(null);
+  }
+  function setOutTime(empId: number, value: string): void {
+    setOutTimeByEmp((prev) => ({ ...prev, [empId]: value || null }));
     setSavedMsg(null);
   }
 
   function markAllPresent(): void {
     setStatusByEmp((prev) => {
       const next = { ...prev };
-      for (const e of visible) next[e.id] = 'present';
+      // Only flip employees who are actually scheduled this shift to present;
+      // leave 'none' (off-shift) alone so the supervisor doesn't have to
+      // re-mark them every time.
+      for (const e of visible) {
+        if (defaultStatusFor(e, shift) !== 'none') next[e.id] = 'present';
+      }
       return next;
     });
     setSavedMsg(null);
@@ -232,40 +312,90 @@ export default function AttendanceMarkPage() {
     return data.id;
   }
 
+  // CORR-A7: if the browser is offline or Supabase fails, stash the payload
+  // in localStorage. OfflineSync will replay it when the network returns.
+  function stashOffline(reason: string): void {
+    const entries = employees.map((emp) => {
+      const status = statusByEmp[emp.id] ?? 'present';
+      const wantsTime = TIME_STATUSES.has(status);
+      return {
+        employee_id: String(emp.id),
+        status,
+        day_weight: 1,
+        actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
+        actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
+      };
+    });
+    enqueueOffline({
+      mark_date: markDate,
+      shift,
+      entries,
+    });
+    setPendingCount(queueCount());
+    setOfflineMsg(
+      `Saved on this device — ${entries.length} employees will sync when the connection returns. (${reason})`,
+    );
+    window.dispatchEvent(new Event('ppk:queue-changed'));
+  }
+
   async function handleSaveAttendance(): Promise<void> {
     setError(null);
     setSavedMsg(null);
+    setOfflineMsg(null);
     if (saveBlocked) {
       setError(editGate.reason);
       return;
     }
     setSaving(true);
 
-    const dayId = await ensureDay(true);
-    if (dayId == null) {
+    // Hard-offline path — don't even attempt the network call.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      stashOffline('phone is offline');
       setSaving(false);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    const rows = employees.map((emp) => ({
-      attendance_day_id: dayId,
-      employee_id: emp.id,
-      status: statusByEmp[emp.id] ?? 'present',
-      marked_by: user?.id ?? null,
-      marked_at: new Date().toISOString(),
-    }));
+    try {
+      const dayId = await ensureDay(true);
+      if (dayId == null) {
+        // ensureDay already surfaced the error. If it was a network problem
+        // the user can retry; we don't auto-queue here because we have no
+        // day_id yet.
+        setSaving(false);
+        return;
+      }
 
-    const { error: err } = await supabase
-      .from('attendance_entry')
-      .upsert(rows, { onConflict: 'attendance_day_id,employee_id' });
+      const { data: { user } } = await supabase.auth.getUser();
+      const rows = employees.map((emp) => {
+        const status = statusByEmp[emp.id] ?? 'present';
+        const wantsTime = TIME_STATUSES.has(status);
+        return {
+          attendance_day_id: dayId,
+          employee_id: emp.id,
+          status,
+          actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
+          actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
+          sync_source: 'online',
+          marked_by: user?.id ?? null,
+          marked_at: new Date().toISOString(),
+        };
+      });
 
-    setSaving(false);
-    if (err) {
-      setError(err.message);
-      return;
+      const { error: err } = await supabase
+        .from('attendance_entry')
+        .upsert(rows as never, { onConflict: 'attendance_day_id,employee_id' });
+
+      setSaving(false);
+      if (err) {
+        setError(err.message);
+        return;
+      }
+      setSavedMsg(`Saved attendance for ${rows.length} employees.`);
+    } catch {
+      // Network-level failure (fetch threw). Treat as offline.
+      stashOffline('network error');
+      setSaving(false);
     }
-    setSavedMsg(`Saved attendance for ${rows.length} employees.`);
   }
 
   async function handleClearHoliday(): Promise<void> {
@@ -362,6 +492,18 @@ export default function AttendanceMarkPage() {
             {savedMsg}
           </p>
         )}
+        {offlineMsg && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{offlineMsg}</span>
+          </div>
+        )}
+        {pendingCount > 0 && !offlineMsg && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-700">
+            <WifiOff className="h-3.5 w-3.5" />
+            {pendingCount} pending save{pendingCount === 1 ? '' : 's'} waiting to sync.
+          </p>
+        )}
 
         {loading ? (
           <div className="flex items-center gap-2 py-8 text-ink-mute">
@@ -452,36 +594,68 @@ export default function AttendanceMarkPage() {
                       </td>
                     </tr>
                   )}
-                  {visible.map((emp) => (
-                    <tr key={emp.id} className="border-b border-line/60">
-                      <td className="py-2 pr-3">
-                        <div className="font-medium">{emp.full_name}</div>
-                        <div className="text-xs text-ink-mute capitalize">
-                          {emp.code} &middot; {emp.role}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex flex-wrap gap-1.5">
-                          {STATUSES.map((s) => {
-                            const active = statusByEmp[emp.id] === s.value;
-                            return (
-                              <button
-                                key={s.value}
-                                type="button"
-                                onClick={() => setStatus(emp.id, s.value)}
-                                className={
-                                  'min-h-[44px] rounded-md border border-line px-3 text-xs font-semibold transition ' +
-                                  (active ? s.on + ' border-transparent' : 'bg-white ' + s.off)
-                                }
-                              >
-                                {s.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {visible.map((emp) => {
+                    const empStatus = statusByEmp[emp.id] ?? 'present';
+                    const showTimes = TIME_STATUSES.has(empStatus);
+                    return (
+                      <tr key={emp.id} className="border-b border-line/60">
+                        <td className="py-2 pr-3">
+                          <div className="font-medium">{emp.full_name}</div>
+                          <div className="text-xs text-ink-mute capitalize">
+                            {emp.code} &middot; {emp.role}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {STATUSES.map((s) => {
+                              const active = empStatus === s.value;
+                              return (
+                                <button
+                                  key={s.value}
+                                  type="button"
+                                  onClick={() => setStatus(emp.id, s.value)}
+                                  className={
+                                    'min-h-[44px] rounded-md border border-line px-3 text-xs font-semibold transition ' +
+                                    (active ? s.on + ' border-transparent' : 'bg-white ' + s.off)
+                                  }
+                                >
+                                  {s.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {showTimes && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-mute">
+                              <label className="flex items-center gap-1.5">
+                                In
+                                <input
+                                  type="time"
+                                  className="input h-9 w-28 text-xs"
+                                  value={inTimeByEmp[emp.id] ?? ''}
+                                  onChange={(e) => setInTime(emp.id, e.target.value)}
+                                />
+                              </label>
+                              <label className="flex items-center gap-1.5">
+                                Out
+                                <input
+                                  type="time"
+                                  className="input h-9 w-28 text-xs"
+                                  value={outTimeByEmp[emp.id] ?? ''}
+                                  onChange={(e) => setOutTime(emp.id, e.target.value)}
+                                />
+                              </label>
+                              <span className="text-[10px] text-ink-mute">
+                                {empStatus === 'late' && 'Actual arrival time'}
+                                {empStatus === 'early_leave' && 'Actual leave time'}
+                                {empStatus === 'half_day' && 'Half-shift in/out'}
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
