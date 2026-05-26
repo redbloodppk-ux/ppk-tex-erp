@@ -143,7 +143,7 @@ export default function NewCostingPage() {
   // ── load master data ─────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [c, b, wa] = await Promise.all([
+      const [c, b, wa, yarnCfg, porvaiCfg] = await Promise.all([
         supabase.from('yarn_count')
           .select('id, code, display_name, yarn_type, nec_computed, ne, denier')
           .eq('status', 'active').order('code'),
@@ -152,6 +152,10 @@ export default function NewCostingPage() {
           .eq('status', 'active').order('code'),
         supabase.from('v_yarn_weighted_avg')
           .select('yarn_count_id, weighted_avg_cost'),
+        supabase.from('system_config').select('value')
+          .eq('key', 'default_yarn_wastage_pct').maybeSingle(),
+        supabase.from('system_config').select('value')
+          .eq('key', 'default_porvai_wastage_pct').maybeSingle(),
       ]);
       setCounts(c.data ?? []);
       setBobbins(b.data ?? []);
@@ -160,6 +164,18 @@ export default function NewCostingPage() {
         if (r.weighted_avg_cost != null) m.set(r.yarn_count_id, Number(r.weighted_avg_cost));
       });
       setRates(m);
+
+      // Seed wastage defaults from system_config (CORR-T1).
+      // value is JSONB storing a bare number fraction, e.g. 0.02 for 2%.
+      const yFrac = Number((yarnCfg.data as { value: unknown } | null)?.value);
+      if (Number.isFinite(yFrac) && yFrac >= 0) {
+        setYarnWastagePct((yFrac * 100).toString());
+      }
+      const pFrac = Number((porvaiCfg.data as { value: unknown } | null)?.value);
+      if (Number.isFinite(pFrac) && pFrac >= 0) {
+        setPorvaiWastagePct((pFrac * 100).toString());
+      }
+
       setLoading(false);
     })();
   }, [supabase]);

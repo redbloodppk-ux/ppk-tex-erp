@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ChevronRight, Settings2, Factory } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
+import { CostingDefaults } from './costing-defaults';
 
 export const metadata = { title: 'Settings' };
 
@@ -14,12 +15,16 @@ export default async function SettingsPage() {
     { data: users },
     { data: overhead },
     { data: nightCfg },
+    { data: yarnCfg },
+    { data: porvaiCfg },
     { data: me },
   ] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
     supabase.from('app_user').select('id, email, full_name, role, is_active').order('full_name'),
     supabase.from('v_looms_overhead').select('total_per_m').maybeSingle(),
     supabase.from('system_config').select('value').eq('key', 'shift_log_night_enabled').maybeSingle(),
+    supabase.from('system_config').select('value').eq('key', 'default_yarn_wastage_pct').maybeSingle(),
+    supabase.from('system_config').select('value').eq('key', 'default_porvai_wastage_pct').maybeSingle(),
     user
       ? supabase.from('app_user').select('role').eq('id', user.id).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -28,7 +33,12 @@ export default async function SettingsPage() {
   const nightEnabled = Boolean(
     (nightCfg as { value: { enabled?: boolean } | null } | null)?.value?.enabled,
   );
-  const canEditNight = (me as { role: string } | null)?.role === 'owner';
+  // system_config.value is JSONB — these two keys store a bare JSON number (0.02 = 2%).
+  const yarnPct = Number((yarnCfg as { value: unknown } | null)?.value ?? 0.02);
+  const porvaiPct = Number((porvaiCfg as { value: unknown } | null)?.value ?? 0.02);
+  const role = (me as { role: string } | null)?.role;
+  const canEditNight = role === 'owner';
+  const canEditCosting = role === 'owner';
 
   return (
     <div className="space-y-6">
@@ -90,6 +100,16 @@ export default async function SettingsPage() {
       <div className="card p-5">
         <h2 className="font-display font-bold text-base mb-3">Shift settings</h2>
         <NightShiftToggle initialEnabled={nightEnabled} canEdit={canEditNight} />
+      </div>
+
+      {/* Costing defaults (CORR-T1) */}
+      <div className="card p-5">
+        <h2 className="font-display font-bold text-base mb-3">Costing defaults</h2>
+        <CostingDefaults
+          initialYarnPct={Number.isFinite(yarnPct) ? yarnPct : 0.02}
+          initialPorvaiPct={Number.isFinite(porvaiPct) ? porvaiPct : 0.02}
+          canEdit={canEditCosting}
+        />
       </div>
 
       <div className="card p-5">
