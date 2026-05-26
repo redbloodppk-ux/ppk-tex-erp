@@ -281,9 +281,11 @@ export default function AttendanceMarkPage() {
       const next = { ...prev };
       // Only flip employees who are actually scheduled this shift to present;
       // leave 'none' (off-shift) alone so the supervisor doesn't have to
-      // re-mark them every time.
+      // re-mark them every time. Compare to 'present' (which is in the
+      // generated enum) rather than 'none' (added in migration 029 — not in
+      // database.types.ts until regen).
       for (const e of visible) {
-        if (defaultStatusFor(e, shift) !== 'none') next[e.id] = 'present';
+        if (defaultStatusFor(e, shift) === 'present') next[e.id] = 'present';
       }
       return next;
     });
