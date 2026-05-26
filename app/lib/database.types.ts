@@ -3731,6 +3731,63 @@ export type Database = {
       }
     }
     Views: {
+      v_attendance_detail: {
+        Row: {
+          attendance_date: string | null
+          shift: Database["public"]["Enums"]["shift_code"] | null
+          employee_id: number | null
+          employee_code: string | null
+          employee_name: string | null
+          employee_role: Database["public"]["Enums"]["employee_role"] | null
+          status: Database["public"]["Enums"]["attendance_status"] | null
+          day_weight: number | null
+          entry_remark: string | null
+        }
+        Relationships: []
+      }
+      v_attendance_monthly: {
+        Row: {
+          month: string | null
+          employee_id: number | null
+          employee_code: string | null
+          employee_name: string | null
+          employee_role: Database["public"]["Enums"]["employee_role"] | null
+          present_count: number | null
+          absent_count: number | null
+          half_day_count: number | null
+          late_count: number | null
+          early_leave_count: number | null
+          shifts_marked: number | null
+          attendance_days: number | null
+        }
+        Relationships: []
+      }
+      v_attendance_by_role: {
+        Row: {
+          month: string | null
+          employee_role: Database["public"]["Enums"]["employee_role"] | null
+          employee_count: number | null
+          present_count: number | null
+          absent_count: number | null
+          half_day_count: number | null
+          late_count: number | null
+          early_leave_count: number | null
+          shifts_marked: number | null
+          present_pct: number | null
+        }
+        Relationships: []
+      }
+      v_non_working_days: {
+        Row: {
+          attendance_date: string | null
+          shift: Database["public"]["Enums"]["shift_code"] | null
+          reason: Database["public"]["Enums"]["non_working_reason"] | null
+          remark: string | null
+          marked_at: string | null
+          marked_by_name: string | null
+        }
+        Relationships: []
+      }
       v_batch_sizing_variance: {
         Row: {
           actual_sizing_cost_per_m: number | null

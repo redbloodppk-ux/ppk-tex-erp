@@ -94,6 +94,34 @@ const REPORTS: ReportLink[] = [
       'Which sales invoices still need a Delivery Challan — missing, partial, or fully delivered.',
     ready: true,
   },
+  {
+    href: '/app/reports/attendance-daily',
+    title: 'Daily Attendance',
+    description:
+      'Everyone marked on one chosen date, across both shifts, with a present/absent/half-day/late/early-leave summary and a holiday banner when the day is a non-working day.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/attendance-monthly',
+    title: 'Monthly Attendance',
+    description:
+      'Per-employee summary for one month — present, absent, half-day, late, early-leave counts plus total attendance days. Filter by role.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/attendance-by-role',
+    title: 'Attendance by Role',
+    description:
+      'Roll-up of attendance by role (weaver / sizer / loader…) for one month with a present-% bar to spot short-staffed roles at a glance.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/attendance-holidays',
+    title: 'Holidays / Non-working Days',
+    description:
+      'Days (or shifts) the shed did not run in a chosen range — power cut, national holiday, maintenance, other — with who marked them.',
+    ready: true,
+  },
 ];
 
 export default function ReportsIndex() {
