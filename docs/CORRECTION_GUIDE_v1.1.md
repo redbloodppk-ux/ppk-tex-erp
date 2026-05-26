@@ -13,9 +13,9 @@
 | 2. True Cost Engine (T1–T4)         | 4  | — | — | 4 |
 | 3. Production Intelligence (P1–P5)  | 5  | — | — | 5 |
 | 4. Reports & Dashboards (R1–R12)    | 12 | — | — | 12 |
-| 5. Attendance (A1–A7)               | 7  | 4 | — | 3 |
+| 5. Attendance (A1–A7)               | 7  | 6 | — | 1 |
 | 6. Production Hardening (H1–H9)     | 9  | — | — | 9 |
-| **Totals**                          | **42** | **9** | **0** | **33** |
+| **Totals**                          | **42** | **11** | **0** | **31** |
 
 **F5 was added mid-batch** after a live Supabase advisor scan turned up 7
 ERROR-level RLS-bypassing views, a permissive `notification` INSERT policy,

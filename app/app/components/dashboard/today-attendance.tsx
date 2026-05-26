@@ -91,8 +91,11 @@ function presentTone(present: number, headcount: number): string {
 
 export async function TodayAttendanceWidget(): Promise<React.ReactElement> {
   const supabase = await createClient();
+  // v_today_attendance_widget was added in migration 027 after the last
+  // typegen run; cast the table name so supabase-js's generated union accepts
+  // it. Regenerate database.types.ts to drop the cast.
   const { data, error } = await supabase
-    .from('v_today_attendance_widget')
+    .from('v_today_attendance_widget' as never)
     .select('*');
 
   const rows = (data as unknown as WidgetRow[]) ?? [];
