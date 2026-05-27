@@ -40,7 +40,6 @@ interface WageRow {
 interface ExpenseRow {
   id: number;
   category: string;
-  title: string | null;
   pay_date: string;
   amount: number;
   notes: string | null;
@@ -162,7 +161,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: expRaw } = await (supabase as any)
     .from('expense_entry')
-    .select('id, category, title, pay_date, amount, notes')
+    .select('id, category, pay_date, amount, notes')
     .gte('pay_date', weekStart)
     .lte('pay_date', weekEnd)
     .order('pay_date', { ascending: true });
@@ -409,7 +408,6 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             <tr>
               <th className="text-left px-4 py-3">Pay date</th>
               <th className="text-left px-4 py-3">Category</th>
-              <th className="text-left px-4 py-3">Title</th>
               <th className="text-right px-4 py-3">Amount</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Notes</th>
             </tr>
@@ -418,14 +416,15 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             {expenses.length ? expenses.map((e) => (
               <tr key={e.id} className="border-t border-line/40 hover:bg-haze/60">
                 <td className="px-4 py-3 num text-xs">{e.pay_date}</td>
-                <td className="px-4 py-3 text-xs capitalize">{e.category}</td>
-                <td className="px-4 py-3 text-xs">{e.title ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <span className="pill bg-slate-100 text-slate-700">{e.category}</span>
+                </td>
                 <td className="px-4 py-3 text-right num font-semibold">{formatRupee(Number(e.amount))}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-xs text-ink-soft">{e.notes ?? '—'}</td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No expense entries in this week.
                 </td>
               </tr>
