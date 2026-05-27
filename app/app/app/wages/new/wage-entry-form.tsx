@@ -39,6 +39,9 @@ export interface EmployeeOption {
   full_name: string;
   role: string;
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
+  // Salaried staff and others flagged not-attendance-required skip the
+  // attendance/shed lookup entirely on this form.
+  attendance_required?: boolean | null;
 }
 
 // Optional starting values — when provided, the form switches to "edit"
@@ -113,6 +116,9 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // pickers to stay enabled.
   const isWeaver = selected?.role.toLowerCase() === 'weaver';
   const isMetreBasis = selected?.wage_alloc_basis === 'metres';
+  // Salaried / non-attendance employees skip the attendance + shed lookup
+  // entirely — they don't have daily marks to read from.
+  const attendanceRequired = selected ? selected.attendance_required !== false : true;
   const periodIsRange = isMetreBasis || kind === 'settlement';
 
   // If the employee changes to a metre-basis weaver while Kind is "same_day",
@@ -138,6 +144,19 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   useEffect(() => {
     if (!employeeId || !periodStart || !periodEnd) return;
     if (periodEnd < periodStart) return;
+    // Skip the whole context lookup for non-attendance employees.
+    if (!attendanceRequired) {
+      setCtx({
+        shifts: { morning: 0, night: 0 },
+        sheds: [],
+        missingSheds: 0,
+        autoAmount: null,
+        autoAmountNote: null,
+        loading: false,
+        fetched: false,
+      });
+      return;
+    }
     let cancelled = false;
 
     async function loadContext(): Promise<void> {
@@ -251,7 +270,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     return () => {
       cancelled = true;
     };
-  }, [supabase, employeeId, periodStart, periodEnd, selected]);
+  }, [supabase, employeeId, periodStart, periodEnd, selected, attendanceRequired]);
 
   // Auto-prefill Amount for metre-basis weavers whenever the context produces
   // a number — but never clobber a value the operator typed themselves.
@@ -289,7 +308,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       setError('Period end cannot be before period start.');
       return;
     }
-    if (isWeaver && ctx.fetched && ctx.missingSheds > 0) {
+    if (attendanceRequired && isWeaver && ctx.fetched && ctx.missingSheds > 0) {
       setError(
         `Pick a shed for every shift this weaver worked (${ctx.missingSheds} missing). Open Attendance → Mark and assign sheds for the period.`,
       );
@@ -461,7 +480,14 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       {/* Read-only work-context: which shifts the employee actually worked and
           which sheds had production in this period. Surfaced so the operator
           confirms the allocation target before saving. */}
-      {employeeId && (
+      {employeeId && !attendanceRequired && (
+        <div className="rounded-lg border border-line bg-cloud/30 p-3 text-xs text-ink-mute">
+          This employee is not on the daily attendance roster — wages are
+          entered directly, no shift/shed lookup needed.
+        </div>
+      )}
+
+      {employeeId && attendanceRequired && (
         <div className="rounded-lg border border-line bg-cloud/30 p-3 text-xs space-y-1">
           <div className="flex items-center gap-1.5 font-semibold text-ink-soft">
             <Info className="w-3.5 h-3.5" />

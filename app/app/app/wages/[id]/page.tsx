@@ -43,7 +43,7 @@ export default async function EditWagePage({ params }: PageProps): Promise<React
   // dropdown so the saved row stays valid.
   const { data: emps } = await supabase
     .from('employee')
-    .select('id, code, full_name, role, wage_alloc_basis')
+    .select('id, code, full_name, role, wage_alloc_basis, attendance_required')
     .order('full_name');
 
   const employees = (emps as unknown as EmployeeOption[]) ?? [];

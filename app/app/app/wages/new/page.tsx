@@ -17,7 +17,7 @@ export default async function NewWagePage(): Promise<React.ReactElement> {
   const supabase = await createClient();
   const { data } = await supabase
     .from('employee')
-    .select('id, code, full_name, role, wage_alloc_basis')
+    .select('id, code, full_name, role, wage_alloc_basis, attendance_required')
     .eq('status', 'active')
     .order('full_name');
 
