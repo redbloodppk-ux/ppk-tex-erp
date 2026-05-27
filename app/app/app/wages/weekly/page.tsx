@@ -49,6 +49,7 @@ interface EmployeeRow {
   id: number;
   full_name: string;
   code: string;
+  role: string;
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
   weekly_salary: number | string | null;
 }
@@ -64,7 +65,11 @@ interface PerEmployee {
   employee_id: number;
   code: string;
   full_name: string;
-  book_salary: number;
+  role: string;
+  book_salary: number;       // pro-rated weekly salary (after absent deduction for fitter/winder)
+  full_salary: number;       // original weekly_salary before deduction
+  absent_days: number;       // distinct absent dates within the week
+  absent_deduction: number;  // full_salary - book_salary (only > 0 for fitter/winder)
   advances: number;
   adjustments: number;
   net_payable: number;
@@ -152,7 +157,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: empRaw } = await (supabase as any)
     .from('employee')
-    .select('id, full_name, code, wage_alloc_basis, weekly_salary')
+    .select('id, full_name, code, role, wage_alloc_basis, weekly_salary')
     .eq('status', 'active')
     .order('full_name');
   const allEmployees = (empRaw ?? []) as EmployeeRow[];
@@ -245,14 +250,60 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const loomShiftRows = buildWorkerRows(loomShiftEmps);
   const metreRows = buildWorkerRows(metreEmps);
 
+  // Attendance-based pro-ration for weekly fitter / winder. They are paid
+  // a fixed weekly salary, but each "absent" day inside the week reduces
+  // the gross by weekly_salary / 7. Other weekly roles stay at full salary.
+  const proRateRoles = new Set(['fitter', 'winder']);
+  const proRateEmpIds = employees
+    .filter((e) => proRateRoles.has((e.role ?? '').toLowerCase()))
+    .map((e) => e.id);
+
+  const absentDaysByEmp = new Map<number, number>();
+  if (proRateEmpIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: attRaw } = await (supabase as any)
+      .from('attendance_entry')
+      .select('employee_id, status, attendance_day:attendance_day_id ( attendance_date )')
+      .in('employee_id', proRateEmpIds)
+      .eq('status', 'absent')
+      .gte('attendance_day.attendance_date', weekStart)
+      .lte('attendance_day.attendance_date', weekEnd);
+    type AttRow = {
+      employee_id: number;
+      status: string;
+      attendance_day: { attendance_date: string } | null;
+    };
+    // Use a Set per employee to dedupe morning + night absences on the same day.
+    const seen = new Map<number, Set<string>>();
+    for (const r of (attRaw ?? []) as AttRow[]) {
+      const d = r.attendance_day?.attendance_date;
+      if (!d) continue;
+      const set = seen.get(r.employee_id) ?? new Set<string>();
+      set.add(d);
+      seen.set(r.employee_id, set);
+    }
+    for (const [empId, dates] of seen.entries()) {
+      absentDaysByEmp.set(empId, dates.size);
+    }
+  }
+
   const perEmployee: PerEmployee[] = employees.map((e) => {
-    const book = Number(e.weekly_salary ?? 0);
+    const full = Number(e.weekly_salary ?? 0);
+    const role = (e.role ?? '').toLowerCase();
+    const isProRated = proRateRoles.has(role);
+    const absent = isProRated ? (absentDaysByEmp.get(e.id) ?? 0) : 0;
+    const deduction = isProRated ? (full / 7) * absent : 0;
+    const book = full - deduction;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
     return {
       employee_id: e.id,
       code: e.code,
       full_name: e.full_name,
+      role: e.role,
+      full_salary: full,
+      absent_days: absent,
+      absent_deduction: deduction,
       book_salary: book,
       advances: adv,
       adjustments: adj,
@@ -362,11 +413,18 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
       {/* Per-employee */}
       <h2 className="text-sm font-semibold text-ink mb-2">Weekly-basis employees</h2>
+      <p className="text-[11px] text-ink-mute mb-2">
+        Fitter and winder roles are pro-rated by attendance: book salary &times; (7 &minus; absent days) / 7.
+      </p>
       <div className="card overflow-hidden mb-6">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-left px-4 py-3">Role</th>
+              <th className="text-right px-4 py-3">Full salary</th>
+              <th className="text-right px-4 py-3">Absent days</th>
+              <th className="text-right px-4 py-3">Deduction</th>
               <th className="text-right px-4 py-3">Book salary</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
@@ -374,20 +432,31 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             </tr>
           </thead>
           <tbody>
-            {perEmployee.length ? perEmployee.map((p) => (
-              <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">
-                  <div className="font-medium">{p.full_name}</div>
-                  <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
-                </td>
-                <td className="px-4 py-3 text-right num">{formatRupee(p.book_salary)}</td>
-                <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
-                <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
-              </tr>
-            )) : (
+            {perEmployee.length ? perEmployee.map((p) => {
+              const isProRated = ['fitter', 'winder'].includes((p.role ?? '').toLowerCase());
+              return (
+                <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{p.full_name}</div>
+                    <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs capitalize">{p.role}</td>
+                  <td className="px-4 py-3 text-right num">{formatRupee(p.full_salary)}</td>
+                  <td className="px-4 py-3 text-right num">
+                    {isProRated ? p.absent_days : <span className="text-ink-mute">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right num text-rose-700">
+                    {p.absent_deduction > 0 ? `\u2212${formatRupee(p.absent_deduction)}` : <span className="text-ink-mute">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right num">{formatRupee(p.book_salary)}</td>
+                  <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                  <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
+                  <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
+                </tr>
+              );
+            }) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No weekly-basis employees configured. Set wage_alloc_basis = weekly on an Employee to see them here.
                 </td>
               </tr>
