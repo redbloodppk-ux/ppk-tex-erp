@@ -18,6 +18,11 @@ export type QueuedEntry = {
   // "HH:MM" or null. Only meaningful for late / early_leave / half_day.
   actual_in_time?: string | null;
   actual_out_time?: string | null;
+  // Legacy single-shed column; mirrored from shed_nos[0].
+  shed_no?: string | null;
+  // Multi-shed coverage (migration 038). Winders may cover several sheds in
+  // one shift; weavers will normally have a single-element array.
+  shed_nos?: string[] | null;
   notes?: string | null;
 };
 

@@ -86,6 +86,8 @@ export function OfflineSync(): ReactElement | null {
         status: e.status,
         actual_in_time: e.actual_in_time ?? null,
         actual_out_time: e.actual_out_time ?? null,
+        shed_no: e.shed_no ?? null,
+        shed_nos: e.shed_nos ?? null,
         sync_source: 'offline_pwa',
         marked_by: userId,
         marked_at: item.queued_at,

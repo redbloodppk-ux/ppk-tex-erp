@@ -66,10 +66,14 @@ interface PerEmployee {
   code: string;
   full_name: string;
   role: string;
-  book_salary: number;       // pro-rated weekly salary (after absent deduction for fitter/winder)
+  book_salary: number;       // pro-rated weekly salary (after absent deduction for fitter, after weaver-absence deduction for winder)
   full_salary: number;       // original weekly_salary before deduction
-  absent_days: number;       // distinct absent dates within the week
-  absent_deduction: number;  // full_salary - book_salary (only > 0 for fitter/winder)
+  absent_days: number;       // distinct absent dates within the week (fitter only)
+  absent_deduction: number;  // full_salary - book_salary
+  // Winder-specific fields (empty for fitter / other roles).
+  covered_sheds: string[];
+  weaver_absent_count: number;
+  expected_shift_sheds: number;
   advances: number;
   adjustments: number;
   net_payable: number;
@@ -250,21 +254,30 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const loomShiftRows = buildWorkerRows(loomShiftEmps);
   const metreRows = buildWorkerRows(metreEmps);
 
-  // Attendance-based pro-ration for weekly fitter / winder. They are paid
-  // a fixed weekly salary, but each "absent" day inside the week reduces
-  // the gross by weekly_salary / 7. Other weekly roles stay at full salary.
-  const proRateRoles = new Set(['fitter', 'winder']);
-  const proRateEmpIds = employees
-    .filter((e) => proRateRoles.has((e.role ?? '').toLowerCase()))
+  // Attendance-based pro-ration:
+  //   * Fitter — each "absent" day inside the week reduces gross by
+  //     weekly_salary / 7 (legacy rule, unchanged).
+  //   * Winder — gross is reduced for each weaver-absent shift-shed inside
+  //     the sheds the winder covered this week. covered_sheds = union of
+  //     shed_nos across the winder's non-absent attendance rows (fallback
+  //     to all rows). expected = covered_sheds.size * 14 (7 days * 2 shifts).
+  //     deduction = weekly_salary * weaver_absent_count / expected.
+  //   Other weekly roles stay at full salary.
+  const fitterIds = employees
+    .filter((e) => (e.role ?? '').toLowerCase() === 'fitter')
+    .map((e) => e.id);
+  const winderIds = employees
+    .filter((e) => (e.role ?? '').toLowerCase() === 'winder')
     .map((e) => e.id);
 
+  // --- Fitter: distinct absent-date count per employee.
   const absentDaysByEmp = new Map<number, number>();
-  if (proRateEmpIds.length > 0) {
+  if (fitterIds.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: attRaw } = await (supabase as any)
       .from('attendance_entry')
       .select('employee_id, status, attendance_day:attendance_day_id ( attendance_date )')
-      .in('employee_id', proRateEmpIds)
+      .in('employee_id', fitterIds)
       .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
@@ -273,7 +286,6 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       status: string;
       attendance_day: { attendance_date: string } | null;
     };
-    // Use a Set per employee to dedupe morning + night absences on the same day.
     const seen = new Map<number, Set<string>>();
     for (const r of (attRaw ?? []) as AttRow[]) {
       const d = r.attendance_day?.attendance_date;
@@ -287,12 +299,101 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
   }
 
+  // --- Winder: covered_sheds per winder + weaver-absence counts per shed.
+  const coveredShedsByWinder = new Map<number, Set<string>>();
+  const weaverAbsentByShed = new Map<string, number>();
+  if (winderIds.length > 0) {
+    // 1) Fetch this week's attendance rows for each winder to compute
+    //    covered_sheds. We need status + shed_nos + shed_no.
+    type WinderAttRow = {
+      employee_id: number;
+      status: string;
+      shed_no: string | null;
+      shed_nos: string[] | null;
+      attendance_day: { attendance_date: string } | null;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: winAttRaw } = await (supabase as any)
+      .from('attendance_entry')
+      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date )')
+      .in('employee_id', winderIds)
+      .gte('attendance_day.attendance_date', weekStart)
+      .lte('attendance_day.attendance_date', weekEnd);
+    const winAtt = (winAttRaw ?? []) as WinderAttRow[];
+    // Group rows by winder, keep only those whose join produced a date
+    // (Supabase returns null for the related row when the date filter fails).
+    const rowsByWinder = new Map<number, WinderAttRow[]>();
+    for (const r of winAtt) {
+      if (!r.attendance_day?.attendance_date) continue;
+      const list = rowsByWinder.get(r.employee_id) ?? [];
+      list.push(r);
+      rowsByWinder.set(r.employee_id, list);
+    }
+    for (const wid of winderIds) {
+      const rows = rowsByWinder.get(wid) ?? [];
+      const collect = (filterAbsent: boolean): Set<string> => {
+        const acc = new Set<string>();
+        for (const r of rows) {
+          if (filterAbsent && r.status === 'absent') continue;
+          const arr = Array.isArray(r.shed_nos) ? r.shed_nos : [];
+          for (const s of arr) {
+            if (typeof s === 'string' && s.length > 0) acc.add(s);
+          }
+          if (arr.length === 0 && r.shed_no) acc.add(r.shed_no);
+        }
+        return acc;
+      };
+      let covered = collect(true);
+      if (covered.size === 0) covered = collect(false);
+      coveredShedsByWinder.set(wid, covered);
+    }
+
+    // 2) Fetch all weaver absences in the week and tally per shed_no.
+    //    Weavers are single-shed so shed_no is sufficient.
+    type WeaverAbsRow = {
+      shed_no: string | null;
+      employee: { role: string | null } | null;
+      attendance_day: { attendance_date: string } | null;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: weaverAbsRaw } = await (supabase as any)
+      .from('attendance_entry')
+      .select('shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date )')
+      .eq('status', 'absent')
+      .gte('attendance_day.attendance_date', weekStart)
+      .lte('attendance_day.attendance_date', weekEnd);
+    for (const r of (weaverAbsRaw ?? []) as WeaverAbsRow[]) {
+      if (!r.attendance_day?.attendance_date) continue;
+      const role = (r.employee?.role ?? '').toLowerCase();
+      if (role !== 'weaver') continue;
+      const shed = r.shed_no;
+      if (!shed) continue;
+      weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
+    }
+  }
+
   const perEmployee: PerEmployee[] = employees.map((e) => {
     const full = Number(e.weekly_salary ?? 0);
     const role = (e.role ?? '').toLowerCase();
-    const isProRated = proRateRoles.has(role);
-    const absent = isProRated ? (absentDaysByEmp.get(e.id) ?? 0) : 0;
-    const deduction = isProRated ? (full / 7) * absent : 0;
+    let absent = 0;
+    let deduction = 0;
+    let coveredShedsArr: string[] = [];
+    let weaverAbsentCount = 0;
+    let expectedShiftSheds = 0;
+    if (role === 'fitter') {
+      absent = absentDaysByEmp.get(e.id) ?? 0;
+      deduction = (full / 7) * absent;
+    } else if (role === 'winder') {
+      const covered = coveredShedsByWinder.get(e.id) ?? new Set<string>();
+      coveredShedsArr = Array.from(covered).sort();
+      expectedShiftSheds = coveredShedsArr.length * 14;
+      for (const shed of coveredShedsArr) {
+        weaverAbsentCount += weaverAbsentByShed.get(shed) ?? 0;
+      }
+      deduction = expectedShiftSheds > 0
+        ? (full * weaverAbsentCount) / expectedShiftSheds
+        : 0;
+    }
     const book = full - deduction;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
@@ -304,6 +405,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       full_salary: full,
       absent_days: absent,
       absent_deduction: deduction,
+      covered_sheds: coveredShedsArr,
+      weaver_absent_count: weaverAbsentCount,
+      expected_shift_sheds: expectedShiftSheds,
       book_salary: book,
       advances: adv,
       adjustments: adj,
@@ -414,7 +518,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       {/* Per-employee */}
       <h2 className="text-sm font-semibold text-ink mb-2">Weekly-basis employees</h2>
       <p className="text-[11px] text-ink-mute mb-2">
-        Fitter and winder roles are pro-rated by attendance: book salary &times; (7 &minus; absent days) / 7.
+        Fitter pro-rate: weekly_salary &times; (7 &minus; absent days) / 7.
+        Winder pro-rate: weekly_salary &times; weaver-absent shifts in covered sheds / (covered sheds &times; 14).
       </p>
       <div className="card overflow-hidden mb-6">
         <table className="w-full text-sm">
@@ -423,7 +528,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-left px-4 py-3">Employee</th>
               <th className="text-left px-4 py-3">Role</th>
               <th className="text-right px-4 py-3">Full salary</th>
-              <th className="text-right px-4 py-3">Absent days</th>
+              <th className="text-left px-4 py-3">Coverage / Absences</th>
               <th className="text-right px-4 py-3">Deduction</th>
               <th className="text-right px-4 py-3">Book salary</th>
               <th className="text-right px-4 py-3">Advances</th>
@@ -433,7 +538,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           </thead>
           <tbody>
             {perEmployee.length ? perEmployee.map((p) => {
-              const isProRated = ['fitter', 'winder'].includes((p.role ?? '').toLowerCase());
+              const role = (p.role ?? '').toLowerCase();
+              const isFitter = role === 'fitter';
+              const isWinder = role === 'winder';
               return (
                 <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-4 py-3">
@@ -442,8 +549,20 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   </td>
                   <td className="px-4 py-3 text-xs capitalize">{p.role}</td>
                   <td className="px-4 py-3 text-right num">{formatRupee(p.full_salary)}</td>
-                  <td className="px-4 py-3 text-right num">
-                    {isProRated ? p.absent_days : <span className="text-ink-mute">—</span>}
+                  <td className="px-4 py-3 text-xs">
+                    {isFitter ? (
+                      <span>{p.absent_days} absent day{p.absent_days === 1 ? '' : 's'}</span>
+                    ) : isWinder ? (
+                      <span>
+                        <span className="num">{p.weaver_absent_count}</span> weaver-absent /{' '}
+                        <span className="num">{p.expected_shift_sheds}</span> expected
+                        {p.covered_sheds.length > 0 && (
+                          <> &middot; sheds {p.covered_sheds.join(', ')}</>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-ink-mute">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right num text-rose-700">
                     {p.absent_deduction > 0 ? `\u2212${formatRupee(p.absent_deduction)}` : <span className="text-ink-mute">—</span>}

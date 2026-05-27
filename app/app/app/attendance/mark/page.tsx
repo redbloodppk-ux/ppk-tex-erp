@@ -108,6 +108,10 @@ export default function AttendanceMarkPage() {
   // Shed where the employee worked this shift. Required for weavers/helpers so
   // the metre-basis wage allocation knows which loom output to apply against.
   const [shedByEmp, setShedByEmp] = useState<Record<number, string | null>>({});
+  // Multi-shed coverage (migration 038). Winders typically cover several sheds
+  // in one shift; weavers and other roles keep a single-element array that
+  // mirrors `shedByEmp`. Saved into attendance_entry.shed_nos.
+  const [shedsByEmp, setShedsByEmp] = useState<Record<number, string[]>>({});
 
   // Holiday state for the selected date + shift.
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
@@ -229,12 +233,13 @@ export default function AttendanceMarkPage() {
       actual_in_time: string | null;
       actual_out_time: string | null;
       shed_no: string | null;
+      shed_nos: string[] | null;
     };
     let entries: EntryRow[] = [];
     if (day) {
       const { data: ent, error: entErr } = await supabase
         .from('attendance_entry')
-        .select('employee_id, status, actual_in_time, actual_out_time, shed_no')
+        .select('employee_id, status, actual_in_time, actual_out_time, shed_no, shed_nos')
         .eq('attendance_day_id', day.id);
       if (entErr) {
         setError(entErr.message);
@@ -251,11 +256,18 @@ export default function AttendanceMarkPage() {
     const inMap = new Map<number, string | null>();
     const outMap = new Map<number, string | null>();
     const shedMap = new Map<number, string | null>();
+    const shedsMap = new Map<number, string[]>();
     for (const e of entries) {
       statusMap.set(e.employee_id, e.status);
       inMap.set(e.employee_id, e.actual_in_time);
       outMap.set(e.employee_id, e.actual_out_time);
       shedMap.set(e.employee_id, e.shed_no);
+      const arr = Array.isArray(e.shed_nos) ? e.shed_nos.filter((s): s is string => typeof s === 'string') : [];
+      if (arr.length > 0) {
+        shedsMap.set(e.employee_id, arr);
+      } else if (e.shed_no) {
+        shedsMap.set(e.employee_id, [e.shed_no]);
+      }
     }
 
     // Cross-shift default: when marking Night, anyone already saved as
@@ -289,6 +301,7 @@ export default function AttendanceMarkPage() {
     const nextIn: Record<number, string | null> = {};
     const nextOut: Record<number, string | null> = {};
     const nextShed: Record<number, string | null> = {};
+    const nextSheds: Record<number, string[]> = {};
     for (const emp of employees) {
       const stored = statusMap.get(emp.id);
       if (stored !== undefined) {
@@ -301,11 +314,13 @@ export default function AttendanceMarkPage() {
       nextIn[emp.id] = inMap.get(emp.id) ?? null;
       nextOut[emp.id] = outMap.get(emp.id) ?? null;
       nextShed[emp.id] = shedMap.get(emp.id) ?? null;
+      nextSheds[emp.id] = shedsMap.get(emp.id) ?? [];
     }
     setStatusByEmp(nextStatus);
     setInTimeByEmp(nextIn);
     setOutTimeByEmp(nextOut);
     setShedByEmp(nextShed);
+    setShedsByEmp(nextSheds);
     setLoading(false);
   }, [supabase, employees, markDate, shift]);
 
@@ -342,12 +357,26 @@ export default function AttendanceMarkPage() {
     // Clear shed when employee did not work this shift.
     if (!WORKED_STATUSES.has(status)) {
       setShedByEmp((prev) => ({ ...prev, [empId]: null }));
+      setShedsByEmp((prev) => ({ ...prev, [empId]: [] }));
     }
     setSavedMsg(null);
   }
 
   function setShed(empId: number, value: string): void {
     setShedByEmp((prev) => ({ ...prev, [empId]: value || null }));
+    setShedsByEmp((prev) => ({ ...prev, [empId]: value ? [value] : [] }));
+    setSavedMsg(null);
+  }
+
+  function toggleWinderShed(empId: number, shed: string): void {
+    setShedsByEmp((prev) => {
+      const cur = prev[empId] ?? [];
+      const next = cur.includes(shed) ? cur.filter((s) => s !== shed) : [...cur, shed].sort();
+      // Keep shed_no in sync with the first selected for backward compat.
+      const first = next[0] ?? null;
+      setShedByEmp((p) => ({ ...p, [empId]: first }));
+      return { ...prev, [empId]: next };
+    });
     setSavedMsg(null);
   }
 
@@ -408,14 +437,19 @@ export default function AttendanceMarkPage() {
       const status = statusByEmp[emp.id] ?? 'present';
       const wantsTime = TIME_STATUSES.has(status);
       const worked = WORKED_STATUSES.has(status);
-      const isWeaver = emp.role.toLowerCase() === 'weaver';
+      const role = emp.role.toLowerCase();
+      const isWeaver = role === 'weaver';
+      const isWinder = role === 'winder';
+      const sheds = (isWeaver || isWinder) && worked ? (shedsByEmp[emp.id] ?? []) : [];
+      const firstShed = sheds[0] ?? null;
       return {
         employee_id: String(emp.id),
         status,
         day_weight: 1,
         actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
         actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
-        shed_no: isWeaver && worked ? (shedByEmp[emp.id] ?? null) : null,
+        shed_no: firstShed,
+        shed_nos: sheds.length > 0 ? sheds : null,
       };
     });
     enqueueOffline({
@@ -462,14 +496,19 @@ export default function AttendanceMarkPage() {
         const status = statusByEmp[emp.id] ?? 'present';
         const wantsTime = TIME_STATUSES.has(status);
         const worked = WORKED_STATUSES.has(status);
-        const isWeaver = emp.role.toLowerCase() === 'weaver';
+        const role = emp.role.toLowerCase();
+        const isWeaver = role === 'weaver';
+        const isWinder = role === 'winder';
+        const sheds = (isWeaver || isWinder) && worked ? (shedsByEmp[emp.id] ?? []) : [];
+        const firstShed = sheds[0] ?? null;
         return {
           attendance_day_id: dayId,
           employee_id: emp.id,
           status,
           actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
           actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
-          shed_no: isWeaver && worked ? (shedByEmp[emp.id] ?? null) : null,
+          shed_no: firstShed,
+          shed_nos: sheds.length > 0 ? sheds : null,
           sync_source: 'online',
           marked_by: user?.id ?? null,
           marked_at: new Date().toISOString(),
@@ -692,11 +731,17 @@ export default function AttendanceMarkPage() {
                   {visible.map((emp) => {
                     const empStatus = statusByEmp[emp.id] ?? 'present';
                     const showTimes = TIME_STATUSES.has(empStatus);
-                    // Shed only matters for weavers — that's the role whose
-                    // wages allocate against loom production.
-                    const isWeaver = emp.role.toLowerCase() === 'weaver';
+                    // Shed matters for weavers (wage allocation against loom
+                    // production) and winders (multi-shed coverage drives the
+                    // weekly winder pro-rate via migration 038).
+                    const empRole = emp.role.toLowerCase();
+                    const isWeaver = empRole === 'weaver';
+                    const isWinder = empRole === 'winder';
                     const showShed = isWeaver && WORKED_STATUSES.has(empStatus);
+                    const showWinderSheds = isWinder && WORKED_STATUSES.has(empStatus);
+                    const winderShedsPicked = shedsByEmp[emp.id] ?? [];
                     const shedMissing = showShed && !shedByEmp[emp.id];
+                    const winderShedMissing = showWinderSheds && winderShedsPicked.length === 0;
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
                         <td className="py-2 pr-3">
@@ -724,6 +769,35 @@ export default function AttendanceMarkPage() {
                               );
                             })}
                           </div>
+
+                          {showWinderSheds && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-mute">
+                              <span>Sheds covered</span>
+                              {SHEDS.map((s) => {
+                                const active = winderShedsPicked.includes(s);
+                                return (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => toggleWinderShed(emp.id, s)}
+                                    className={
+                                      'min-h-[36px] rounded-full border px-3 text-xs font-semibold transition ' +
+                                      (active
+                                        ? 'border-transparent bg-indigo-600 text-white'
+                                        : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+                                    }
+                                  >
+                                    Shed {s}
+                                  </button>
+                                );
+                              })}
+                              {winderShedMissing && (
+                                <span className="text-[10px] text-rose-600">
+                                  Pick at least one shed
+                                </span>
+                              )}
+                            </div>
+                          )}
 
                           {showShed && (
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-mute">
