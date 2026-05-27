@@ -348,11 +348,14 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       coveredShedsByWinder.set(wid, covered);
     }
 
-    // 2) Fetch all weaver absences in the week and tally per shed_no.
-    //    Weavers are single-shed so shed_no is sufficient; if the absent row
-    //    has no shed_no (older data or UI skipped the pick), fall back to
-    //    employee.home_shed_no.
+    // 2) Fetch weaver absences in the week and tally per shed_no.
+    //    Absent rows: count against shed_no, falling back to home_shed_no.
+    //    'none' rows: count ONLY when a shed was explicitly selected — that
+    //    flags a shed losing coverage even though the worker wasn't strictly
+    //    "absent". 'none' without a shed means "not scheduled this shift"
+    //    and must NOT be charged to any shed.
     type WeaverAbsRow = {
+      status: string;
       shed_no: string | null;
       employee: { role: string | null; home_shed_no: string | null } | null;
       attendance_day: { attendance_date: string } | null;
@@ -360,15 +363,21 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
-      .eq('status', 'absent')
+      .select('status, shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
+      .in('status', ['absent', 'none'])
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
     for (const r of (weaverAbsRaw ?? []) as WeaverAbsRow[]) {
       if (!r.attendance_day?.attendance_date) continue;
       const role = (r.employee?.role ?? '').toLowerCase();
       if (role !== 'weaver') continue;
-      const shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
+      let shed: string | null = null;
+      if (r.status === 'absent') {
+        shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
+      } else if (r.status === 'none') {
+        // Only count 'none' when a shed was explicitly selected.
+        shed = r.shed_no ?? null;
+      }
       if (!shed) continue;
       weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
     }
@@ -522,6 +531,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       <p className="text-[11px] text-ink-mute mb-2">
         Fitter pro-rate: weekly_salary &times; (7 &minus; absent days) / 7.
         Winder pro-rate: weekly_salary &times; weaver-absent shifts in covered sheds / (covered sheds &times; 14).
+        A weaver marked &quot;none&quot; counts as absent only when a shed is picked.
       </p>
       <div className="card overflow-hidden mb-6">
         <table className="w-full text-sm">
