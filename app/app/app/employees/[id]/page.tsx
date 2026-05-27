@@ -24,7 +24,7 @@ interface EmployeeRow {
   status: string;
   notes: string | null;
   attendance_required: boolean | null;
-  wage_alloc_basis: 'metres' | 'loom_shifts' | null;
+  wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly' | null;
 }
 
 export default async function EditEmployeePage({
@@ -59,7 +59,7 @@ export default async function EditEmployeePage({
     // attendance_required defaults to true for legacy rows where the column
     // was just added (migration 030).
     attendance_required: emp.attendance_required ?? true,
-    wage_alloc_basis:    emp.wage_alloc_basis ?? 'metres',
+    wage_alloc_basis:    emp.wage_alloc_basis ?? 'weekly',
   };
 
   return (

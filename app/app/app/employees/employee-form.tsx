@@ -25,7 +25,7 @@ export interface EmployeeFormValues {
   attendance_required: boolean;
   // CORR-T4: per-employee wage allocation basis. Spreads each wage_entry
   // across in-house batches either by metres produced or by loom-shifts.
-  wage_alloc_basis: 'metres' | 'loom_shifts';
+  wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
 }
 
 interface Props {
@@ -197,11 +197,23 @@ export function EmployeeForm({ initial, employeeId }: Props) {
         <div className="text-sm font-medium">Wage allocation basis</div>
         <p className="text-xs text-ink-mute -mt-1">
           How this employee&apos;s wages spread across in-house batches.
-          Weavers / fitters on specific looms usually use loom-shifts;
-          finishing staff (folder, winder, knotter) usually use metres.
+          Weekly is the default for salaried/weekly-paid staff.
+          Weavers / fitters paid by output use loom-shifts;
+          finishing staff (folder, winder, knotter) paid by output use metres.
           Vendor batches never receive mill wages.
         </p>
-        <div className="flex gap-4 pt-1">
+        <div className="flex flex-wrap gap-4 pt-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="wage_alloc_basis"
+              value="weekly"
+              checked={values.wage_alloc_basis === 'weekly'}
+              onChange={() => set('wage_alloc_basis', 'weekly')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Weekly</span>
+          </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="radio"

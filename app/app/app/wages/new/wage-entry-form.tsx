@@ -38,7 +38,7 @@ export interface EmployeeOption {
   code: string;
   full_name: string;
   role: string;
-  wage_alloc_basis: 'metres' | 'loom_shifts';
+  wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
 }
 
 // Optional starting values — when provided, the form switches to "edit"
@@ -111,6 +111,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // production matched to attendance shift+shed. A single-day "Same day"
   // payment doesn't make sense here, so we hide it and force the period
   // pickers to stay enabled.
+  const isWeaver = selected?.role.toLowerCase() === 'weaver';
   const isMetreBasis = selected?.wage_alloc_basis === 'metres';
   const periodIsRange = isMetreBasis || kind === 'settlement';
 
@@ -286,6 +287,12 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     }
     if (periodEnd < periodStart) {
       setError('Period end cannot be before period start.');
+      return;
+    }
+    if (isWeaver && ctx.fetched && ctx.missingSheds > 0) {
+      setError(
+        `Pick a shed for every shift this weaver worked (${ctx.missingSheds} missing). Open Attendance → Mark and assign sheds for the period.`,
+      );
       return;
     }
 
@@ -487,6 +494,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
                   </span>
                 )}
               </div>
+              {isWeaver && (
               <div>
                 <span className="text-ink-mute">Sheds picked:</span>{' '}
                 {ctx.sheds.length === 0 && ctx.missingSheds === 0 ? (
@@ -506,6 +514,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
                   <span className="font-medium">{ctx.sheds.join(', ')}</span>
                 )}
               </div>
+              )}
               {ctx.autoAmount != null && (
                 <div className="pt-1 text-emerald-700">
                   Auto-filled amount: ₹

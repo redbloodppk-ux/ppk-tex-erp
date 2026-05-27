@@ -44,7 +44,7 @@ export default async function NewEmployeePage() {
     status:          'active',
     notes:           '',
     attendance_required: true,
-    wage_alloc_basis: 'metres',
+    wage_alloc_basis: 'weekly',
   };
 
   return (

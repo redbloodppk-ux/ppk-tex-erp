@@ -17,7 +17,11 @@ import { CalendarDays, CalendarOff } from 'lucide-react';
 export const metadata = { title: 'Daily Attendance' };
 export const dynamic = 'force-dynamic';
 
-type Status = 'present' | 'absent' | 'half_day' | 'late' | 'early_leave';
+// Daily attendance report intentionally restricts itself to present + absent.
+// Half-day / late / early-leave still get saved on the attendance page, but
+// they're not shown here per business rule (cleaner daily summary).
+type Status = 'present' | 'absent';
+type RawStatus = 'present' | 'absent' | 'half_day' | 'late' | 'early_leave';
 
 interface DetailRow {
   attendance_date: string | null;
@@ -26,7 +30,7 @@ interface DetailRow {
   employee_code: string | null;
   employee_name: string | null;
   employee_role: string | null;
-  status: Status | null;
+  status: RawStatus | null;
   day_weight: number | null;
   entry_remark: string | null;
 }
@@ -40,17 +44,11 @@ interface NonWorkingRow {
 const STATUS_LABEL: Record<Status, string> = {
   present: 'Present',
   absent: 'Absent',
-  half_day: 'Half day',
-  late: 'Late',
-  early_leave: 'Early leave',
 };
 
 const STATUS_TONE: Record<Status, string> = {
   present: 'text-emerald-700',
   absent: 'text-rose-700',
-  half_day: 'text-amber-700',
-  late: 'text-orange-700',
-  early_leave: 'text-sky-700',
 };
 
 const REASON_LABEL: Record<string, string> = {
@@ -94,17 +92,20 @@ export default async function DailyAttendanceReport({
     .select('shift, reason, remark')
     .eq('attendance_date', date);
 
-  const rows = (detailData as unknown as DetailRow[]) ?? [];
+  const allRows = (detailData as unknown as DetailRow[]) ?? [];
+  // Only show present + absent in the daily summary. Other statuses are
+  // captured on the attendance screen but excluded from this report.
+  const rows = allRows.filter(
+    (r): r is DetailRow & { status: Status } =>
+      r.status === 'present' || r.status === 'absent',
+  );
   const nonWorking = (nwData as unknown as NonWorkingRow[]) ?? [];
 
   const counts: Record<Status, number> = {
     present: 0,
     absent: 0,
-    half_day: 0,
-    late: 0,
-    early_leave: 0,
   };
-  for (const r of rows) if (r.status) counts[r.status] += 1;
+  for (const r of rows) counts[r.status] += 1;
   const totalMarked = rows.length;
 
   const exportColumns: ExcelColumn[] = [
@@ -179,7 +180,7 @@ export default async function DailyAttendanceReport({
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-6">
         {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
           <div key={s} className="card p-3">
             <div className="text-xs text-ink-mute">{STATUS_LABEL[s]}</div>
