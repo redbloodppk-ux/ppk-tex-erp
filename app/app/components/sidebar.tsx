@@ -213,4 +213,12 @@ export function Sidebar({
               aria-label="Close menu"
             >
               <X className="w-5 h-5 text-ink-soft" />
-            </b
+            </button>
+          </div>
+          <NavBody role={role} onItemClick={onClose} />
+          <Footer />
+        </aside>
+      </div>
+    </>
+  );
+}

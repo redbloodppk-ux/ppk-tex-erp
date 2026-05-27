@@ -56,4 +56,11 @@ export default async function EditWagePage({ params }: PageProps): Promise<React
         title="Edit Wage Entry"
         crumbs={[{ label: 'Wages', href: '/app/wages' }, { label: `#${initial.id}` }]}
       />
-      <WageEntryForm employees={employees} initial={initial} 
+      <WageEntryForm employees={employees} initial={initial} />
+    </div>
+  );
+}
+/>
+    </div>
+  );
+}

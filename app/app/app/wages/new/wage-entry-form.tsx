@@ -549,4 +549,46 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
                     </Link>
                   </span>
                 ) : (
-     
+                  <span className="font-medium">{ctx.sheds.join(', ')}</span>
+                )}
+              </div>
+              )}
+              {ctx.autoAmount != null && (
+                <div className="pt-1 text-emerald-700">
+                  Auto-filled amount: ₹
+                  <span className="font-semibold num">{ctx.autoAmount.toFixed(2)}</span>
+                  {ctx.autoAmountNote && (
+                    <span className="block text-[11px] text-ink-mute pt-0.5">
+                      {ctx.autoAmountNote} You can override the amount above.
+                    </span>
+                  )}
+                </div>
+              )}
+              <p className="text-[11px] text-ink-mute pt-0.5">
+                This is read-only. The pro-rata allocation runs automatically
+                from this period and the employee&apos;s basis.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-sm text-err">{error}</p>}
+
+      <div className="flex items-center gap-2 pt-2">
+        <button type="submit" className="btn-primary" disabled={busy || employees.length === 0}>
+          {busy && <Loader2 className="w-4 h-4 animate-spin" />}
+          {isEdit ? 'Save changes' : 'Save wage entry'}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => router.push('/app/wages')}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
