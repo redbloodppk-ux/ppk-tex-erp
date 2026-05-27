@@ -392,13 +392,14 @@ export default function AttendanceMarkPage() {
       const status = statusByEmp[emp.id] ?? 'present';
       const wantsTime = TIME_STATUSES.has(status);
       const worked = WORKED_STATUSES.has(status);
+      const isWeaver = emp.role.toLowerCase() === 'weaver';
       return {
         employee_id: String(emp.id),
         status,
         day_weight: 1,
         actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
         actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
-        shed_no: worked ? (shedByEmp[emp.id] ?? null) : null,
+        shed_no: isWeaver && worked ? (shedByEmp[emp.id] ?? null) : null,
       };
     });
     enqueueOffline({
@@ -445,13 +446,14 @@ export default function AttendanceMarkPage() {
         const status = statusByEmp[emp.id] ?? 'present';
         const wantsTime = TIME_STATUSES.has(status);
         const worked = WORKED_STATUSES.has(status);
+        const isWeaver = emp.role.toLowerCase() === 'weaver';
         return {
           attendance_day_id: dayId,
           employee_id: emp.id,
           status,
           actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
           actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
-          shed_no: worked ? (shedByEmp[emp.id] ?? null) : null,
+          shed_no: isWeaver && worked ? (shedByEmp[emp.id] ?? null) : null,
           sync_source: 'online',
           marked_by: user?.id ?? null,
           marked_at: new Date().toISOString(),
@@ -674,7 +676,10 @@ export default function AttendanceMarkPage() {
                   {visible.map((emp) => {
                     const empStatus = statusByEmp[emp.id] ?? 'present';
                     const showTimes = TIME_STATUSES.has(empStatus);
-                    const showShed = WORKED_STATUSES.has(empStatus);
+                    // Shed only matters for weavers — that's the role whose
+                    // wages allocate against loom production.
+                    const isWeaver = emp.role.toLowerCase() === 'weaver';
+                    const showShed = isWeaver && WORKED_STATUSES.has(empStatus);
                     const shedMissing = showShed && !shedByEmp[emp.id];
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
