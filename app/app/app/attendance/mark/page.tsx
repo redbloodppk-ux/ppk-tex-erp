@@ -23,7 +23,7 @@
  *   attendance_day    one row per (attendance_date, shift)
  *   attendance_entry  one row per (attendance_day_id, employee_id)
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
@@ -315,6 +315,22 @@ export default function AttendanceMarkPage() {
 
   const roles = Array.from(new Set(employees.map((e) => e.role))).sort();
   const visible = employees.filter((e) => roleFilter === 'all' || e.role === roleFilter);
+
+  // One weaver per shed per shift: collect the sheds already picked by other
+  // weavers (who are also marked as working) so we can hide them from
+  // everyone else's dropdown.
+  const takenByEmp = useMemo<Map<number, string>>(() => {
+    const m = new Map<number, string>();
+    for (const e of employees) {
+      if (e.role.toLowerCase() !== 'weaver') continue;
+      const st = statusByEmp[e.id];
+      if (st && WORKED_STATUSES.has(st)) {
+        const shed = shedByEmp[e.id];
+        if (shed) m.set(e.id, shed);
+      }
+    }
+    return m;
+  }, [employees, statusByEmp, shedByEmp]);
 
   function setStatus(empId: number, status: AttendanceStatus): void {
     setStatusByEmp((prev) => ({ ...prev, [empId]: status }));
@@ -724,7 +740,17 @@ export default function AttendanceMarkPage() {
                                   onChange={(e) => setShed(emp.id, e.target.value)}
                                 >
                                   <option value="">— pick —</option>
-                                  {SHEDS.map((s) => (
+                                  {SHEDS.filter((s) => {
+                                    // Hide sheds picked by other weavers in
+                                    // this shift. Keep this weaver's own
+                                    // current pick visible.
+                                    for (const [otherId, otherShed] of takenByEmp) {
+                                      if (otherId !== emp.id && otherShed === s) {
+                                        return false;
+                                      }
+                                    }
+                                    return true;
+                                  }).map((s) => (
                                     <option key={s} value={s}>
                                       Shed {s}
                                     </option>
