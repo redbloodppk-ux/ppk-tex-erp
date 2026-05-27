@@ -60,7 +60,3 @@ export default async function EditWagePage({ params }: PageProps): Promise<React
     </div>
   );
 }
-/>
-    </div>
-  );
-}

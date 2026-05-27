@@ -184,28 +184,3 @@ export default async function SettingsPage() {
     </div>
   );
 }
-              <th className="text-left">Role</th>
-              <th className="text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users?.length ? users.map((u: any) => (
-              <tr key={u.id} className="border-b border-line/40 last:border-0">
-                <td className="py-2.5 font-semibold">{u.full_name}</td>
-                <td className="text-xs text-ink-soft">{u.email}</td>
-                <td className="text-xs uppercase">{u.role.replace(/_/g, ' ')}</td>
-                <td className="text-right">
-                  <span className={`pill ${u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {u.is_active ? 'active' : 'inactive'}
-                  </span>
-                </td>
-              </tr>
-            )) : (
-              <tr><td colSpan={4} className="py-6 text-center text-ink-soft text-sm">No users yet.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}

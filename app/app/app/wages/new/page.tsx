@@ -33,7 +33,3 @@ export default async function NewWagePage(): Promise<React.ReactElement> {
     </div>
   );
 }
-/>
-    </div>
-  );
-}
