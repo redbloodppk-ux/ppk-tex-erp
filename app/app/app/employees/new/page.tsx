@@ -46,6 +46,7 @@ export default async function NewEmployeePage() {
     attendance_required: true,
     wage_alloc_basis: 'weekly',
     weekly_salary: '',
+    home_shed_no: '',
   };
 
   return (

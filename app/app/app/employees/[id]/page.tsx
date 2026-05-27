@@ -26,6 +26,7 @@ interface EmployeeRow {
   attendance_required: boolean | null;
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly' | null;
   weekly_salary: number | string | null;
+  home_shed_no: string | null;
 }
 
 export default async function EditEmployeePage({
@@ -42,7 +43,7 @@ export default async function EditEmployeePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('employee')
-    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes, attendance_required, wage_alloc_basis, weekly_salary')
+    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes, attendance_required, wage_alloc_basis, weekly_salary, home_shed_no')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -64,6 +65,7 @@ export default async function EditEmployeePage({
     attendance_required: emp.attendance_required ?? true,
     wage_alloc_basis:    emp.wage_alloc_basis ?? 'weekly',
     weekly_salary:       emp.weekly_salary == null ? '' : String(emp.weekly_salary),
+    home_shed_no:        emp.home_shed_no ?? '',
   };
 
   return (

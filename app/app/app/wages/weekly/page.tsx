@@ -349,16 +349,18 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
 
     // 2) Fetch all weaver absences in the week and tally per shed_no.
-    //    Weavers are single-shed so shed_no is sufficient.
+    //    Weavers are single-shed so shed_no is sufficient; if the absent row
+    //    has no shed_no (older data or UI skipped the pick), fall back to
+    //    employee.home_shed_no.
     type WeaverAbsRow = {
       shed_no: string | null;
-      employee: { role: string | null } | null;
+      employee: { role: string | null; home_shed_no: string | null } | null;
       attendance_day: { attendance_date: string } | null;
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date )')
+      .select('shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
       .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
@@ -366,7 +368,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       if (!r.attendance_day?.attendance_date) continue;
       const role = (r.employee?.role ?? '').toLowerCase();
       if (role !== 'weaver') continue;
-      const shed = r.shed_no;
+      const shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
       if (!shed) continue;
       weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
     }

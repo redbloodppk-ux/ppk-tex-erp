@@ -31,6 +31,9 @@ export interface EmployeeFormValues {
   // Stored as a string in form state for clean controlled-input behaviour;
   // converted to number (or null) on save.
   weekly_salary: string;
+  // Migration 039: a weaver's home shed. Falls back into the winder
+  // weaver-absent count when an absent attendance row has no shed_no.
+  home_shed_no: string;
 }
 
 interface Props {
@@ -96,6 +99,7 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       attendance_required: values.attendance_required,
       wage_alloc_basis:    values.wage_alloc_basis,
       weekly_salary:       weeklySalary,
+      home_shed_no:        values.home_shed_no.trim() || null,
     };
 
     // weekly_salary added in migration 037 — supabase-js types lag, cast through any.
@@ -210,6 +214,21 @@ export function EmployeeForm({ initial, employeeId }: Props) {
             ))}
           </select>
         </div>
+      </div>
+
+      <div>
+        <label className="label" htmlFor="home_shed_no">Home shed (weavers)</label>
+        <input
+          id="home_shed_no"
+          value={values.home_shed_no}
+          onChange={(e) => set('home_shed_no', e.target.value)}
+          className="input num max-w-xs"
+          placeholder="e.g. 1"
+        />
+        <p className="text-[11px] text-ink-mute mt-1">
+          Used to attribute a weaver&apos;s absence to a shed when the daily mark
+          skipped the shed pick. Optional for non-weaver roles.
+        </p>
       </div>
 
       <div className="rounded-lg border border-line bg-slate-50 p-3 space-y-2">
