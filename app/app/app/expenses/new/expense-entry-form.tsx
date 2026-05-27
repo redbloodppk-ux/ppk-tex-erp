@@ -68,8 +68,9 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
           list.unshift({ id: -1, name: initial.category });
         }
         setCategories(list);
-        if (!initial && list.length > 0 && !category) {
-          setCategory(list[0].name);
+        const first = list[0];
+        if (!initial && first && !category) {
+          setCategory(first.name);
         }
       }
       setCatLoading(false);
