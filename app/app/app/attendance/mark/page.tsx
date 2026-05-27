@@ -510,11 +510,14 @@ export default function AttendanceMarkPage() {
       const rows = employees.map((emp) => {
         const status = statusByEmp[emp.id] ?? 'present';
         const wantsTime = TIME_STATUSES.has(status);
-        const worked = WORKED_STATUSES.has(status);
         const role = emp.role.toLowerCase();
         const isWeaver = role === 'weaver';
         const isWinder = role === 'winder';
-        const sheds = (isWeaver || isWinder) && worked ? (shedsByEmp[emp.id] ?? []) : [];
+        // Save the shed picks for every status (present, absent, none, ...)
+        // so the running-shed report and winder weaver-absent deduction can
+        // attribute the lost coverage. The `worked` gate previously dropped
+        // sheds on absent/none — leaving shed_no NULL in the DB.
+        const sheds = (isWeaver || isWinder) ? (shedsByEmp[emp.id] ?? []) : [];
         const firstShed = sheds[0] ?? null;
         return {
           attendance_day_id: dayId,
