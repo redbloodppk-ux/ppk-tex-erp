@@ -66,6 +66,17 @@ const TIME_STATUSES: ReadonlySet<AttendanceStatus> = new Set<AttendanceStatus>([
   'half_day',
 ]);
 
+// Statuses where the employee actually worked some part of the shift and so
+// must be tied to a weaving shed (drives metre-basis wage allocation).
+const WORKED_STATUSES: ReadonlySet<AttendanceStatus> = new Set<AttendanceStatus>([
+  'present',
+  'late',
+  'early_leave',
+  'half_day',
+]);
+
+const SHEDS = ['1', '2', '3', '4'] as const;
+
 function defaultStatusFor(emp: Employee, shift: ShiftCode): AttendanceStatus {
   if (emp.default_shift && emp.default_shift !== 'either' && emp.default_shift !== shift) {
     return 'none' as AttendanceStatus;
@@ -94,6 +105,9 @@ export default function AttendanceMarkPage() {
   // CORR-A7 in/out time per employee. Stored as "HH:MM" or null.
   const [inTimeByEmp, setInTimeByEmp] = useState<Record<number, string | null>>({});
   const [outTimeByEmp, setOutTimeByEmp] = useState<Record<number, string | null>>({});
+  // Shed where the employee worked this shift. Required for weavers/helpers so
+  // the metre-basis wage allocation knows which loom output to apply against.
+  const [shedByEmp, setShedByEmp] = useState<Record<number, string | null>>({});
 
   // Holiday state for the selected date + shift.
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
@@ -214,12 +228,13 @@ export default function AttendanceMarkPage() {
       status: AttendanceStatus;
       actual_in_time: string | null;
       actual_out_time: string | null;
+      shed_no: string | null;
     };
     let entries: EntryRow[] = [];
     if (day) {
       const { data: ent, error: entErr } = await supabase
         .from('attendance_entry')
-        .select('employee_id, status, actual_in_time, actual_out_time')
+        .select('employee_id, status, actual_in_time, actual_out_time, shed_no')
         .eq('attendance_day_id', day.id);
       if (entErr) {
         setError(entErr.message);
@@ -235,10 +250,12 @@ export default function AttendanceMarkPage() {
     const statusMap = new Map<number, AttendanceStatus>();
     const inMap = new Map<number, string | null>();
     const outMap = new Map<number, string | null>();
+    const shedMap = new Map<number, string | null>();
     for (const e of entries) {
       statusMap.set(e.employee_id, e.status);
       inMap.set(e.employee_id, e.actual_in_time);
       outMap.set(e.employee_id, e.actual_out_time);
+      shedMap.set(e.employee_id, e.shed_no);
     }
 
     // Cross-shift default: when marking Night, anyone already saved as
@@ -271,6 +288,7 @@ export default function AttendanceMarkPage() {
     const nextStatus: Record<number, AttendanceStatus> = {};
     const nextIn: Record<number, string | null> = {};
     const nextOut: Record<number, string | null> = {};
+    const nextShed: Record<number, string | null> = {};
     for (const emp of employees) {
       const stored = statusMap.get(emp.id);
       if (stored !== undefined) {
@@ -282,10 +300,12 @@ export default function AttendanceMarkPage() {
       }
       nextIn[emp.id] = inMap.get(emp.id) ?? null;
       nextOut[emp.id] = outMap.get(emp.id) ?? null;
+      nextShed[emp.id] = shedMap.get(emp.id) ?? null;
     }
     setStatusByEmp(nextStatus);
     setInTimeByEmp(nextIn);
     setOutTimeByEmp(nextOut);
+    setShedByEmp(nextShed);
     setLoading(false);
   }, [supabase, employees, markDate, shift]);
 
@@ -303,6 +323,15 @@ export default function AttendanceMarkPage() {
       setInTimeByEmp((prev) => ({ ...prev, [empId]: null }));
       setOutTimeByEmp((prev) => ({ ...prev, [empId]: null }));
     }
+    // Clear shed when employee did not work this shift.
+    if (!WORKED_STATUSES.has(status)) {
+      setShedByEmp((prev) => ({ ...prev, [empId]: null }));
+    }
+    setSavedMsg(null);
+  }
+
+  function setShed(empId: number, value: string): void {
+    setShedByEmp((prev) => ({ ...prev, [empId]: value || null }));
     setSavedMsg(null);
   }
 
@@ -362,12 +391,14 @@ export default function AttendanceMarkPage() {
     const entries = employees.map((emp) => {
       const status = statusByEmp[emp.id] ?? 'present';
       const wantsTime = TIME_STATUSES.has(status);
+      const worked = WORKED_STATUSES.has(status);
       return {
         employee_id: String(emp.id),
         status,
         day_weight: 1,
         actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
         actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
+        shed_no: worked ? (shedByEmp[emp.id] ?? null) : null,
       };
     });
     enqueueOffline({
@@ -413,12 +444,14 @@ export default function AttendanceMarkPage() {
       const rows = employees.map((emp) => {
         const status = statusByEmp[emp.id] ?? 'present';
         const wantsTime = TIME_STATUSES.has(status);
+        const worked = WORKED_STATUSES.has(status);
         return {
           attendance_day_id: dayId,
           employee_id: emp.id,
           status,
           actual_in_time: wantsTime ? (inTimeByEmp[emp.id] ?? null) : null,
           actual_out_time: wantsTime ? (outTimeByEmp[emp.id] ?? null) : null,
+          shed_no: worked ? (shedByEmp[emp.id] ?? null) : null,
           sync_source: 'online',
           marked_by: user?.id ?? null,
           marked_at: new Date().toISOString(),
@@ -641,6 +674,8 @@ export default function AttendanceMarkPage() {
                   {visible.map((emp) => {
                     const empStatus = statusByEmp[emp.id] ?? 'present';
                     const showTimes = TIME_STATUSES.has(empStatus);
+                    const showShed = WORKED_STATUSES.has(empStatus);
+                    const shedMissing = showShed && !shedByEmp[emp.id];
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
                         <td className="py-2 pr-3">
@@ -668,6 +703,36 @@ export default function AttendanceMarkPage() {
                               );
                             })}
                           </div>
+
+                          {showShed && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-mute">
+                              <label className="flex items-center gap-1.5">
+                                Shed
+                                <select
+                                  className={
+                                    'input h-9 w-24 text-xs ' +
+                                    (shedMissing
+                                      ? 'border-rose-300 bg-rose-50 text-rose-700'
+                                      : '')
+                                  }
+                                  value={shedByEmp[emp.id] ?? ''}
+                                  onChange={(e) => setShed(emp.id, e.target.value)}
+                                >
+                                  <option value="">— pick —</option>
+                                  {SHEDS.map((s) => (
+                                    <option key={s} value={s}>
+                                      Shed {s}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              {shedMissing && (
+                                <span className="text-[10px] text-rose-600">
+                                  Required for wage allocation
+                                </span>
+                              )}
+                            </div>
+                          )}
 
                           {showTimes && (
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-mute">

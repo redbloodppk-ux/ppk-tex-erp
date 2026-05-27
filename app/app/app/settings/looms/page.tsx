@@ -31,6 +31,7 @@ interface Loom {
   width_in: number | null;
   status: string;
   shed_no: number | null;
+  default_rate_per_m: number | null;
 }
 
 interface NewLoom {
@@ -39,6 +40,7 @@ interface NewLoom {
   width_in: string;
   status: string;
   shed_no: string;
+  default_rate_per_m: string;
 }
 
 const EMPTY_NEW: NewLoom = {
@@ -47,6 +49,7 @@ const EMPTY_NEW: NewLoom = {
   width_in: '56',
   status: 'running',
   shed_no: '1',
+  default_rate_per_m: '',
 };
 
 export default function LoomsPage() {
@@ -63,14 +66,16 @@ export default function LoomsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error: err } = await supabase
+    // default_rate_per_m was added in migration 033 — types not yet regenerated.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error: err } = await (supabase as any)
       .from('loom')
-      .select('id, loom_code, loom_type, width_in, status, shed_no')
+      .select('id, loom_code, loom_type, width_in, status, shed_no, default_rate_per_m')
       .order('loom_code');
     if (err) {
       setError(err.message);
     } else {
-      setLooms((data ?? []) as Loom[]);
+      setLooms((data ?? []) as unknown as Loom[]);
       setError(null);
     }
     setLoading(false);
@@ -99,14 +104,22 @@ export default function LoomsPage() {
       setError('Width must be a positive number, or leave it blank.');
       return;
     }
+    const rate =
+      newLoom.default_rate_per_m.trim() === '' ? null : Number(newLoom.default_rate_per_m);
+    if (rate !== null && (Number.isNaN(rate) || rate < 0)) {
+      setError('Default rate ₹/m must be a number ≥ 0, or leave it blank.');
+      return;
+    }
 
     setAdding(true);
-    const { error: err } = await supabase.from('loom').insert({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: err } = await (supabase as any).from('loom').insert({
       loom_code: code,
       loom_type: newLoom.loom_type.trim() || 'powerloom',
       width_in: width,
       status: newLoom.status,
       shed_no: Number(newLoom.shed_no),
+      default_rate_per_m: rate,
     });
     setAdding(false);
 
@@ -128,7 +141,8 @@ export default function LoomsPage() {
     // optimistic UI
     setLooms((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
-    const { error: err } = await supabase.from('loom').update(patch).eq('id', id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: err } = await (supabase as any).from('loom').update(patch).eq('id', id);
     setBusyId(null);
 
     if (err) {
@@ -232,6 +246,21 @@ export default function LoomsPage() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="label" htmlFor="nl-rate">Default rate ₹/m</label>
+            <input
+              id="nl-rate"
+              type="number"
+              min={0}
+              step="0.01"
+              className="input num w-28"
+              placeholder="e.g. 4.50"
+              value={newLoom.default_rate_per_m}
+              onChange={(e) =>
+                setNewLoom((n) => ({ ...n, default_rate_per_m: e.target.value }))
+              }
+            />
+          </div>
           <button
             type="button"
             className="btn-primary flex items-center gap-1.5"
@@ -303,6 +332,7 @@ function LoomTable({ rows, busyId, onUpdate }: LoomTableProps) {
             <th className="py-2 pr-3">Width (in)</th>
             <th className="py-2 pr-3">Status</th>
             <th className="py-2 pr-3">Shed</th>
+            <th className="py-2 pr-3">Default ₹/m</th>
             <th className="py-2 pr-3" />
           </tr>
         </thead>
@@ -353,6 +383,21 @@ function LoomTable({ rows, busyId, onUpdate }: LoomTableProps) {
                     <option key={s} value={s}>Shed {s}</option>
                   ))}
                 </select>
+              </td>
+              <td className="py-2 pr-3">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="input num w-24"
+                  value={l.default_rate_per_m ?? ''}
+                  onChange={(e) =>
+                    onUpdate(l.id, {
+                      default_rate_per_m:
+                        e.target.value === '' ? null : Number(e.target.value),
+                    })
+                  }
+                />
               </td>
               <td className="py-2 pr-3">
                 {busyId === l.id && (
