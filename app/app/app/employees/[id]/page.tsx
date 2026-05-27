@@ -24,6 +24,7 @@ interface EmployeeRow {
   status: string;
   notes: string | null;
   attendance_required: boolean | null;
+  wage_alloc_basis: 'metres' | 'loom_shifts' | null;
 }
 
 export default async function EditEmployeePage({
@@ -38,7 +39,7 @@ export default async function EditEmployeePage({
   const supabase = await createClient();
   const { data } = await supabase
     .from('employee')
-    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes, attendance_required')
+    .select('id, code, full_name, role, default_shift, date_of_joining, phone, id_last4, status, notes, attendance_required, wage_alloc_basis')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -58,6 +59,7 @@ export default async function EditEmployeePage({
     // attendance_required defaults to true for legacy rows where the column
     // was just added (migration 030).
     attendance_required: emp.attendance_required ?? true,
+    wage_alloc_basis:    emp.wage_alloc_basis ?? 'metres',
   };
 
   return (

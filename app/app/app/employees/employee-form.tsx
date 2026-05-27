@@ -23,6 +23,9 @@ export interface EmployeeFormValues {
   // CORR-A8: when false, this employee is hidden from /attendance/mark.
   // They still appear on wage reports — useful for salaried staff.
   attendance_required: boolean;
+  // CORR-T4: per-employee wage allocation basis. Spreads each wage_entry
+  // across in-house batches either by metres produced or by loom-shifts.
+  wage_alloc_basis: 'metres' | 'loom_shifts';
 }
 
 interface Props {
@@ -76,6 +79,7 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       status:              values.status,
       notes:               values.notes.trim() || null,
       attendance_required: values.attendance_required,
+      wage_alloc_basis:    values.wage_alloc_basis,
     };
 
     const { error: dbError } = isEdit
@@ -186,6 +190,40 @@ export function EmployeeForm({ initial, employeeId }: Props) {
               <option key={s} value={s} className="capitalize">{s}</option>
             ))}
           </select>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-line bg-slate-50 p-3 space-y-2">
+        <div className="text-sm font-medium">Wage allocation basis</div>
+        <p className="text-xs text-ink-mute -mt-1">
+          How this employee&apos;s wages spread across in-house batches.
+          Weavers / fitters on specific looms usually use loom-shifts;
+          finishing staff (folder, winder, knotter) usually use metres.
+          Vendor batches never receive mill wages.
+        </p>
+        <div className="flex gap-4 pt-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="wage_alloc_basis"
+              value="metres"
+              checked={values.wage_alloc_basis === 'metres'}
+              onChange={() => set('wage_alloc_basis', 'metres')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Metres produced</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="wage_alloc_basis"
+              value="loom_shifts"
+              checked={values.wage_alloc_basis === 'loom_shifts'}
+              onChange={() => set('wage_alloc_basis', 'loom_shifts')}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">Loom-shifts worked</span>
+          </label>
         </div>
       </div>
 
