@@ -49,6 +49,7 @@ interface EmployeeRow {
   id: number;
   full_name: string;
   code: string;
+  wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
   weekly_salary: number | string | null;
 }
 
@@ -67,6 +68,16 @@ interface PerEmployee {
   advances: number;
   adjustments: number;
   net_payable: number;
+}
+
+interface PerWorkerRow {
+  employee_id: number;
+  code: string;
+  full_name: string;
+  wages_paid: number;   // settlement + same_day
+  advances: number;
+  adjustments: number;
+  net_payable: number;  // wages_paid - advances + adjustments
 }
 
 // Return the ISO date (YYYY-MM-DD) of Monday for the given date.
@@ -137,15 +148,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const fyLabel = fyRow?.fy_label ?? '';
   const weekNo = fyRow?.week_no ?? 0;
 
-  // Weekly-basis active employees.
+  // All active employees, grouped below by wage_alloc_basis.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: empRaw } = await (supabase as any)
     .from('employee')
-    .select('id, full_name, code, weekly_salary')
+    .select('id, full_name, code, wage_alloc_basis, weekly_salary')
     .eq('status', 'active')
-    .eq('wage_alloc_basis', 'weekly')
     .order('full_name');
-  const employees = (empRaw ?? []) as EmployeeRow[];
+  const allEmployees = (empRaw ?? []) as EmployeeRow[];
+  const employees = allEmployees.filter((e) => e.wage_alloc_basis === 'weekly');
+  const loomShiftEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'loom_shifts');
+  const metreEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'metres');
 
   // Wage entries in the week.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,17 +211,39 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const totalExpenses = expenses.reduce((acc, e) => acc + Number(e.amount ?? 0), 0);
   const netCashOut = totalSettlement + totalAdvance + totalAdjustment + totalSameDay + totalExpenses;
 
-  // Per-employee settlement view (weekly-basis only).
+  // Per-employee roll-ups across all kinds in the week.
   const advancesByEmp = new Map<number, number>();
   const adjustmentsByEmp = new Map<number, number>();
+  const wagesPaidByEmp = new Map<number, number>();  // settlement + same_day
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
     if (w.kind === 'advance') {
       advancesByEmp.set(w.employee_id, (advancesByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'adjustment') {
       adjustmentsByEmp.set(w.employee_id, (adjustmentsByEmp.get(w.employee_id) ?? 0) + a);
+    } else if (w.kind === 'settlement' || w.kind === 'same_day') {
+      wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
     }
   }
+
+  function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
+    return list.map((e) => {
+      const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
+      const adv = advancesByEmp.get(e.id) ?? 0;
+      const adj = adjustmentsByEmp.get(e.id) ?? 0;
+      return {
+        employee_id: e.id,
+        code: e.code,
+        full_name: e.full_name,
+        wages_paid,
+        advances: adv,
+        adjustments: adj,
+        net_payable: wages_paid - adv + adj,
+      };
+    });
+  }
+  const loomShiftRows = buildWorkerRows(loomShiftEmps);
+  const metreRows = buildWorkerRows(metreEmps);
 
   const perEmployee: PerEmployee[] = employees.map((e) => {
     const book = Number(e.weekly_salary ?? 0);
@@ -245,6 +280,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     week_end: weekEnd,
     totals,
     per_employee: perEmployee as unknown as ReadonlyArray<Record<string, unknown>>,
+    loom_shift_employees: loomShiftRows as unknown as ReadonlyArray<Record<string, unknown>>,
+    metre_employees: metreRows as unknown as ReadonlyArray<Record<string, unknown>>,
     wage_entries: wages as unknown as ReadonlyArray<Record<string, unknown>>,
     expenses: expenses as unknown as ReadonlyArray<Record<string, unknown>>,
   };
@@ -352,6 +389,78 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No weekly-basis employees configured. Set wage_alloc_basis = weekly on an Employee to see them here.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Loom-shift basis */}
+      <h2 className="text-sm font-semibold text-ink mb-2">Loom-shift basis employees</h2>
+      <div className="card overflow-hidden mb-6">
+        <table className="w-full text-sm">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-right px-4 py-3">Wages paid</th>
+              <th className="text-right px-4 py-3">Advances</th>
+              <th className="text-right px-4 py-3">Adjustments</th>
+              <th className="text-right px-4 py-3">Net payable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loomShiftRows.length ? loomShiftRows.map((p) => (
+              <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
+                <td className="px-4 py-3">
+                  <div className="font-medium">{p.full_name}</div>
+                  <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
+                </td>
+                <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
+                <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
+                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                  No loom-shift basis employees configured.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Metre-produced basis */}
+      <h2 className="text-sm font-semibold text-ink mb-2">Metre-produced basis employees</h2>
+      <div className="card overflow-hidden mb-6">
+        <table className="w-full text-sm">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-right px-4 py-3">Wages paid</th>
+              <th className="text-right px-4 py-3">Advances</th>
+              <th className="text-right px-4 py-3">Adjustments</th>
+              <th className="text-right px-4 py-3">Net payable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metreRows.length ? metreRows.map((p) => (
+              <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
+                <td className="px-4 py-3">
+                  <div className="font-medium">{p.full_name}</div>
+                  <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
+                </td>
+                <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
+                <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
+                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                  No metre-produced basis employees configured.
                 </td>
               </tr>
             )}
