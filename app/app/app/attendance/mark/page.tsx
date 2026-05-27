@@ -23,7 +23,7 @@
  *   attendance_day    one row per (attendance_date, shift)
  *   attendance_entry  one row per (attendance_day_id, employee_id)
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
@@ -75,6 +75,7 @@ const WORKED_STATUSES: ReadonlySet<AttendanceStatus> = new Set<AttendanceStatus>
   'half_day',
 ]);
 
+// Configured weaving sheds. Migration 038 widened entries to multi-shed.
 const SHEDS = ['1', '2', '3', '4'] as const;
 
 function defaultStatusFor(emp: Employee, shift: ShiftCode): AttendanceStatus {
@@ -331,21 +332,33 @@ export default function AttendanceMarkPage() {
   const roles = Array.from(new Set(employees.map((e) => e.role))).sort();
   const visible = employees.filter((e) => roleFilter === 'all' || e.role === roleFilter);
 
-  // One weaver per shed per shift: collect the sheds already picked by other
-  // weavers (who are also marked as working) so we can hide them from
-  // everyone else's dropdown.
-  const takenByEmp = useMemo<Map<number, string>>(() => {
-    const m = new Map<number, string>();
-    for (const e of employees) {
-      if (e.role.toLowerCase() !== 'weaver') continue;
-      const st = statusByEmp[e.id];
-      if (st && WORKED_STATUSES.has(st)) {
-        const shed = shedByEmp[e.id];
-        if (shed) m.set(e.id, shed);
+  // Sheds claimed by other employees on this (date, shift) regardless of
+  // status. Once an employee — present, absent or none — has picked a shed,
+  // it counts as "covered" / "lost coverage" and is removed from everyone
+  // else's available list. The current employee's own picks are NOT counted
+  // (so the dropdown does not erase their own selection).
+  const shedsTakenByOthers = useCallback(
+    (selfId: number): Set<string> => {
+      const taken = new Set<string>();
+      for (const e of employees) {
+        if (e.id === selfId) continue;
+        const role = e.role.toLowerCase();
+        if (role === 'weaver') {
+          const shed = shedByEmp[e.id];
+          if (shed) taken.add(shed);
+        } else if (role === 'winder') {
+          const arr = shedsByEmp[e.id] ?? [];
+          for (const s of arr) taken.add(s);
+        } else {
+          // Future-proof: any other role that picks a shed.
+          const shed = shedByEmp[e.id];
+          if (shed) taken.add(shed);
+        }
       }
-    }
-    return m;
-  }, [employees, statusByEmp, shedByEmp]);
+      return taken;
+    },
+    [employees, shedByEmp, shedsByEmp],
+  );
 
   function setStatus(empId: number, status: AttendanceStatus): void {
     setStatusByEmp((prev) => ({ ...prev, [empId]: status }));
@@ -354,11 +367,9 @@ export default function AttendanceMarkPage() {
       setInTimeByEmp((prev) => ({ ...prev, [empId]: null }));
       setOutTimeByEmp((prev) => ({ ...prev, [empId]: null }));
     }
-    // Clear shed when employee did not work this shift.
-    if (!WORKED_STATUSES.has(status)) {
-      setShedByEmp((prev) => ({ ...prev, [empId]: null }));
-      setShedsByEmp((prev) => ({ ...prev, [empId]: [] }));
-    }
+    // Shed selection is preserved across status changes — for absent / none
+    // we still want to know which shed lost coverage so the running-shed
+    // report stays accurate.
     setSavedMsg(null);
   }
 
@@ -440,7 +451,11 @@ export default function AttendanceMarkPage() {
       const role = emp.role.toLowerCase();
       const isWeaver = role === 'weaver';
       const isWinder = role === 'winder';
-      const sheds = (isWeaver || isWinder) && worked ? (shedsByEmp[emp.id] ?? []) : [];
+      // Save shed picks for every status (present, absent, none, ...) so
+      // the running-shed report can detect which shed lost coverage.
+      // `worked` still gates time fields above but no longer gates sheds.
+      void worked;
+      const sheds = (isWeaver || isWinder) ? (shedsByEmp[emp.id] ?? []) : [];
       const firstShed = sheds[0] ?? null;
       return {
         employee_id: String(emp.id),
@@ -737,11 +752,17 @@ export default function AttendanceMarkPage() {
                     const empRole = emp.role.toLowerCase();
                     const isWeaver = empRole === 'weaver';
                     const isWinder = empRole === 'winder';
-                    const showShed = isWeaver && WORKED_STATUSES.has(empStatus);
-                    const showWinderSheds = isWinder && WORKED_STATUSES.has(empStatus);
+                    // Shed picker is now visible for ALL statuses (including
+                    // absent / none) so the supervisor can flag which shed
+                    // lost coverage. Only required (i.e. error-flagged) when
+                    // the employee actually worked.
+                    const showShed = isWeaver;
+                    const showWinderSheds = isWinder;
                     const winderShedsPicked = shedsByEmp[emp.id] ?? [];
-                    const shedMissing = showShed && !shedByEmp[emp.id];
-                    const winderShedMissing = showWinderSheds && winderShedsPicked.length === 0;
+                    const empWorked = WORKED_STATUSES.has(empStatus);
+                    const shedMissing = showShed && empWorked && !shedByEmp[emp.id];
+                    const winderShedMissing = showWinderSheds && empWorked && winderShedsPicked.length === 0;
+                    const takenForEmp = (isWeaver || isWinder) ? shedsTakenByOthers(emp.id) : new Set<string>();
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
                         <td className="py-2 pr-3">
@@ -775,16 +796,21 @@ export default function AttendanceMarkPage() {
                               <span>Sheds covered</span>
                               {SHEDS.map((s) => {
                                 const active = winderShedsPicked.includes(s);
+                                const taken = takenForEmp.has(s) && !active;
                                 return (
                                   <button
                                     key={s}
                                     type="button"
                                     onClick={() => toggleWinderShed(emp.id, s)}
+                                    disabled={taken}
+                                    title={taken ? 'Already claimed by another worker this shift' : undefined}
                                     className={
                                       'min-h-[36px] rounded-full border px-3 text-xs font-semibold transition ' +
                                       (active
                                         ? 'border-transparent bg-indigo-600 text-white'
-                                        : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+                                        : taken
+                                          ? 'border-line bg-cloud/40 text-ink-mute opacity-40 cursor-not-allowed'
+                                          : 'border-line bg-white text-ink-soft hover:bg-haze/60')
                                     }
                                   >
                                     Shed {s}
@@ -815,13 +841,12 @@ export default function AttendanceMarkPage() {
                                 >
                                   <option value="">— pick —</option>
                                   {SHEDS.filter((s) => {
-                                    // Hide sheds picked by other weavers in
-                                    // this shift. Keep this weaver's own
-                                    // current pick visible.
-                                    for (const [otherId, otherShed] of takenByEmp) {
-                                      if (otherId !== emp.id && otherShed === s) {
-                                        return false;
-                                      }
+                                    // Available = not claimed by any OTHER
+                                    // employee (weaver or winder) on this
+                                    // (date, shift). Keep this employee's
+                                    // own current pick visible.
+                                    if (takenForEmp.has(s) && shedByEmp[emp.id] !== s) {
+                                      return false;
                                     }
                                     return true;
                                   }).map((s) => (

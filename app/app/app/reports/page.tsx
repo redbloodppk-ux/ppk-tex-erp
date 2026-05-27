@@ -1,4 +1,5 @@
 import Link from 'next/link';
+
 import { PageHeader } from '@/app/components/page-header';
 import { FileText, ArrowRight } from 'lucide-react';
 
@@ -113,6 +114,13 @@ const REPORTS: ReportLink[] = [
     title: 'Attendance by Role',
     description:
       'Roll-up of attendance by role (weaver / sizer / loader…) for one month with a present-% bar to spot short-staffed roles at a glance.',
+    ready: true,
+  },
+  {
+    href: '/app/reports/shed-running',
+    title: 'Shed Running',
+    description:
+      'Which sheds were running each shift in a week, month or year. Green = at least one weaver present, red = idle, gray = holiday. % uptime per shed.',
     ready: true,
   },
   {

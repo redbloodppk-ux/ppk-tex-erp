@@ -1,4 +1,5 @@
 'use client';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -6,7 +7,7 @@ import {
   LayoutDashboard, Users, Calculator, Package, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
   CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
-  Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar,
+  Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
 } from 'lucide-react';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
@@ -66,6 +67,7 @@ const NAV: NavItem[] = [
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
+  { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/alerts',        label: 'Stale Alerts',       icon: ClockAlert,      group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
