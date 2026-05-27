@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+import { HeaderNavButtons } from './header-nav-buttons';
 
 interface Crumb { label: string; href?: string }
 
@@ -17,6 +18,7 @@ export function PageHeader({
   return (
     <header className="mb-6 flex items-end justify-between flex-wrap gap-3">
       <div>
+        <HeaderNavButtons />
         {crumbs?.length ? (
           <nav className="text-xs text-ink-mute mb-1.5 flex items-center gap-1">
             {crumbs.map((c, i) => (
