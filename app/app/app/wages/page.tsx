@@ -12,13 +12,14 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
+import { DeleteWageButton } from './delete-wage-button';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
 
-type Kind = 'advance' | 'settlement' | 'adjustment';
+type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
 
 interface WageRow {
   id: number;
@@ -32,6 +33,7 @@ interface WageRow {
 }
 
 const KIND_PILL: Record<Kind, string> = {
+  same_day:   'bg-sky-50 text-sky-700',
   advance:    'bg-amber-50 text-amber-700',
   settlement: 'bg-emerald-50 text-emerald-700',
   adjustment: 'bg-slate-100 text-slate-600',
@@ -96,6 +98,7 @@ export default async function WagesPage(): Promise<React.ReactElement> {
               <th className="text-right px-4 py-3">Amount</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Basis</th>
               <th className="text-left px-4 py-3 hidden xl:table-cell">Notes</th>
+              <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -121,10 +124,25 @@ export default async function WagesPage(): Promise<React.ReactElement> {
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-ink-soft">
                   {r.notes ?? '—'}
                 </td>
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <div className="inline-flex items-center gap-1.5">
+                    <Link
+                      href={`/app/wages/${r.id}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+                      title="Edit this wage entry"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </Link>
+                    <DeleteWageButton
+                      id={r.id}
+                      label={`${r.employee?.full_name ?? ''} ${formatRupee(Number(r.amount))}`.trim()}
+                    />
+                  </div>
+                </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No wage entries yet.{' '}
                   <Link href="/app/wages/new" className="text-indigo font-semibold">
                     Add the first one →

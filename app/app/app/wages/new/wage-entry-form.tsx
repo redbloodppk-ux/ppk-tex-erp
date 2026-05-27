@@ -41,8 +41,23 @@ export interface EmployeeOption {
   wage_alloc_basis: 'metres' | 'loom_shifts';
 }
 
+// Optional starting values — when provided, the form switches to "edit"
+// mode and PATCHes the existing wage_entry row instead of inserting a
+// new one.
+export interface InitialEntry {
+  id: number;
+  employee_id: number;
+  pay_date: string;
+  period_start: string;
+  period_end: string;
+  kind: Kind;
+  amount: number;
+  notes: string | null;
+}
+
 interface WageEntryFormProps {
   employees: EmployeeOption[];
+  initial?: InitialEntry;
 }
 
 function todayISO(): string {
@@ -55,19 +70,20 @@ function lastWeekISO(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function WageEntryForm({ employees }: WageEntryFormProps): React.ReactElement {
+export function WageEntryForm({ employees, initial }: WageEntryFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
+  const isEdit = initial != null;
 
   const [employeeId, setEmployeeId] = useState<string>(
-    employees[0] ? String(employees[0].id) : '',
+    initial ? String(initial.employee_id) : employees[0] ? String(employees[0].id) : '',
   );
-  const [payDate, setPayDate] = useState<string>(todayISO());
-  const [periodStart, setPeriodStart] = useState<string>(lastWeekISO());
-  const [periodEnd, setPeriodEnd] = useState<string>(todayISO());
-  const [kind, setKind] = useState<Kind>('settlement');
-  const [amount, setAmount] = useState<string>('');
-  const [notes, setNotes] = useState<string>('');
+  const [payDate, setPayDate] = useState<string>(initial?.pay_date ?? todayISO());
+  const [periodStart, setPeriodStart] = useState<string>(initial?.period_start ?? lastWeekISO());
+  const [periodEnd, setPeriodEnd] = useState<string>(initial?.period_end ?? todayISO());
+  const [kind, setKind] = useState<Kind>(initial?.kind ?? 'settlement');
+  const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
+  const [notes, setNotes] = useState<string>(initial?.notes ?? '');
 
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -276,20 +292,32 @@ export function WageEntryForm({ employees }: WageEntryFormProps): React.ReactEle
     setBusy(true);
     const { data: { user } } = await supabase.auth.getUser();
     // wage_entry was added in migration 031 — types not yet regenerated.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: insErr } = await (supabase as any)
-      .from('wage_entry')
-      .insert([{
-        employee_id: Number(employeeId),
-        pay_date: payDate,
-        period_start: periodStart,
-        period_end: periodEnd,
-        kind,
-        amount: amt,
-        notes: notes.trim() || null,
-        created_by: user?.id ?? null,
-        updated_by: user?.id ?? null,
-      } as never]);
+    const payload = {
+      employee_id: Number(employeeId),
+      pay_date: payDate,
+      period_start: periodStart,
+      period_end: periodEnd,
+      kind,
+      amount: amt,
+      notes: notes.trim() || null,
+      updated_by: user?.id ?? null,
+    };
+
+    let insErr: { message: string } | null = null;
+    if (isEdit && initial) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any)
+        .from('wage_entry')
+        .update(payload as never)
+        .eq('id', initial.id);
+      insErr = error ?? null;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any)
+        .from('wage_entry')
+        .insert([{ ...payload, created_by: user?.id ?? null } as never]);
+      insErr = error ?? null;
+    }
 
     setBusy(false);
 
@@ -503,7 +531,7 @@ export function WageEntryForm({ employees }: WageEntryFormProps): React.ReactEle
       <div className="flex items-center gap-2 pt-2">
         <button type="submit" className="btn-primary" disabled={busy || employees.length === 0}>
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-          Save wage entry
+          {isEdit ? 'Save changes' : 'Save wage entry'}
         </button>
         <button
           type="button"
