@@ -26,6 +26,11 @@ export interface EmployeeFormValues {
   // CORR-T4: per-employee wage allocation basis. Spreads each wage_entry
   // across in-house batches either by metres produced or by loom-shifts.
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
+  // Migration 037: book weekly salary in INR. Used to auto-fill the
+  // wage_entry amount on a "settlement" entry for weekly-basis staff.
+  // Stored as a string in form state for clean controlled-input behaviour;
+  // converted to number (or null) on save.
+  weekly_salary: string;
 }
 
 interface Props {
@@ -68,6 +73,16 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       setBusy(false); setError('ID last-4 must be exactly 4 digits.'); return;
     }
 
+    const ws = values.weekly_salary.trim();
+    let weeklySalary: number | null = null;
+    if (ws !== '') {
+      const parsed = Number(ws);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setBusy(false); setError('Weekly salary must be a non-negative number.'); return;
+      }
+      weeklySalary = parsed;
+    }
+
     const payload = {
       code,
       full_name,
@@ -80,11 +95,15 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       notes:               values.notes.trim() || null,
       attendance_required: values.attendance_required,
       wage_alloc_basis:    values.wage_alloc_basis,
+      weekly_salary:       weeklySalary,
     };
 
+    // weekly_salary added in migration 037 — supabase-js types lag, cast through any.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
     const { error: dbError } = isEdit
-      ? await supabase.from('employee').update(payload as never).eq('id', employeeId as never)
-      : await supabase.from('employee').insert(payload as never);
+      ? await sb.from('employee').update(payload as never).eq('id', employeeId as never)
+      : await sb.from('employee').insert(payload as never);
 
     setBusy(false);
     if (dbError) { setError(dbError.message); return; }
@@ -236,6 +255,26 @@ export function EmployeeForm({ initial, employeeId }: Props) {
             />
             <span className="text-sm">Loom-shifts worked</span>
           </label>
+        </div>
+
+        <div className="pt-2">
+          <label className="label" htmlFor="weekly_salary">Weekly salary (₹)</label>
+          <input
+            id="weekly_salary"
+            type="number"
+            inputMode="decimal"
+            step="1"
+            min="0"
+            value={values.weekly_salary}
+            onChange={(e) => set('weekly_salary', e.target.value)}
+            className="input num max-w-xs"
+            placeholder="e.g. 3500"
+          />
+          <p className="text-[11px] text-ink-mute mt-1">
+            {values.wage_alloc_basis === 'weekly'
+              ? 'Auto-fills the amount on a Weekly settlement wage entry. Leave blank if not yet decided.'
+              : 'Optional — only used for weekly-basis staff. Safe to leave blank for metres / loom-shift employees.'}
+          </p>
         </div>
       </div>
 

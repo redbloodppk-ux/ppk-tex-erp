@@ -15,9 +15,11 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewWagePage(): Promise<React.ReactElement> {
   const supabase = await createClient();
-  const { data } = await supabase
+  // weekly_salary added in migration 037 — supabase-js types lag, cast through any.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
     .from('employee')
-    .select('id, code, full_name, role, wage_alloc_basis, attendance_required')
+    .select('id, code, full_name, role, wage_alloc_basis, attendance_required, weekly_salary')
     .eq('status', 'active')
     .order('full_name');
 

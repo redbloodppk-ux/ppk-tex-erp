@@ -41,9 +41,11 @@ export default async function EditWagePage({ params }: PageProps): Promise<React
   // For edit we don't filter to active employees: the originally-paid employee
   // may have been deactivated since, but they must still appear in the
   // dropdown so the saved row stays valid.
-  const { data: emps } = await supabase
+  // weekly_salary added in migration 037 — supabase-js types lag, cast through any.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: emps } = await (supabase as any)
     .from('employee')
-    .select('id, code, full_name, role, wage_alloc_basis, attendance_required')
+    .select('id, code, full_name, role, wage_alloc_basis, attendance_required, weekly_salary')
     .order('full_name');
 
   const employees = (emps as unknown as EmployeeOption[]) ?? [];

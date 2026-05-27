@@ -45,6 +45,7 @@ export default async function NewEmployeePage() {
     notes:           '',
     attendance_required: true,
     wage_alloc_basis: 'weekly',
+    weekly_salary: '',
   };
 
   return (

@@ -42,6 +42,8 @@ export interface EmployeeOption {
   // Salaried staff and others flagged not-attendance-required skip the
   // attendance/shed lookup entirely on this form.
   attendance_required?: boolean | null;
+  // For weekly-basis employees this auto-fills the amount when kind = settlement.
+  weekly_salary?: number | null;
 }
 
 // Optional starting values — when provided, the form switches to "edit"
@@ -128,18 +130,38 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // pickers to stay enabled.
   const isWeaver = selected?.role.toLowerCase() === 'weaver';
   const isMetreBasis = selected?.wage_alloc_basis === 'metres';
+  // Weekly-basis employees: paid a fixed weekly book salary. Same-day doesn't
+  // apply (they get settled weekly); the amount on a "settlement" auto-fills
+  // from employee.weekly_salary.
+  const isWeekly = selected?.wage_alloc_basis === 'weekly';
   // Salaried / non-attendance employees skip the attendance + shed lookup
   // entirely — they don't have daily marks to read from.
   const attendanceRequired = selected ? selected.attendance_required !== false : true;
   const periodIsRange = isMetreBasis || kind === 'settlement';
 
-  // If the employee changes to a metre-basis weaver while Kind is "same_day",
-  // bump it to settlement so the date range is available.
+  // If the employee changes to a metre-basis weaver or a weekly-basis employee
+  // while Kind is "same_day", bump it to settlement so the date range is
+  // available (metres) or the weekly auto-fill applies (weekly).
   useEffect(() => {
-    if (isMetreBasis && kind === 'same_day') {
+    if ((isMetreBasis || isWeekly) && kind === 'same_day') {
       setKind('settlement');
     }
-  }, [isMetreBasis, kind]);
+  }, [isMetreBasis, isWeekly, kind]);
+
+  // For weekly-basis employees on a settlement entry, prefill the amount from
+  // employee.weekly_salary. Same auto-fill semantics as the metres branch:
+  // never clobber a value the operator typed.
+  useEffect(() => {
+    if (!isWeekly) return;
+    if (kind !== 'settlement') return;
+    const ws = selected?.weekly_salary;
+    if (ws == null) return;
+    if (amount === '' || autoFilledRef.current) {
+      setAmount(String(ws));
+      autoFilledRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWeekly, kind, selected]);
 
   // For non-range kinds (advance / adjustment / same_day) the period collapses
   // to a single day = pay_date. Metre-basis weavers always keep the range.
@@ -405,15 +427,16 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             value={kind}
             onChange={(e) => setKind(e.target.value as Kind)}
           >
-            {!isMetreBasis && <option value="same_day">Same day</option>}
+            {!isMetreBasis && !isWeekly && <option value="same_day">Same day</option>}
             <option value="settlement">Weekly settlement</option>
             <option value="advance">Advance</option>
             <option value="adjustment">Adjustment</option>
           </select>
-          {isMetreBasis && (
+          {(isMetreBasis || isWeekly) && (
             <p className="text-[11px] text-ink-mute mt-1">
-              Metre-basis weavers are paid against a date range — Same day is
-              not available.
+              {isMetreBasis
+                ? 'Metre-basis weavers are paid against a date range — Same day is not available.'
+                : 'Weekly-basis staff are paid a fixed weekly book salary — Same day is not available.'}
             </p>
           )}
         </div>

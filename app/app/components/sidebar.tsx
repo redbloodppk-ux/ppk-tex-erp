@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, Calculator, Package, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
   CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
-  Factory, X, Disc3, Layers, Warehouse, Gauge,
+  Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar,
 } from 'lucide-react';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
@@ -61,6 +61,7 @@ const NAV: NavItem[] = [
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'people',     roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
+  { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'people',     roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',      label: 'Expenses',           icon: Wallet,          group: 'people',     roles: ['owner','accounts','auditor'] },
 
   // Insights
