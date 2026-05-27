@@ -23,7 +23,7 @@ export function HeaderNavButtons(): React.ReactElement {
         <ArrowLeft className="w-3.5 h-3.5" /> Back
       </button>
       <Link
-        href="/app"
+        href="/app/dashboard"
         className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-soft hover:bg-haze/60"
         aria-label="Go to home"
         title="Home"
