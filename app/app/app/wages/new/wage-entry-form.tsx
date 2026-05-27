@@ -67,9 +67,21 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function lastWeekISO(): string {
+function currentWeekMondayISO(): string {
+  // ISO week: Monday = start of week.
   const d = new Date();
-  d.setDate(d.getDate() - 6);
+  const day = d.getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+  const offset = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function currentWeekSundayISO(): string {
+  // ISO week ends on Sunday.
+  const d = new Date();
+  const day = d.getDay();
+  const offset = day === 0 ? 0 : 7 - day;
+  d.setDate(d.getDate() + offset);
   return d.toISOString().slice(0, 10);
 }
 
@@ -82,8 +94,8 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     initial ? String(initial.employee_id) : employees[0] ? String(employees[0].id) : '',
   );
   const [payDate, setPayDate] = useState<string>(initial?.pay_date ?? todayISO());
-  const [periodStart, setPeriodStart] = useState<string>(initial?.period_start ?? lastWeekISO());
-  const [periodEnd, setPeriodEnd] = useState<string>(initial?.period_end ?? todayISO());
+  const [periodStart, setPeriodStart] = useState<string>(initial?.period_start ?? currentWeekMondayISO());
+  const [periodEnd, setPeriodEnd] = useState<string>(initial?.period_end ?? currentWeekSundayISO());
   const [kind, setKind] = useState<Kind>(initial?.kind ?? 'settlement');
   const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
   const [notes, setNotes] = useState<string>(initial?.notes ?? '');
@@ -537,46 +549,4 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
                     </Link>
                   </span>
                 ) : (
-                  <span className="font-medium">{ctx.sheds.join(', ')}</span>
-                )}
-              </div>
-              )}
-              {ctx.autoAmount != null && (
-                <div className="pt-1 text-emerald-700">
-                  Auto-filled amount: ₹
-                  <span className="font-semibold num">{ctx.autoAmount.toFixed(2)}</span>
-                  {ctx.autoAmountNote && (
-                    <span className="block text-[11px] text-ink-mute pt-0.5">
-                      {ctx.autoAmountNote} You can override the amount above.
-                    </span>
-                  )}
-                </div>
-              )}
-              <p className="text-[11px] text-ink-mute pt-0.5">
-                This is read-only. The pro-rata allocation runs automatically
-                from this period and the employee&apos;s basis.
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {error && <p className="text-sm text-err">{error}</p>}
-
-      <div className="flex items-center gap-2 pt-2">
-        <button type="submit" className="btn-primary" disabled={busy || employees.length === 0}>
-          {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-          {isEdit ? 'Save changes' : 'Save wage entry'}
-        </button>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => router.push('/app/wages')}
-          disabled={busy}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
+     

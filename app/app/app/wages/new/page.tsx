@@ -29,7 +29,4 @@ export default async function NewWagePage(): Promise<React.ReactElement> {
         title="New Wage Entry"
         crumbs={[{ label: 'Wages', href: '/app/wages' }, { label: 'New' }]}
       />
-      <WageEntryForm employees={employees} />
-    </div>
-  );
-}
+      <WageEntryForm employees={employees} 

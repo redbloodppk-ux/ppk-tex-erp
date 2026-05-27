@@ -2,45 +2,20 @@
 /**
  * ExpenseEntryForm — single expense_entry row entry.
  *
- * Categories: spares / carpenter / electrical / knotting / auto / office /
- * others. Each entry is allocated pro-rata by metres across in-house batches
- * whose production window overlaps period_start..period_end.
+ * Category list is now managed in Settings → Expense Categories. Each
+ * entry is allocated pro-rata by metres across in-house batches whose
+ * production window covers the pay_date.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 
-export type ExpenseCategory =
-  | 'spares'
-  | 'carpenter'
-  | 'electrical'
-  | 'knotting'
-  | 'auto'
-  | 'office'
-  | 'others';
-
-export const EXPENSE_CATEGORIES: ReadonlyArray<{
-  value: ExpenseCategory;
-  label: string;
-}> = [
-  { value: 'spares',     label: 'Spares' },
-  { value: 'carpenter',  label: 'Carpenter' },
-  { value: 'electrical', label: 'Electrical' },
-  { value: 'knotting',   label: 'Knotting' },
-  { value: 'auto',       label: 'Auto' },
-  { value: 'office',     label: 'Office' },
-  { value: 'others',     label: 'Others' },
-];
-
 export interface InitialExpense {
   id: number;
-  category: ExpenseCategory;
-  title: string;
+  category: string;
   amount: number;
   pay_date: string;
-  period_start: string;
-  period_end: string;
   notes: string | null;
 }
 
@@ -48,14 +23,13 @@ interface ExpenseEntryFormProps {
   initial?: InitialExpense;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+interface CategoryOption {
+  id: number;
+  name: string;
 }
 
-function lastWeekISO(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 6);
-  return d.toISOString().slice(0, 10);
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.ReactElement {
@@ -63,33 +37,61 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
   const supabase = createClient();
   const isEdit = initial != null;
 
-  const [category, setCategory] = useState<ExpenseCategory>(initial?.category ?? 'spares');
-  const [title, setTitle] = useState<string>(initial?.title ?? '');
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [catLoading, setCatLoading] = useState<boolean>(true);
+  const [category, setCategory] = useState<string>(initial?.category ?? '');
   const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
   const [payDate, setPayDate] = useState<string>(initial?.pay_date ?? todayISO());
-  const [periodStart, setPeriodStart] = useState<string>(initial?.period_start ?? lastWeekISO());
-  const [periodEnd, setPeriodEnd] = useState<string>(initial?.period_end ?? todayISO());
   const [notes, setNotes] = useState<string>(initial?.notes ?? '');
 
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error: dbErr } = await (supabase as any)
+        .from('expense_category')
+        .select('id, name, is_active')
+        .eq('is_active', true)
+        .order('name');
+      if (cancelled) return;
+      if (dbErr) {
+        setError(dbErr.message);
+      } else {
+        const list = ((data ?? []) as Array<{ id: number; name: string }>).map(
+          (r) => ({ id: r.id, name: r.name }),
+        );
+        // If editing an inactive category, make sure it still shows up.
+        if (initial && !list.some((c) => c.name === initial.category)) {
+          list.unshift({ id: -1, name: initial.category });
+        }
+        setCategories(list);
+        if (!initial && list.length > 0 && !category) {
+          setCategory(list[0].name);
+        }
+      }
+      setCatLoading(false);
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase]);
+
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
 
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      setError('Title is required — e.g. "Beam bearing replacement" or "Loom-3 belt".');
+    if (!category) {
+      setError('Please choose a category. Add one in Settings → Expense Categories if the list is empty.');
       return;
     }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt < 0) {
       setError('Amount must be a non-negative number.');
-      return;
-    }
-    if (periodEnd < periodStart) {
-      setError('Period end cannot be before period start.');
       return;
     }
 
@@ -99,11 +101,8 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
     } = await supabase.auth.getUser();
     const payload = {
       category,
-      title: trimmedTitle,
       amount: amt,
       pay_date: payDate,
-      period_start: periodStart,
-      period_end: periodEnd,
       notes: notes.trim() || null,
       updated_by: user?.id ?? null,
     };
@@ -143,15 +142,25 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
             id="category"
             className="input"
             value={category}
-            onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+            onChange={(e) => setCategory(e.target.value)}
             required
+            disabled={catLoading}
           >
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
+            {catLoading ? (
+              <option value="">Loading…</option>
+            ) : categories.length === 0 ? (
+              <option value="">No categories — add one in Settings</option>
+            ) : (
+              categories.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {c.name}
+                </option>
+              ))
+            )}
           </select>
+          <p className="text-[11px] text-ink-mute mt-1">
+            Manage this list in <a className="underline" href="/app/settings/expense-categories">Settings → Expense Categories</a>.
+          </p>
         </div>
         <div>
           <label className="label" htmlFor="amount">Amount (₹)</label>
@@ -170,61 +179,20 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
       </div>
 
       <div>
-        <label className="label" htmlFor="title">Title</label>
+        <label className="label" htmlFor="payDate">Pay date</label>
         <input
-          id="title"
-          type="text"
+          id="payDate"
+          type="date"
           className="input"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Beam bearing replacement, electrician visit, office stationery"
+          value={payDate}
+          onChange={(e) => setPayDate(e.target.value)}
           required
         />
         <p className="text-[11px] text-ink-mute mt-1">
-          A short description of what was paid for. There&apos;s no payee /
-          vendor field — this title is the only label on reports.
+          The amount is spread pro-rata by metres across in-house batches whose
+          production window includes this pay date.
         </p>
       </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="label" htmlFor="payDate">Pay date</label>
-          <input
-            id="payDate"
-            type="date"
-            className="input"
-            value={payDate}
-            onChange={(e) => setPayDate(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="periodStart">Period start</label>
-          <input
-            id="periodStart"
-            type="date"
-            className="input"
-            value={periodStart}
-            onChange={(e) => setPeriodStart(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="periodEnd">Period end</label>
-          <input
-            id="periodEnd"
-            type="date"
-            className="input"
-            value={periodEnd}
-            onChange={(e) => setPeriodEnd(e.target.value)}
-            required
-          />
-        </div>
-      </div>
-      <p className="text-[11px] text-ink-mute -mt-2">
-        The amount is spread pro-rata by metres across in-house batches whose
-        production window overlaps Period start → Period end.
-      </p>
 
       <div>
         <label className="label" htmlFor="notes">Notes (optional)</label>

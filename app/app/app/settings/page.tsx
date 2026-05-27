@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { ChevronRight, Settings2, Factory } from 'lucide-react';
+import { ChevronRight, Settings2, Factory, Wallet } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
 import { CostingDefaults } from './costing-defaults';
 
@@ -96,6 +96,28 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
+      {/* Expense categories */}
+      <div className="card p-5">
+        <h2 className="font-display font-bold text-base mb-3">Expenses</h2>
+        <Link
+          href="/app/settings/expense-categories"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Expense Categories</div>
+              <div className="text-xs text-ink-soft">
+                Manage the category list shown on the Expenses entry form — add new ones, rename, or mark inactive.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
+      </div>
+
       {/* Shift settings */}
       <div className="card p-5">
         <h2 className="font-display font-bold text-base mb-3">Shift settings</h2>
@@ -137,28 +159,3 @@ export default async function SettingsPage() {
             <tr>
               <th className="text-left py-2">Name</th>
               <th className="text-left">Email</th>
-              <th className="text-left">Role</th>
-              <th className="text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users?.length ? users.map((u: any) => (
-              <tr key={u.id} className="border-b border-line/40 last:border-0">
-                <td className="py-2.5 font-semibold">{u.full_name}</td>
-                <td className="text-xs text-ink-soft">{u.email}</td>
-                <td className="text-xs uppercase">{u.role.replace(/_/g, ' ')}</td>
-                <td className="text-right">
-                  <span className={`pill ${u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {u.is_active ? 'active' : 'inactive'}
-                  </span>
-                </td>
-              </tr>
-            )) : (
-              <tr><td colSpan={4} className="py-6 text-center text-ink-soft text-sm">No users yet.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
