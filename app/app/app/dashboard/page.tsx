@@ -31,7 +31,7 @@ export default async function DashboardPage() {
     supabase.from('v_yarn_days_of_cover').select('yarn_count_code, days_of_cover, on_hand_kg').lte('days_of_cover', 14).order('days_of_cover', { ascending: true }).limit(5),
     supabase.from('sales_order').select('doc_no, customer_name, total_amount, status, order_date').order('order_date', { ascending: false }).limit(5),
     supabase.from('invoice').select('doc_no, customer_name, total_amount, status, invoice_date').order('invoice_date', { ascending: false }).limit(5),
-    supabase.from('v_loom_shift_utilisation').select('loom_code, shift_count, total_metres, avg_metres_per_shift, uptime_pct, last_log_date').order('loom_code'),
+    supabase.from('v_loom_shift_utilisation').select('loom_code, shift_count, total_metres, avg_metres_per_shift, last_log_date').order('loom_code'),
   ]);
 
   const loggedLooms = (loomUtil ?? []).filter((r: any) => Number(r.shift_count ?? 0) > 0);
@@ -142,7 +142,7 @@ export default async function DashboardPage() {
         {!loggedLooms.length ? (
           <EmptyHint
             icon={Factory}
-            text="No shifts logged yet - record loom output to see uptime here."
+            text="No shifts logged yet - record loom output to see metres here."
             href="/app/production/shift-log"
             cta="Log a Shift"
           />
@@ -154,31 +154,19 @@ export default async function DashboardPage() {
                 <th className="text-right">Shifts</th>
                 <th className="text-right">Metres / Shift</th>
                 <th className="text-right">Total Metres</th>
-                <th className="text-right">Uptime</th>
               </tr>
             </thead>
             <tbody>
-              {loggedLooms.map((l: any) => {
-                const up = l.uptime_pct == null ? null : Number(l.uptime_pct);
-                const upTone =
-                  up == null ? 'text-ink-soft'
-                  : up >= 90 ? 'text-emerald-600'
-                  : up >= 75 ? 'text-amber-600'
-                  : 'text-rose-600';
-                return (
-                  <tr key={l.loom_code} className="border-b border-line/40 last:border-0">
-                    <td className="py-2.5 font-mono text-xs">{l.loom_code}</td>
-                    <td className="text-right num">{l.shift_count}</td>
-                    <td className="text-right num">
-                      {l.avg_metres_per_shift == null ? '-' : formatMetres(l.avg_metres_per_shift)}
-                    </td>
-                    <td className="text-right num">{formatMetres(l.total_metres)}</td>
-                    <td className={`text-right num font-semibold ${upTone}`}>
-                      {up == null ? '-' : `${up.toFixed(1)}%`}
-                    </td>
-                  </tr>
-                );
-              })}
+              {loggedLooms.map((l: any) => (
+                <tr key={l.loom_code} className="border-b border-line/40 last:border-0">
+                  <td className="py-2.5 font-mono text-xs">{l.loom_code}</td>
+                  <td className="text-right num">{l.shift_count}</td>
+                  <td className="text-right num">
+                    {l.avg_metres_per_shift == null ? '-' : formatMetres(l.avg_metres_per_shift)}
+                  </td>
+                  <td className="text-right num">{formatMetres(l.total_metres)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

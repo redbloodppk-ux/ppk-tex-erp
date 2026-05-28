@@ -2659,47 +2659,35 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
-          downtime_minutes: number
-          downtime_reason: string | null
           id: number
           log_date: string
           loom_id: number
-          metres_woven: number
           notes: string | null
           shift: string
           updated_at: string
           updated_by: string | null
-          weaver_name: string | null
         }
         Insert: {
           created_at?: string
           created_by?: string | null
-          downtime_minutes?: number
-          downtime_reason?: string | null
           id?: number
           log_date?: string
           loom_id: number
-          metres_woven?: number
           notes?: string | null
           shift: string
           updated_at?: string
           updated_by?: string | null
-          weaver_name?: string | null
         }
         Update: {
           created_at?: string
           created_by?: string | null
-          downtime_minutes?: number
-          downtime_reason?: string | null
           id?: number
           log_date?: string
           loom_id?: number
-          metres_woven?: number
           notes?: string | null
           shift?: string
           updated_at?: string
           updated_by?: string | null
-          weaver_name?: string | null
         }
         Relationships: [
           {
@@ -2735,6 +2723,48 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      production_shift_log_weaver: {
+        Row: {
+          created_at: string
+          employee_id: number
+          id: number
+          metres_woven: number
+          position: number
+          shift_log_id: number
+        }
+        Insert: {
+          created_at?: string
+          employee_id: number
+          id?: number
+          metres_woven?: number
+          position?: number
+          shift_log_id: number
+        }
+        Update: {
+          created_at?: string
+          employee_id?: number
+          id?: number
+          metres_woven?: number
+          position?: number
+          shift_log_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_shift_log_weaver_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_shift_log_weaver_shift_log_id_fkey"
+            columns: ["shift_log_id"]
+            isOneToOne: false
+            referencedRelation: "production_shift_log"
             referencedColumns: ["id"]
           },
         ]
@@ -4090,17 +4120,13 @@ export type Database = {
       v_loom_shift_utilisation: {
         Row: {
           avg_metres_per_shift: number | null
-          capacity_min: number | null
           last_log_date: string | null
           loom_code: string | null
           loom_id: number | null
           loom_type: string | null
-          runtime_min: number | null
           shift_count: number | null
           status: string | null
-          total_downtime_min: number | null
           total_metres: number | null
-          uptime_pct: number | null
         }
         Relationships: []
       }
