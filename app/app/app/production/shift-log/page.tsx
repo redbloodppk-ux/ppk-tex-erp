@@ -4,15 +4,20 @@
  *
  * Flow:
  *   1. Pick a date (default today) and a shift (day / night).
- *   2. Looms are split across 4 shed tabs. For each loom you can list one or
- *      more weavers, each with the metres THEY personally wove on that loom
- *      this shift. The "Total" cell sums the weaver metres for that loom.
- *   3. Default is 2 weaver slots per loom; press "+ Add weaver" on a row to
- *      add more (no fixed cap).
+ *   2. The looms are split across 4 shed tabs. Each shed has a row of
+ *      "global" weaver slots at the top — pick weaver 1, weaver 2, ... once
+ *      and that picks the weaver for every loom in the shed at that slot.
+ *      Press "+ Add weaver" on a shed to add more global slots.
+ *   3. Each loom row below just shows a metres input per global slot — fill
+ *      in metres only on the looms each weaver actually wove on; leave
+ *      blank for the rest.
  *   4. One Save writes every loom row across all sheds for that date + shift.
  *
- * Rows where no weaver was picked are skipped on save. Existing rows for the
- * chosen date + shift are loaded so edits overwrite them.
+ * Validation:
+ *   - If a metres value is entered for a slot but no weaver is picked for
+ *     that slot in the shed, save is blocked with a clear message.
+ *   - Blank metres on a (weaver, loom) pair are silently skipped — we only
+ *     persist actual woven entries.
  *
  * Schema (after migration 041):
  *   production_shift_log         — one row per (date, shift, loom)
@@ -22,7 +27,7 @@
  * The Night shift is only offered when the `shift_log_night_enabled` setting
  * is on (Settings -> Shift settings).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Save, CheckCircle2, Plus, X } from 'lucide-react';
@@ -46,17 +51,21 @@ interface WeaverOption {
   full_name: string;
 }
 
-interface WeaverEntry {
-  employee_id: string;
-  metres: string;
+/** Shed-level state: one weaver per slot (employee_id), plus per-loom metres. */
+interface ShedState {
+  shed_no: number;
+  /** Global weaver picks, indexed by slot. Empty string = not picked. */
+  weavers: string[];
+  /** Per-loom metres input; metres[loomIdx][slotIdx] is the value. */
+  loomRows: LoomRow[];
 }
 
-interface RowState {
+interface LoomRow {
   loom_id: number;
   loom_code: string;
   loom_type: string;
-  shed_no: number | null;
-  weavers: WeaverEntry[];
+  /** Aligned with the shed's weavers array. metres[i] = metres for slot i. */
+  metres: string[];
 }
 
 const SHEDS = [1, 2, 3, 4] as const;
@@ -64,31 +73,32 @@ const DEFAULT_WEAVER_SLOTS = 2;
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
-function blankWeaver(): WeaverEntry {
-  return { employee_id: '', metres: '' };
-}
-
-function blankRow(loom: Loom): RowState {
+function emptyShed(shedNo: number, looms: Loom[]): ShedState {
   return {
-    loom_id: loom.id,
-    loom_code: loom.loom_code,
-    loom_type: loom.loom_type,
-    shed_no: loom.shed_no,
-    weavers: Array.from({ length: DEFAULT_WEAVER_SLOTS }, blankWeaver),
+    shed_no: shedNo,
+    weavers: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
+    loomRows: looms.map((l) => ({
+      loom_id: l.id,
+      loom_code: l.loom_code,
+      loom_type: l.loom_type,
+      metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
+    })),
   };
 }
 
-function rowTotal(r: RowState): number {
-  return r.weavers.reduce((sum, w) => {
-    const n = Number(w.metres);
-    return sum + (Number.isFinite(n) && n > 0 ? n : 0);
-  }, 0);
+function parseMetres(v: string): number {
+  const t = v.trim();
+  if (t === '') return 0;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function isRowBlank(r: RowState): boolean {
-  return r.weavers.every(
-    (w) => w.employee_id === '' && w.metres.trim() === '',
-  );
+function loomTotal(row: LoomRow): number {
+  return row.metres.reduce((s, m) => s + parseMetres(m), 0);
+}
+
+function shedTotal(s: ShedState): number {
+  return s.loomRows.reduce((sum, r) => sum + loomTotal(r), 0);
 }
 
 export default function ShiftLogPage(): React.ReactElement {
@@ -101,7 +111,7 @@ export default function ShiftLogPage(): React.ReactElement {
 
   const [looms, setLooms] = useState<Loom[]>([]);
   const [weaverOptions, setWeaverOptions] = useState<WeaverOption[]>([]);
-  const [rows, setRows] = useState<RowState[]>([]);
+  const [sheds, setSheds] = useState<ShedState[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -151,6 +161,18 @@ export default function ShiftLogPage(): React.ReactElement {
     };
   }, [supabase]);
 
+  // Group looms by shed once they load.
+  const loomsByShed = useMemo(() => {
+    const map = new Map<number, Loom[]>();
+    for (const s of SHEDS) map.set(s, []);
+    for (const l of looms) {
+      const n = l.shed_no ?? 0;
+      if (!map.has(n)) continue;
+      map.get(n)!.push(l);
+    }
+    return map;
+  }, [looms]);
+
   // Load existing entries whenever date / shift / loom list changes.
   const loadEntries = useCallback(async () => {
     if (looms.length === 0) return;
@@ -195,73 +217,149 @@ export default function ShiftLogPage(): React.ReactElement {
     const loomByParent = new Map<number, number>();
     for (const p of parents ?? []) loomByParent.set(p.id, p.loom_id);
 
-    const weaversByLoom = new Map<number, WeaverEntry[]>();
+    // Per loom: map of position -> { employee_id, metres }
+    const perLoom = new Map<number, Map<number, { employee_id: number; metres: number }>>();
     for (const k of kids) {
       const loomId = loomByParent.get(k.shift_log_id);
       if (loomId == null) continue;
-      const arr = weaversByLoom.get(loomId) ?? [];
-      arr.push({
-        employee_id: String(k.employee_id),
-        metres: String(k.metres_woven ?? ''),
-      });
-      weaversByLoom.set(loomId, arr);
+      const lm = perLoom.get(loomId) ?? new Map();
+      lm.set(k.position, { employee_id: k.employee_id, metres: Number(k.metres_woven ?? 0) });
+      perLoom.set(loomId, lm);
     }
 
-    setRows(
-      looms.map((loom) => {
-        const existing = weaversByLoom.get(loom.id);
-        if (!existing || existing.length === 0) return blankRow(loom);
-        const slots: WeaverEntry[] = [...existing];
-        while (slots.length < DEFAULT_WEAVER_SLOTS) slots.push(blankWeaver());
+    // For each shed, find the global weaver slots by taking the union of
+    // (position, employee_id) pairs across that shed's looms. We pick the
+    // most common employee at each position; ties broken by lowest id.
+    const next: ShedState[] = SHEDS.map((shedNo) => {
+      const shedLooms = loomsByShed.get(shedNo) ?? [];
+      // position -> Map<employee_id, count>
+      const tally = new Map<number, Map<number, number>>();
+      for (const l of shedLooms) {
+        const lm = perLoom.get(l.id);
+        if (!lm) continue;
+        for (const [pos, v] of lm.entries()) {
+          const t = tally.get(pos) ?? new Map<number, number>();
+          t.set(v.employee_id, (t.get(v.employee_id) ?? 0) + 1);
+          tally.set(pos, t);
+        }
+      }
+
+      // Build the global slot list in position order (1, 2, 3, ...).
+      const positions = [...tally.keys()].sort((a, b) => a - b);
+      const weavers: string[] = [];
+      for (const pos of positions) {
+        const t = tally.get(pos)!;
+        let bestId = 0;
+        let bestCount = -1;
+        for (const [empId, count] of t.entries()) {
+          if (count > bestCount || (count === bestCount && empId < bestId)) {
+            bestId = empId;
+            bestCount = count;
+          }
+        }
+        // Slot index is positions index, so we just push in order.
+        weavers.push(bestId > 0 ? String(bestId) : '');
+      }
+      while (weavers.length < DEFAULT_WEAVER_SLOTS) weavers.push('');
+
+      // Build per-loom metres aligned with the slot list (by position).
+      const slotCount = weavers.length;
+      const loomRows: LoomRow[] = shedLooms.map((l) => {
+        const metres = Array.from({ length: slotCount }, () => '');
+        const lm = perLoom.get(l.id);
+        if (lm) {
+          positions.forEach((pos, slotIdx) => {
+            const v = lm.get(pos);
+            if (v && v.metres > 0) metres[slotIdx] = String(v.metres);
+          });
+        }
         return {
-          loom_id: loom.id,
-          loom_code: loom.loom_code,
-          loom_type: loom.loom_type,
-          shed_no: loom.shed_no,
-          weavers: slots,
+          loom_id: l.id,
+          loom_code: l.loom_code,
+          loom_type: l.loom_type,
+          metres,
         };
-      }),
-    );
+      });
+
+      return { shed_no: shedNo, weavers, loomRows };
+    });
+
+    setSheds(next);
     setLoading(false);
-  }, [supabase, looms, logDate, shift]);
+  }, [supabase, looms, logDate, shift, loomsByShed]);
 
   useEffect(() => {
     void loadEntries();
   }, [loadEntries]);
 
-  function updateWeaver(
-    loomId: number,
-    idx: number,
-    patch: Partial<WeaverEntry>,
-  ): void {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.loom_id !== loomId) return r;
-        const next = r.weavers.map((w, i) => (i === idx ? { ...w, ...patch } : w));
-        return { ...r, weavers: next };
+  function updateShedWeaver(shedNo: number, slotIdx: number, employee_id: string): void {
+    setSheds((prev) =>
+      prev.map((s) => {
+        if (s.shed_no !== shedNo) return s;
+        const weavers = s.weavers.map((w, i) => (i === slotIdx ? employee_id : w));
+        return { ...s, weavers };
       }),
     );
     setSavedMsg(null);
   }
 
-  function addWeaverSlot(loomId: number): void {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.loom_id === loomId ? { ...r, weavers: [...r.weavers, blankWeaver()] } : r,
-      ),
+  function updateLoomMetres(
+    shedNo: number,
+    loomId: number,
+    slotIdx: number,
+    value: string,
+  ): void {
+    setSheds((prev) =>
+      prev.map((s) => {
+        if (s.shed_no !== shedNo) return s;
+        const loomRows = s.loomRows.map((r) => {
+          if (r.loom_id !== loomId) return r;
+          const metres = r.metres.map((m, i) => (i === slotIdx ? value : m));
+          return { ...r, metres };
+        });
+        return { ...s, loomRows };
+      }),
     );
     setSavedMsg(null);
   }
 
-  function removeWeaverSlot(loomId: number, idx: number): void {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.loom_id !== loomId) return r;
-        if (r.weavers.length <= DEFAULT_WEAVER_SLOTS) {
-          const next = r.weavers.map((w, i) => (i === idx ? blankWeaver() : w));
-          return { ...r, weavers: next };
+  function addShedSlot(shedNo: number): void {
+    setSheds((prev) =>
+      prev.map((s) => {
+        if (s.shed_no !== shedNo) return s;
+        return {
+          ...s,
+          weavers: [...s.weavers, ''],
+          loomRows: s.loomRows.map((r) => ({ ...r, metres: [...r.metres, ''] })),
+        };
+      }),
+    );
+    setSavedMsg(null);
+  }
+
+  function removeShedSlot(shedNo: number, slotIdx: number): void {
+    setSheds((prev) =>
+      prev.map((s) => {
+        if (s.shed_no !== shedNo) return s;
+        // Never drop below 1 slot.
+        if (s.weavers.length <= 1) {
+          return {
+            ...s,
+            weavers: s.weavers.map((w, i) => (i === slotIdx ? '' : w)),
+            loomRows: s.loomRows.map((r) => ({
+              ...r,
+              metres: r.metres.map((m, i) => (i === slotIdx ? '' : m)),
+            })),
+          };
         }
-        return { ...r, weavers: r.weavers.filter((_, i) => i !== idx) };
+        return {
+          ...s,
+          weavers: s.weavers.filter((_, i) => i !== slotIdx),
+          loomRows: s.loomRows.map((r) => ({
+            ...r,
+            metres: r.metres.filter((_, i) => i !== slotIdx),
+          })),
+        };
       }),
     );
     setSavedMsg(null);
@@ -271,59 +369,94 @@ export default function ShiftLogPage(): React.ReactElement {
     setError(null);
     setSavedMsg(null);
 
+    // Build the save payload: parent rows + child weaver rows.
     const parentsToSave: ShiftLogInsert[] = [];
     const childrenByLoom = new Map<number, ShiftLogWeaverInsert[]>();
 
-    for (const r of rows) {
-      if (isRowBlank(r)) continue;
-
-      const picked = r.weavers
-        .map((w, i) => ({ w, i }))
-        .filter(({ w }) => w.employee_id !== '');
-
-      if (picked.length === 0) {
-        setError(`Loom ${r.loom_code}: pick at least one weaver, or clear the row.`);
+    for (const s of sheds) {
+      // Reject duplicate weavers in the same shed (UNIQUE constraint would
+      // otherwise hit it at insert time).
+      const picked = s.weavers.filter((w) => w !== '');
+      if (new Set(picked).size !== picked.length) {
+        setError(`Shed ${s.shed_no}: the same weaver is picked in two slots.`);
         return;
       }
 
-      const ids = picked.map(({ w }) => w.employee_id);
-      if (new Set(ids).size !== ids.length) {
-        setError(`Loom ${r.loom_code}: the same weaver is listed twice.`);
-        return;
-      }
-
-      const children: ShiftLogWeaverInsert[] = [];
-      for (let pos = 0; pos < picked.length; pos++) {
-        const cur = picked[pos];
-        if (!cur) continue;
-        const { w } = cur;
-        const m = w.metres.trim() === '' ? 0 : Number(w.metres);
-        if (!Number.isFinite(m) || m < 0) {
-          setError(`Loom ${r.loom_code}: metres must be 0 or more for every weaver.`);
+      // Validate: any column with metres > 0 must have a weaver picked.
+      for (let slotIdx = 0; slotIdx < s.weavers.length; slotIdx++) {
+        const empId = s.weavers[slotIdx];
+        const hasMetres = s.loomRows.some((r) => parseMetres(r.metres[slotIdx] ?? '') > 0);
+        if (hasMetres && (empId == null || empId === '')) {
+          setError(
+            `Shed ${s.shed_no} weaver ${slotIdx + 1}: pick a name or clear the metres in that column.`,
+          );
           return;
         }
-        children.push({
-          shift_log_id: 0,
-          employee_id: Number(w.employee_id),
-          position: pos + 1,
-          metres_woven: m,
-        });
       }
 
-      parentsToSave.push({
-        log_date: logDate,
-        shift,
-        loom_id: r.loom_id,
-      });
-      childrenByLoom.set(r.loom_id, children);
+      // Build child rows for this shed.
+      for (const r of s.loomRows) {
+        const children: ShiftLogWeaverInsert[] = [];
+        for (let slotIdx = 0; slotIdx < s.weavers.length; slotIdx++) {
+          const empId = s.weavers[slotIdx];
+          if (empId == null || empId === '') continue;
+          const m = parseMetres(r.metres[slotIdx] ?? '');
+          if (m <= 0) continue;
+          children.push({
+            shift_log_id: 0,
+            employee_id: Number(empId),
+            position: slotIdx + 1,
+            metres_woven: m,
+          });
+        }
+        if (children.length > 0) {
+          parentsToSave.push({
+            log_date: logDate,
+            shift,
+            loom_id: r.loom_id,
+          });
+          childrenByLoom.set(r.loom_id, children);
+        }
+      }
     }
 
     if (parentsToSave.length === 0) {
-      setError('Nothing to save - pick at least one weaver on any loom.');
+      setError('Nothing to save - enter metres for at least one loom + weaver.');
       return;
     }
 
     setSaving(true);
+
+    // Pre-fetch existing parent ids for the (date, shift) so we can delete
+    // looms that the user emptied since the last save.
+    const { data: existing, error: existErr } = await supabase
+      .from('production_shift_log')
+      .select('id, loom_id')
+      .eq('log_date', logDate)
+      .eq('shift', shift);
+
+    if (existErr) {
+      setSaving(false);
+      setError(existErr.message);
+      return;
+    }
+
+    const keepLoomIds = new Set(parentsToSave.map((p) => p.loom_id));
+    const toDeleteParentIds = (existing ?? [])
+      .filter((p) => !keepLoomIds.has(p.loom_id))
+      .map((p) => p.id);
+
+    if (toDeleteParentIds.length > 0) {
+      const { error: delParentErr } = await supabase
+        .from('production_shift_log')
+        .delete()
+        .in('id', toDeleteParentIds);
+      if (delParentErr) {
+        setSaving(false);
+        setError(delParentErr.message);
+        return;
+      }
+    }
 
     const { data: upserted, error: upErr } = await supabase
       .from('production_shift_log')
@@ -373,19 +506,17 @@ export default function ShiftLogPage(): React.ReactElement {
     setSaving(false);
     setSavedMsg(
       `Saved ${parentsToSave.length} loom row${parentsToSave.length === 1 ? '' : 's'} ` +
-        `with ${childRows.length} weaver assignment${childRows.length === 1 ? '' : 's'}.`,
+        `with ${childRows.length} weaver entr${childRows.length === 1 ? 'y' : 'ies'}.`,
     );
   }
 
-  const visibleRows = rows.filter((r) => (r.shed_no ?? 0) === activeShed);
-
-  const shedTotal = visibleRows.reduce((sum, r) => sum + rowTotal(r), 0);
+  const activeShedState = sheds.find((s) => s.shed_no === activeShed) ?? null;
 
   return (
     <div>
       <PageHeader
         title="Shift Production Log"
-        subtitle="Record per-weaver metres for each loom and shift."
+        subtitle="Pick weavers once per shed; fill metres only on the looms each wove."
         crumbs={[
           { label: 'Production', href: '/app/production' },
           { label: 'Shift Log' },
@@ -432,7 +563,8 @@ export default function ShiftLogPage(): React.ReactElement {
 
         <div className="flex flex-wrap gap-1 border-b border-line/60">
           {SHEDS.map((s) => {
-            const count = rows.filter((r) => (r.shed_no ?? 0) === s).length;
+            const st = sheds.find((sh) => sh.shed_no === s);
+            const count = st ? st.loomRows.length : 0;
             return (
               <button
                 key={s}
@@ -465,119 +597,19 @@ export default function ShiftLogPage(): React.ReactElement {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading looms...
           </div>
+        ) : !activeShedState || activeShedState.loomRows.length === 0 ? (
+          <p className="py-8 text-center text-ink-soft">No looms in Shed {activeShed}.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line/60 text-left text-ink-mute">
-                  <th className="py-2 pr-3">Loom</th>
-                  <th className="py-2 pr-3">Weavers (name + metres)</th>
-                  <th className="py-2 pr-3 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="py-6 text-center text-ink-soft">
-                      No looms in Shed {activeShed}.
-                    </td>
-                  </tr>
-                )}
-                {visibleRows.map((r) => {
-                  const total = rowTotal(r);
-                  return (
-                    <tr
-                      key={r.loom_id}
-                      className="border-b border-line/60 align-top"
-                    >
-                      <td className="py-2 pr-3">
-                        <div className="font-medium">{r.loom_code}</div>
-                        <div className="text-xs text-ink-mute">{r.loom_type}</div>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="space-y-1.5">
-                          {r.weavers.map((w, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center gap-1.5"
-                            >
-                              <span className="w-5 text-xs text-ink-mute text-right">
-                                {idx + 1}.
-                              </span>
-                              <select
-                                className="input w-44"
-                                value={w.employee_id}
-                                onChange={(e) =>
-                                  updateWeaver(r.loom_id, idx, {
-                                    employee_id: e.target.value,
-                                  })
-                                }
-                              >
-                                <option value="">- pick weaver -</option>
-                                {weaverOptions.map((opt) => (
-                                  <option key={opt.id} value={String(opt.id)}>
-                                    {opt.full_name}
-                                    {opt.code ? ` (${opt.code})` : ''}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                className="input num w-24"
-                                placeholder="metres"
-                                value={w.metres}
-                                onChange={(e) =>
-                                  updateWeaver(r.loom_id, idx, {
-                                    metres: e.target.value,
-                                  })
-                                }
-                              />
-                              <button
-                                type="button"
-                                aria-label="Remove weaver"
-                                className="text-ink-mute hover:text-rose-600 p-1"
-                                onClick={() => removeWeaverSlot(r.loom_id, idx)}
-                                disabled={
-                                  r.weavers.length <= DEFAULT_WEAVER_SLOTS &&
-                                  w.employee_id === '' &&
-                                  w.metres.trim() === ''
-                                }
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => addWeaverSlot(r.loom_id)}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add weaver
-                          </button>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 text-right num font-semibold">
-                        {total > 0 ? `${total.toLocaleString('en-IN')} m` : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="text-ink-soft">
-                  <td className="py-2 pr-3 font-medium" colSpan={2}>
-                    Shed {activeShed} total
-                  </td>
-                  <td className="py-2 pr-3 text-right font-medium">
-                    {shedTotal.toLocaleString('en-IN')} m
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <ShedCard
+            shed={activeShedState}
+            weaverOptions={weaverOptions}
+            onWeaverChange={(slot, v) => updateShedWeaver(activeShed, slot, v)}
+            onMetresChange={(loomId, slot, v) =>
+              updateLoomMetres(activeShed, loomId, slot, v)
+            }
+            onAddSlot={() => addShedSlot(activeShed)}
+            onRemoveSlot={(slot) => removeShedSlot(activeShed, slot)}
+          />
         )}
 
         <div className="flex items-center gap-3 pt-1">
@@ -595,9 +627,147 @@ export default function ShiftLogPage(): React.ReactElement {
             Save shift log
           </button>
           <span className="text-xs text-ink-mute">
-            Blank loom rows are skipped.
+            Empty looms are skipped. Metres without a picked weaver block save.
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface ShedCardProps {
+  shed: ShedState;
+  weaverOptions: WeaverOption[];
+  onWeaverChange: (slotIdx: number, employee_id: string) => void;
+  onMetresChange: (loomId: number, slotIdx: number, value: string) => void;
+  onAddSlot: () => void;
+  onRemoveSlot: (slotIdx: number) => void;
+}
+
+function ShedCard({
+  shed,
+  weaverOptions,
+  onWeaverChange,
+  onMetresChange,
+  onAddSlot,
+  onRemoveSlot,
+}: ShedCardProps): React.ReactElement {
+  const total = shedTotal(shed);
+  const slotTotals = shed.weavers.map((_, slotIdx) =>
+    shed.loomRows.reduce((s, r) => s + parseMetres(r.metres[slotIdx] ?? ''), 0),
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border border-line/60 bg-cloud/40 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Shed {shed.shed_no} weavers
+          </span>
+          <button
+            type="button"
+            onClick={onAddSlot}
+            className="text-xs text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add weaver
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {shed.weavers.map((empId, slotIdx) => (
+            <div key={slotIdx} className="flex items-center gap-1.5">
+              <span className="text-xs text-ink-mute w-16">Weaver {slotIdx + 1}</span>
+              <select
+                className="input w-48"
+                value={empId}
+                onChange={(e) => onWeaverChange(slotIdx, e.target.value)}
+              >
+                <option value="">- pick weaver -</option>
+                {weaverOptions.map((opt) => (
+                  <option key={opt.id} value={String(opt.id)}>
+                    {opt.full_name}
+                    {opt.code ? ` (${opt.code})` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                aria-label="Remove weaver slot"
+                className="text-ink-mute hover:text-rose-600 p-1"
+                onClick={() => onRemoveSlot(slotIdx)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line/60 text-left text-ink-mute">
+              <th className="py-2 pr-3">Loom</th>
+              {shed.weavers.map((empId, slotIdx) => {
+                const name =
+                  empId === ''
+                    ? `Weaver ${slotIdx + 1}`
+                    : weaverOptions.find((o) => String(o.id) === empId)?.full_name ??
+                      `Weaver ${slotIdx + 1}`;
+                return (
+                  <th key={slotIdx} className="py-2 pr-3 text-right">
+                    {name}
+                  </th>
+                );
+              })}
+              <th className="py-2 pr-3 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shed.loomRows.map((r) => {
+              const total = loomTotal(r);
+              return (
+                <tr key={r.loom_id} className="border-b border-line/60 align-middle">
+                  <td className="py-2 pr-3">
+                    <div className="font-medium">{r.loom_code}</div>
+                    <div className="text-xs text-ink-mute">{r.loom_type}</div>
+                  </td>
+                  {shed.weavers.map((_, slotIdx) => (
+                    <td key={slotIdx} className="py-2 pr-3 text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="input num w-24 text-right"
+                        placeholder="-"
+                        value={r.metres[slotIdx] ?? ''}
+                        onChange={(e) =>
+                          onMetresChange(r.loom_id, slotIdx, e.target.value)
+                        }
+                      />
+                    </td>
+                  ))}
+                  <td className="py-2 pr-3 text-right num font-semibold">
+                    {total > 0 ? `${total.toLocaleString('en-IN')} m` : '-'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="text-ink-soft">
+              <td className="py-2 pr-3 font-medium">Shed {shed.shed_no} total</td>
+              {slotTotals.map((t, slotIdx) => (
+                <td key={slotIdx} className="py-2 pr-3 text-right font-medium">
+                  {t > 0 ? `${t.toLocaleString('en-IN')} m` : '-'}
+                </td>
+              ))}
+              <td className="py-2 pr-3 text-right font-medium">
+                {total.toLocaleString('en-IN')} m
+              </td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );
