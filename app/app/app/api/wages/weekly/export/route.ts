@@ -199,13 +199,16 @@ export async function GET(req: Request): Promise<Response> {
   const safeFy = data.fy_label.replace(/[^\w-]+/g, '_') || 'FY';
   const filename = 'wages-' + safeFy + '-W' + String(data.week_no).padStart(2, '0') + '-' + data.week_start + '.xlsx';
 
-  return new NextResponse(workbook, {
+  return new NextResponse(new Uint8Array(workbook), {
     status: 200,
     headers: {
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="' + filename + '"',
       'Cache-Control': 'no-store',
+    },
+  });
+}
     },
   });
 }
