@@ -1,7 +1,7 @@
 /**
  * ExportButtons — small server component widget on the Weekly Summary page.
  *
- * Renders two plain anchor links to the CSV and PDF endpoints. Anchor links
+ * Renders two plain anchor links to the Excel and PDF endpoints. Anchor links
  * keep this trivially server-renderable and let the browser handle the file
  * download; no client JS needed.
  */
@@ -32,4 +32,5 @@ export function ExportButtons({ weekStart }: ExportButtonsProps): React.ReactEle
       </a>
     </div>
   );
+}
 }

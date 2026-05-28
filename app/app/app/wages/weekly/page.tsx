@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Archive } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
 
@@ -467,6 +467,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <div className="flex items-center gap-2 flex-wrap">
             <ExportButtons weekStart={weekStart} />
             <SaveSnapshotForm payload={snapshotPayload} />
+            <Link href="/app/wages/weekly/snapshots" className="btn-secondary">
+              <Archive className="w-4 h-4" />
+              View snapshots
+            </Link>
           </div>
         }
       />

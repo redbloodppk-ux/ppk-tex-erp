@@ -6,9 +6,10 @@
  * handful of XML parts an .xlsx needs and packs them into a ZIP container
  * using only Node's built-in `zlib`.
  *
- * It is intentionally small — one sheet, a header row, optional title row,
- * optional totals row, and a few number formats (plain number, rupee,
- * metre, percent, date). That is everything the report pages need.
+ * Supports both single-sheet workbooks (via `buildXlsx`) and multi-sheet
+ * workbooks (via `buildXlsxWorkbook`). Each sheet gets a header row, optional
+ * title row, optional totals row, and a few number formats (plain number,
+ * rupee, metre, percent, date).
  */
 import { deflateRawSync } from 'node:zlib';
 
@@ -33,6 +34,10 @@ export interface SheetSpec {
   rows: ReadonlyArray<Record<string, unknown>>;
   /** optional bold title shown in row 1 */
   title?: string;
+}
+
+export interface WorkbookSpec {
+  sheets: ReadonlyArray<SheetSpec>;
 }
 
 /* ───────────────────────── ZIP container ───────────────────────── */
@@ -240,17 +245,19 @@ function emptyCell(ref: string, style: number): string {
 
 /* ───────────────────────── workbook builder ───────────────────────── */
 
-export function buildXlsx(spec: SheetSpec): Buffer {
+/** Sanitise + truncate a sheet name per Excel rules (<=31 chars). */
+function sanitiseSheetName(raw: string): string {
+  return (raw || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31);
+}
+
+/** Render a single sheet's worksheet XML body. */
+function renderSheetXml(spec: SheetSpec): string {
   const columns = spec.columns;
   const rows = spec.rows;
   const hasTitle = typeof spec.title === 'string' && spec.title.trim().length > 0;
   const hasTotals = columns.some((c) => c.total === true);
   const headerRowNum = hasTitle ? 2 : 1;
   const firstDataRowNum = headerRowNum + 1;
-
-  const sheetName = (spec.sheetName || 'Report')
-    .replace(/[\\/?*[\]:]/g, ' ')
-    .slice(0, 31);
 
   const xmlRows: string[] = [];
 
@@ -335,7 +342,7 @@ export function buildXlsx(spec: SheetSpec): Buffer {
     firstDataRowNum + rows.length - 1 + (hasTotals ? 1 : 0);
   const dimension = 'A1:' + lastCol + Math.max(lastRowNum, headerRowNum);
 
-  const sheetXml =
+  return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
     '<dimension ref="' + dimension + '"/>' +
@@ -346,15 +353,85 @@ export function buildXlsx(spec: SheetSpec): Buffer {
     '<sheetFormatPr defaultRowHeight="15"/>' +
     '<cols>' + colsXml + '</cols>' +
     '<sheetData>' + xmlRows.join('') + '</sheetData>' +
-    '</worksheet>';
+    '</worksheet>'
+  );
+}
 
+/**
+ * Build a multi-sheet .xlsx workbook.
+ *
+ * Each SheetSpec becomes a tab at the bottom of the workbook. Sheet names are
+ * sanitised and deduplicated to satisfy Excel's rules.
+ */
+export function buildXlsxWorkbook(spec: WorkbookSpec): Buffer {
+  const sheets = spec.sheets;
+  if (sheets.length === 0) {
+    throw new Error('buildXlsxWorkbook: at least one sheet is required.');
+  }
+
+  // Excel forbids duplicate sheet names — disambiguate with a counter suffix.
+  const usedNames: Set<string> = new Set();
+  const finalSheetNames: string[] = sheets.map((sheet) => {
+    let name = sanitiseSheetName(sheet.sheetName);
+    if (usedNames.has(name.toLowerCase())) {
+      let counter = 2;
+      const base = name.slice(0, 28);
+      let candidate = base + ' ' + counter;
+      while (usedNames.has(candidate.toLowerCase())) {
+        counter += 1;
+        candidate = base + ' ' + counter;
+      }
+      name = candidate;
+    }
+    usedNames.add(name.toLowerCase());
+    return name;
+  });
+
+  const sheetXmls: string[] = sheets.map((sheet) => renderSheetXml(sheet));
+
+  const sheetsTags = finalSheetNames
+    .map((name, i) =>
+      '<sheet name="' + escapeXml(name) +
+      '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>',
+    )
+    .join('');
+
+  const workbookXml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<sheets>' + sheetsTags + '</sheets>' +
+    '</workbook>';
+
+  const sheetRelTags = finalSheetNames
+    .map((_, i) =>
+      '<Relationship Id="rId' + (i + 1) +
+      '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" ' +
+      'Target="worksheets/sheet' + (i + 1) + '.xml"/>',
+    )
+    .join('');
+  const stylesRelId = finalSheetNames.length + 1;
+  const workbookRels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    sheetRelTags +
+    '<Relationship Id="rId' + stylesRelId +
+    '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+    '</Relationships>';
+
+  const sheetOverrides = finalSheetNames
+    .map((_, i) =>
+      '<Override PartName="/xl/worksheets/sheet' + (i + 1) +
+      '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+    )
+    .join('');
   const contentTypes =
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
     '<Default Extension="xml" ContentType="application/xml"/>' +
     '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+    sheetOverrides +
     '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
     '</Types>';
 
@@ -364,26 +441,27 @@ export function buildXlsx(spec: SheetSpec): Buffer {
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
     '</Relationships>';
 
-  const workbookXml =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
-    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-    '<sheets><sheet name="' + escapeXml(sheetName) + '" sheetId="1" r:id="rId1"/></sheets>' +
-    '</workbook>';
-
-  const workbookRels =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
-    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
-    '</Relationships>';
-
-  return buildZip([
+  const entries: ZipEntry[] = [
     { name: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') },
     { name: '_rels/.rels', data: Buffer.from(rootRels, 'utf8') },
     { name: 'xl/workbook.xml', data: Buffer.from(workbookXml, 'utf8') },
     { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from(workbookRels, 'utf8') },
     { name: 'xl/styles.xml', data: Buffer.from(STYLES_XML, 'utf8') },
-    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from(sheetXml, 'utf8') },
-  ]);
+  ];
+  sheetXmls.forEach((xml, i) => {
+    entries.push({
+      name: 'xl/worksheets/sheet' + (i + 1) + '.xml',
+      data: Buffer.from(xml, 'utf8'),
+    });
+  });
+
+  return buildZip(entries);
+}
+
+/**
+ * Build a single-sheet .xlsx workbook (kept for backward compatibility with
+ * the reports export route). Internally delegates to buildXlsxWorkbook.
+ */
+export function buildXlsx(spec: SheetSpec): Buffer {
+  return buildXlsxWorkbook({ sheets: [spec] });
 }
