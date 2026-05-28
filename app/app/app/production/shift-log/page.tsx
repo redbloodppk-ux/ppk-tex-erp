@@ -8,9 +8,9 @@
  *      "global" weaver slots at the top — pick weaver 1, weaver 2, ... once
  *      and that picks the weaver for every loom in the shed at that slot.
  *      Press "+ Add weaver" on a shed to add more global slots.
- *   3. Each loom row below just shows a metres input per global slot — fill
- *      in metres only on the looms each weaver actually wove on; leave
- *      blank for the rest.
+ *   3. Each loom row below shows a metres input per global slot, plus an
+ *      Adjustment column for free-form +/- corrections (cut metres, manual
+ *      fix, etc.). Loom Total = sum(weavers) + adjustment.
  *   4. One Save writes every loom row across all sheds for that date + shift.
  *
  * Validation:
@@ -18,9 +18,11 @@
  *     that slot in the shed, save is blocked with a clear message.
  *   - Blank metres on a (weaver, loom) pair are silently skipped — we only
  *     persist actual woven entries.
+ *   - A loom with only an adjustment (no weavers) still saves.
  *
- * Schema (after migration 041):
- *   production_shift_log         — one row per (date, shift, loom)
+ * Schema (after migrations 041 + 042):
+ *   production_shift_log         — one row per (date, shift, loom), holds
+ *                                  adjustment_metres
  *   production_shift_log_weaver  — one row per weaver on that loom-shift,
  *                                  carrying that weaver's metres_woven.
  *
@@ -56,7 +58,7 @@ interface ShedState {
   shed_no: number;
   /** Global weaver picks, indexed by slot. Empty string = not picked. */
   weavers: string[];
-  /** Per-loom metres input; metres[loomIdx][slotIdx] is the value. */
+  /** Per-loom metres + adjustment input. */
   loomRows: LoomRow[];
 }
 
@@ -66,6 +68,8 @@ interface LoomRow {
   loom_type: string;
   /** Aligned with the shed's weavers array. metres[i] = metres for slot i. */
   metres: string[];
+  /** Free-form +/- correction. Empty string = 0. */
+  adjustment: string;
 }
 
 const SHEDS = [1, 2, 3, 4] as const;
@@ -82,10 +86,12 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_code: l.loom_code,
       loom_type: l.loom_type,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
+      adjustment: '',
     })),
   };
 }
 
+/** Parse a non-negative metres value; blank or invalid = 0. */
 function parseMetres(v: string): number {
   const t = v.trim();
   if (t === '') return 0;
@@ -93,8 +99,18 @@ function parseMetres(v: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** Parse a signed adjustment; blank = 0. Returns NaN if non-numeric. */
+function parseAdjustment(v: string): number {
+  const t = v.trim();
+  if (t === '') return 0;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function loomTotal(row: LoomRow): number {
-  return row.metres.reduce((s, m) => s + parseMetres(m), 0);
+  const weavers = row.metres.reduce((s, m) => s + parseMetres(m), 0);
+  const adj = parseAdjustment(row.adjustment);
+  return weavers + (Number.isFinite(adj) ? adj : 0);
 }
 
 function shedTotal(s: ShedState): number {
@@ -182,7 +198,7 @@ export default function ShiftLogPage(): React.ReactElement {
 
     const { data: parents, error: parentErr } = await supabase
       .from('production_shift_log')
-      .select('id, loom_id')
+      .select('id, loom_id, adjustment_metres')
       .eq('log_date', logDate)
       .eq('shift', shift);
 
@@ -215,7 +231,11 @@ export default function ShiftLogPage(): React.ReactElement {
     }
 
     const loomByParent = new Map<number, number>();
-    for (const p of parents ?? []) loomByParent.set(p.id, p.loom_id);
+    const adjByLoom = new Map<number, number>();
+    for (const p of parents ?? []) {
+      loomByParent.set(p.id, p.loom_id);
+      adjByLoom.set(p.loom_id, Number(p.adjustment_metres ?? 0));
+    }
 
     // Per loom: map of position -> { employee_id, metres }
     const perLoom = new Map<number, Map<number, { employee_id: number; metres: number }>>();
@@ -257,12 +277,11 @@ export default function ShiftLogPage(): React.ReactElement {
             bestCount = count;
           }
         }
-        // Slot index is positions index, so we just push in order.
         weavers.push(bestId > 0 ? String(bestId) : '');
       }
       while (weavers.length < DEFAULT_WEAVER_SLOTS) weavers.push('');
 
-      // Build per-loom metres aligned with the slot list (by position).
+      // Build per-loom metres + adjustment.
       const slotCount = weavers.length;
       const loomRows: LoomRow[] = shedLooms.map((l) => {
         const metres = Array.from({ length: slotCount }, () => '');
@@ -273,11 +292,13 @@ export default function ShiftLogPage(): React.ReactElement {
             if (v && v.metres > 0) metres[slotIdx] = String(v.metres);
           });
         }
+        const adj = adjByLoom.get(l.id) ?? 0;
         return {
           loom_id: l.id,
           loom_code: l.loom_code,
           loom_type: l.loom_type,
           metres,
+          adjustment: adj !== 0 ? String(adj) : '',
         };
       });
 
@@ -317,6 +338,19 @@ export default function ShiftLogPage(): React.ReactElement {
           const metres = r.metres.map((m, i) => (i === slotIdx ? value : m));
           return { ...r, metres };
         });
+        return { ...s, loomRows };
+      }),
+    );
+    setSavedMsg(null);
+  }
+
+  function updateLoomAdjustment(shedNo: number, loomId: number, value: string): void {
+    setSheds((prev) =>
+      prev.map((s) => {
+        if (s.shed_no !== shedNo) return s;
+        const loomRows = s.loomRows.map((r) =>
+          r.loom_id === loomId ? { ...r, adjustment: value } : r,
+        );
         return { ...s, loomRows };
       }),
     );
@@ -370,7 +404,13 @@ export default function ShiftLogPage(): React.ReactElement {
     setSavedMsg(null);
 
     // Build the save payload: parent rows + child weaver rows.
-    const parentsToSave: ShiftLogInsert[] = [];
+    interface PendingParent {
+      log_date: string;
+      shift: 'day' | 'night';
+      loom_id: number;
+      adjustment_metres: number;
+    }
+    const parentsToSave: PendingParent[] = [];
     const childrenByLoom = new Map<number, ShiftLogWeaverInsert[]>();
 
     for (const s of sheds) {
@@ -394,8 +434,15 @@ export default function ShiftLogPage(): React.ReactElement {
         }
       }
 
-      // Build child rows for this shed.
+      // Build child rows + adjustments for this shed.
       for (const r of s.loomRows) {
+        // Validate adjustment is numeric (signed) or blank.
+        const adj = parseAdjustment(r.adjustment);
+        if (Number.isNaN(adj)) {
+          setError(`Loom ${r.loom_code}: adjustment must be a number (use a minus sign for cuts).`);
+          return;
+        }
+
         const children: ShiftLogWeaverInsert[] = [];
         for (let slotIdx = 0; slotIdx < s.weavers.length; slotIdx++) {
           const empId = s.weavers[slotIdx];
@@ -409,19 +456,22 @@ export default function ShiftLogPage(): React.ReactElement {
             metres_woven: m,
           });
         }
-        if (children.length > 0) {
+
+        // Save the parent if there are weaver entries OR a non-zero adjustment.
+        if (children.length > 0 || adj !== 0) {
           parentsToSave.push({
             log_date: logDate,
             shift,
             loom_id: r.loom_id,
+            adjustment_metres: adj,
           });
-          childrenByLoom.set(r.loom_id, children);
+          if (children.length > 0) childrenByLoom.set(r.loom_id, children);
         }
       }
     }
 
     if (parentsToSave.length === 0) {
-      setError('Nothing to save - enter metres for at least one loom + weaver.');
+      setError('Nothing to save - enter metres or an adjustment on at least one loom.');
       return;
     }
 
@@ -458,9 +508,16 @@ export default function ShiftLogPage(): React.ReactElement {
       }
     }
 
+    const upsertPayload: ShiftLogInsert[] = parentsToSave.map((p) => ({
+      log_date: p.log_date,
+      shift: p.shift,
+      loom_id: p.loom_id,
+      adjustment_metres: p.adjustment_metres,
+    }));
+
     const { data: upserted, error: upErr } = await supabase
       .from('production_shift_log')
-      .upsert(parentsToSave, { onConflict: 'log_date,shift,loom_id' })
+      .upsert(upsertPayload, { onConflict: 'log_date,shift,loom_id' })
       .select('id, loom_id');
 
     if (upErr) {
@@ -607,6 +664,9 @@ export default function ShiftLogPage(): React.ReactElement {
             onMetresChange={(loomId, slot, v) =>
               updateLoomMetres(activeShed, loomId, slot, v)
             }
+            onAdjustmentChange={(loomId, v) =>
+              updateLoomAdjustment(activeShed, loomId, v)
+            }
             onAddSlot={() => addShedSlot(activeShed)}
             onRemoveSlot={(slot) => removeShedSlot(activeShed, slot)}
           />
@@ -627,7 +687,7 @@ export default function ShiftLogPage(): React.ReactElement {
             Save shift log
           </button>
           <span className="text-xs text-ink-mute">
-            Empty looms are skipped. Metres without a picked weaver block save.
+            Adjustment = +/- correction. Loom Total = sum(weavers) + adjustment.
           </span>
         </div>
       </div>
@@ -640,6 +700,7 @@ interface ShedCardProps {
   weaverOptions: WeaverOption[];
   onWeaverChange: (slotIdx: number, employee_id: string) => void;
   onMetresChange: (loomId: number, slotIdx: number, value: string) => void;
+  onAdjustmentChange: (loomId: number, value: string) => void;
   onAddSlot: () => void;
   onRemoveSlot: (slotIdx: number) => void;
 }
@@ -649,6 +710,7 @@ function ShedCard({
   weaverOptions,
   onWeaverChange,
   onMetresChange,
+  onAdjustmentChange,
   onAddSlot,
   onRemoveSlot,
 }: ShedCardProps): React.ReactElement {
@@ -656,6 +718,10 @@ function ShedCard({
   const slotTotals = shed.weavers.map((_, slotIdx) =>
     shed.loomRows.reduce((s, r) => s + parseMetres(r.metres[slotIdx] ?? ''), 0),
   );
+  const adjTotal = shed.loomRows.reduce((s, r) => {
+    const a = parseAdjustment(r.adjustment);
+    return s + (Number.isFinite(a) ? a : 0);
+  }, 0);
 
   return (
     <div className="space-y-3">
@@ -720,6 +786,7 @@ function ShedCard({
                   </th>
                 );
               })}
+              <th className="py-2 pr-3 text-right">Adjustment</th>
               <th className="py-2 pr-3 text-right">Total</th>
             </tr>
           </thead>
@@ -747,8 +814,18 @@ function ShedCard({
                       />
                     </td>
                   ))}
+                  <td className="py-2 pr-3 text-right">
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input num w-24 text-right"
+                      placeholder="0"
+                      value={r.adjustment}
+                      onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
+                    />
+                  </td>
                   <td className="py-2 pr-3 text-right num font-semibold">
-                    {total > 0 ? `${total.toLocaleString('en-IN')} m` : '-'}
+                    {total !== 0 ? `${total.toLocaleString('en-IN')} m` : '-'}
                   </td>
                 </tr>
               );
@@ -762,6 +839,9 @@ function ShedCard({
                   {t > 0 ? `${t.toLocaleString('en-IN')} m` : '-'}
                 </td>
               ))}
+              <td className="py-2 pr-3 text-right font-medium">
+                {adjTotal !== 0 ? `${adjTotal.toLocaleString('en-IN')} m` : '-'}
+              </td>
               <td className="py-2 pr-3 text-right font-medium">
                 {total.toLocaleString('en-IN')} m
               </td>

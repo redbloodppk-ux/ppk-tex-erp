@@ -2657,6 +2657,7 @@ export type Database = {
       }
       production_shift_log: {
         Row: {
+          adjustment_metres: number
           created_at: string
           created_by: string | null
           id: number
@@ -2668,6 +2669,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          adjustment_metres?: number
           created_at?: string
           created_by?: string | null
           id?: number
@@ -2679,6 +2681,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          adjustment_metres?: number
           created_at?: string
           created_by?: string | null
           id?: number
