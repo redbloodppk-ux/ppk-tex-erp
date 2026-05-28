@@ -350,21 +350,20 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
 
     // 2) Fetch weaver absences in the week and tally per shed_no.
-    //    Absent rows: count against shed_no, falling back to home_shed_no.
-    //    'none' rows: count ONLY when a shed was explicitly selected — that
-    //    flags a shed losing coverage even though the worker wasn't strictly
-    //    "absent". 'none' without a shed means "not scheduled this shift"
-    //    and must NOT be charged to any shed.
+    //    Only count absences that have an explicit shed_no. Records without
+    //    shed_no are not attributable to any specific shed (e.g. weaver marked
+    //    absent without a shed assignment that shift), so they must not
+    //    inflate any winder's weaver-absent tally.
     type WeaverAbsRow = {
       status: string;
       shed_no: string | null;
-      employee: { role: string | null; home_shed_no: string | null } | null;
+      employee: { role: string | null } | null;
       attendance_day: { attendance_date: string } | null;
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('status, shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
+      .select('status, shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date )')
       .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
@@ -372,10 +371,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       if (!r.attendance_day?.attendance_date) continue;
       const role = (r.employee?.role ?? '').toLowerCase();
       if (role !== 'weaver') continue;
-      let shed: string | null = null;
-      if (r.status === 'absent') {
-        shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
-      }
+      const shed = r.shed_no;
       if (!shed) continue;
       weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
     }
