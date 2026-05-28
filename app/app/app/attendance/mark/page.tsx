@@ -332,32 +332,39 @@ export default function AttendanceMarkPage() {
   const roles = Array.from(new Set(employees.map((e) => e.role))).sort();
   const visible = employees.filter((e) => roleFilter === 'all' || e.role === roleFilter);
 
-  // Sheds claimed by other employees on this (date, shift) regardless of
-  // status. Once an employee — present, absent or none — has picked a shed,
-  // it counts as "covered" / "lost coverage" and is removed from everyone
-  // else's available list. The current employee's own picks are NOT counted
-  // (so the dropdown does not erase their own selection).
+  // Sheds claimed by other workers on this (date, shift) that BLOCK the
+  // current worker from picking the same shed. The rule is role-aware:
+  //
+  //   - Weaver  (selfRole = 'weaver') → blocked only by OTHER WEAVERS.
+  //     One weaver per shed/shift is enforced. Winders may also be in
+  //     that shed (they cover the weaver's loom), so winder picks are
+  //     NOT counted as taken for a weaver.
+  //
+  //   - Winder  (selfRole = 'winder') → nothing is taken. A winder may
+  //     cover any shed (including sheds with a weaver already there)
+  //     and may cover multiple sheds in the same shift.
+  //
+  //   - Other roles → fall back to weaver-style exclusion against other
+  //     weavers, in case a future role gets a single-shed picker.
+  //
+  // The current employee's own picks are never counted (so their own
+  // selection stays visible in their dropdown).
   const shedsTakenByOthers = useCallback(
-    (selfId: number): Set<string> => {
+    (selfId: number, selfRole: string): Set<string> => {
       const taken = new Set<string>();
+      // Winders can share any shed — nobody blocks them.
+      if (selfRole === 'winder') return taken;
+      // For weavers (and other single-shed roles), only OTHER WEAVERS
+      // block. Winder picks never block.
       for (const e of employees) {
         if (e.id === selfId) continue;
-        const role = e.role.toLowerCase();
-        if (role === 'weaver') {
-          const shed = shedByEmp[e.id];
-          if (shed) taken.add(shed);
-        } else if (role === 'winder') {
-          const arr = shedsByEmp[e.id] ?? [];
-          for (const s of arr) taken.add(s);
-        } else {
-          // Future-proof: any other role that picks a shed.
-          const shed = shedByEmp[e.id];
-          if (shed) taken.add(shed);
-        }
+        if (e.role.toLowerCase() !== 'weaver') continue;
+        const shed = shedByEmp[e.id];
+        if (shed) taken.add(shed);
       }
       return taken;
     },
-    [employees, shedByEmp, shedsByEmp],
+    [employees, shedByEmp],
   );
 
   function setStatus(empId: number, status: AttendanceStatus): void {
@@ -765,7 +772,7 @@ export default function AttendanceMarkPage() {
                     const empWorked = WORKED_STATUSES.has(empStatus);
                     const shedMissing = showShed && empWorked && !shedByEmp[emp.id];
                     const winderShedMissing = showWinderSheds && empWorked && winderShedsPicked.length === 0;
-                    const takenForEmp = (isWeaver || isWinder) ? shedsTakenByOthers(emp.id) : new Set<string>();
+                    const takenForEmp = (isWeaver || isWinder) ? shedsTakenByOthers(emp.id, empRole) : new Set<string>();
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
                         <td className="py-2 pr-3">
