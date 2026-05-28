@@ -105,8 +105,9 @@ const GROUPS: CorrGroup[] = [
       { code: 'CORR-P4', title: 'Loom utilisation dashboard', status: 'done',
         blurb: 'Per-loom % uptime + metres-per-shift roll-up (needs a view + a tile).',
         evidence: 'migration 020 (production_shift_log) + /app/production/shift-log entry screen + migration 021 (v_loom_shift_utilisation) + Loom Utilisation tile on /app/dashboard' },
-      { code: 'CORR-P5', title: 'Outsource / jobwork production link', status: 'pending',
-        blurb: 'Tie vendor jobwork DC back into a batch so outsource cost reaches True Cost.' },
+      { code: 'CORR-P5', title: 'Outsource / jobwork production link', status: 'done',
+        evidence: 'migration 040 (production_batch.outsource_order_id + v_production_batch_with_source) + /app/outsource list + /app/outsource/new + /app/outsource/[id] receive-fabric-form',
+        blurb: 'Outsource orders now produce a real production_batch on delivery. Vendor pick paise is frozen as actual_pick_cost_per_m so True Cost / profit-by-quality include outsourced metres automatically.' },
     ],
   },
   {
