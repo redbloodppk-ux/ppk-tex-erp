@@ -16,6 +16,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
+import { ExportButtons } from './export-buttons';
 
 export const metadata = { title: 'Weekly Wage Summary' };
 export const dynamic = 'force-dynamic';
@@ -462,7 +463,12 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             : prettyRange(weekStart, weekEnd)
         }
         crumbs={[{ label: 'Wages', href: '/app/wages' }, { label: 'Weekly Summary' }]}
-        actions={<SaveSnapshotForm payload={snapshotPayload} />}
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
+            <ExportButtons weekStart={weekStart} />
+            <SaveSnapshotForm payload={snapshotPayload} />
+          </div>
+        }
       />
 
       {/* Week navigator */}

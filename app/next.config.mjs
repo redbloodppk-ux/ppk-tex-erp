@@ -53,6 +53,9 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'date-fns'],
   },
+  // pdfkit reads its AFM font files from disk at runtime — let Node resolve
+  // it from node_modules instead of letting webpack bundle (and break) it.
+  serverExternalPackages: ['pdfkit'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },

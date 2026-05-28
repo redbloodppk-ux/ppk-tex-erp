@@ -174,8 +174,9 @@ const GROUPS: CorrGroup[] = [
         blurb: 'Per-employee present/absent counts across monthly, by-role and daily views.' },
       { code: 'CORR-A6', title: 'Leave tracking', status: 'pending',
         blurb: 'Casual/sick leave balance per employee with auto-decrement on absent statuses. Not yet started.' },
-      { code: 'CORR-A7', title: 'Wages payout export', status: 'pending',
-        blurb: 'PDF + Excel export of paid wages per cycle for the accountant. Weekly summary screen exists; export action not yet wired.' },
+      { code: 'CORR-A7', title: 'Wages payout export', status: 'done',
+        evidence: 'lib/wages/weekly-data.ts + /api/wages/weekly/export (CSV) + /api/wages/weekly/export-pdf (pdfkit, A4 landscape) + Export Excel/Download PDF buttons on /app/wages/weekly header',
+        blurb: 'CSV (Excel-friendly) and PDF downloads of each week\u2019s payout breakdown: per-employee summary, raw wage entries, expenses.' },
     ],
   },
   {
