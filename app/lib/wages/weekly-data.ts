@@ -323,7 +323,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
       .select('status, shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
-      .in('status', ['absent', 'none'])
+      .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
     for (const r of (weaverAbsRaw ?? []) as WeaverAbsRow[]) {
@@ -333,8 +333,6 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       let shed: string | null = null;
       if (r.status === 'absent') {
         shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
-      } else if (r.status === 'none') {
-        shed = r.shed_no ?? null;
       }
       if (!shed) continue;
       weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);

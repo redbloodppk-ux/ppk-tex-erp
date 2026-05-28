@@ -365,7 +365,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
       .select('status, shed_no, employee:employee_id ( role, home_shed_no ), attendance_day:attendance_day_id ( attendance_date )')
-      .in('status', ['absent', 'none'])
+      .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
     for (const r of (weaverAbsRaw ?? []) as WeaverAbsRow[]) {
@@ -375,9 +375,6 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       let shed: string | null = null;
       if (r.status === 'absent') {
         shed = r.shed_no ?? r.employee?.home_shed_no ?? null;
-      } else if (r.status === 'none') {
-        // Only count 'none' when a shed was explicitly selected.
-        shed = r.shed_no ?? null;
       }
       if (!shed) continue;
       weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);

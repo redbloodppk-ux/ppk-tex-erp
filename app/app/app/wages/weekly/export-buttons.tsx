@@ -33,4 +33,3 @@ export function ExportButtons({ weekStart }: ExportButtonsProps): React.ReactEle
     </div>
   );
 }
-}
