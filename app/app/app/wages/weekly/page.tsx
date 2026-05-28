@@ -533,8 +533,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         Winder pro-rate: weekly_salary &times; weaver-absent shifts in covered sheds / (covered sheds &times; 14).
         A weaver marked &quot;none&quot; counts as absent only when a shed is picked.
       </p>
-      <div className="card overflow-hidden mb-6">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto mb-6">
+        <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
@@ -598,8 +598,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
       {/* Loom-shift basis */}
       <h2 className="text-sm font-semibold text-ink mb-2">Loom-shift basis employees</h2>
-      <div className="card overflow-hidden mb-6">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto mb-6">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
@@ -634,8 +634,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
       {/* Metre-produced basis */}
       <h2 className="text-sm font-semibold text-ink mb-2">Metre-produced basis employees</h2>
-      <div className="card overflow-hidden mb-6">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto mb-6">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
@@ -670,8 +670,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
       {/* Raw wage rows */}
       <h2 className="text-sm font-semibold text-ink mb-2">All wage entries this week</h2>
-      <div className="card overflow-hidden mb-6">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto mb-6">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Pay date</th>
@@ -711,8 +711,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
       {/* Raw expense rows */}
       <h2 className="text-sm font-semibold text-ink mb-2">Expenses this week</h2>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[560px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Pay date</th>
