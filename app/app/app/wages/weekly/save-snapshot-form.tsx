@@ -33,7 +33,7 @@ export function SaveSnapshotForm({ payload }: SaveSnapshotFormProps): React.Reac
     setMsg(null);
     setErr(null);
     try {
-      const res = await fetch('/api/wages/weekly/snapshot', {
+      const res = await fetch('/app/api/wages/weekly/snapshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

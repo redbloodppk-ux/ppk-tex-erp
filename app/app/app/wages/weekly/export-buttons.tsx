@@ -15,7 +15,7 @@ export function ExportButtons({ weekStart }: ExportButtonsProps): React.ReactEle
   return (
     <div className="flex items-center gap-2">
       <a
-        href={`/api/wages/weekly/export?week=${weekStart}`}
+        href={`/app/api/wages/weekly/export?week=${weekStart}`}
         className="btn-secondary"
         download
       >
@@ -23,7 +23,7 @@ export function ExportButtons({ weekStart }: ExportButtonsProps): React.ReactEle
         Export Excel
       </a>
       <a
-        href={`/api/wages/weekly/export-pdf?week=${weekStart}`}
+        href={`/app/api/wages/weekly/export-pdf?week=${weekStart}`}
         className="btn-secondary"
         download
       >

@@ -2,7 +2,7 @@
 //
 // A report page (a server component) computes its filtered, sorted rows and
 // hands them to this button along with a column spec. When the user clicks,
-// the button POSTs everything to /api/reports/export, which streams back a
+// the button POSTs everything to /app/api/reports/export, which streams back a
 // styled .xlsx file. The browser then downloads it.
 //
 // Because the page passes the exact rows it rendered, the spreadsheet always
@@ -58,7 +58,7 @@ export function ExcelExportButton({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/reports/export', {
+      const res = await fetch('/app/api/reports/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, sheetName, title, columns, rows }),
