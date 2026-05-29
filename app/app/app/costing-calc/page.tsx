@@ -232,13 +232,36 @@ export default function CostingCalcPage() {
 
     setSaving(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from('costing_master').insert(payload);
-    setSaving(false);
-    if (error) {
-      setSaveError(error.message);
+    const sb2 = supabase as any;
+    const insertCosting = await sb2.from('costing_master').insert(payload).select('id').single();
+    if (insertCosting.error) {
+      setSaving(false);
+      setSaveError(insertCosting.error.message);
       return;
     }
-    setSaveOk('Saved as ' + qualityCode + ' (pending approval).');
+    const newCostingId: number = insertCosting.data.id;
+
+    // Also create a fabric_quality row with consumption snapshot (migration 060).
+    const fqPayload = {
+      name: qualityCode.trim() + ' - ' + qualityName.trim(),
+      width_in:        finishedWidthIn,
+      weight_gsm:      Number(r.gramsPerSqM.toFixed(2)),
+      rate_per_m:      Number(r.costPerM.toFixed(2)),
+      active:          true,
+      costing_id:      newCostingId,
+      weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
+      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
+        ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
+      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
+        ? Number((1 / bobbinMetres).toFixed(6)) : null,
+    };
+    const insertFq = await sb2.from('fabric_quality').insert(fqPayload);
+    setSaving(false);
+    if (insertFq.error) {
+      setSaveError('Costing saved, but Fabric Quality creation failed: ' + insertFq.error.message);
+      return;
+    }
+    setSaveOk('Saved as ' + qualityCode + ' + Fabric Quality (pending approval).');
     setTimeout(() => {
       router.push('/app/costing/approvals');
       router.refresh();
@@ -562,6 +585,32 @@ function Pct({ value, set }: { value: number; set: (n: number) => void }) {
   );
 }
 function Toggle({ label, checked, set }: { label: string; checked: boolean; set: (b: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)}
+        className="w-4 h-4 accent-indigo-600" />
+      <span>{label}</span>
+    </label>
+  );
+}
+function Divider() { return <div className="h-px bg-line/60 my-2" />; }
+function ResultRow({ label, value, small, big, highlight }: {
+  label: string; value: string; small?: boolean; big?: boolean;
+  highlight?: 'indigo' | 'amber' | 'violet' | 'emerald';
+}) {
+  const tone = {
+    indigo: 'text-indigo-700', amber: 'text-amber-700',
+    violet: 'text-violet-700', emerald: 'text-emerald-700',
+  }[highlight ?? 'indigo'];
+  const size = big ? 'text-lg font-bold' : small ? 'text-sm text-ink-soft' : 'text-base font-semibold';
+  return (
+    <div className={"flex items-center justify-between py-1 " + size}>
+      <span>{label}</span>
+      <span className={"num " + (highlight ? tone + " font-bold" : '')}>{value}</span>
+    </div>
+  );
+}
+d: boolean; set: (b: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
       <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)}
