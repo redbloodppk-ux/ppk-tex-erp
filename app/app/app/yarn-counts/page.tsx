@@ -1,13 +1,17 @@
 'use client';
 /**
- * Count Master — catalogues yarn counts purchased / used in the mill.
+ * Count Master - catalogues yarn counts purchased / used in the mill.
  *
  * Code is auto-generated server-side (YC-NNNN) via trg_yarn_count_autogen_code.
  *
  * Yarn-type handling per the build guide:
- *   * cotton    -> user enters Ne (English count). Denier / tex left blank.
- *   * polyester -> user enters denier; Nec auto-computed as 5315 / denier.
- *   * blend     -> user can fill either Ne or denier; both editable.
+ *   - cotton    -> user enters Ne (English count). Denier left blank.
+ *   - polyester -> user enters denier; Nec auto-computed as 5315 / denier.
+ *   - blend     -> user can fill either Ne or denier; both editable.
+ *
+ * nec_computed is a Postgres GENERATED ALWAYS column - we never send it in
+ * insert / update payloads. The server computes it from yarn_type / denier
+ * / ne via a CASE expression. The UI shows it after each read.
  *
  * RLS: anyone authenticated reads; owner / mill_manager writes.
  */
@@ -26,7 +30,6 @@ interface CountRow {
   yarn_type: YarnType;
   ne: number | null;
   denier: number | null;
-  tex: number | null;
   nec_computed: number | null;
   is_doubled: boolean;
   is_slub: boolean;
@@ -39,7 +42,6 @@ interface NewCount {
   yarn_type: YarnType;
   ne: string;
   denier: string;
-  tex: string;
   is_doubled: boolean;
   is_slub: boolean;
   notes: string;
@@ -50,7 +52,6 @@ const EMPTY_NEW: NewCount = {
   yarn_type: 'cotton',
   ne: '',
   denier: '',
-  tex: '',
   is_doubled: false,
   is_slub: false,
   notes: '',
@@ -63,7 +64,8 @@ function toNumOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function computeNecFromDenier(denier: number | null): number | null {
+/** Client-side preview of Nec for polyester rows (DB computes the real value). */
+function computeNecPreview(denier: number | null): number | null {
   if (denier === null || denier <= 0) return null;
   return Math.round((5315 / denier) * 100) / 100;
 }
@@ -86,7 +88,7 @@ export default function YarnCountsPage() {
     const { data, error: err } = await (supabase as any)
       .from('yarn_count')
       .select(
-        'id, code, display_name, yarn_type, ne, denier, tex, nec_computed, is_doubled, is_slub, notes, status',
+        'id, code, display_name, yarn_type, ne, denier, nec_computed, is_doubled, is_slub, notes, status',
       )
       .neq('status', 'archived')
       .order('code');
@@ -105,7 +107,7 @@ export default function YarnCountsPage() {
 
   const necPreview = useMemo<number | null>(() => {
     if (neu.yarn_type !== 'polyester') return null;
-    return computeNecFromDenier(toNumOrNull(neu.denier));
+    return computeNecPreview(toNumOrNull(neu.denier));
   }, [neu.yarn_type, neu.denier]);
 
   async function handleAdd() {
@@ -120,7 +122,6 @@ export default function YarnCountsPage() {
 
     const ne = toNumOrNull(neu.ne);
     const denier = toNumOrNull(neu.denier);
-    const tex = toNumOrNull(neu.tex);
 
     if (neu.yarn_type === 'cotton' && ne === null) {
       setError('Cotton yarn needs an Ne value.');
@@ -131,19 +132,15 @@ export default function YarnCountsPage() {
       return;
     }
 
-    const necComputed =
-      neu.yarn_type === 'polyester' ? computeNecFromDenier(denier) : null;
-
     setAdding(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('yarn_count').insert({
-      // code omitted — trg_yarn_count_autogen_code fills it (YC-NNNN)
+      // code omitted - trg_yarn_count_autogen_code fills it (YC-NNNN)
+      // nec_computed omitted - GENERATED ALWAYS column
       display_name: displayName,
       yarn_type: neu.yarn_type,
       ne,
       denier,
-      tex,
-      nec_computed: necComputed,
       is_doubled: neu.is_doubled,
       is_slub: neu.is_slub,
       reorder_kg: 0,
@@ -166,29 +163,16 @@ export default function YarnCountsPage() {
     setSavedMsg(null);
     setBusyId(id);
 
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const merged: CountRow = { ...r, ...patch };
-        if (merged.yarn_type === 'polyester') {
-          merged.nec_computed = computeNecFromDenier(merged.denier);
-        }
-        return merged;
-      }),
-    );
+    // Strip nec_computed from any caller patch defensively.
+    const safePatch: Partial<CountRow> = { ...patch };
+    delete safePatch.nec_computed;
 
-    const target = rows.find((r) => r.id === id);
-    const yarnType = (patch.yarn_type ?? target?.yarn_type) as YarnType | undefined;
-    const denier = patch.denier !== undefined ? patch.denier : target?.denier ?? null;
-    const fullPatch: Partial<CountRow> =
-      yarnType === 'polyester'
-        ? { ...patch, nec_computed: computeNecFromDenier(denier ?? null) }
-        : patch;
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...safePatch } : r)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any)
       .from('yarn_count')
-      .update(fullPatch)
+      .update(safePatch)
       .eq('id', id);
     setBusyId(null);
 
@@ -197,6 +181,8 @@ export default function YarnCountsPage() {
       await load();
       return;
     }
+    // Reload so the DB-computed nec_computed reflects the latest values.
+    await load();
     setSavedMsg('Saved.');
   }
 
@@ -204,7 +190,7 @@ export default function YarnCountsPage() {
     const ok = window.confirm(
       'Delete count ' + code + '?\n\nIf this count is referenced by other records the database will block the delete.',
     );
-    if (!ok) return;
+    if (ok === false) return;
 
     setError(null);
     setSavedMsg(null);
@@ -215,7 +201,6 @@ export default function YarnCountsPage() {
     setBusyId(null);
 
     if (err) {
-      // Most likely FK violation — fall back to soft-archive.
       const archiveOk = window.confirm(
         'Hard delete failed (' + err.message + ').\n\nArchive it instead so it stops appearing in lists?',
       );
@@ -236,7 +221,7 @@ export default function YarnCountsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Yarn Counts"
-        subtitle="Master of yarn counts (Ne / denier / tex). Code auto-generated. For polyester, Nec = 5315 / denier."
+        subtitle="Master of yarn counts (Ne / denier). Code auto-generated. For polyester, Nec = 5315 / denier."
       />
 
       {error && <p className="text-sm text-err">{error}</p>}
@@ -309,18 +294,6 @@ export default function YarnCountsPage() {
             />
           </div>
           <div>
-            <label className="label" htmlFor="nc-tex">Tex</label>
-            <input
-              id="nc-tex"
-              type="number"
-              min={0}
-              step="0.01"
-              className="input num w-full"
-              value={neu.tex}
-              onChange={(e) => setNeu((n) => ({ ...n, tex: e.target.value }))}
-            />
-          </div>
-          <div>
             <label className="label">Nec (auto)</label>
             <div className="input num w-full bg-cloud/40 text-ink-soft">
               {necPreview ?? '-'}
@@ -389,7 +362,6 @@ export default function YarnCountsPage() {
                   <th className="py-2 pr-3">Type</th>
                   <th className="py-2 pr-3">Ne</th>
                   <th className="py-2 pr-3">Denier</th>
-                  <th className="py-2 pr-3">Tex</th>
                   <th className="py-2 pr-3">Nec</th>
                   <th className="py-2 pr-3">2-ply</th>
                   <th className="py-2 pr-3">Slub</th>
@@ -448,20 +420,6 @@ export default function YarnCountsPage() {
                         onChange={(e) =>
                           updateRow(c.id, {
                             denier: e.target.value === '' ? null : Number(e.target.value),
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="input num w-20"
-                        value={c.tex ?? ''}
-                        onChange={(e) =>
-                          updateRow(c.id, {
-                            tex: e.target.value === '' ? null : Number(e.target.value),
                           })
                         }
                       />
