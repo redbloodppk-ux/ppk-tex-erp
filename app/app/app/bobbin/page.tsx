@@ -1,17 +1,20 @@
 'use client';
 /**
- * Bobbin Master — catalogues every bobbin SKU (small warp beams) the
- * mill consumes. Code pattern is auto-suggested as `BB-{ends}-{metres}`
- * per the build guide; users can override if needed. vendor_id is a FK
- * to the mill table (legacy choice — the bobbin maker is registered as
- * a mill).
+ * Bobbin Stock - purchase log of every bobbin batch the mill has bought.
+ *
+ * Each row is one purchase: code BB-{ends}-{metres} auto-generated, the
+ * description (display name) auto-formats as "{ends}-ends x {metres}m",
+ * plus purchase date, supplier (mill), invoice no, and price per piece.
+ *
+ * The form is hidden by default. Click "Add Purchase" to reveal a blank
+ * form, or click "Edit" on any row to load it into the form for changes.
  *
  * RLS: anyone authenticated reads; owner / mill_manager writes.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, CheckCircle2 } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 type RecordStatus = 'active' | 'inactive' | 'archived';
 
@@ -22,10 +25,10 @@ interface Bobbin {
   ends_per_bobbin: number;
   bobbin_metre: number;
   bobbin_price: number;
-  loading_per_metre: number;
-  reorder_pieces: number;
   is_lurex: boolean;
   vendor_id: number | null;
+  purchase_date: string | null;
+  invoice_no: string | null;
   status: RecordStatus;
   notes: string | null;
 }
@@ -36,29 +39,25 @@ interface MillOption {
   name: string;
 }
 
-interface NewBobbin {
-  code: string;
-  description: string;
+interface FormState {
   ends_per_bobbin: string;
   bobbin_metre: string;
   bobbin_price: string;
-  loading_per_metre: string;
-  reorder_pieces: string;
-  is_lurex: boolean;
   vendor_id: string;
+  purchase_date: string;
+  invoice_no: string;
+  is_lurex: boolean;
   notes: string;
 }
 
-const EMPTY_NEW: NewBobbin = {
-  code: '',
-  description: '',
+const EMPTY_FORM: FormState = {
   ends_per_bobbin: '',
   bobbin_metre: '',
   bobbin_price: '0',
-  loading_per_metre: '0',
-  reorder_pieces: '0',
-  is_lurex: false,
   vendor_id: '',
+  purchase_date: '',
+  invoice_no: '',
+  is_lurex: false,
   notes: '',
 };
 
@@ -69,9 +68,27 @@ function toNumOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function suggestBobbinCode(ends: number | null, metres: number | null): string {
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function buildCode(ends: number | null, metres: number | null): string {
   if (ends === null || metres === null) return '';
   return 'BB-' + String(ends) + '-' + String(metres);
+}
+
+function buildDescription(ends: number | null, metres: number | null): string {
+  if (ends === null || metres === null) return '';
+  return String(ends) + '-ends x ' + String(metres) + 'm';
+}
+
+function fmtDate(s: string | null): string {
+  if (s === null || s === '') return '-';
+  // Display DD-MMM-YYYY (e.g. 29-May-2026).
+  const d = new Date(s + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return s;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + String(d.getFullYear());
 }
 
 export default function BobbinPage() {
@@ -83,9 +100,10 @@ export default function BobbinPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
-  const [neu, setNeu] = useState<NewBobbin>(EMPTY_NEW);
-  const [adding, setAdding] = useState(false);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,11 +111,10 @@ export default function BobbinPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('bobbin')
-        .select(
-          'id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, loading_per_metre, reorder_pieces, is_lurex, vendor_id, status, notes',
-        )
+        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, is_lurex, vendor_id, purchase_date, invoice_no, status, notes')
         .neq('status', 'archived')
-        .order('code'),
+        .order('purchase_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('mill')
@@ -117,25 +134,48 @@ export default function BobbinPage() {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const codeSuggestion = useMemo<string>(() => {
-    return suggestBobbinCode(toNumOrNull(neu.ends_per_bobbin), toNumOrNull(neu.bobbin_metre));
-  }, [neu.ends_per_bobbin, neu.bobbin_metre]);
+  const ends = useMemo<number | null>(() => toNumOrNull(form.ends_per_bobbin), [form.ends_per_bobbin]);
+  const metres = useMemo<number | null>(() => toNumOrNull(form.bobbin_metre), [form.bobbin_metre]);
+  const codePreview = useMemo<string>(() => buildCode(ends, metres), [ends, metres]);
+  const descPreview = useMemo<string>(() => buildDescription(ends, metres), [ends, metres]);
 
-  async function handleAdd() {
+  function openNewForm() {
+    setEditingId(null);
+    setForm({ ...EMPTY_FORM, purchase_date: todayISO() });
+    setFormOpen(true);
+    setSavedMsg(null);
+    setError(null);
+  }
+
+  function openEditForm(b: Bobbin) {
+    setEditingId(b.id);
+    setForm({
+      ends_per_bobbin: String(b.ends_per_bobbin),
+      bobbin_metre:    String(b.bobbin_metre),
+      bobbin_price:    String(b.bobbin_price),
+      vendor_id:       b.vendor_id === null ? '' : String(b.vendor_id),
+      purchase_date:   b.purchase_date ?? '',
+      invoice_no:      b.invoice_no ?? '',
+      is_lurex:        b.is_lurex,
+      notes:           b.notes ?? '',
+    });
+    setFormOpen(true);
+    setSavedMsg(null);
+    setError(null);
+  }
+
+  function closeForm() {
+    setFormOpen(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  }
+
+  async function handleSave() {
     setError(null);
     setSavedMsg(null);
 
-    const description = neu.description.trim();
-    if (description === '') {
-      setError('Enter a description (e.g. "60-ends x 200m cotton").');
-      return;
-    }
-    const ends = toNumOrNull(neu.ends_per_bobbin);
-    const metres = toNumOrNull(neu.bobbin_metre);
     if (ends === null || ends <= 0) {
       setError('Enter a positive ends-per-bobbin.');
       return;
@@ -144,71 +184,94 @@ export default function BobbinPage() {
       setError('Enter a positive bobbin length (metres).');
       return;
     }
-    const code =
-      neu.code.trim() === '' ? suggestBobbinCode(ends, metres) : neu.code.trim();
-    if (rows.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
-      setError('Bobbin code "' + code + '" already exists.');
+    const code = buildCode(ends, metres);
+    const description = buildDescription(ends, metres);
+
+    // If creating, guard against duplicate codes (same ends + metres).
+    if (editingId === null && rows.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
+      setError('A bobbin with code "' + code + '" already exists. Pick Edit on that row instead.');
       return;
     }
 
-    const price = toNumOrNull(neu.bobbin_price) ?? 0;
-    const loading = toNumOrNull(neu.loading_per_metre) ?? 0;
-    const reorder = toNumOrNull(neu.reorder_pieces) ?? 0;
-    const vendorId = neu.vendor_id === '' ? null : Number(neu.vendor_id);
-
-    setAdding(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any).from('bobbin').insert({
+    const payload = {
       code,
       description,
       ends_per_bobbin: ends,
       bobbin_metre: metres,
-      bobbin_price: price,
-      loading_per_metre: loading,
-      reorder_pieces: reorder,
-      is_lurex: neu.is_lurex,
-      vendor_id: vendorId,
-      notes: neu.notes.trim() === '' ? null : neu.notes.trim(),
-      status: 'active',
-    });
-    setAdding(false);
+      bobbin_price: toNumOrNull(form.bobbin_price) ?? 0,
+      vendor_id: form.vendor_id === '' ? null : Number(form.vendor_id),
+      purchase_date: form.purchase_date === '' ? null : form.purchase_date,
+      invoice_no: form.invoice_no.trim() === '' ? null : form.invoice_no.trim(),
+      is_lurex: form.is_lurex,
+      notes: form.notes.trim() === '' ? null : form.notes.trim(),
+      status: 'active' as const,
+      // loading_per_metre and reorder_pieces stay at their column defaults (0).
+    };
 
-    if (err) {
-      setError(err.message);
-      return;
+    setBusy(true);
+    if (editingId === null) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: err } = await (supabase as any).from('bobbin').insert(payload);
+      setBusy(false);
+      if (err) { setError(err.message); return; }
+      setSavedMsg('Added purchase ' + code + '.');
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: err } = await (supabase as any).from('bobbin').update(payload).eq('id', editingId);
+      setBusy(false);
+      if (err) { setError(err.message); return; }
+      setSavedMsg('Updated ' + code + '.');
     }
-    setNeu(EMPTY_NEW);
-    setSavedMsg('Added bobbin ' + code + '.');
+    closeForm();
     await load();
   }
 
-  async function updateRow(id: number, patch: Partial<Bobbin>) {
+  async function deleteRow(id: number, code: string) {
+    const ok = window.confirm('Delete bobbin purchase ' + code + '?\n\nIf bobbin_stock rows reference this, the database will block the delete.');
+    if (ok === false) return;
     setError(null);
     setSavedMsg(null);
-    setBusyId(id);
-
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any)
-      .from('bobbin')
-      .update(patch)
-      .eq('id', id);
-    setBusyId(null);
-
+    const { error: err } = await (supabase as any).from('bobbin').delete().eq('id', id);
     if (err) {
-      setError(err.message);
-      await load();
+      const archiveOk = window.confirm('Hard delete failed (' + err.message + ').\n\nArchive it instead so it stops appearing in lists?');
+      if (archiveOk) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('bobbin').update({ status: 'archived' }).eq('id', id);
+        setRows((prev) => prev.filter((r) => r.id !== id));
+        setSavedMsg('Archived ' + code + '.');
+      } else {
+        setError(err.message);
+      }
       return;
     }
-    setSavedMsg('Saved.');
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setSavedMsg('Deleted ' + code + '.');
+  }
+
+  function millLabel(id: number | null): string {
+    if (id === null) return '-';
+    const m = mills.find((x) => x.id === id);
+    return m ? m.code + ' - ' + m.name : '#' + String(id);
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Bobbin Stock"
-        subtitle="Bobbins (small warp beams) tracked across main godown / at vendor / customer-owned. Code is auto-suggested as BB-{ends}-{metres}."
+        subtitle="Log of every bobbin batch purchased. Code and display name auto-generate from ends and metres."
+        actions={
+          formOpen ? (
+            <button type="button" className="btn-ghost" onClick={closeForm}>
+              <X className="w-4 h-4" /> Close form
+            </button>
+          ) : (
+            <button type="button" className="btn-primary" onClick={openNewForm}>
+              <Plus className="w-4 h-4" /> Add Purchase
+            </button>
+          )
+        }
       />
 
       {error && <p className="text-sm text-err">{error}</p>}
@@ -219,295 +282,199 @@ export default function BobbinPage() {
         </p>
       )}
 
-      <div className="card p-5 space-y-3">
-        <h2 className="font-display font-bold text-base">Add a bobbin SKU</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className="label" htmlFor="nb-ends">Ends per bobbin *</label>
-            <input
-              id="nb-ends"
-              type="number"
-              min={1}
-              step="1"
-              className="input num w-full"
-              placeholder="60"
-              value={neu.ends_per_bobbin}
-              onChange={(e) => setNeu((n) => ({ ...n, ends_per_bobbin: e.target.value }))}
-            />
+      {formOpen && (
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display font-bold text-base">
+              {editingId === null ? 'New bobbin purchase' : 'Edit bobbin purchase'}
+            </h2>
           </div>
-          <div>
-            <label className="label" htmlFor="nb-metre">Length (m) *</label>
-            <input
-              id="nb-metre"
-              type="number"
-              min={0}
-              step="0.01"
-              className="input num w-full"
-              placeholder="200"
-              value={neu.bobbin_metre}
-              onChange={(e) => setNeu((n) => ({ ...n, bobbin_metre: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="nb-code">Code</label>
-            <input
-              id="nb-code"
-              type="text"
-              className="input w-full"
-              placeholder={codeSuggestion || '(auto)'}
-              value={neu.code}
-              onChange={(e) => setNeu((n) => ({ ...n, code: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="nb-price">Price (Rs/pc)</label>
-            <input
-              id="nb-price"
-              type="number"
-              min={0}
-              step="0.01"
-              className="input num w-full"
-              value={neu.bobbin_price}
-              onChange={(e) => setNeu((n) => ({ ...n, bobbin_price: e.target.value }))}
-            />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label" htmlFor="nb-desc">Description *</label>
-            <input
-              id="nb-desc"
-              type="text"
-              className="input w-full"
-              placeholder="60-ends x 200m cotton"
-              value={neu.description}
-              onChange={(e) => setNeu((n) => ({ ...n, description: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="nb-load">Loading / m</label>
-            <input
-              id="nb-load"
-              type="number"
-              min={0}
-              step="0.01"
-              className="input num w-full"
-              value={neu.loading_per_metre}
-              onChange={(e) => setNeu((n) => ({ ...n, loading_per_metre: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="nb-reorder">Reorder (pieces)</label>
-            <input
-              id="nb-reorder"
-              type="number"
-              min={0}
-              step="1"
-              className="input num w-full"
-              value={neu.reorder_pieces}
-              onChange={(e) => setNeu((n) => ({ ...n, reorder_pieces: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="nb-vendor">Supplier (mill)</label>
-            <select
-              id="nb-vendor"
-              className="input w-full"
-              value={neu.vendor_id}
-              onChange={(e) => setNeu((n) => ({ ...n, vendor_id: e.target.value }))}
-            >
-              <option value="">--- none ---</option>
-              {mills.map((m) => (
-                <option key={m.id} value={String(m.id)}>
-                  {m.code} - {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-1.5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="label">Code (auto)</label>
+              <div className="input bg-cloud/40 text-ink-mute select-none">
+                {codePreview || 'BB-???-???'}
+              </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="b-ends">Ends per bobbin *</label>
               <input
-                type="checkbox"
-                checked={neu.is_lurex}
-                onChange={(e) => setNeu((n) => ({ ...n, is_lurex: e.target.checked }))}
+                id="b-ends"
+                type="number"
+                min={1}
+                step="1"
+                className="input num w-full"
+                placeholder="60"
+                value={form.ends_per_bobbin}
+                onChange={(e) => setForm((f) => ({ ...f, ends_per_bobbin: e.target.value }))}
               />
-              <span className="text-xs text-ink-soft">Lurex bobbin</span>
-            </label>
+            </div>
+            <div>
+              <label className="label" htmlFor="b-metre">Length (m) *</label>
+              <input
+                id="b-metre"
+                type="number"
+                min={0}
+                step="0.01"
+                className="input num w-full"
+                placeholder="200"
+                value={form.bobbin_metre}
+                onChange={(e) => setForm((f) => ({ ...f, bobbin_metre: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label">Display name (auto)</label>
+              <div className="input bg-cloud/40 text-ink-soft select-none">
+                {descPreview || '-'}
+              </div>
+            </div>
+
+            <div>
+              <label className="label" htmlFor="b-price">Price (Rs/pc)</label>
+              <input
+                id="b-price"
+                type="number"
+                min={0}
+                step="0.01"
+                className="input num w-full"
+                value={form.bobbin_price}
+                onChange={(e) => setForm((f) => ({ ...f, bobbin_price: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="b-vendor">Supplier (mill)</label>
+              <select
+                id="b-vendor"
+                className="input w-full"
+                value={form.vendor_id}
+                onChange={(e) => setForm((f) => ({ ...f, vendor_id: e.target.value }))}
+              >
+                <option value="">--- none ---</option>
+                {mills.map((m) => (
+                  <option key={m.id} value={String(m.id)}>{m.code} - {m.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="b-date">Purchase date</label>
+              <input
+                id="b-date"
+                type="date"
+                className="input w-full"
+                value={form.purchase_date}
+                onChange={(e) => setForm((f) => ({ ...f, purchase_date: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="b-inv">Invoice no</label>
+              <input
+                id="b-inv"
+                type="text"
+                className="input w-full"
+                placeholder="INV-12345"
+                value={form.invoice_no}
+                onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={form.is_lurex}
+                  onChange={(e) => setForm((f) => ({ ...f, is_lurex: e.target.checked }))}
+                />
+                <span className="text-xs text-ink-soft">Lurex bobbin</span>
+              </label>
+            </div>
+            <div className="md:col-span-3">
+              <label className="label" htmlFor="b-notes">Notes</label>
+              <input
+                id="b-notes"
+                type="text"
+                className="input w-full"
+                placeholder="(optional)"
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
           </div>
-          <div className="md:col-span-3">
-            <label className="label" htmlFor="nb-notes">Notes</label>
-            <input
-              id="nb-notes"
-              type="text"
-              className="input w-full"
-              placeholder="(optional)"
-              value={neu.notes}
-              onChange={(e) => setNeu((n) => ({ ...n, notes: e.target.value }))}
-            />
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" className="btn-ghost" onClick={closeForm} disabled={busy}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={handleSave} disabled={busy}>
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {editingId === null ? 'Save Purchase' : 'Save Changes'}
+            </button>
           </div>
         </div>
-        <div>
-          <button
-            type="button"
-            className="btn-primary flex items-center gap-1.5"
-            onClick={handleAdd}
-            disabled={adding}
-          >
-            {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Add bobbin
-          </button>
-        </div>
-      </div>
+      )}
 
       {loading ? (
         <div className="card p-6 flex items-center gap-2 text-ink-mute">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading bobbins...
+          Loading purchases...
         </div>
       ) : rows.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">
-          No bobbins yet. Add your first one above.
+          No bobbin purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
         </div>
       ) : (
-        <div className="card p-5 space-y-3">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line/60 text-left text-ink-mute">
-                  <th className="py-2 pr-3">Code</th>
-                  <th className="py-2 pr-3">Description</th>
-                  <th className="py-2 pr-3">Ends</th>
-                  <th className="py-2 pr-3">Length (m)</th>
-                  <th className="py-2 pr-3">Price Rs</th>
-                  <th className="py-2 pr-3">Load/m</th>
-                  <th className="py-2 pr-3">Reorder</th>
-                  <th className="py-2 pr-3">Lurex</th>
-                  <th className="py-2 pr-3">Supplier</th>
-                  <th className="py-2 pr-3">Active</th>
-                  <th className="py-2 pr-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((b) => (
-                  <tr key={b.id} className="border-b border-line/60">
-                    <td className="py-2 pr-3 font-medium">{b.code}</td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="text"
-                        className="input w-56"
-                        value={b.description}
-                        onChange={(e) => updateRow(b.id, { description: e.target.value })}
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={1}
-                        step="1"
-                        className="input num w-16"
-                        value={b.ends_per_bobbin}
-                        onChange={(e) =>
-                          updateRow(b.id, { ends_per_bobbin: Number(e.target.value) || 1 })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="input num w-20"
-                        value={b.bobbin_metre}
-                        onChange={(e) =>
-                          updateRow(b.id, { bobbin_metre: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="input num w-20"
-                        value={b.bobbin_price}
-                        onChange={(e) =>
-                          updateRow(b.id, { bobbin_price: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="input num w-20"
-                        value={b.loading_per_metre}
-                        onChange={(e) =>
-                          updateRow(b.id, { loading_per_metre: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min={0}
-                        step="1"
-                        className="input num w-20"
-                        value={b.reorder_pieces}
-                        onChange={(e) =>
-                          updateRow(b.id, { reorder_pieces: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="checkbox"
-                        checked={b.is_lurex}
-                        onChange={(e) => updateRow(b.id, { is_lurex: e.target.checked })}
-                      />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <select
-                        className="input w-40"
-                        value={b.vendor_id === null ? '' : String(b.vendor_id)}
-                        onChange={(e) =>
-                          updateRow(b.id, {
-                            vendor_id: e.target.value === '' ? null : Number(e.target.value),
-                          })
-                        }
+        <div className="card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left px-4 py-3">Code</th>
+                <th className="text-left px-4 py-3">Description</th>
+                <th className="text-right px-4 py-3">Ends</th>
+                <th className="text-right px-4 py-3">Length (m)</th>
+                <th className="text-right px-4 py-3">Price Rs</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Supplier</th>
+                <th className="text-left px-4 py-3">Purchase date</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Invoice no</th>
+                <th className="text-center px-4 py-3">Lurex</th>
+                <th className="text-right px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((b) => (
+                <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-4 py-3 font-mono text-xs">{b.code}</td>
+                  <td className="px-4 py-3 font-semibold">{b.description}</td>
+                  <td className="px-4 py-3 text-right num">{b.ends_per_bobbin}</td>
+                  <td className="px-4 py-3 text-right num">{b.bobbin_metre}</td>
+                  <td className="px-4 py-3 text-right num">{b.bobbin_price}</td>
+                  <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{millLabel(b.vendor_id)}</td>
+                  <td className="px-4 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
+                  <td className="px-4 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
+                  <td className="px-4 py-3 text-center">
+                    {b.is_lurex ? <span className="pill bg-amber-50 text-amber-700">lurex</span> : <span className="text-ink-mute">-</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
+                        title="Edit this purchase"
+                        onClick={() => openEditForm(b)}
                       >
-                        <option value="">--- none ---</option>
-                        {mills.map((m) => (
-                          <option key={m.id} value={String(m.id)}>
-                            {m.code} - {m.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 pr-3">
-                      <label className="inline-flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={b.status === 'active'}
-                          onChange={(e) =>
-                            updateRow(b.id, {
-                              status: e.target.checked ? 'active' : 'inactive',
-                            })
-                          }
-                        />
-                        <span className="text-xs text-ink-soft">
-                          {b.status === 'active' ? 'Yes' : 'No'}
-                        </span>
-                      </label>
-                    </td>
-                    <td className="py-2 pr-3">
-                      {busyId === b.id && (
-                        <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-red-50 text-red-600"
+                        title="Delete this purchase"
+                        onClick={() => deleteRow(b.id, b.code)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
