@@ -97,10 +97,14 @@ export default function NewSizingJobPage() {
   useEffect(() => {
     (async () => {
       const [sv, wv, m, c, l] = await Promise.all([
-        supabase.from('vendor').select('id, code, name, vendor_type')
-          .eq('vendor_type', 'sizing').eq('status', 'active').order('name'),
-        supabase.from('vendor').select('id, code, name, vendor_type')
-          .eq('vendor_type', 'weaving').eq('status', 'active').order('name'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('ledger')
+          .select('id, code, name, ledger_type:type_id\!inner(name)')
+          .eq('active', true).eq('ledger_type.name', 'SIZING(VENDOR)').order('name'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('ledger')
+          .select('id, code, name, ledger_type:type_id\!inner(name)')
+          .eq('active', true).eq('ledger_type.name', 'WEAVING(VENDOR)').order('name'),
         supabase.from('mill').select('id, code, name').eq('status', 'active').order('name'),
         supabase.from('yarn_count').select('id, code, display_name')
           .eq('yarn_type', 'cotton').eq('status', 'active').order('code'),
@@ -186,7 +190,7 @@ export default function NewSizingJobPage() {
     // 1. Insert the job header
     const headerPayload = {
       set_no:           setNo.trim() || null,
-      sizing_vendor_id: Number(sizingVendorId),
+      sizing_ledger_id: Number(sizingVendorId),
       yarn_mill_id:     Number(yarnMillId),
       warp_count_id:    Number(warpCountId),
       avg_count:        avgCount ? Number(avgCount) : null,
@@ -200,7 +204,7 @@ export default function NewSizingJobPage() {
       gst_pct:          Number(gstPct) || 0,
       total_amount:     billing.total,
       default_production_mode: defaultMode === 'mixed' ? null : defaultMode,
-      default_outsource_vendor_id:
+      default_outsource_ledger_id:
         defaultMode === 'outsource' && defaultOutsourceVendorId
           ? Number(defaultOutsourceVendorId) : null,
       status,
@@ -227,7 +231,7 @@ export default function NewSizingJobPage() {
       ends:                Number(b.ends),
       meters:              Number(b.meters),
       production_mode:     b.production_mode,
-      outsource_vendor_id: b.production_mode === 'outsource' && b.outsource_vendor_id
+      outsource_ledger_id: b.production_mode === 'outsource' && b.outsource_vendor_id
                              ? Number(b.outsource_vendor_id) : null,
     }));
     const { error: beamErr } = await supabase.from('pavu').insert(beamRows as PavuInsert[]);

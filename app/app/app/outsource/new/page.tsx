@@ -71,7 +71,13 @@ export default function NewOutsourceOrderPage(): React.ReactElement {
   useEffect(() => {
     (async () => {
       const [v, c, y, b] = await Promise.all([
-        supabase.from('vendor').select('id, code, name').order('name'),
+        // Weaving vendors are WEAVING(VENDOR)-type ledgers now (migration 053).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('ledger')
+          .select('id, code, name, ledger_type:type_id\!inner(name)')
+          .eq('active', true)
+          .eq('ledger_type.name', 'WEAVING(VENDOR)')
+          .order('name'),
         supabase
           .from('costing_master')
           .select('id, quality_code, quality_name, approval_status')
@@ -126,7 +132,7 @@ export default function NewOutsourceOrderPage(): React.ReactElement {
       const ow_number = await nextOwNumber();
       const payload = {
         ow_number,
-        vendor_id: Number(vendorId),
+        ledger_id: Number(vendorId),
         costing_id: Number(costingId),
         warp_lot_id: warpLotId ? Number(warpLotId) : null,
         weft_lot_id: weftLotId ? Number(weftLotId) : null,

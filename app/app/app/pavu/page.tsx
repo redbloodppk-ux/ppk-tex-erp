@@ -28,7 +28,7 @@ export default async function PavuListPage() {
         job_code, set_no,
         warp_count:warp_count_id ( code )
       ),
-      outsource_vendor:outsource_vendor_id ( name )
+      outsource_vendor:outsource_ledger_id ( name )
     `)
     .order('created_at', { ascending: false })
     .limit(200);

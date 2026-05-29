@@ -46,7 +46,7 @@ export default async function OutsourceListPage(): Promise<React.ReactElement> {
     .select(`
       id, ow_number, issued_date, promised_date,
       expected_metres, delivered_metres, pick_paise_agreed, status,
-      vendor:vendor_id ( name, code ),
+      vendor:ledger_id ( name, code ),
       costing:costing_id ( quality_code, quality_name )
     `)
     .order('issued_date', { ascending: false })

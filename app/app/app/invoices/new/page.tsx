@@ -22,7 +22,7 @@ type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'd
 type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return';
 
 interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null }
-interface Vendor   { id: number; name: string; gstin: string | null; vendor_type: string }
+interface Vendor   { id: number; name: string; gstin: string | null; ledger_type?: { name: string } | null }
 interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_kg: number;
                      yarn_count_id: number; mill_id: number;
                      yarn_count?: { display_name: string } | null;
@@ -125,7 +125,14 @@ export default function NewInvoicePage() {
       const [cp, cu, ve, so, fs, yl, oi] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         supabase.from('customer').select('id, name, gstin, state, billing_address').eq('status','active').order('name'),
-        supabase.from('vendor').select('id, name, gstin, vendor_type').eq('status','active').order('name'),
+        // Vendors are now ledgers - pull any active ledger that's not a CUSTOMER/CASH/BANK/TAX type
+        // so we cover SUPPLIER, AGENT, SIZING/WEAVING/FOLDING vendors etc.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('ledger')
+          .select('id, name, gstin, ledger_type:type_id\!inner(name)')
+          .eq('active', true)
+          .not('ledger_type.name', 'in', '(CUSTOMER,CASH,BANK,TAX)')
+          .order('name'),
         supabase.from('sales_order').select('id, so_number, customer_id, total, status').in('status', ['approved','in_production','partial_dispatch','dispatched','invoiced']).order('order_date', { ascending: false }).limit(100),
         supabase.from('fabric_stock').select(`
           id, metres_available, cost_per_m_frozen,
@@ -332,7 +339,7 @@ export default function NewInvoicePage() {
       doc_type:      docType,
       source_kind:   sourceKind,
       customer_id:   docType === 'debit_note' ? null : Number(customerId),
-      vendor_id:     docType === 'debit_note' ? Number(vendorId) : null,
+      ledger_id:     docType === 'debit_note' ? Number(vendorId) : null,
       so_id:         pickedSoId ? Number(pickedSoId) : null,
       original_invoice_id: originalInvoiceId ? Number(originalInvoiceId) : null,
       party_name:    partyName,
@@ -482,7 +489,7 @@ export default function NewInvoicePage() {
                   <select required value={vendorId} onChange={e => setVendorId(e.target.value)} className="input">
                     <option value="" disabled>Select vendor…</option>
                     {vendors.map(v => (
-                      <option key={v.id} value={v.id}>{v.name} ({v.vendor_type})</option>
+                      <option key={v.id} value={v.id}>{v.name}{v.ledger_type?.name ? ' (' + v.ledger_type.name + ')' : ''}</option>
                     ))}
                   </select>
                 </div>

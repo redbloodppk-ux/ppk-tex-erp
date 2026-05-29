@@ -61,6 +61,7 @@ export type Database = {
           reason: Database["public"]["Enums"]["non_working_reason"] | null
           remark: string | null
           shift: Database["public"]["Enums"]["shift_code"]
+          sync_source: string
         }
         Insert: {
           attendance_date: string
@@ -72,6 +73,7 @@ export type Database = {
           reason?: Database["public"]["Enums"]["non_working_reason"] | null
           remark?: string | null
           shift: Database["public"]["Enums"]["shift_code"]
+          sync_source?: string
         }
         Update: {
           attendance_date?: string
@@ -83,6 +85,7 @@ export type Database = {
           reason?: Database["public"]["Enums"]["non_working_reason"] | null
           remark?: string | null
           shift?: Database["public"]["Enums"]["shift_code"]
+          sync_source?: string
         }
         Relationships: [
           {
@@ -96,6 +99,8 @@ export type Database = {
       }
       attendance_entry: {
         Row: {
+          actual_in_time: string | null
+          actual_out_time: string | null
           attendance_day_id: number
           day_weight: number | null
           employee_id: number
@@ -103,9 +108,14 @@ export type Database = {
           marked_at: string
           marked_by: string | null
           remark: string | null
+          shed_no: string | null
+          shed_nos: string[] | null
           status: Database["public"]["Enums"]["attendance_status"]
+          sync_source: string
         }
         Insert: {
+          actual_in_time?: string | null
+          actual_out_time?: string | null
           attendance_day_id: number
           day_weight?: number | null
           employee_id: number
@@ -113,9 +123,14 @@ export type Database = {
           marked_at?: string
           marked_by?: string | null
           remark?: string | null
+          shed_no?: string | null
+          shed_nos?: string[] | null
           status: Database["public"]["Enums"]["attendance_status"]
+          sync_source?: string
         }
         Update: {
+          actual_in_time?: string | null
+          actual_out_time?: string | null
           attendance_day_id?: number
           day_weight?: number | null
           employee_id?: number
@@ -123,7 +138,10 @@ export type Database = {
           marked_at?: string
           marked_by?: string | null
           remark?: string | null
+          shed_no?: string | null
+          shed_nos?: string[] | null
           status?: Database["public"]["Enums"]["attendance_status"]
+          sync_source?: string
         }
         Relationships: [
           {
@@ -139,6 +157,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "employee"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_monthly"
+            referencedColumns: ["employee_id"]
           },
           {
             foreignKeyName: "attendance_entry_marked_by_fkey"
@@ -191,12 +223,17 @@ export type Database = {
           created_by: string | null
           description: string
           ends_per_bobbin: number
+          gst_pct: number
           id: number
+          invoice_no: string | null
           is_lurex: boolean
           loading_per_metre: number
           notes: string | null
+          purchase_date: string | null
+          quantity: number
           reorder_pieces: number
           status: Database["public"]["Enums"]["record_status"]
+          total_amount: number | null
           updated_at: string
           updated_by: string | null
           vendor_id: number | null
@@ -209,12 +246,17 @@ export type Database = {
           created_by?: string | null
           description: string
           ends_per_bobbin: number
+          gst_pct?: number
           id?: number
+          invoice_no?: string | null
           is_lurex?: boolean
           loading_per_metre?: number
           notes?: string | null
+          purchase_date?: string | null
+          quantity?: number
           reorder_pieces?: number
           status?: Database["public"]["Enums"]["record_status"]
+          total_amount?: number | null
           updated_at?: string
           updated_by?: string | null
           vendor_id?: number | null
@@ -227,12 +269,17 @@ export type Database = {
           created_by?: string | null
           description?: string
           ends_per_bobbin?: number
+          gst_pct?: number
           id?: number
+          invoice_no?: string | null
           is_lurex?: boolean
           loading_per_metre?: number
           notes?: string | null
+          purchase_date?: string | null
+          quantity?: number
           reorder_pieces?: number
           status?: Database["public"]["Enums"]["record_status"]
+          total_amount?: number | null
           updated_at?: string
           updated_by?: string | null
           vendor_id?: number | null
@@ -910,6 +957,7 @@ export type Database = {
           id: number
           invoice_id: number | null
           jobwork_id: number | null
+          ledger_id: number | null
           notes: string | null
           party_kind: string
           place_of_supply: string | null
@@ -925,7 +973,6 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           vehicle_num: string | null
-          vendor_id: number | null
         }
         Insert: {
           agent_name?: string | null
@@ -945,6 +992,7 @@ export type Database = {
           id?: number
           invoice_id?: number | null
           jobwork_id?: number | null
+          ledger_id?: number | null
           notes?: string | null
           party_kind?: string
           place_of_supply?: string | null
@@ -960,7 +1008,6 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           vehicle_num?: string | null
-          vendor_id?: number | null
         }
         Update: {
           agent_name?: string | null
@@ -980,6 +1027,7 @@ export type Database = {
           id?: number
           invoice_id?: number | null
           jobwork_id?: number | null
+          ledger_id?: number | null
           notes?: string | null
           party_kind?: string
           place_of_supply?: string | null
@@ -995,7 +1043,6 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           vehicle_num?: string | null
-          vendor_id?: number | null
         }
         Relationships: [
           {
@@ -1048,24 +1095,24 @@ export type Database = {
             referencedColumns: ["invoice_id"]
           },
           {
-            foreignKeyName: "delivery_challan_updated_by_fkey"
-            columns: ["updated_by"]
+            foreignKeyName: "delivery_challan_ledger_id_fkey"
+            columns: ["ledger_id"]
             isOneToOne: false
-            referencedRelation: "app_user"
+            referencedRelation: "ledger"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "delivery_challan_vendor_id_fkey"
-            columns: ["vendor_id"]
+            foreignKeyName: "delivery_challan_ledger_id_fkey"
+            columns: ["ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
           },
           {
-            foreignKeyName: "delivery_challan_vendor_id_fkey"
-            columns: ["vendor_id"]
+            foreignKeyName: "delivery_challan_updated_by_fkey"
+            columns: ["updated_by"]
             isOneToOne: false
-            referencedRelation: "vendor"
+            referencedRelation: "app_user"
             referencedColumns: ["id"]
           },
         ]
@@ -1102,12 +1149,14 @@ export type Database = {
       }
       employee: {
         Row: {
+          attendance_required: boolean
           code: string
           created_at: string
           created_by: string | null
           date_of_joining: string | null
           default_shift: Database["public"]["Enums"]["shift_preference"]
           full_name: string
+          home_shed_no: string | null
           id: number
           id_last4: string | null
           notes: string | null
@@ -1116,14 +1165,18 @@ export type Database = {
           status: Database["public"]["Enums"]["employee_status"]
           updated_at: string
           updated_by: string | null
+          wage_alloc_basis: string
+          weekly_salary: number | null
         }
         Insert: {
+          attendance_required?: boolean
           code: string
           created_at?: string
           created_by?: string | null
           date_of_joining?: string | null
           default_shift?: Database["public"]["Enums"]["shift_preference"]
           full_name: string
+          home_shed_no?: string | null
           id?: number
           id_last4?: string | null
           notes?: string | null
@@ -1132,14 +1185,18 @@ export type Database = {
           status?: Database["public"]["Enums"]["employee_status"]
           updated_at?: string
           updated_by?: string | null
+          wage_alloc_basis?: string
+          weekly_salary?: number | null
         }
         Update: {
+          attendance_required?: boolean
           code?: string
           created_at?: string
           created_by?: string | null
           date_of_joining?: string | null
           default_shift?: Database["public"]["Enums"]["shift_preference"]
           full_name?: string
+          home_shed_no?: string | null
           id?: number
           id_last4?: string | null
           notes?: string | null
@@ -1148,6 +1205,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["employee_status"]
           updated_at?: string
           updated_by?: string | null
+          wage_alloc_basis?: string
+          weekly_salary?: number | null
         }
         Relationships: [
           {
@@ -1162,6 +1221,447 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ends_master: {
+        Row: {
+          active: boolean
+          code: string
+          count_id: number | null
+          created_at: string
+          created_by: string | null
+          ends_count: number
+          id: number
+          name: string
+          notes: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          count_id?: number | null
+          created_at?: string
+          created_by?: string | null
+          ends_count: number
+          id?: number
+          name: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          count_id?: number | null
+          created_at?: string
+          created_by?: string | null
+          ends_count?: number
+          id?: number
+          name?: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ends_master_count_id_fkey"
+            columns: ["count_id"]
+            isOneToOne: false
+            referencedRelation: "v_stock_on_hand"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "ends_master_count_id_fkey"
+            columns: ["count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_cover_dashboard"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "ends_master_count_id_fkey"
+            columns: ["count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_days_of_cover"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "ends_master_count_id_fkey"
+            columns: ["count_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_count"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ends_master_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ends_master_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_category: {
+        Row: {
+          created_at: string
+          id: number
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      expense_entry: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          created_by: string | null
+          id: number
+          notes: string | null
+          pay_date: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          category: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          notes?: string | null
+          pay_date: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          notes?: string | null
+          pay_date?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_entry_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_entry_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fabric_quality: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          crimp_pct: number | null
+          gst_pct: number | null
+          hsn: string | null
+          id: number
+          meter_per_pc: number | null
+          name: string
+          notes: string | null
+          output_unit: string | null
+          output_value: number | null
+          pick_per_inch: number | null
+          quality_for_sales: string | null
+          rate_per_m: number | null
+          reed: number | null
+          reed_space: number | null
+          updated_at: string
+          updated_by: string | null
+          weight_gsm: number | null
+          width_in: number | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          crimp_pct?: number | null
+          gst_pct?: number | null
+          hsn?: string | null
+          id?: number
+          meter_per_pc?: number | null
+          name: string
+          notes?: string | null
+          output_unit?: string | null
+          output_value?: number | null
+          pick_per_inch?: number | null
+          quality_for_sales?: string | null
+          rate_per_m?: number | null
+          reed?: number | null
+          reed_space?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          weight_gsm?: number | null
+          width_in?: number | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          crimp_pct?: number | null
+          gst_pct?: number | null
+          hsn?: string | null
+          id?: number
+          meter_per_pc?: number | null
+          name?: string
+          notes?: string | null
+          output_unit?: string | null
+          output_value?: number | null
+          pick_per_inch?: number | null
+          quality_for_sales?: string | null
+          rate_per_m?: number | null
+          reed?: number | null
+          reed_space?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          weight_gsm?: number | null
+          width_in?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fabric_quality_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fabric_quality_ends: {
+        Row: {
+          ends_id: number | null
+          fabric_quality_id: number
+          id: number
+          sno: number
+        }
+        Insert: {
+          ends_id?: number | null
+          fabric_quality_id: number
+          id?: number
+          sno: number
+        }
+        Update: {
+          ends_id?: number | null
+          fabric_quality_id?: number
+          id?: number
+          sno?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fabric_quality_ends_ends_id_fkey"
+            columns: ["ends_id"]
+            isOneToOne: false
+            referencedRelation: "ends_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_ends_fabric_quality_id_fkey"
+            columns: ["fabric_quality_id"]
+            isOneToOne: false
+            referencedRelation: "fabric_quality"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fabric_quality_warp_count: {
+        Row: {
+          fabric_quality_id: number
+          id: number
+          sno: number
+          yarn_count_id: number | null
+        }
+        Insert: {
+          fabric_quality_id: number
+          id?: number
+          sno: number
+          yarn_count_id?: number | null
+        }
+        Update: {
+          fabric_quality_id?: number
+          id?: number
+          sno?: number
+          yarn_count_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fabric_quality_warp_count_fabric_quality_id_fkey"
+            columns: ["fabric_quality_id"]
+            isOneToOne: false
+            referencedRelation: "fabric_quality"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_warp_count_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_stock_on_hand"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_warp_count_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_cover_dashboard"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_warp_count_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_days_of_cover"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_warp_count_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_count"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fabric_quality_weaving_rate: {
+        Row: {
+          fabric_quality_id: number
+          fabric_type: string | null
+          id: number
+          rate_per_meter: number | null
+          sno: number
+        }
+        Insert: {
+          fabric_quality_id: number
+          fabric_type?: string | null
+          id?: number
+          rate_per_meter?: number | null
+          sno: number
+        }
+        Update: {
+          fabric_quality_id?: number
+          fabric_type?: string | null
+          id?: number
+          rate_per_meter?: number | null
+          sno?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fabric_quality_weaving_rate_fabric_quality_id_fkey"
+            columns: ["fabric_quality_id"]
+            isOneToOne: false
+            referencedRelation: "fabric_quality"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fabric_quality_weft: {
+        Row: {
+          fabric_quality_id: number
+          id: number
+          meter_per_kg: number | null
+          sno: number
+          wgt_per_mtr_actual: number | null
+          wgt_per_mtr_manual: number | null
+          yarn_count_id: number | null
+        }
+        Insert: {
+          fabric_quality_id: number
+          id?: number
+          meter_per_kg?: number | null
+          sno: number
+          wgt_per_mtr_actual?: number | null
+          wgt_per_mtr_manual?: number | null
+          yarn_count_id?: number | null
+        }
+        Update: {
+          fabric_quality_id?: number
+          id?: number
+          meter_per_kg?: number | null
+          sno?: number
+          wgt_per_mtr_actual?: number | null
+          wgt_per_mtr_manual?: number | null
+          yarn_count_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fabric_quality_weft_fabric_quality_id_fkey"
+            columns: ["fabric_quality_id"]
+            isOneToOne: false
+            referencedRelation: "fabric_quality"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_weft_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_stock_on_hand"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_weft_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_cover_dashboard"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_weft_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "v_yarn_days_of_cover"
+            referencedColumns: ["yarn_count_id"]
+          },
+          {
+            foreignKeyName: "fabric_quality_weft_yarn_count_id_fkey"
+            columns: ["yarn_count_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_count"
             referencedColumns: ["id"]
           },
         ]
@@ -1221,8 +1721,43 @@ export type Database = {
             foreignKeyName: "fabric_stock_batch_id_fkey"
             columns: ["batch_id"]
             isOneToOne: false
+            referencedRelation: "v_batch_expense_allocation"
+            referencedColumns: ["batch_id"]
+          },
+          {
+            foreignKeyName: "fabric_stock_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "v_batch_expense_total"
+            referencedColumns: ["batch_id"]
+          },
+          {
+            foreignKeyName: "fabric_stock_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
             referencedRelation: "v_batch_sizing_variance"
             referencedColumns: ["batch_id"]
+          },
+          {
+            foreignKeyName: "fabric_stock_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "v_batch_wage_allocation"
+            referencedColumns: ["batch_id"]
+          },
+          {
+            foreignKeyName: "fabric_stock_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "v_batch_wage_total"
+            referencedColumns: ["batch_id"]
+          },
+          {
+            foreignKeyName: "fabric_stock_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "v_production_batch_with_source"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "fabric_stock_batch_id_fkey"
@@ -1298,6 +1833,7 @@ export type Database = {
           invoice_date: string
           invoice_no: string
           is_interstate: boolean
+          ledger_id: number | null
           notes: string | null
           original_invoice_id: number | null
           party_gstin: string | null
@@ -1317,7 +1853,6 @@ export type Database = {
           total: number
           updated_at: string
           updated_by: string | null
-          vendor_id: number | null
         }
         Insert: {
           amount_paid?: number
@@ -1334,6 +1869,7 @@ export type Database = {
           invoice_date?: string
           invoice_no: string
           is_interstate?: boolean
+          ledger_id?: number | null
           notes?: string | null
           original_invoice_id?: number | null
           party_gstin?: string | null
@@ -1353,7 +1889,6 @@ export type Database = {
           total?: number
           updated_at?: string
           updated_by?: string | null
-          vendor_id?: number | null
         }
         Update: {
           amount_paid?: number
@@ -1370,6 +1905,7 @@ export type Database = {
           invoice_date?: string
           invoice_no?: string
           is_interstate?: boolean
+          ledger_id?: number | null
           notes?: string | null
           original_invoice_id?: number | null
           party_gstin?: string | null
@@ -1389,7 +1925,6 @@ export type Database = {
           total?: number
           updated_at?: string
           updated_by?: string | null
-          vendor_id?: number | null
         }
         Relationships: [
           {
@@ -1419,6 +1954,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_customer_outstanding"
             referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "invoice_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
           },
           {
             foreignKeyName: "invoice_original_invoice_id_fkey"
@@ -1453,20 +2002,6 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invoice_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "v_sizing_spend_by_vendor"
-            referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "invoice_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
             referencedColumns: ["id"]
           },
         ]
@@ -1761,8 +2296,213 @@ export type Database = {
           },
         ]
       }
+      ledger: {
+        Row: {
+          active: boolean
+          address1: string | null
+          address2: string | null
+          address3: string | null
+          address4: string | null
+          area: string | null
+          brokerage_per_bag: number | null
+          code: string
+          created_at: string
+          created_by: string | null
+          email: string | null
+          group_id: number
+          gstin: string | null
+          id: number
+          name: string
+          notes: string | null
+          pan_no: string | null
+          phone: string | null
+          type_id: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          address1?: string | null
+          address2?: string | null
+          address3?: string | null
+          address4?: string | null
+          area?: string | null
+          brokerage_per_bag?: number | null
+          code: string
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          group_id: number
+          gstin?: string | null
+          id?: number
+          name: string
+          notes?: string | null
+          pan_no?: string | null
+          phone?: string | null
+          type_id: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          address1?: string | null
+          address2?: string | null
+          address3?: string | null
+          address4?: string | null
+          area?: string | null
+          brokerage_per_bag?: number | null
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          group_id?: number
+          gstin?: string | null
+          id?: number
+          name?: string
+          notes?: string | null
+          pan_no?: string | null
+          phone?: string | null
+          type_id?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ledger_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "ledger_group"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "ledger_type"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ledger_group: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          id: number
+          name: string
+          notes: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          name: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          name?: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ledger_group_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_group_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ledger_type: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          id: number
+          name: string
+          notes: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          name: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          name?: string
+          notes?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ledger_type_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_type_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       loom: {
         Row: {
+          default_rate_per_m: number | null
+          fabric_quality_id: number | null
           id: number
           loom_code: string
           loom_type: string
@@ -1772,6 +2512,8 @@ export type Database = {
           width_in: number | null
         }
         Insert: {
+          default_rate_per_m?: number | null
+          fabric_quality_id?: number | null
           id?: number
           loom_code: string
           loom_type: string
@@ -1781,6 +2523,8 @@ export type Database = {
           width_in?: number | null
         }
         Update: {
+          default_rate_per_m?: number | null
+          fabric_quality_id?: number | null
           id?: number
           loom_code?: string
           loom_type?: string
@@ -1789,7 +2533,15 @@ export type Database = {
           status?: string
           width_in?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "loom_fabric_quality_id_fkey"
+            columns: ["fabric_quality_id"]
+            isOneToOne: false
+            referencedRelation: "fabric_quality"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mill: {
         Row: {
@@ -1920,6 +2672,7 @@ export type Database = {
           expected_metres: number
           id: number
           issued_date: string
+          ledger_id: number | null
           notes: string | null
           ow_number: string
           pick_paise_agreed: number
@@ -1929,7 +2682,6 @@ export type Database = {
           status: string
           updated_at: string
           updated_by: string | null
-          vendor_id: number
           warp_lot_id: number | null
           weft_lot_id: number | null
         }
@@ -1945,6 +2697,7 @@ export type Database = {
           expected_metres: number
           id?: number
           issued_date: string
+          ledger_id?: number | null
           notes?: string | null
           ow_number: string
           pick_paise_agreed: number
@@ -1954,7 +2707,6 @@ export type Database = {
           status?: string
           updated_at?: string
           updated_by?: string | null
-          vendor_id: number
           warp_lot_id?: number | null
           weft_lot_id?: number | null
         }
@@ -1970,6 +2722,7 @@ export type Database = {
           expected_metres?: number
           id?: number
           issued_date?: string
+          ledger_id?: number | null
           notes?: string | null
           ow_number?: string
           pick_paise_agreed?: number
@@ -1979,7 +2732,6 @@ export type Database = {
           status?: string
           updated_at?: string
           updated_by?: string | null
-          vendor_id?: number
           warp_lot_id?: number | null
           weft_lot_id?: number | null
         }
@@ -2034,6 +2786,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "outsource_order_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outsource_order_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
+          },
+          {
             foreignKeyName: "outsource_order_porvai_lot_id_fkey"
             columns: ["porvai_lot_id"]
             isOneToOne: false
@@ -2052,20 +2818,6 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outsource_order_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "v_sizing_spend_by_vendor"
-            referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "outsource_order_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
             referencedColumns: ["id"]
           },
           {
@@ -2093,7 +2845,7 @@ export type Database = {
           id: number
           meters: number
           notes: string | null
-          outsource_vendor_id: number | null
+          outsource_ledger_id: number | null
           pavu_code: string
           production_mode: Database["public"]["Enums"]["pavu_production_mode"]
           sizing_job_id: number
@@ -2109,7 +2861,7 @@ export type Database = {
           id?: number
           meters: number
           notes?: string | null
-          outsource_vendor_id?: number | null
+          outsource_ledger_id?: number | null
           pavu_code: string
           production_mode?: Database["public"]["Enums"]["pavu_production_mode"]
           sizing_job_id: number
@@ -2125,7 +2877,7 @@ export type Database = {
           id?: number
           meters?: number
           notes?: string | null
-          outsource_vendor_id?: number | null
+          outsource_ledger_id?: number | null
           pavu_code?: string
           production_mode?: Database["public"]["Enums"]["pavu_production_mode"]
           sizing_job_id?: number
@@ -2142,18 +2894,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "pavu_outsource_vendor_id_fkey"
-            columns: ["outsource_vendor_id"]
+            foreignKeyName: "pavu_outsource_ledger_id_fkey"
+            columns: ["outsource_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pavu_outsource_ledger_id_fkey"
+            columns: ["outsource_ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "pavu_outsource_vendor_id_fkey"
-            columns: ["outsource_vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
-            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "pavu_sizing_job_id_fkey"
@@ -2309,6 +3061,7 @@ export type Database = {
           direction: Database["public"]["Enums"]["payment_direction"]
           id: number
           invoice_id: number | null
+          ledger_id: number | null
           mill_id: number | null
           mode: string
           notes: string | null
@@ -2316,7 +3069,6 @@ export type Database = {
           payment_no: string
           purchase_id: number | null
           reference: string | null
-          vendor_id: number | null
         }
         Insert: {
           amount: number
@@ -2326,6 +3078,7 @@ export type Database = {
           direction: Database["public"]["Enums"]["payment_direction"]
           id?: number
           invoice_id?: number | null
+          ledger_id?: number | null
           mill_id?: number | null
           mode: string
           notes?: string | null
@@ -2333,7 +3086,6 @@ export type Database = {
           payment_no: string
           purchase_id?: number | null
           reference?: string | null
-          vendor_id?: number | null
         }
         Update: {
           amount?: number
@@ -2343,6 +3095,7 @@ export type Database = {
           direction?: Database["public"]["Enums"]["payment_direction"]
           id?: number
           invoice_id?: number | null
+          ledger_id?: number | null
           mill_id?: number | null
           mode?: string
           notes?: string | null
@@ -2350,7 +3103,6 @@ export type Database = {
           payment_no?: string
           purchase_id?: number | null
           reference?: string | null
-          vendor_id?: number | null
         }
         Relationships: [
           {
@@ -2403,6 +3155,20 @@ export type Database = {
             referencedColumns: ["invoice_id"]
           },
           {
+            foreignKeyName: "payment_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
+          },
+          {
             foreignKeyName: "payment_mill_id_fkey"
             columns: ["mill_id"]
             isOneToOne: false
@@ -2414,20 +3180,6 @@ export type Database = {
             columns: ["purchase_id"]
             isOneToOne: false
             referencedRelation: "yarn_purchase"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payment_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "v_sizing_spend_by_vendor"
-            referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "payment_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
             referencedColumns: ["id"]
           },
         ]
@@ -2453,6 +3205,7 @@ export type Database = {
           id: number
           loom_id: number | null
           notes: string | null
+          outsource_order_id: number | null
           pavu_assign_id: number | null
           porvai_lot_id: number | null
           produced_m: number
@@ -2484,6 +3237,7 @@ export type Database = {
           id?: number
           loom_id?: number | null
           notes?: string | null
+          outsource_order_id?: number | null
           pavu_assign_id?: number | null
           porvai_lot_id?: number | null
           produced_m?: number
@@ -2515,6 +3269,7 @@ export type Database = {
           id?: number
           loom_id?: number | null
           notes?: string | null
+          outsource_order_id?: number | null
           pavu_assign_id?: number | null
           porvai_lot_id?: number | null
           produced_m?: number
@@ -2610,6 +3365,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_loom_utilisation"
             referencedColumns: ["loom_id"]
+          },
+          {
+            foreignKeyName: "production_batch_outsource_order_id_fkey"
+            columns: ["outsource_order_id"]
+            isOneToOne: false
+            referencedRelation: "outsource_order"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "production_batch_pavu_assign_id_fkey"
@@ -2764,6 +3526,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "production_shift_log_weaver_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "production_shift_log_weaver_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_monthly"
+            referencedColumns: ["employee_id"]
+          },
+          {
             foreignKeyName: "production_shift_log_weaver_shift_log_id_fkey"
             columns: ["shift_log_id"]
             isOneToOne: false
@@ -2824,12 +3600,12 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: number
+          ledger_id: number | null
           metres_purchased: number
           metres_remaining: number
           notes: string | null
           received_date: string
           rl_number: string
-          vendor_id: number
         }
         Insert: {
           cost_per_m: number
@@ -2838,12 +3614,12 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: number
+          ledger_id?: number | null
           metres_purchased: number
           metres_remaining: number
           notes?: string | null
           received_date: string
           rl_number: string
-          vendor_id: number
         }
         Update: {
           cost_per_m?: number
@@ -2852,12 +3628,12 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: number
+          ledger_id?: number | null
           metres_purchased?: number
           metres_remaining?: number
           notes?: string | null
           received_date?: string
           rl_number?: string
-          vendor_id?: number
         }
         Relationships: [
           {
@@ -2896,18 +3672,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "resale_lot_vendor_id_fkey"
-            columns: ["vendor_id"]
+            foreignKeyName: "resale_lot_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resale_lot_ledger_id_fkey"
+            columns: ["ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "resale_lot_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -3091,7 +3867,7 @@ export type Database = {
           created_by: string | null
           date_received: string | null
           date_sent: string | null
-          default_outsource_vendor_id: number | null
+          default_outsource_ledger_id: number | null
           default_production_mode:
             | Database["public"]["Enums"]["pavu_production_mode"]
             | null
@@ -3101,8 +3877,8 @@ export type Database = {
           no_of_paavu: number
           notes: string | null
           set_no: string | null
+          sizing_ledger_id: number | null
           sizing_rate_per_kg: number
-          sizing_vendor_id: number
           status: Database["public"]["Enums"]["sizing_job_status"]
           total_amount: number
           updated_at: string
@@ -3121,7 +3897,7 @@ export type Database = {
           created_by?: string | null
           date_received?: string | null
           date_sent?: string | null
-          default_outsource_vendor_id?: number | null
+          default_outsource_ledger_id?: number | null
           default_production_mode?:
             | Database["public"]["Enums"]["pavu_production_mode"]
             | null
@@ -3131,8 +3907,8 @@ export type Database = {
           no_of_paavu?: number
           notes?: string | null
           set_no?: string | null
+          sizing_ledger_id?: number | null
           sizing_rate_per_kg?: number
-          sizing_vendor_id: number
           status?: Database["public"]["Enums"]["sizing_job_status"]
           total_amount?: number
           updated_at?: string
@@ -3151,7 +3927,7 @@ export type Database = {
           created_by?: string | null
           date_received?: string | null
           date_sent?: string | null
-          default_outsource_vendor_id?: number | null
+          default_outsource_ledger_id?: number | null
           default_production_mode?:
             | Database["public"]["Enums"]["pavu_production_mode"]
             | null
@@ -3161,8 +3937,8 @@ export type Database = {
           no_of_paavu?: number
           notes?: string | null
           set_no?: string | null
+          sizing_ledger_id?: number | null
           sizing_rate_per_kg?: number
-          sizing_vendor_id?: number
           status?: Database["public"]["Enums"]["sizing_job_status"]
           total_amount?: number
           updated_at?: string
@@ -3183,32 +3959,32 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "sizing_job_default_outsource_vendor_id_fkey"
-            columns: ["default_outsource_vendor_id"]
+            foreignKeyName: "sizing_job_default_outsource_ledger_id_fkey"
+            columns: ["default_outsource_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sizing_job_default_outsource_ledger_id_fkey"
+            columns: ["default_outsource_ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
           },
           {
-            foreignKeyName: "sizing_job_default_outsource_vendor_id_fkey"
-            columns: ["default_outsource_vendor_id"]
+            foreignKeyName: "sizing_job_sizing_ledger_id_fkey"
+            columns: ["sizing_ledger_id"]
             isOneToOne: false
-            referencedRelation: "vendor"
+            referencedRelation: "ledger"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "sizing_job_sizing_vendor_id_fkey"
-            columns: ["sizing_vendor_id"]
+            foreignKeyName: "sizing_job_sizing_ledger_id_fkey"
+            columns: ["sizing_ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "sizing_job_sizing_vendor_id_fkey"
-            columns: ["sizing_vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
-            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "sizing_job_updated_by_fkey"
@@ -3285,74 +4061,80 @@ export type Database = {
         }
         Relationships: []
       }
-      vendor: {
+      wage_entry: {
         Row: {
-          address: string | null
-          code: string
-          contact_person: string | null
+          amount: number
           created_at: string
           created_by: string | null
-          default_pick_paise: number | null
-          email: string | null
-          gstin: string | null
+          employee_id: number
           id: number
-          name: string
+          kind: string
           notes: string | null
-          payment_terms_days: number
-          phone: string | null
-          status: Database["public"]["Enums"]["record_status"]
+          pay_date: string
+          period_end: string
+          period_start: string
           updated_at: string
           updated_by: string | null
-          vendor_type: string
         }
         Insert: {
-          address?: string | null
-          code: string
-          contact_person?: string | null
+          amount: number
           created_at?: string
           created_by?: string | null
-          default_pick_paise?: number | null
-          email?: string | null
-          gstin?: string | null
+          employee_id: number
           id?: number
-          name: string
+          kind: string
           notes?: string | null
-          payment_terms_days?: number
-          phone?: string | null
-          status?: Database["public"]["Enums"]["record_status"]
+          pay_date: string
+          period_end: string
+          period_start: string
           updated_at?: string
           updated_by?: string | null
-          vendor_type: string
         }
         Update: {
-          address?: string | null
-          code?: string
-          contact_person?: string | null
+          amount?: number
           created_at?: string
           created_by?: string | null
-          default_pick_paise?: number | null
-          email?: string | null
-          gstin?: string | null
+          employee_id?: number
           id?: number
-          name?: string
+          kind?: string
           notes?: string | null
-          payment_terms_days?: number
-          phone?: string | null
-          status?: Database["public"]["Enums"]["record_status"]
+          pay_date?: string
+          period_end?: string
+          period_start?: string
           updated_at?: string
           updated_by?: string | null
-          vendor_type?: string
         }
         Relationships: [
           {
-            foreignKeyName: "vendor_created_by_fkey"
+            foreignKeyName: "wage_entry_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "app_user"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "vendor_updated_by_fkey"
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_monthly"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "wage_entry_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
@@ -3360,65 +4142,47 @@ export type Database = {
           },
         ]
       }
-      vendor_performance: {
+      weekly_wage_summary: {
         Row: {
-          complaints: number
-          computed_at: string
+          created_at: string
+          created_by: string | null
+          expenses: Json
+          fy_label: string
           id: number
-          jobs_on_time: number
-          jobs_total: number
-          metres_delivered: number
-          metres_promised: number
-          on_time_pct: number | null
-          period_end: string
-          period_start: string
-          variance_pct: number | null
-          vendor_id: number
+          per_employee: Json
+          totals: Json
+          wage_entries: Json
+          week_end: string
+          week_no: number
+          week_start: string
         }
         Insert: {
-          complaints?: number
-          computed_at?: string
+          created_at?: string
+          created_by?: string | null
+          expenses: Json
+          fy_label: string
           id?: number
-          jobs_on_time?: number
-          jobs_total?: number
-          metres_delivered?: number
-          metres_promised?: number
-          on_time_pct?: number | null
-          period_end: string
-          period_start: string
-          variance_pct?: number | null
-          vendor_id: number
+          per_employee: Json
+          totals: Json
+          wage_entries: Json
+          week_end: string
+          week_no: number
+          week_start: string
         }
         Update: {
-          complaints?: number
-          computed_at?: string
+          created_at?: string
+          created_by?: string | null
+          expenses?: Json
+          fy_label?: string
           id?: number
-          jobs_on_time?: number
-          jobs_total?: number
-          metres_delivered?: number
-          metres_promised?: number
-          on_time_pct?: number | null
-          period_end?: string
-          period_start?: string
-          variance_pct?: number | null
-          vendor_id?: number
+          per_employee?: Json
+          totals?: Json
+          wage_entries?: Json
+          week_end?: string
+          week_no?: number
+          week_start?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "vendor_performance_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "v_sizing_spend_by_vendor"
-            referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "vendor_performance_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       yarn_count: {
         Row: {
@@ -3497,52 +4261,76 @@ export type Database = {
       }
       yarn_lot: {
         Row: {
+          bag_count: number
+          broker_ledger_id: number | null
+          brokerage_amount: number | null
+          brokerage_per_bag: number
           cost_per_kg: number
           created_at: string
           created_by: string | null
           current_kg: number
           delivery_destination: string
+          gst_pct: number
           id: number
+          invoice_no: string | null
           lot_code: string
           mill_id: number
           notes: string | null
           purchase_invoice_id: number | null
           received_date: string
           received_kg: number
-          sizing_vendor_id: number | null
+          sizing_ledger_id: number | null
+          total_amount: number | null
           yarn_count_id: number
+          yarn_kind: string
         }
         Insert: {
+          bag_count?: number
+          broker_ledger_id?: number | null
+          brokerage_amount?: number | null
+          brokerage_per_bag?: number
           cost_per_kg: number
           created_at?: string
           created_by?: string | null
           current_kg: number
           delivery_destination?: string
+          gst_pct?: number
           id?: number
+          invoice_no?: string | null
           lot_code: string
           mill_id: number
           notes?: string | null
           purchase_invoice_id?: number | null
           received_date: string
           received_kg: number
-          sizing_vendor_id?: number | null
+          sizing_ledger_id?: number | null
+          total_amount?: number | null
           yarn_count_id: number
+          yarn_kind?: string
         }
         Update: {
+          bag_count?: number
+          broker_ledger_id?: number | null
+          brokerage_amount?: number | null
+          brokerage_per_bag?: number
           cost_per_kg?: number
           created_at?: string
           created_by?: string | null
           current_kg?: number
           delivery_destination?: string
+          gst_pct?: number
           id?: number
+          invoice_no?: string | null
           lot_code?: string
           mill_id?: number
           notes?: string | null
           purchase_invoice_id?: number | null
           received_date?: string
           received_kg?: number
-          sizing_vendor_id?: number | null
+          sizing_ledger_id?: number | null
+          total_amount?: number | null
           yarn_count_id?: number
+          yarn_kind?: string
         }
         Relationships: [
           {
@@ -3551,6 +4339,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "yarn_purchase"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yarn_lot_broker_ledger_id_fkey"
+            columns: ["broker_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yarn_lot_broker_ledger_id_fkey"
+            columns: ["broker_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
           },
           {
             foreignKeyName: "yarn_lot_created_by_fkey"
@@ -3567,18 +4369,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "yarn_lot_sizing_vendor_id_fkey"
-            columns: ["sizing_vendor_id"]
+            foreignKeyName: "yarn_lot_sizing_ledger_id_fkey"
+            columns: ["sizing_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yarn_lot_sizing_ledger_id_fkey"
+            columns: ["sizing_ledger_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_spend_by_vendor"
             referencedColumns: ["vendor_id"]
-          },
-          {
-            foreignKeyName: "yarn_lot_sizing_vendor_id_fkey"
-            columns: ["sizing_vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendor"
-            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "yarn_lot_yarn_count_id_fkey"
@@ -3764,60 +4566,69 @@ export type Database = {
       }
     }
     Views: {
+      v_attendance_by_role: {
+        Row: {
+          absent_count: number | null
+          early_leave_count: number | null
+          employee_count: number | null
+          employee_role: Database["public"]["Enums"]["employee_role"] | null
+          half_day_count: number | null
+          late_count: number | null
+          month: string | null
+          present_count: number | null
+          present_pct: number | null
+          shifts_marked: number | null
+        }
+        Relationships: []
+      }
       v_attendance_detail: {
         Row: {
           attendance_date: string | null
-          shift: Database["public"]["Enums"]["shift_code"] | null
-          employee_id: number | null
+          day_weight: number | null
           employee_code: string | null
+          employee_id: number | null
           employee_name: string | null
           employee_role: Database["public"]["Enums"]["employee_role"] | null
-          status: Database["public"]["Enums"]["attendance_status"] | null
-          day_weight: number | null
           entry_remark: string | null
+          shift: Database["public"]["Enums"]["shift_code"] | null
+          status: Database["public"]["Enums"]["attendance_status"] | null
         }
         Relationships: []
       }
       v_attendance_monthly: {
         Row: {
-          month: string | null
-          employee_id: number | null
+          absent_count: number | null
+          attendance_days: number | null
+          early_leave_count: number | null
           employee_code: string | null
+          employee_id: number | null
           employee_name: string | null
           employee_role: Database["public"]["Enums"]["employee_role"] | null
-          present_count: number | null
-          absent_count: number | null
           half_day_count: number | null
           late_count: number | null
-          early_leave_count: number | null
-          shifts_marked: number | null
-          attendance_days: number | null
-        }
-        Relationships: []
-      }
-      v_attendance_by_role: {
-        Row: {
           month: string | null
-          employee_role: Database["public"]["Enums"]["employee_role"] | null
-          employee_count: number | null
           present_count: number | null
-          absent_count: number | null
-          half_day_count: number | null
-          late_count: number | null
-          early_leave_count: number | null
           shifts_marked: number | null
-          present_pct: number | null
         }
         Relationships: []
       }
-      v_non_working_days: {
+      v_batch_expense_allocation: {
         Row: {
-          attendance_date: string | null
-          shift: Database["public"]["Enums"]["shift_code"] | null
-          reason: Database["public"]["Enums"]["non_working_reason"] | null
-          remark: string | null
-          marked_at: string | null
-          marked_by_name: string | null
+          allocated_expense_inr: number | null
+          batch_id: number | null
+          category: string | null
+          expense_amount_inr: number | null
+          expense_entry_id: number | null
+        }
+        Relationships: []
+      }
+      v_batch_expense_total: {
+        Row: {
+          batch_code: string | null
+          batch_id: number | null
+          expense_per_m: number | null
+          produced_m: number | null
+          total_expense_inr: number | null
         }
         Relationships: []
       }
@@ -3898,6 +4709,49 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      v_batch_wage_allocation: {
+        Row: {
+          allocated_wage_inr: number | null
+          basis: string | null
+          batch_id: number | null
+          employee_id: number | null
+          wage_amount_inr: number | null
+          wage_entry_id: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "wage_entry_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_monthly"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
+      v_batch_wage_total: {
+        Row: {
+          batch_code: string | null
+          batch_id: number | null
+          produced_m: number | null
+          total_wage_inr: number | null
+          wage_per_m: number | null
+        }
+        Relationships: []
       }
       v_bobbin_consumption: {
         Row: {
@@ -4165,6 +5019,204 @@ export type Database = {
         }
         Relationships: []
       }
+      v_non_working_days: {
+        Row: {
+          attendance_date: string | null
+          marked_at: string | null
+          marked_by_name: string | null
+          reason: Database["public"]["Enums"]["non_working_reason"] | null
+          remark: string | null
+          shift: Database["public"]["Enums"]["shift_code"] | null
+        }
+        Relationships: []
+      }
+      v_production_batch_with_source: {
+        Row: {
+          actual_bobbin_cost_per_m: number | null
+          actual_overhead_per_m: number | null
+          actual_pick_cost_per_m: number | null
+          actual_porvai_cost_per_m: number | null
+          actual_sizing_cost_per_m: number | null
+          actual_sizing_rate_per_kg: number | null
+          actual_true_cost_per_m: number | null
+          actual_warp_cost_per_m: number | null
+          actual_weft_cost_per_m: number | null
+          batch_code: string | null
+          bobbin_1_id: number | null
+          bobbin_2_id: number | null
+          costing_id: number | null
+          created_at: string | null
+          created_by: string | null
+          end_date: string | null
+          id: number | null
+          loom_id: number | null
+          notes: string | null
+          outsource_order_id: number | null
+          outsource_vendor_id: number | null
+          outsource_vendor_name: string | null
+          ow_number: string | null
+          pavu_assign_id: number | null
+          porvai_lot_id: number | null
+          produced_m: number | null
+          rejected_m: number | null
+          so_line_id: number | null
+          source_kind: string | null
+          start_date: string | null
+          updated_at: string | null
+          updated_by: string | null
+          warp_lot_id: number | null
+          weft_lot_id: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outsource_order_ledger_id_fkey"
+            columns: ["outsource_vendor_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outsource_order_ledger_id_fkey"
+            columns: ["outsource_vendor_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "production_batch_bobbin_1_id_fkey"
+            columns: ["bobbin_1_id"]
+            isOneToOne: false
+            referencedRelation: "bobbin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_bobbin_1_id_fkey"
+            columns: ["bobbin_1_id"]
+            isOneToOne: false
+            referencedRelation: "v_bobbin_consumption"
+            referencedColumns: ["bobbin_id"]
+          },
+          {
+            foreignKeyName: "production_batch_bobbin_2_id_fkey"
+            columns: ["bobbin_2_id"]
+            isOneToOne: false
+            referencedRelation: "bobbin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_bobbin_2_id_fkey"
+            columns: ["bobbin_2_id"]
+            isOneToOne: false
+            referencedRelation: "v_bobbin_consumption"
+            referencedColumns: ["bobbin_id"]
+          },
+          {
+            foreignKeyName: "production_batch_costing_id_fkey"
+            columns: ["costing_id"]
+            isOneToOne: false
+            referencedRelation: "costing_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_costing_id_fkey"
+            columns: ["costing_id"]
+            isOneToOne: false
+            referencedRelation: "v_costing_computed"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_costing_id_fkey"
+            columns: ["costing_id"]
+            isOneToOne: false
+            referencedRelation: "v_costing_two_cost"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_costing_id_fkey"
+            columns: ["costing_id"]
+            isOneToOne: false
+            referencedRelation: "v_quality_margin"
+            referencedColumns: ["costing_id"]
+          },
+          {
+            foreignKeyName: "production_batch_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_loom_id_fkey"
+            columns: ["loom_id"]
+            isOneToOne: false
+            referencedRelation: "loom"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_loom_id_fkey"
+            columns: ["loom_id"]
+            isOneToOne: false
+            referencedRelation: "v_loom_shift_utilisation"
+            referencedColumns: ["loom_id"]
+          },
+          {
+            foreignKeyName: "production_batch_loom_id_fkey"
+            columns: ["loom_id"]
+            isOneToOne: false
+            referencedRelation: "v_loom_utilisation"
+            referencedColumns: ["loom_id"]
+          },
+          {
+            foreignKeyName: "production_batch_outsource_order_id_fkey"
+            columns: ["outsource_order_id"]
+            isOneToOne: false
+            referencedRelation: "outsource_order"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_pavu_assign_id_fkey"
+            columns: ["pavu_assign_id"]
+            isOneToOne: false
+            referencedRelation: "pavu_assign"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_porvai_lot_id_fkey"
+            columns: ["porvai_lot_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_lot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_so_line_id_fkey"
+            columns: ["so_line_id"]
+            isOneToOne: false
+            referencedRelation: "sales_order_line"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "app_user"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_warp_lot_id_fkey"
+            columns: ["warp_lot_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_lot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_batch_weft_lot_id_fkey"
+            columns: ["weft_lot_id"]
+            isOneToOne: false
+            referencedRelation: "yarn_lot"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_quality_margin: {
         Row: {
           avg_cost_per_m: number | null
@@ -4309,6 +5361,19 @@ export type Database = {
           weighted_avg_cost: number | null
           yarn_count_id: number | null
           yarn_type: Database["public"]["Enums"]["yarn_type"] | null
+        }
+        Relationships: []
+      }
+      v_today_attendance_widget: {
+        Row: {
+          attendance_date: string | null
+          employee_role: Database["public"]["Enums"]["employee_role"] | null
+          headcount: number | null
+          is_working: boolean | null
+          present_count: number | null
+          reason: string | null
+          remark: string | null
+          shift: Database["public"]["Enums"]["shift_code"] | null
         }
         Relationships: []
       }
@@ -4465,11 +5530,21 @@ export type Database = {
     }
     Functions: {
       can_write_master: { Args: { p_master: string }; Returns: boolean }
+      current_employee_code: { Args: never; Returns: string }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
       fn_next_doc_no: { Args: { p_doc_type: string }; Returns: string }
+      fy_week_number: {
+        Args: { d: string }
+        Returns: {
+          fy_label: string
+          week_end: string
+          week_no: number
+          week_start: string
+        }[]
+      }
       is_owner_or_auditor: { Args: never; Returns: boolean }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
@@ -4482,6 +5557,7 @@ export type Database = {
         | "half_day"
         | "late"
         | "early_leave"
+        | "none"
       bobbin_location: "main_godown" | "at_vendor" | "customer_owned"
       business_model: "inhouse" | "outsourced" | "jobwork" | "resale"
       costing_save_path: "quick_quote" | "formal"
@@ -4694,6 +5770,7 @@ export const Constants = {
         "half_day",
         "late",
         "early_leave",
+        "none",
       ],
       bobbin_location: ["main_godown", "at_vendor", "customer_owned"],
       business_model: ["inhouse", "outsourced", "jobwork", "resale"],

@@ -54,7 +54,7 @@ export default async function InvoicesPage({
       id, invoice_no, doc_type, invoice_date, due_date,
       taxable_value, cgst_amount, sgst_amount, igst_amount, total, balance, status,
       customer:customer_id ( name ),
-      vendor:vendor_id     ( name ),
+      vendor:ledger_id     ( name ),
       original_invoice_id
     `)
     .order('invoice_date', { ascending: false })

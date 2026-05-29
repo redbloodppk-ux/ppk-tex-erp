@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 interface OWDetail {
   id: number;
   ow_number: string;
-  vendor_id: number;
+  ledger_id: number;
   costing_id: number;
   warp_lot_id: number | null;
   weft_lot_id: number | null;
@@ -70,11 +70,11 @@ export default async function OutsourceDetailPage({
   const { data } = await (supabase as any)
     .from('outsource_order')
     .select(`
-      id, ow_number, vendor_id, costing_id,
+      id, ow_number, ledger_id, costing_id,
       warp_lot_id, weft_lot_id, porvai_lot_id, bobbin_1_id, bobbin_1_pcs_issued,
       expected_metres, delivered_metres, pick_paise_agreed,
       issued_date, promised_date, bobbin_pcs_returned, status, notes,
-      vendor:vendor_id ( name, code ),
+      vendor:ledger_id ( name, code ),
       costing:costing_id ( quality_code, quality_name )
     `)
     .eq('id', owId)

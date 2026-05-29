@@ -26,7 +26,7 @@ export default async function SizingListPage() {
     .select(`
       id, job_code, set_no, status, date_sent, date_received,
       yarn_sent_kg, yarn_used_kg, no_of_paavu,
-      sizing_vendor:sizing_vendor_id ( name ),
+      sizing_vendor:sizing_ledger_id ( name ),
       yarn_mill:yarn_mill_id          ( name ),
       warp_count:warp_count_id        ( code )
     `)
