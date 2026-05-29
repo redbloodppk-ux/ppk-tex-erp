@@ -156,7 +156,7 @@ export default function CostingCalcPage() {
       warpCost, weftCost, pickCost, bobbinCost, porvaiCost, overheads,
       bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
       subtotal, profitAmount, costPerM, profitLoss, costPerTowel, gramsPerTowel,
-      metresPerDay, towelsPerDay, endsCheck, porvaiCount,
+      metresPerDay, towelsPerDay, endsCheck, porvaiCount, porvaiMPerKg,
     };
   }, [
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
@@ -363,6 +363,12 @@ export default function CostingCalcPage() {
           <ResultRow label="Wgt / m (weft)" value={(r.weftKgPerM * 1000).toFixed(2) + ' g'} small />
           <ResultRow label="Grams / metre" value={r.gramsPerM.toFixed(2) + ' g'} small />
           <ResultRow label="GSM (g/sq.m)" value={r.gramsPerSqM.toFixed(2)} small />
+          {usePorvai && r.porvaiMPerKg > 0 && (
+            <>
+              <ResultRow label="Porvai m/kg" value={r.porvaiMPerKg.toFixed(2)} small />
+              <ResultRow label="Wgt / m (porvai)" value={(1000 / r.porvaiMPerKg).toFixed(2) + ' g'} small />
+            </>
+          )}
 
           <Divider />
 
