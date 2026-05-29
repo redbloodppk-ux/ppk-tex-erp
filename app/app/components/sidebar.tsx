@@ -68,6 +68,7 @@ const NAV: NavItem[] = [
   { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
   { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'people',     roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',      label: 'Expenses',           icon: Wallet,          group: 'people',     roles: ['owner','accounts','auditor'] },
+  { href: '/app/ledgers',       label: 'Ledgers',            icon: BookCheck,       group: 'people',     roles: ['owner','accounts','auditor'] },
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },

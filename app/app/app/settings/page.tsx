@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store } from 'lucide-react';
+import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
 import { CostingDefaults } from './costing-defaults';
 
@@ -127,6 +127,40 @@ export default async function SettingsPage() {
               <div className="font-semibold">Vendors</div>
               <div className="text-xs text-ink-soft">
                 Sizing, weaving, folding and other service vendors. Pick paise default lives here for weaving vendors.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
+        <Link
+          href="/app/settings/ledger-types"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <BookMarked className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Ledger Types</div>
+              <div className="text-xs text-ink-soft">
+                Ledger categories (SUPPLIER, CUSTOMER, TAX, BANK, AGENT...). Used by the New Ledger form.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
+        <Link
+          href="/app/settings/ledger-groups"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Ledger Groups</div>
+              <div className="text-xs text-ink-soft">
+                Account groups for P&L / Balance Sheet (SUNDRY CREDITORS, SUNDRY DEBTORS, INDIRECT EXPENSES...).
               </div>
             </div>
           </div>
