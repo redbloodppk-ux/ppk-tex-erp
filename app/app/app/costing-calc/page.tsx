@@ -199,7 +199,7 @@ export default function CostingCalcPage() {
       sizing_cost_per_m: sizedPaavuPerM,
       auto_cost_per_m:   autoWarp,
       warp_commission_per_m: salesCommM,
-      save_path:        'quick' as const,
+      save_path:        'quick_quote' as const,
       approval_status:  'pending' as const,
       status:           'active' as const,
       notes:            'Saved from Quick Calculator.',
@@ -531,4 +531,6 @@ function ResultRow({ label, value, small, big, highlight }: {
       <span className={"num " + (highlight ? tone + " font-bold" : '')}>{value}</span>
     </div>
   );
+}
+ );
 }
