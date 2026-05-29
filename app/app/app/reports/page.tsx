@@ -130,6 +130,13 @@ const REPORTS: ReportLink[] = [
       'Days (or shifts) the shed did not run in a chosen range — power cut, national holiday, maintenance, other — with who marked them.',
     ready: true,
   },
+  {
+    href: '/app/reports/weaver-production',
+    title: 'Weaver Production by Quality',
+    description:
+      'Weekly metres woven per weaver broken down by fabric quality — pivot table with totals.',
+    ready: true,
+  },
 ];
 
 export default function ReportsIndex() {

@@ -93,20 +93,26 @@ interface PerWorkerRow {
   net_payable: number;  // wages_paid - advances + adjustments
 }
 
+/** Format a local Date as YYYY-MM-DD without UTC conversion. */
+function localISO(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 // Return the ISO date (YYYY-MM-DD) of Monday for the given date.
 function mondayISO(d: Date): string {
   const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dow = copy.getDay(); // 0 Sun .. 6 Sat
   const offset = dow === 0 ? -6 : 1 - dow;
   copy.setDate(copy.getDate() + offset);
-  return copy.toISOString().slice(0, 10);
+  return localISO(copy);
 }
 
 function addDaysISO(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
   dt.setDate(dt.getDate() + days);
-  return dt.toISOString().slice(0, 10);
+  return localISO(dt);
 }
 
 const MONTHS = [
@@ -295,6 +301,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           k.employee_id,
           (wagesEarnedByEmp.get(k.employee_id) ?? 0) + m * rate,
         );
+      }
+      // Round each weaver's total earned wages to the nearest rupee.
+      for (const [empId, amt] of wagesEarnedByEmp) {
+        wagesEarnedByEmp.set(empId, Math.round(amt));
       }
     }
   }
