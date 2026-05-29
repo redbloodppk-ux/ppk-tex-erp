@@ -8,7 +8,7 @@ import {
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
   CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  Building2, Store, Ruler,
+  Building2,
 } from 'lucide-react';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
@@ -46,8 +46,6 @@ const NAV: NavItem[] = [
 
   // Inventory
   { href: '/app/mills',         label: 'Mills',              icon: Building2,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/vendors',       label: 'Vendors',            icon: Store,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/yarn-counts',   label: 'Yarn Counts',        icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/yarn',          label: 'Yarn & Lots',        icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/bobbin',        label: 'Bobbin Stock',       icon: Package,         group: 'inventory',  roles: ['owner','mill_manager','auditor'] },
   { href: '/app/warehouse',     label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
