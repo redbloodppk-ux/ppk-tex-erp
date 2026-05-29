@@ -68,7 +68,6 @@ const NAV: NavItem[] = [
   { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
   { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'people',     roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',      label: 'Expenses',           icon: Wallet,          group: 'people',     roles: ['owner','accounts','auditor'] },
-  { href: '/app/ledgers',       label: 'Ledgers',            icon: BookCheck,       group: 'people',     roles: ['owner','accounts','auditor'] },
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
@@ -77,6 +76,7 @@ const NAV: NavItem[] = [
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Admin
+  { href: '/app/ledgers',       label: 'Ledgers',            icon: BookCheck,       group: 'admin',      roles: ['owner','accounts','auditor'] },
   { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'admin',      roles: ['owner','auditor'] },
   { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
 ];
