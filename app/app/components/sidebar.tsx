@@ -45,11 +45,13 @@ const NAV: NavItem[] = [
   { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Inventory
-  { href: '/app/mills',         label: 'Mills',              icon: Building2,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/yarn',          label: 'Yarn & Lots',        icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/bobbin',        label: 'Bobbin Stock',       icon: Package,         group: 'inventory',  roles: ['owner','mill_manager','auditor'] },
-  { href: '/app/warehouse',     label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/pay-purchase',  label: 'Purchase Payments',  icon: CreditCard,      group: 'inventory',  roles: ['owner','accounts','auditor'] },
+  { href: '/app/mills',              label: 'Mills',              icon: Building2,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/yarn-stock',         label: 'Yarn Stock',         icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/porvai-yarn-stock',  label: 'Porvai Yarn Stock',  icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/bobbin',             label: 'Bobbin Stock',       icon: Package,         group: 'inventory',  roles: ['owner','mill_manager','auditor'] },
+  { href: '/app/yarn',               label: 'Yarn Reports',       icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/pay-purchase',       label: 'Purchase Payments',  icon: CreditCard,      group: 'inventory',  roles: ['owner','accounts','auditor'] },
 
   // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
