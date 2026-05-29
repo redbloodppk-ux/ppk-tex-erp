@@ -83,11 +83,6 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function buildCode(ends: number | null, metres: number | null): string {
-  if (ends === null || metres === null) return '';
-  return 'BB-' + String(ends) + '-' + String(metres);
-}
-
 function buildDescription(ends: number | null, metres: number | null): string {
   if (ends === null || metres === null) return '';
   return String(ends) + '-ends x ' + String(metres) + 'm';
@@ -153,7 +148,6 @@ export default function BobbinPage() {
 
   const ends = useMemo<number | null>(() => toNumOrNull(form.ends_per_bobbin), [form.ends_per_bobbin]);
   const metres = useMemo<number | null>(() => toNumOrNull(form.bobbin_metre), [form.bobbin_metre]);
-  const codePreview = useMemo<string>(() => buildCode(ends, metres), [ends, metres]);
   const descPreview = useMemo<string>(() => buildDescription(ends, metres), [ends, metres]);
 
   const totalPreview = useMemo<number>(() => {
@@ -209,16 +203,10 @@ export default function BobbinPage() {
     if (form.purchase_date.trim() === '') { setError('Purchase date is required.'); return; }
     if (form.invoice_no.trim() === '')    { setError('Invoice number is required.'); return; }
 
-    const code = buildCode(ends, metres);
     const description = buildDescription(ends, metres);
 
-    if (editingId === null && rows.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
-      setError('A bobbin with code "' + code + '" already exists. Pick Edit on that row instead.');
-      return;
-    }
-
     const payload = {
-      code,
+      // code omitted - trg_bobbin_autogen_code fills it server-side (BB-NNNN).
       description,
       ends_per_bobbin: ends,
       bobbin_metre: metres,
@@ -239,13 +227,13 @@ export default function BobbinPage() {
       const { error: err } = await (supabase as any).from('bobbin').insert(payload);
       setBusy(false);
       if (err) { setError(err.message); return; }
-      setSavedMsg('Added purchase ' + code + '.');
+      setSavedMsg('Added purchase ' + description + '.');
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any).from('bobbin').update(payload).eq('id', editingId);
       setBusy(false);
       if (err) { setError(err.message); return; }
-      setSavedMsg('Updated ' + code + '.');
+      setSavedMsg('Updated ' + description + '.');
     }
     closeForm();
     await load();
@@ -317,7 +305,7 @@ export default function BobbinPage() {
             <div>
               <label className="label">Code (auto)</label>
               <div className="input bg-cloud/40 text-ink-mute select-none">
-                {codePreview || 'BB-???-???'}
+                Auto (BB-NNNN)
               </div>
             </div>
             <div>
