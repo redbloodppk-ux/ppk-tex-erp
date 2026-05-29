@@ -37,7 +37,7 @@ interface Lot {
   invoice_no: string | null;
   notes: string | null;
   delivery_destination: Delivery;
-  broker_id: number | null;
+  broker_ledger_id: number | null;
   bag_count: number;
   brokerage_per_bag: number;
   brokerage_amount: number;
@@ -57,7 +57,7 @@ interface FormState {
   invoice_no: string;
   notes: string;
   delivery_destination: Delivery;
-  broker_id: string;
+  broker_ledger_id: string;
   bag_count: string;
   brokerage_per_bag: string;
 }
@@ -72,7 +72,7 @@ const EMPTY: FormState = {
   invoice_no: '',
   notes: '',
   delivery_destination: 'in_house',
-  broker_id: '',
+  broker_ledger_id: '',
   bag_count: '',
   brokerage_per_bag: '',
 };
@@ -131,13 +131,20 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const sb = supabase as any;
     const [lotRes, countRes, millRes, brokerRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, mill_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_id, bag_count, brokerage_per_bag, brokerage_amount')
+        .select('id, lot_code, yarn_count_id, mill_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       sb.from('mill').select('id, code, name').neq('status', 'archived').order('name'),
-      sb.from('vendor').select('id, code, name, brokerage_per_bag').eq('vendor_type', 'broker').neq('status', 'archived').order('name'),
+      // Brokers are AGENT-type ledgers since migration 053. Query the ledger
+      // master joined with ledger_type so the broker dropdown stays in sync
+      // with the Ledgers screen.
+      sb.from('ledger')
+        .select('id, code, name, brokerage_per_bag, ledger_type:type_id!inner(name)')
+        .eq('active', true)
+        .eq('ledger_type.name', 'AGENT')
+        .order('name'),
     ]);
     if (lotRes.error)         setError(lotRes.error.message);
     else if (countRes.error)  setError(countRes.error.message);
@@ -188,7 +195,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       invoice_no:           l.invoice_no ?? '',
       notes:                l.notes ?? '',
       delivery_destination: l.delivery_destination,
-      broker_id:            l.broker_id === null ? '' : String(l.broker_id),
+      broker_ledger_id:     l.broker_ledger_id === null ? '' : String(l.broker_ledger_id),
       bag_count:            String(l.bag_count),
       brokerage_per_bag:    String(l.brokerage_per_bag),
     });
@@ -207,14 +214,14 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
    *  broker's master record (only if the user hasn't typed one). */
   function onPickBroker(value: string) {
     if (value === '') {
-      setForm((f) => ({ ...f, broker_id: '' }));
+      setForm((f) => ({ ...f, broker_ledger_id: '' }));
       return;
     }
     const id = Number(value);
     const b = brokers.find((x) => x.id === id);
     setForm((f) => ({
       ...f,
-      broker_id: value,
+      broker_ledger_id: value,
       brokerage_per_bag:
         f.brokerage_per_bag.trim() === '' && b && b.brokerage_per_bag !== null
           ? String(b.brokerage_per_bag)
@@ -231,7 +238,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const receivedKg  = toNumOrNull(form.received_kg);
     const costPerKg   = toNumOrNull(form.cost_per_kg);
     const gst         = toNumOrNull(form.gst_pct) ?? 0;
-    const brokerId    = form.broker_id === '' ? null : Number(form.broker_id);
+    const brokerId    = form.broker_ledger_id === '' ? null : Number(form.broker_ledger_id);
     const bagCount    = Math.trunc(toNumOrNull(form.bag_count) ?? 0);
     const brokerRate  = toNumOrNull(form.brokerage_per_bag) ?? 0;
 
@@ -253,7 +260,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       invoice_no: form.invoice_no.trim(),
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
       delivery_destination: form.delivery_destination,
-      broker_id: brokerId,
+      broker_ledger_id: brokerId,
       bag_count: bagCount,
       brokerage_per_bag: brokerRate,
       ...(editingId === null ? { current_kg: receivedKg } : {}),
@@ -406,7 +413,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             <div>
               <label className="label" htmlFor="y-broker">Broker</label>
               <select id="y-broker" className="input w-full"
-                value={form.broker_id}
+                value={form.broker_ledger_id}
                 onChange={(e) => onPickBroker(e.target.value)}>
                 <option value="">--- none ---</option>
                 {brokers.map((b) => (
@@ -500,7 +507,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   <td className="px-3 py-3 text-right num">{l.gst_pct}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(l.total_amount)}</td>
                   <td className="px-3 py-3 text-ink-soft">{deliveryLabel(l.delivery_destination)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{brokerLabel(l.broker_id)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{brokerLabel(l.broker_ledger_id)}</td>
                   <td className="px-3 py-3 text-right num">{l.bag_count}</td>
                   <td className="px-3 py-3 text-right num text-amber-700">{fmtMoney(l.brokerage_amount)}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(l.received_date)}</td>
