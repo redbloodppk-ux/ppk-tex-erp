@@ -66,10 +66,32 @@ interface LoomRow {
   loom_id: number;
   loom_code: string;
   loom_type: string;
+  /** Loom status from Mill Setup (running / idle / maintenance / breakdown). */
+  status: string;
   /** Aligned with the shed's weavers array. metres[i] = metres for slot i. */
   metres: string[];
   /** Free-form +/- correction. Empty string = 0. */
   adjustment: string;
+}
+
+/** Looms that aren't actively weaving don't accept metres/adjustments. */
+function isRunning(status: string): boolean {
+  return status === 'running';
+}
+
+function statusPill(status: string): { label: string; cls: string } {
+  switch (status) {
+    case 'running':
+      return { label: 'running', cls: 'bg-emerald-50 text-emerald-700' };
+    case 'idle':
+      return { label: 'idle', cls: 'bg-slate-100 text-slate-600' };
+    case 'maintenance':
+      return { label: 'maintenance', cls: 'bg-amber-50 text-amber-700' };
+    case 'breakdown':
+      return { label: 'breakdown', cls: 'bg-rose-50 text-rose-700' };
+    default:
+      return { label: status || '—', cls: 'bg-slate-100 text-slate-600' };
+  }
 }
 
 const SHEDS = [1, 2, 3, 4] as const;
@@ -85,6 +107,7 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_id: l.id,
       loom_code: l.loom_code,
       loom_type: l.loom_type,
+      status: l.status,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
       adjustment: '',
     })),
@@ -297,6 +320,7 @@ export default function ShiftLogPage(): React.ReactElement {
           loom_id: l.id,
           loom_code: l.loom_code,
           loom_type: l.loom_type,
+          status: l.status,
           metres,
           adjustment: adj !== 0 ? String(adj) : '',
         };
@@ -436,6 +460,10 @@ export default function ShiftLogPage(): React.ReactElement {
 
       // Build child rows + adjustments for this shed.
       for (const r of s.loomRows) {
+        // Non-running looms are read-only — skip them entirely (don't save,
+        // don't delete any historical rows for them either).
+        if (!isRunning(r.status)) continue;
+
         // Validate adjustment is numeric (signed) or blank.
         const adj = parseAdjustment(r.adjustment);
         if (Number.isNaN(adj)) {
@@ -492,8 +520,16 @@ export default function ShiftLogPage(): React.ReactElement {
     }
 
     const keepLoomIds = new Set(parentsToSave.map((p) => p.loom_id));
+    // Non-running looms are skipped on save; any historical rows for them
+    // must NOT be deleted by this save round.
+    const runningLoomIds = new Set<number>();
+    for (const s of sheds) {
+      for (const r of s.loomRows) {
+        if (isRunning(r.status)) runningLoomIds.add(r.loom_id);
+      }
+    }
     const toDeleteParentIds = (existing ?? [])
-      .filter((p) => !keepLoomIds.has(p.loom_id))
+      .filter((p) => runningLoomIds.has(p.loom_id) && !keepLoomIds.has(p.loom_id))
       .map((p) => p.id);
 
     if (toDeleteParentIds.length > 0) {
@@ -792,40 +828,59 @@ function ShedCard({
           </thead>
           <tbody>
             {shed.loomRows.map((r) => {
-              const total = loomTotal(r);
+              const running = isRunning(r.status);
+              const total = running ? loomTotal(r) : 0;
+              const pill = statusPill(r.status);
+              const lockedColspan = shed.weavers.length + 1; // weaver slots + adjustment
               return (
                 <tr key={r.loom_id} className="border-b border-line/60 align-middle">
                   <td className="py-2 pr-3">
                     <div className="font-medium">{r.loom_code}</div>
                     <div className="text-xs text-ink-mute">{r.loom_type}</div>
                   </td>
-                  {shed.weavers.map((_, slotIdx) => (
-                    <td key={slotIdx} className="py-2 pr-3 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="input num w-24 text-right"
-                        placeholder="-"
-                        value={r.metres[slotIdx] ?? ''}
-                        onChange={(e) =>
-                          onMetresChange(r.loom_id, slotIdx, e.target.value)
-                        }
-                      />
+                  {running ? (
+                    <>
+                      {shed.weavers.map((_, slotIdx) => (
+                        <td key={slotIdx} className="py-2 pr-3 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input num w-24 text-right"
+                            placeholder="-"
+                            value={r.metres[slotIdx] ?? ''}
+                            onChange={(e) =>
+                              onMetresChange(r.loom_id, slotIdx, e.target.value)
+                            }
+                          />
+                        </td>
+                      ))}
+                      <td className="py-2 pr-3 text-right">
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="input num w-24 text-right"
+                          placeholder="0"
+                          value={r.adjustment}
+                          onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
+                        />
+                      </td>
+                    </>
+                  ) : (
+                    <td
+                      colSpan={lockedColspan}
+                      className="py-2 pr-3 text-center"
+                    >
+                      <span
+                        className={`pill ${pill.cls} text-xs uppercase tracking-wide`}
+                        title="Set the loom status back to running in Settings → Looms to log production."
+                      >
+                        {pill.label}
+                      </span>
                     </td>
-                  ))}
-                  <td className="py-2 pr-3 text-right">
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="input num w-24 text-right"
-                      placeholder="0"
-                      value={r.adjustment}
-                      onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
-                    />
-                  </td>
+                  )}
                   <td className="py-2 pr-3 text-right num font-semibold">
-                    {total !== 0 ? `${total.toLocaleString('en-IN')} m` : '-'}
+                    {running ? (total !== 0 ? `${total.toLocaleString('en-IN')} m` : '-') : '-'}
                   </td>
                 </tr>
               );

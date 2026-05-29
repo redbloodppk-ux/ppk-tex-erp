@@ -84,6 +84,9 @@ interface PerWorkerRow {
   employee_id: number;
   code: string;
   full_name: string;
+  /** Auto-computed wage earned this week from shift_log (metres × loom rate).
+   *  Only populated for metre-basis employees (weavers); 0 for loom-shift rows. */
+  wages_earned: number;
   wages_paid: number;   // settlement + same_day
   advances: number;
   adjustments: number;
@@ -236,6 +239,66 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
   }
 
+  // ------------------------------------------------------------------
+  // Weaver Wages — auto-compute earnings for metre-basis employees from
+  // production_shift_log + production_shift_log_weaver in this week:
+  //
+  //   earnings(emp) = SUM over (date, shift, loom) the weaver worked
+  //                    of metres_woven × loom.default_rate_per_m
+  //
+  // Loom rate falls back to 0 if the loom has no default_rate_per_m set.
+  // ------------------------------------------------------------------
+  const wagesEarnedByEmp = new Map<number, number>();
+  if (metreEmps.length > 0) {
+    const metreEmpIds = metreEmps.map((e) => e.id);
+    const { data: parents } = await supabase
+      .from('production_shift_log')
+      .select('id, loom_id')
+      .gte('log_date', weekStart)
+      .lte('log_date', weekEnd);
+    const parentRows = (parents ?? []) as Array<{ id: number; loom_id: number }>;
+    if (parentRows.length > 0) {
+      const parentIds = parentRows.map((p) => p.id);
+      const loomByParent = new Map<number, number>();
+      for (const p of parentRows) loomByParent.set(p.id, p.loom_id);
+      const loomIds = Array.from(new Set(parentRows.map((p) => p.loom_id)));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: kidRaw } = await (supabase as any)
+        .from('production_shift_log_weaver')
+        .select('shift_log_id, employee_id, metres_woven')
+        .in('shift_log_id', parentIds)
+        .in('employee_id', metreEmpIds);
+      const kids = (kidRaw ?? []) as Array<{
+        shift_log_id: number;
+        employee_id: number;
+        metres_woven: number | string | null;
+      }>;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: loomRaw } = await (supabase as any)
+        .from('loom')
+        .select('id, default_rate_per_m')
+        .in('id', loomIds);
+      const rateByLoom = new Map<number, number>();
+      for (const l of (loomRaw ?? []) as Array<{ id: number; default_rate_per_m: number | string | null }>) {
+        rateByLoom.set(l.id, Number(l.default_rate_per_m ?? 0));
+      }
+
+      for (const k of kids) {
+        const loomId = loomByParent.get(k.shift_log_id);
+        if (loomId == null) continue;
+        const rate = rateByLoom.get(loomId) ?? 0;
+        const m = Number(k.metres_woven ?? 0);
+        if (m <= 0 || rate <= 0) continue;
+        wagesEarnedByEmp.set(
+          k.employee_id,
+          (wagesEarnedByEmp.get(k.employee_id) ?? 0) + m * rate,
+        );
+      }
+    }
+  }
+
   function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
     return list.map((e) => {
       const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
@@ -245,6 +308,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         employee_id: e.id,
         code: e.code,
         full_name: e.full_name,
+        wages_earned: wagesEarnedByEmp.get(e.id) ?? 0,
         wages_paid,
         advances: adv,
         adjustments: adj,
@@ -635,13 +699,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         </table>
       </div>
 
-      {/* Metre-produced basis */}
-      <h2 className="text-sm font-semibold text-ink mb-2">Metre-produced basis employees</h2>
+      {/* Weaver Wages — metre-produced basis */}
+      <h2 className="text-sm font-semibold text-ink mb-2">Weaver Wages</h2>
+      <p className="text-xs text-ink-soft mb-2">
+        Auto-calculated from shift log: sum of metres woven × loom rate (₹/m) across every shift in this week.
+      </p>
       <div className="card overflow-x-auto mb-6">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-right px-4 py-3">Wages earned<br /><span className="text-[10px] normal-case text-ink-mute">metres × loom rate</span></th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
@@ -655,6 +723,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   <div className="font-medium">{p.full_name}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                 </td>
+                <td className="px-4 py-3 text-right num font-semibold text-indigo-700">
+                  {p.wages_earned > 0 ? formatRupee(p.wages_earned) : '—'}
+                </td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
@@ -662,7 +733,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No metre-produced basis employees configured.
                 </td>
               </tr>

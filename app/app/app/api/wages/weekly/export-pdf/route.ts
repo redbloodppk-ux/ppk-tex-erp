@@ -255,15 +255,25 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
       if (loomRows.length === 0) loomRows.push(['—', 'No loom-shift basis employees', '', '', '', '']);
       y = drawTable(doc, doc.page.margins.left, y, workerCols, loomRows);
 
-      // ---- Metre basis ----
+      // ---- Weaver Wages (metre basis) ----
       y = ensureSpace(doc, y, 60);
-      y = sectionHeader(doc, 'Metre-produced basis employees', y);
+      y = sectionHeader(doc, 'Weaver Wages', y);
+      const weaverWageCols: Col[] = [
+        { header: 'Code', width: 55 },
+        { header: 'Name', width: 175 },
+        { header: 'Wages earned', width: 85, align: 'right' },
+        { header: 'Wages paid', width: 75, align: 'right' },
+        { header: 'Advances', width: 70, align: 'right' },
+        { header: 'Adjustments', width: 80, align: 'right' },
+        { header: 'Net payable', width: 80, align: 'right' },
+      ];
       const metreRows = data.metre_employees.map((p) => [
         p.code, p.full_name,
+        rs(p.wages_earned),
         rs(p.wages_paid), rs(p.advances), rs(p.adjustments), rs(p.net_payable),
       ]);
-      if (metreRows.length === 0) metreRows.push(['—', 'No metre-produced basis employees', '', '', '', '']);
-      y = drawTable(doc, doc.page.margins.left, y, workerCols, metreRows);
+      if (metreRows.length === 0) metreRows.push(['—', 'No weaver-wage employees', '', '', '', '', '']);
+      y = drawTable(doc, doc.page.margins.left, y, weaverWageCols, metreRows);
 
       // ---- Wage entries ----
       y = ensureSpace(doc, y, 60);

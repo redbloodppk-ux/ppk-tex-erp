@@ -129,13 +129,23 @@ export async function GET(req: Request): Promise<Response> {
     })),
   };
 
-  /* ───── Sheet 4 — Metre-produced basis employees ───── */
+  /* ───── Sheet 4 — Weaver Wages (metre-produced basis) ───── */
+  const weaverWageColumns: ExcelColumn[] = [
+    { key: 'code', label: 'Code', width: 10 },
+    { key: 'full_name', label: 'Name', width: 22 },
+    { key: 'wages_earned', label: 'Wages earned', type: 'rupee', width: 14, total: true },
+    { key: 'wages_paid', label: 'Wages paid', type: 'rupee', width: 14, total: true },
+    { key: 'advances', label: 'Advances', type: 'rupee', width: 12, total: true },
+    { key: 'adjustments', label: 'Adjustments', type: 'rupee', width: 13, total: true },
+    { key: 'net_payable', label: 'Net payable', type: 'rupee', width: 14, total: true },
+  ];
   const metreSheet: SheetSpec = {
-    sheetName: 'Metre',
-    columns: perWorkerColumns,
+    sheetName: 'Weaver Wages',
+    columns: weaverWageColumns,
     rows: data.metre_employees.map((p) => ({
       code: p.code,
       full_name: p.full_name,
+      wages_earned: p.wages_earned,
       wages_paid: p.wages_paid,
       advances: p.advances,
       adjustments: p.adjustments,

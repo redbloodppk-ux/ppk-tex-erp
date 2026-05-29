@@ -3,9 +3,13 @@
  * Looms — manage the loom register.
  *
  * Lists every loom in the mill grouped by weaving shed (1-4). From here you
- * can add a new loom, change a loom's type / width / status, and move a loom
- * to a different shed. The shed assignment (`loom.shed_no`) drives the 4-tab
- * layout on the Shift Production Log.
+ * can add a new loom, change its type / fabric quality / status, and move a
+ * loom to a different shed. The shed assignment (`loom.shed_no`) drives the
+ * 4-tab layout on the Shift Production Log.
+ *
+ * Width is no longer entered directly on the loom — it now lives on the
+ * fabric quality master (Settings → Fabric Qualities). Picking a quality
+ * here also copies its width into loom.width_in for legacy reports.
  *
  * Writes go straight to the `loom` table; RLS allows owner / mill_manager to
  * insert and update.
@@ -32,12 +36,21 @@ interface Loom {
   status: string;
   shed_no: number | null;
   default_rate_per_m: number | null;
+  fabric_quality_id: number | null;
+}
+
+interface FabricQuality {
+  id: number;
+  code: string;
+  name: string;
+  width_in: number | null;
+  active: boolean;
 }
 
 interface NewLoom {
   loom_code: string;
   loom_type: string;
-  width_in: string;
+  fabric_quality_id: string;
   status: string;
   shed_no: string;
   default_rate_per_m: string;
@@ -46,7 +59,7 @@ interface NewLoom {
 const EMPTY_NEW: NewLoom = {
   loom_code: '',
   loom_type: 'powerloom',
-  width_in: '56',
+  fabric_quality_id: '',
   status: 'running',
   shed_no: '1',
   default_rate_per_m: '',
@@ -56,6 +69,7 @@ export default function LoomsPage() {
   const supabase = createClient();
 
   const [looms, setLooms] = useState<Loom[]>([]);
+  const [qualities, setQualities] = useState<FabricQuality[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -66,16 +80,29 @@ export default function LoomsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    // default_rate_per_m was added in migration 033 — types not yet regenerated.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error: err } = await (supabase as any)
+    const loomsP = (supabase as any)
       .from('loom')
-      .select('id, loom_code, loom_type, width_in, status, shed_no, default_rate_per_m')
+      .select(
+        'id, loom_code, loom_type, width_in, status, shed_no, default_rate_per_m, fabric_quality_id',
+      )
       .order('loom_code');
-    if (err) {
-      setError(err.message);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const qualsP = (supabase as any)
+      .from('fabric_quality')
+      .select('id, code, name, width_in, active')
+      .order('code');
+
+    const [{ data: loomData, error: loomErr }, { data: qData, error: qErr }] =
+      await Promise.all([loomsP, qualsP]);
+
+    if (loomErr) {
+      setError(loomErr.message);
+    } else if (qErr) {
+      setError(qErr.message);
     } else {
-      setLooms((data ?? []) as unknown as Loom[]);
+      setLooms((loomData ?? []) as unknown as Loom[]);
+      setQualities((qData ?? []) as unknown as FabricQuality[]);
       setError(null);
     }
     setLoading(false);
@@ -85,7 +112,12 @@ export default function LoomsPage() {
     void load();
   }, [load]);
 
-  // ── add a new loom ─────────────────────────────────────────────────────────
+  const qualityById = useMemo(() => {
+    const m = new Map<number, FabricQuality>();
+    for (const q of qualities) m.set(q.id, q);
+    return m;
+  }, [qualities]);
+
   async function handleAdd() {
     setError(null);
     setSavedMsg(null);
@@ -99,15 +131,13 @@ export default function LoomsPage() {
       setError(`Loom code "${code}" already exists.`);
       return;
     }
-    const width = newLoom.width_in.trim() === '' ? null : Number(newLoom.width_in);
-    if (width !== null && (Number.isNaN(width) || width <= 0)) {
-      setError('Width must be a positive number, or leave it blank.');
-      return;
-    }
+    const qid = newLoom.fabric_quality_id === '' ? null : Number(newLoom.fabric_quality_id);
+    const widthFromQ = qid != null ? qualityById.get(qid)?.width_in ?? null : null;
+
     const rate =
       newLoom.default_rate_per_m.trim() === '' ? null : Number(newLoom.default_rate_per_m);
     if (rate !== null && (Number.isNaN(rate) || rate < 0)) {
-      setError('Default rate ₹/m must be a number ≥ 0, or leave it blank.');
+      setError('Default rate must be a number greater than or equal to 0, or leave it blank.');
       return;
     }
 
@@ -116,10 +146,11 @@ export default function LoomsPage() {
     const { error: err } = await (supabase as any).from('loom').insert({
       loom_code: code,
       loom_type: newLoom.loom_type.trim() || 'powerloom',
-      width_in: width,
+      width_in: widthFromQ,
       status: newLoom.status,
       shed_no: Number(newLoom.shed_no),
       default_rate_per_m: rate,
+      fabric_quality_id: qid,
     });
     setAdding(false);
 
@@ -132,22 +163,26 @@ export default function LoomsPage() {
     await load();
   }
 
-  // ── update a loom field ────────────────────────────────────────────────────
   async function updateLoom(id: number, patch: Partial<Loom>) {
     setError(null);
     setSavedMsg(null);
     setBusyId(id);
 
-    // optimistic UI
-    setLooms((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+    const effective: Partial<Loom> = { ...patch };
+    if (Object.prototype.hasOwnProperty.call(patch, 'fabric_quality_id')) {
+      const qid = patch.fabric_quality_id;
+      effective.width_in = qid != null ? qualityById.get(qid)?.width_in ?? null : null;
+    }
+
+    setLooms((prev) => prev.map((l) => (l.id === id ? { ...l, ...effective } : l)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any).from('loom').update(patch).eq('id', id);
+    const { error: err } = await (supabase as any).from('loom').update(effective).eq('id', id);
     setBusyId(null);
 
     if (err) {
       setError(err.message);
-      await load(); // revert to server truth
+      await load();
       return;
     }
     setSavedMsg('Saved.');
@@ -165,12 +200,13 @@ export default function LoomsPage() {
   }, [looms]);
 
   const unassigned = bySheD.get('none') ?? [];
+  const activeQualities = qualities.filter((q) => q.active);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Looms"
-        subtitle="Add looms, set their status and width, and assign each loom to a weaving shed."
+        subtitle="Add looms, pick the fabric quality each is set up for, set status, and assign each loom to a weaving shed."
         crumbs={[{ label: 'Settings', href: '/app/settings' }, { label: 'Looms' }]}
       />
 
@@ -182,7 +218,16 @@ export default function LoomsPage() {
         </p>
       )}
 
-      {/* Add a loom */}
+      {qualities.length === 0 && (
+        <div className="card p-4 text-sm bg-amber-50 border-amber-200">
+          No fabric qualities set up yet. Add some in{' '}
+          <a href="/app/settings/fabric-qualities" className="text-indigo-700 font-semibold underline">
+            Settings → Fabric Qualities
+          </a>{' '}
+          first.
+        </div>
+      )}
+
       <div className="card p-5 space-y-3">
         <h2 className="font-display font-bold text-base">Add a loom</h2>
         <div className="flex flex-wrap items-end gap-3">
@@ -209,16 +254,23 @@ export default function LoomsPage() {
             />
           </div>
           <div>
-            <label className="label" htmlFor="nl-width">Width (in)</label>
-            <input
-              id="nl-width"
-              type="number"
-              min={0}
-              step="0.01"
-              className="input num w-24"
-              value={newLoom.width_in}
-              onChange={(e) => setNewLoom((n) => ({ ...n, width_in: e.target.value }))}
-            />
+            <label className="label" htmlFor="nl-quality">Fabric quality</label>
+            <select
+              id="nl-quality"
+              className="input w-48"
+              value={newLoom.fabric_quality_id}
+              onChange={(e) =>
+                setNewLoom((n) => ({ ...n, fabric_quality_id: e.target.value }))
+              }
+            >
+              <option value="">— pick one —</option>
+              {activeQualities.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.code} · {q.name}
+                  {q.width_in != null ? ` (${q.width_in}in)` : ''}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="label" htmlFor="nl-status">Status</label>
@@ -247,7 +299,7 @@ export default function LoomsPage() {
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="nl-rate">Default rate ₹/m</label>
+            <label className="label" htmlFor="nl-rate">Default rate /m</label>
             <input
               id="nl-rate"
               type="number"
@@ -273,11 +325,10 @@ export default function LoomsPage() {
         </div>
       </div>
 
-      {/* Loom register */}
       {loading ? (
         <div className="card p-6 flex items-center gap-2 text-ink-mute">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading looms…
+          Loading looms...
         </div>
       ) : (
         <>
@@ -294,6 +345,7 @@ export default function LoomsPage() {
                 <LoomTable
                   rows={rows}
                   busyId={busyId}
+                  qualities={activeQualities}
                   onUpdate={updateLoom}
                 />
               </div>
@@ -303,7 +355,12 @@ export default function LoomsPage() {
           {unassigned.length > 0 && (
             <div className="card p-5 space-y-3">
               <h2 className="font-display font-bold text-base">Not assigned to a shed</h2>
-              <LoomTable rows={unassigned} busyId={busyId} onUpdate={updateLoom} />
+              <LoomTable
+                rows={unassigned}
+                busyId={busyId}
+                qualities={activeQualities}
+                onUpdate={updateLoom}
+              />
             </div>
           )}
         </>
@@ -315,10 +372,11 @@ export default function LoomsPage() {
 interface LoomTableProps {
   rows: Loom[];
   busyId: number | null;
+  qualities: FabricQuality[];
   onUpdate: (id: number, patch: Partial<Loom>) => void;
 }
 
-function LoomTable({ rows, busyId, onUpdate }: LoomTableProps) {
+function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
   if (rows.length === 0) {
     return <p className="text-sm text-ink-soft py-2">No looms in this shed yet.</p>;
   }
@@ -329,10 +387,10 @@ function LoomTable({ rows, busyId, onUpdate }: LoomTableProps) {
           <tr className="border-b border-line/60 text-left text-ink-mute">
             <th className="py-2 pr-3">Loom</th>
             <th className="py-2 pr-3">Type</th>
-            <th className="py-2 pr-3">Width (in)</th>
+            <th className="py-2 pr-3">Fabric quality</th>
             <th className="py-2 pr-3">Status</th>
             <th className="py-2 pr-3">Shed</th>
-            <th className="py-2 pr-3">Default ₹/m</th>
+            <th className="py-2 pr-3">Default /m</th>
             <th className="py-2 pr-3" />
           </tr>
         </thead>
@@ -349,18 +407,24 @@ function LoomTable({ rows, busyId, onUpdate }: LoomTableProps) {
                 />
               </td>
               <td className="py-2 pr-3">
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className="input num w-24"
-                  value={l.width_in ?? ''}
+                <select
+                  className="input w-52"
+                  value={l.fabric_quality_id ?? ''}
                   onChange={(e) =>
                     onUpdate(l.id, {
-                      width_in: e.target.value === '' ? null : Number(e.target.value),
+                      fabric_quality_id:
+                        e.target.value === '' ? null : Number(e.target.value),
                     })
                   }
-                />
+                >
+                  <option value="">— none —</option>
+                  {qualities.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.code} · {q.name}
+                      {q.width_in != null ? ` (${q.width_in}in)` : ''}
+                    </option>
+                  ))}
+                </select>
               </td>
               <td className="py-2 pr-3">
                 <select

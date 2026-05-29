@@ -72,6 +72,9 @@ export interface PerWorkerRow {
   employee_id: number;
   code: string;
   full_name: string;
+  /** Auto-computed wage earned this week from shift_log (metres × loom rate).
+   *  Only populated for metre-basis employees (weavers); 0 for loom-shift rows. */
+  wages_earned: number;
   wages_paid: number;
   advances: number;
   adjustments: number;
@@ -212,6 +215,61 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     }
   }
 
+  // Weaver Wages — auto-compute earnings for metre-basis employees from
+  // production_shift_log + production_shift_log_weaver in this week:
+  //   earnings(emp) = SUM over (date, shift, loom) the weaver worked
+  //                    of metres_woven × loom.default_rate_per_m
+  const wagesEarnedByEmp = new Map<number, number>();
+  if (metreEmps.length > 0) {
+    const metreEmpIds = metreEmps.map((e) => e.id);
+    const { data: parents } = await supabase
+      .from('production_shift_log')
+      .select('id, loom_id')
+      .gte('log_date', weekStart)
+      .lte('log_date', weekEnd);
+    const parentRows = (parents ?? []) as Array<{ id: number; loom_id: number }>;
+    if (parentRows.length > 0) {
+      const parentIds = parentRows.map((p) => p.id);
+      const loomByParent = new Map<number, number>();
+      for (const p of parentRows) loomByParent.set(p.id, p.loom_id);
+      const loomIds = Array.from(new Set(parentRows.map((p) => p.loom_id)));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: kidRaw } = await (supabase as any)
+        .from('production_shift_log_weaver')
+        .select('shift_log_id, employee_id, metres_woven')
+        .in('shift_log_id', parentIds)
+        .in('employee_id', metreEmpIds);
+      const kids = (kidRaw ?? []) as Array<{
+        shift_log_id: number;
+        employee_id: number;
+        metres_woven: number | string | null;
+      }>;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: loomRaw } = await (supabase as any)
+        .from('loom')
+        .select('id, default_rate_per_m')
+        .in('id', loomIds);
+      const rateByLoom = new Map<number, number>();
+      for (const l of (loomRaw ?? []) as Array<{ id: number; default_rate_per_m: number | string | null }>) {
+        rateByLoom.set(l.id, Number(l.default_rate_per_m ?? 0));
+      }
+
+      for (const k of kids) {
+        const loomId = loomByParent.get(k.shift_log_id);
+        if (loomId == null) continue;
+        const rate = rateByLoom.get(loomId) ?? 0;
+        const m = Number(k.metres_woven ?? 0);
+        if (m <= 0 || rate <= 0) continue;
+        wagesEarnedByEmp.set(
+          k.employee_id,
+          (wagesEarnedByEmp.get(k.employee_id) ?? 0) + m * rate,
+        );
+      }
+    }
+  }
+
   function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
     return list.map((e) => {
       const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
@@ -221,6 +279,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
         employee_id: e.id,
         code: e.code,
         full_name: e.full_name,
+        wages_earned: wagesEarnedByEmp.get(e.id) ?? 0,
         wages_paid,
         advances: adv,
         adjustments: adj,
