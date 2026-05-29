@@ -4,7 +4,11 @@
  *
  * Each row is one purchase: code BB-{ends}-{metres} auto-generated, the
  * description (display name) auto-formats as "{ends}-ends x {metres}m",
- * plus purchase date, supplier (mill), invoice no, and price per piece.
+ * plus purchase date, supplier (mill), invoice no, quantity, price/pc,
+ * GST % and total (auto = qty * price * (1 + gst/100), stored as a
+ * Postgres GENERATED column).
+ *
+ * Mandatory fields: ends, metres, quantity, purchase_date, invoice_no.
  *
  * The form is hidden by default. Click "Add Purchase" to reveal a blank
  * form, or click "Edit" on any row to load it into the form for changes.
@@ -25,6 +29,9 @@ interface Bobbin {
   ends_per_bobbin: number;
   bobbin_metre: number;
   bobbin_price: number;
+  quantity: number;
+  gst_pct: number;
+  total_amount: number;
   is_lurex: boolean;
   vendor_id: number | null;
   purchase_date: string | null;
@@ -43,6 +50,8 @@ interface FormState {
   ends_per_bobbin: string;
   bobbin_metre: string;
   bobbin_price: string;
+  quantity: string;
+  gst_pct: string;
   vendor_id: string;
   purchase_date: string;
   invoice_no: string;
@@ -54,6 +63,8 @@ const EMPTY_FORM: FormState = {
   ends_per_bobbin: '',
   bobbin_metre: '',
   bobbin_price: '0',
+  quantity: '',
+  gst_pct: '18',
   vendor_id: '',
   purchase_date: '',
   invoice_no: '',
@@ -84,11 +95,15 @@ function buildDescription(ends: number | null, metres: number | null): string {
 
 function fmtDate(s: string | null): string {
   if (s === null || s === '') return '-';
-  // Display DD-MMM-YYYY (e.g. 29-May-2026).
   const d = new Date(s + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return s;
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + String(d.getFullYear());
+}
+
+function fmtMoney(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '-';
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
 export default function BobbinPage() {
@@ -111,7 +126,7 @@ export default function BobbinPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('bobbin')
-        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, is_lurex, vendor_id, purchase_date, invoice_no, status, notes')
+        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, purchase_date, invoice_no, status, notes')
         .neq('status', 'archived')
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
@@ -141,6 +156,14 @@ export default function BobbinPage() {
   const codePreview = useMemo<string>(() => buildCode(ends, metres), [ends, metres]);
   const descPreview = useMemo<string>(() => buildDescription(ends, metres), [ends, metres]);
 
+  const totalPreview = useMemo<number>(() => {
+    const qty = toNumOrNull(form.quantity) ?? 0;
+    const price = toNumOrNull(form.bobbin_price) ?? 0;
+    const gst = toNumOrNull(form.gst_pct) ?? 0;
+    const raw = qty * price * (1 + gst / 100);
+    return Math.round(raw * 100) / 100;
+  }, [form.quantity, form.bobbin_price, form.gst_pct]);
+
   function openNewForm() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, purchase_date: todayISO() });
@@ -155,6 +178,8 @@ export default function BobbinPage() {
       ends_per_bobbin: String(b.ends_per_bobbin),
       bobbin_metre:    String(b.bobbin_metre),
       bobbin_price:    String(b.bobbin_price),
+      quantity:        String(b.quantity),
+      gst_pct:         String(b.gst_pct),
       vendor_id:       b.vendor_id === null ? '' : String(b.vendor_id),
       purchase_date:   b.purchase_date ?? '',
       invoice_no:      b.invoice_no ?? '',
@@ -176,18 +201,17 @@ export default function BobbinPage() {
     setError(null);
     setSavedMsg(null);
 
-    if (ends === null || ends <= 0) {
-      setError('Enter a positive ends-per-bobbin.');
-      return;
-    }
-    if (metres === null || metres <= 0) {
-      setError('Enter a positive bobbin length (metres).');
-      return;
-    }
+    if (ends === null || ends <= 0) { setError('Enter a positive ends-per-bobbin.'); return; }
+    if (metres === null || metres <= 0) { setError('Enter a positive bobbin length (metres).'); return; }
+
+    const qty = toNumOrNull(form.quantity);
+    if (qty === null || qty <= 0) { setError('Quantity is required.'); return; }
+    if (form.purchase_date.trim() === '') { setError('Purchase date is required.'); return; }
+    if (form.invoice_no.trim() === '')    { setError('Invoice number is required.'); return; }
+
     const code = buildCode(ends, metres);
     const description = buildDescription(ends, metres);
 
-    // If creating, guard against duplicate codes (same ends + metres).
     if (editingId === null && rows.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
       setError('A bobbin with code "' + code + '" already exists. Pick Edit on that row instead.');
       return;
@@ -199,13 +223,14 @@ export default function BobbinPage() {
       ends_per_bobbin: ends,
       bobbin_metre: metres,
       bobbin_price: toNumOrNull(form.bobbin_price) ?? 0,
+      quantity: Math.trunc(qty),
+      gst_pct: toNumOrNull(form.gst_pct) ?? 0,
       vendor_id: form.vendor_id === '' ? null : Number(form.vendor_id),
-      purchase_date: form.purchase_date === '' ? null : form.purchase_date,
-      invoice_no: form.invoice_no.trim() === '' ? null : form.invoice_no.trim(),
+      purchase_date: form.purchase_date,
+      invoice_no: form.invoice_no.trim(),
       is_lurex: form.is_lurex,
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
       status: 'active' as const,
-      // loading_per_metre and reorder_pieces stay at their column defaults (0).
     };
 
     setBusy(true);
@@ -260,7 +285,7 @@ export default function BobbinPage() {
     <div className="space-y-6">
       <PageHeader
         title="Bobbin Stock"
-        subtitle="Log of every bobbin batch purchased. Code and display name auto-generate from ends and metres."
+        subtitle="Log of every bobbin batch purchased. Code, display name and total auto-calculate."
         actions={
           formOpen ? (
             <button type="button" className="btn-ghost" onClick={closeForm}>
@@ -284,11 +309,10 @@ export default function BobbinPage() {
 
       {formOpen && (
         <div className="card p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display font-bold text-base">
-              {editingId === null ? 'New bobbin purchase' : 'Edit bobbin purchase'}
-            </h2>
-          </div>
+          <h2 className="font-display font-bold text-base">
+            {editingId === null ? 'New bobbin purchase' : 'Edit bobbin purchase'}
+          </h2>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
               <label className="label">Code (auto)</label>
@@ -330,6 +354,19 @@ export default function BobbinPage() {
             </div>
 
             <div>
+              <label className="label" htmlFor="b-qty">Quantity (pcs) *</label>
+              <input
+                id="b-qty"
+                type="number"
+                min={1}
+                step="1"
+                className="input num w-full"
+                placeholder="500"
+                value={form.quantity}
+                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+              />
+            </div>
+            <div>
               <label className="label" htmlFor="b-price">Price (Rs/pc)</label>
               <input
                 id="b-price"
@@ -341,6 +378,25 @@ export default function BobbinPage() {
                 onChange={(e) => setForm((f) => ({ ...f, bobbin_price: e.target.value }))}
               />
             </div>
+            <div>
+              <label className="label" htmlFor="b-gst">GST %</label>
+              <input
+                id="b-gst"
+                type="number"
+                min={0}
+                step="0.01"
+                className="input num w-full"
+                value={form.gst_pct}
+                onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label">Total (auto)</label>
+              <div className="input num bg-emerald-50 text-emerald-800 font-semibold select-none">
+                {fmtMoney(totalPreview)}
+              </div>
+            </div>
+
             <div>
               <label className="label" htmlFor="b-vendor">Supplier (mill)</label>
               <select
@@ -356,27 +412,28 @@ export default function BobbinPage() {
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="b-date">Purchase date</label>
+              <label className="label" htmlFor="b-date">Purchase date *</label>
               <input
                 id="b-date"
                 type="date"
+                required
                 className="input w-full"
                 value={form.purchase_date}
                 onChange={(e) => setForm((f) => ({ ...f, purchase_date: e.target.value }))}
               />
             </div>
             <div>
-              <label className="label" htmlFor="b-inv">Invoice no</label>
+              <label className="label" htmlFor="b-inv">Invoice no *</label>
               <input
                 id="b-inv"
                 type="text"
+                required
                 className="input w-full"
                 placeholder="INV-12345"
                 value={form.invoice_no}
                 onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))}
               />
             </div>
-
             <div className="flex items-end">
               <label className="inline-flex items-center gap-1.5">
                 <input
@@ -387,7 +444,8 @@ export default function BobbinPage() {
                 <span className="text-xs text-ink-soft">Lurex bobbin</span>
               </label>
             </div>
-            <div className="md:col-span-3">
+
+            <div className="md:col-span-4">
               <label className="label" htmlFor="b-notes">Notes</label>
               <input
                 id="b-notes"
@@ -399,6 +457,7 @@ export default function BobbinPage() {
               />
             </div>
           </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn-ghost" onClick={closeForm} disabled={busy}>
               Cancel
@@ -425,33 +484,31 @@ export default function BobbinPage() {
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left px-4 py-3">Code</th>
-                <th className="text-left px-4 py-3">Description</th>
-                <th className="text-right px-4 py-3">Ends</th>
-                <th className="text-right px-4 py-3">Length (m)</th>
-                <th className="text-right px-4 py-3">Price Rs</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Supplier</th>
-                <th className="text-left px-4 py-3">Purchase date</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Invoice no</th>
-                <th className="text-center px-4 py-3">Lurex</th>
-                <th className="text-right px-4 py-3" />
+                <th className="text-left px-3 py-3">Code</th>
+                <th className="text-left px-3 py-3">Description</th>
+                <th className="text-right px-3 py-3">Qty</th>
+                <th className="text-right px-3 py-3">Price Rs</th>
+                <th className="text-right px-3 py-3">GST %</th>
+                <th className="text-right px-3 py-3">Total Rs</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Supplier</th>
+                <th className="text-left px-3 py-3">Purchase date</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Invoice no</th>
+                <th className="text-right px-3 py-3" />
               </tr>
             </thead>
             <tbody>
               {rows.map((b) => (
                 <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-4 py-3 font-mono text-xs">{b.code}</td>
-                  <td className="px-4 py-3 font-semibold">{b.description}</td>
-                  <td className="px-4 py-3 text-right num">{b.ends_per_bobbin}</td>
-                  <td className="px-4 py-3 text-right num">{b.bobbin_metre}</td>
-                  <td className="px-4 py-3 text-right num">{b.bobbin_price}</td>
-                  <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{millLabel(b.vendor_id)}</td>
-                  <td className="px-4 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
-                  <td className="px-4 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
-                  <td className="px-4 py-3 text-center">
-                    {b.is_lurex ? <span className="pill bg-amber-50 text-amber-700">lurex</span> : <span className="text-ink-mute">-</span>}
-                  </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3 font-mono text-xs">{b.code}</td>
+                  <td className="px-3 py-3 font-semibold">{b.description}</td>
+                  <td className="px-3 py-3 text-right num">{b.quantity}</td>
+                  <td className="px-3 py-3 text-right num">{fmtMoney(b.bobbin_price)}</td>
+                  <td className="px-3 py-3 text-right num">{b.gst_pct}</td>
+                  <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(b.total_amount)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{millLabel(b.vendor_id)}</td>
+                  <td className="px-3 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
+                  <td className="px-3 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button
                         type="button"
