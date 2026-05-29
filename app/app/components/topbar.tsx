@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  Bell, LogOut, Search, ChevronDown, Menu, ArrowLeft, Home,
+  Bell, LogOut, Search, ChevronDown, Menu, ArrowLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -71,18 +71,6 @@ export function Topbar({
           <ArrowLeft className="w-5 h-5 text-ink-soft" />
         </button>
       )}
-
-      {/* ── Mobile-only: home shortcut (always visible on mobile) ──────── */}
-      <Link
-        href="/app/dashboard"
-        className={cn(
-          'md:hidden p-2 rounded-lg hover:bg-cloud',
-          isHome && 'text-indigo bg-indigo/10',
-        )}
-        aria-label="Home"
-      >
-        <Home className="w-5 h-5" />
-      </Link>
 
       {/* ── Desktop search bar ─────────────────────────────────────────── */}
       <div className="hidden sm:flex items-center gap-2 flex-1 max-w-md">

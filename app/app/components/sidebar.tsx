@@ -142,9 +142,14 @@ function NavBody({
   );
 }
 
-function Brand() {
+function Brand({ onClick }: { onClick?: () => void }) {
   return (
-    <div className="px-5 py-5 border-b border-line/60 flex items-center gap-3">
+    <Link
+      href="/app/dashboard"
+      onClick={onClick}
+      className="px-5 py-5 border-b border-line/60 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
+      title="Go to dashboard"
+    >
       <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo to-violet flex items-center justify-center text-white font-bold text-sm">
         PT
       </div>
@@ -152,7 +157,7 @@ function Brand() {
         <div className="font-display font-extrabold text-ink leading-tight text-sm">PPK TEX</div>
         <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -204,17 +209,24 @@ export function Sidebar({
             mobileOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
-          <div className="px-5 py-5 border-b border-line/60 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo to-violet flex items-center justify-center text-white font-bold text-sm">
-              PT
-            </div>
-            <div className="flex-1">
-              <div className="font-display font-extrabold text-ink leading-tight text-sm">PPK TEX</div>
-              <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
-            </div>
+          <div className="flex items-stretch border-b border-line/60">
+            <Link
+              href="/app/dashboard"
+              onClick={onClose}
+              className="flex-1 px-5 py-5 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
+              title="Go to dashboard"
+            >
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo to-violet flex items-center justify-center text-white font-bold text-sm">
+                PT
+              </div>
+              <div className="flex-1">
+                <div className="font-display font-extrabold text-ink leading-tight text-sm">PPK TEX</div>
+                <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+              </div>
+            </Link>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-cloud"
+              className="px-3 hover:bg-cloud"
               aria-label="Close menu"
             >
               <X className="w-5 h-5 text-ink-soft" />
