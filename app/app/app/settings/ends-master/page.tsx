@@ -1,15 +1,24 @@
 'use client';
 /**
- * Ends Master - catalogues standard warp-end specs (60, 80, 100...) pinned
- * to a specific yarn count. Code is auto-generated server-side (EN-NNNN)
- * via trg_ends_master_autogen_code.
+ * Ends Master - catalogues standard warp-end specs pinned to a yarn count.
+ *
+ * Display name is auto-generated as `{ends} /{count}` using the linked
+ * yarn count's natural notation:
+ *   - cotton    -> "2400 /40's"     (Ne value + apostrophe-s)
+ *   - polyester -> "2400 /75D"      (denier + D)
+ *   - blend     -> "2400 /60s combed" (yarn_count.display_name)
+ *   - no count  -> just the ends number
+ *
+ * Code is auto-generated server-side (EN-NNNN) via trg_ends_master_autogen_code.
  *
  * RLS: anyone authenticated reads; owner / mill_manager writes.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+
+type YarnType = 'cotton' | 'polyester' | 'blend';
 
 interface EndsRow {
   id: number;
@@ -25,18 +34,19 @@ interface CountOption {
   id: number;
   code: string;
   display_name: string;
+  yarn_type: YarnType;
+  ne: number | null;
+  denier: number | null;
 }
 
 interface NewEnds {
   ends_count: string;
-  name: string;
   count_id: string;
   notes: string;
 }
 
 const EMPTY_NEW: NewEnds = {
   ends_count: '',
-  name: '',
   count_id: '',
   notes: '',
 };
@@ -47,6 +57,25 @@ function toIntOrNull(v: string): number | null {
   const n = Number(t);
   if (Number.isNaN(n) || Number.isFinite(n) === false) return null;
   return Math.trunc(n);
+}
+
+/**
+ * Build the "/count" suffix the way weavers say it.
+ *   cotton    -> Ne + "'s"   e.g. "40's"
+ *   polyester -> denier + D  e.g. "75D"
+ *   blend     -> display_name as-is
+ */
+function buildCountSuffix(c: CountOption | undefined | null): string {
+  if (c == null) return '';
+  if (c.yarn_type === 'cotton' && c.ne != null) return String(c.ne) + "'s";
+  if (c.yarn_type === 'polyester' && c.denier != null) return String(c.denier) + 'D';
+  return c.display_name;
+}
+
+function buildDisplayName(ends: number | null, c: CountOption | undefined | null): string {
+  if (ends == null || ends <= 0) return c == null ? '' : buildCountSuffix(c);
+  const suffix = buildCountSuffix(c);
+  return suffix === '' ? String(ends) : String(ends) + ' /' + suffix;
 }
 
 export default function EndsMasterPage() {
@@ -73,7 +102,7 @@ export default function EndsMasterPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('yarn_count')
-        .select('id, code, display_name')
+        .select('id, code, display_name, yarn_type, ne, denier')
         .neq('status', 'archived')
         .order('code'),
     ]);
@@ -93,26 +122,39 @@ export default function EndsMasterPage() {
     void load();
   }, [load]);
 
+  const countById = useMemo<Map<number, CountOption>>(() => {
+    const m = new Map<number, CountOption>();
+    counts.forEach((c) => m.set(c.id, c));
+    return m;
+  }, [counts]);
+
+  const namePreview = useMemo<string>(() => {
+    const ec = toIntOrNull(neu.ends_count);
+    const c = neu.count_id === '' ? null : countById.get(Number(neu.count_id));
+    return buildDisplayName(ec, c);
+  }, [neu.ends_count, neu.count_id, countById]);
+
   async function handleAdd() {
     setError(null);
     setSavedMsg(null);
 
-    const name = neu.name.trim();
     const ec = toIntOrNull(neu.ends_count);
-
     if (ec === null || ec <= 0) {
-      setError('Enter a positive integer ends count (e.g. 60).');
-      return;
-    }
-    if (name === '') {
-      setError('Enter a friendly display name.');
+      setError('Enter a positive integer ends count (e.g. 2400).');
       return;
     }
     const countId = neu.count_id === '' ? null : Number(neu.count_id);
+    const count = countId === null ? null : countById.get(countId);
+    const name = buildDisplayName(ec, count);
+    if (name === '') {
+      setError('Pick a yarn count, or enter an ends value.');
+      return;
+    }
 
     setAdding(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('ends_master').insert({
+      // code omitted - trg_ends_master_autogen_code fills it (EN-NNNN)
       ends_count: ec,
       name,
       count_id: countId,
@@ -126,21 +168,40 @@ export default function EndsMasterPage() {
       return;
     }
     setNeu(EMPTY_NEW);
-    setSavedMsg('Added new ends spec.');
+    setSavedMsg('Added ' + name + '.');
     await load();
   }
 
+  /**
+   * Apply the patch + recompute the display name if ends_count or
+   * count_id changed (so the persisted name stays in sync).
+   */
   async function updateRow(id: number, patch: Partial<EndsRow>) {
     setError(null);
     setSavedMsg(null);
     setBusyId(id);
 
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const current = rows.find((r) => r.id === id);
+    const merged: EndsRow = { ...(current as EndsRow), ...patch };
+
+    const nameRecalcNeeded =
+      Object.prototype.hasOwnProperty.call(patch, 'ends_count') ||
+      Object.prototype.hasOwnProperty.call(patch, 'count_id');
+
+    let persistPatch: Partial<EndsRow> = patch;
+    if (nameRecalcNeeded) {
+      const c = merged.count_id === null ? null : countById.get(merged.count_id);
+      const newName = buildDisplayName(merged.ends_count, c);
+      persistPatch = { ...patch, name: newName };
+      merged.name = newName;
+    }
+
+    setRows((prev) => prev.map((r) => (r.id === id ? merged : r)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any)
       .from('ends_master')
-      .update(patch)
+      .update(persistPatch)
       .eq('id', id);
     setBusyId(null);
 
@@ -172,17 +233,11 @@ export default function EndsMasterPage() {
     setSavedMsg('Deleted ' + code + '.');
   }
 
-  function countLabel(id: number | null): string {
-    if (id === null) return '-';
-    const c = counts.find((x) => x.id === id);
-    return c ? c.code + ' - ' + c.display_name : '#' + String(id);
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Ends Master"
-        subtitle="Standard warp-end specs (60, 80, 100...) pinned to a specific yarn count. Code auto-generated."
+        subtitle='Warp-end specs pinned to a yarn count. Display name auto-formats as "ends /count" (e.g. 2400 /40&#39;s).'
         crumbs={[
           { label: 'Settings', href: '/app/settings' },
           { label: 'Ends Master' },
@@ -213,8 +268,8 @@ export default function EndsMasterPage() {
               type="number"
               min={1}
               step="1"
-              className="input num w-24"
-              placeholder="60"
+              className="input num w-28"
+              placeholder="2400"
               value={neu.ends_count}
               onChange={(e) => setNeu((n) => ({ ...n, ends_count: e.target.value }))}
             />
@@ -235,16 +290,11 @@ export default function EndsMasterPage() {
               ))}
             </select>
           </div>
-          <div>
-            <label className="label" htmlFor="ne-name">Display name *</label>
-            <input
-              id="ne-name"
-              type="text"
-              className="input w-72"
-              placeholder="60 Ends (standard shirting)"
-              value={neu.name}
-              onChange={(e) => setNeu((n) => ({ ...n, name: e.target.value }))}
-            />
+          <div className="min-w-[14rem]">
+            <label className="label">Display name (auto)</label>
+            <div className="input bg-cloud/40 text-ink-soft select-none">
+              {namePreview === '' ? '-' : namePreview}
+            </div>
           </div>
           <div className="flex-1 min-w-[160px]">
             <label className="label" htmlFor="ne-notes">Notes</label>
@@ -287,7 +337,7 @@ export default function EndsMasterPage() {
                   <th className="py-2 pr-3">Code</th>
                   <th className="py-2 pr-3">Ends</th>
                   <th className="py-2 pr-3">Yarn count</th>
-                  <th className="py-2 pr-3">Name</th>
+                  <th className="py-2 pr-3">Display name</th>
                   <th className="py-2 pr-3">Active</th>
                   <th className="py-2 pr-3">Notes</th>
                   <th className="py-2 pr-3" />
@@ -302,9 +352,11 @@ export default function EndsMasterPage() {
                         type="number"
                         min={1}
                         step="1"
-                        className="input num w-20"
+                        className="input num w-24"
                         value={r.ends_count}
-                        onChange={(e) => updateRow(r.id, { ends_count: Number(e.target.value) || 1 })}
+                        onChange={(e) =>
+                          updateRow(r.id, { ends_count: Number(e.target.value) || 1 })
+                        }
                       />
                     </td>
                     <td className="py-2 pr-3">
@@ -316,7 +368,6 @@ export default function EndsMasterPage() {
                             count_id: e.target.value === '' ? null : Number(e.target.value),
                           })
                         }
-                        title={countLabel(r.count_id)}
                       >
                         <option value="">--- none ---</option>
                         {counts.map((c) => (
@@ -324,16 +375,9 @@ export default function EndsMasterPage() {
                             {c.code} - {c.display_name}
                           </option>
                         ))}
-                      </select>
+                          </select>
                     </td>
-                    <td className="py-2 pr-3">
-                      <input
-                        type="text"
-                        className="input w-72"
-                        value={r.name}
-                        onChange={(e) => updateRow(r.id, { name: e.target.value })}
-                      />
-                    </td>
+                    <td className="py-2 pr-3 font-semibold text-ink">{r.name}</td>
                     <td className="py-2 pr-3">
                       <label className="inline-flex items-center gap-1.5">
                         <input
@@ -341,7 +385,9 @@ export default function EndsMasterPage() {
                           checked={r.active}
                           onChange={(e) => updateRow(r.id, { active: e.target.checked })}
                         />
-                        <span className="text-xs text-ink-soft">{r.active ? 'Yes' : 'No'}</span>
+                        <span className="text-xs text-ink-soft">
+                          {r.active ? 'Yes' : 'No'}
+                        </span>
                       </label>
                     </td>
                     <td className="py-2 pr-3">
@@ -350,13 +396,17 @@ export default function EndsMasterPage() {
                         className="input w-full min-w-[12rem]"
                         value={r.notes ?? ''}
                         onChange={(e) =>
-                          updateRow(r.id, { notes: e.target.value === '' ? null : e.target.value })
+                          updateRow(r.id, {
+                            notes: e.target.value === '' ? null : e.target.value,
+                          })
                         }
                       />
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex items-center gap-2">
-                        {busyId === r.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
+                        {busyId === r.id && (
+                          <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />
+                        )}
                         <button
                           type="button"
                           className="p-1 rounded hover:bg-red-50 text-red-600"
