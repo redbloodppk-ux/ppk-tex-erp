@@ -29,6 +29,7 @@ interface Vendor {
   gstin: string | null;
   address: string | null;
   default_pick_paise: number | null;
+  brokerage_per_bag: number | null;
   payment_terms_days: number;
   status: RecordStatus;
   notes: string | null;
@@ -44,6 +45,7 @@ interface NewVendor {
   gstin: string;
   address: string;
   default_pick_paise: string;
+  brokerage_per_bag: string;
   payment_terms_days: string;
   notes: string;
 }
@@ -52,6 +54,7 @@ const VENDOR_TYPES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'sizing', label: 'Sizing vendor' },
   { value: 'weaving', label: 'Weaving vendor' },
   { value: 'folding', label: 'Folding vendor' },
+  { value: 'broker', label: 'Yarn broker' },
   { value: 'yarn', label: 'Yarn supplier' },
   { value: 'fabric', label: 'Fabric supplier' },
   { value: 'bobbin', label: 'Bobbin supplier' },
@@ -68,6 +71,7 @@ const EMPTY_NEW: NewVendor = {
   gstin: '',
   address: '',
   default_pick_paise: '',
+  brokerage_per_bag: '',
   payment_terms_days: '30',
   notes: '',
 };
@@ -126,7 +130,7 @@ export default function VendorsPage() {
     const { data, error: err } = await (supabase as any)
       .from('vendor')
       .select(
-        'id, code, name, vendor_type, contact_person, phone, email, gstin, address, default_pick_paise, payment_terms_days, status, notes',
+        'id, code, name, vendor_type, contact_person, phone, email, gstin, address, default_pick_paise, brokerage_per_bag, payment_terms_days, status, notes',
       )
       .neq('status', 'archived')
       .order('vendor_type')
@@ -174,6 +178,12 @@ export default function VendorsPage() {
       gstin: nullIfBlank(neu.gstin),
       address: nullIfBlank(neu.address),
       default_pick_paise: pickPaise,
+      brokerage_per_bag: (function () {
+        const t = neu.brokerage_per_bag.trim();
+        if (t === '') return null;
+        const n = Number(t);
+        return Number.isFinite(n) ? n : null;
+      })(),
       payment_terms_days: paymentDays,
       notes: nullIfBlank(neu.notes),
       status: 'active',
@@ -214,6 +224,7 @@ export default function VendorsPage() {
   const visible = filterType === '' ? rows : rows.filter((r) => r.vendor_type === filterType);
 
   const isWeavingType = neu.vendor_type === 'weaving';
+  const isBrokerType = neu.vendor_type === 'broker';
 
   return (
     <div className="space-y-6">
@@ -335,6 +346,23 @@ export default function VendorsPage() {
                 placeholder="e.g. 35"
                 value={neu.default_pick_paise}
                 onChange={(e) => setNeu((n) => ({ ...n, default_pick_paise: e.target.value }))}
+              />
+            </div>
+          )}
+          {isBrokerType && (
+            <div>
+              <label className="label" htmlFor="nv-brk">
+                Brokerage / bag (Rs)
+              </label>
+              <input
+                id="nv-brk"
+                type="number"
+                min={0}
+                step="0.01"
+                className="input num w-full"
+                placeholder="e.g. 25"
+                value={neu.brokerage_per_bag}
+                onChange={(e) => setNeu((n) => ({ ...n, brokerage_per_bag: e.target.value }))}
               />
             </div>
           )}

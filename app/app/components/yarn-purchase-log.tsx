@@ -9,6 +9,12 @@
  * the 'lot' doc_sequence (LOT-NNNN).
  *
  * Mandatory: yarn_count, mill, received_date, received_kg, invoice_no.
+ *
+ * Extras (migration 051):
+ *   - Delivery destination dropdown ('in_house' default, or 'sizing')
+ *   - Broker dropdown (vendors where vendor_type='broker')
+ *   - Bag count + brokerage_per_bag (auto-filled from picked broker)
+ *   - Brokerage amount preview = bags * rate
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -16,6 +22,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 type YarnKind = 'yarn' | 'porvai';
+type Delivery = 'in_house' | 'sizing';
 
 interface Lot {
   id: number;
@@ -29,10 +36,16 @@ interface Lot {
   total_amount: number;
   invoice_no: string | null;
   notes: string | null;
+  delivery_destination: Delivery;
+  broker_id: number | null;
+  bag_count: number;
+  brokerage_per_bag: number;
+  brokerage_amount: number;
 }
 
-interface CountOption { id: number; code: string; display_name: string; }
-interface MillOption  { id: number; code: string; name: string; }
+interface CountOption  { id: number; code: string; display_name: string; }
+interface MillOption   { id: number; code: string; name: string; }
+interface BrokerOption { id: number; code: string; name: string; brokerage_per_bag: number | null; }
 
 interface FormState {
   yarn_count_id: string;
@@ -43,6 +56,10 @@ interface FormState {
   gst_pct: string;
   invoice_no: string;
   notes: string;
+  delivery_destination: Delivery;
+  broker_id: string;
+  bag_count: string;
+  brokerage_per_bag: string;
 }
 
 const EMPTY: FormState = {
@@ -54,6 +71,10 @@ const EMPTY: FormState = {
   gst_pct: '5',
   invoice_no: '',
   notes: '',
+  delivery_destination: 'in_house',
+  broker_id: '',
+  bag_count: '',
+  brokerage_per_bag: '',
 };
 
 function toNumOrNull(v: string): number | null {
@@ -78,6 +99,10 @@ function fmtMoney(n: number | null | undefined): string {
   return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
+function deliveryLabel(d: Delivery): string {
+  return d === 'in_house' ? 'In-house warehouse' : 'Sizing warehouse';
+}
+
 export interface YarnPurchaseLogProps {
   yarnKind: YarnKind;
   title: string;
@@ -90,6 +115,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   const [rows, setRows] = useState<Lot[]>([]);
   const [counts, setCounts] = useState<CountOption[]>([]);
   const [mills, setMills] = useState<MillOption[]>([]);
+  const [brokers, setBrokers] = useState<BrokerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -103,22 +129,25 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const [lotRes, countRes, millRes] = await Promise.all([
+    const [lotRes, countRes, millRes, brokerRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, mill_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes')
+        .select('id, lot_code, yarn_count_id, mill_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_id, bag_count, brokerage_per_bag, brokerage_amount')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       sb.from('mill').select('id, code, name').neq('status', 'archived').order('name'),
+      sb.from('vendor').select('id, code, name, brokerage_per_bag').eq('vendor_type', 'broker').neq('status', 'archived').order('name'),
     ]);
-    if (lotRes.error) setError(lotRes.error.message);
-    else if (countRes.error) setError(countRes.error.message);
-    else if (millRes.error) setError(millRes.error.message);
+    if (lotRes.error)         setError(lotRes.error.message);
+    else if (countRes.error)  setError(countRes.error.message);
+    else if (millRes.error)   setError(millRes.error.message);
+    else if (brokerRes.error) setError(brokerRes.error.message);
     else {
       setRows((lotRes.data ?? []) as unknown as Lot[]);
       setCounts((countRes.data ?? []) as unknown as CountOption[]);
       setMills((millRes.data ?? []) as unknown as MillOption[]);
+      setBrokers((brokerRes.data ?? []) as unknown as BrokerOption[]);
       setError(null);
     }
     setLoading(false);
@@ -133,6 +162,12 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
   }, [form.received_kg, form.cost_per_kg, form.gst_pct]);
 
+  const brokeragePreview = useMemo<number>(() => {
+    const bags = toNumOrNull(form.bag_count) ?? 0;
+    const rate = toNumOrNull(form.brokerage_per_bag) ?? 0;
+    return Math.round(bags * rate * 100) / 100;
+  }, [form.bag_count, form.brokerage_per_bag]);
+
   function openNewForm() {
     setEditingId(null);
     setForm({ ...EMPTY, received_date: todayISO() });
@@ -144,14 +179,18 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   function openEditForm(l: Lot) {
     setEditingId(l.id);
     setForm({
-      yarn_count_id: String(l.yarn_count_id),
-      mill_id:       String(l.mill_id),
-      received_date: l.received_date,
-      received_kg:   String(l.received_kg),
-      cost_per_kg:   String(l.cost_per_kg),
-      gst_pct:       String(l.gst_pct),
-      invoice_no:    l.invoice_no ?? '',
-      notes:         l.notes ?? '',
+      yarn_count_id:        String(l.yarn_count_id),
+      mill_id:              String(l.mill_id),
+      received_date:        l.received_date,
+      received_kg:          String(l.received_kg),
+      cost_per_kg:          String(l.cost_per_kg),
+      gst_pct:              String(l.gst_pct),
+      invoice_no:           l.invoice_no ?? '',
+      notes:                l.notes ?? '',
+      delivery_destination: l.delivery_destination,
+      broker_id:            l.broker_id === null ? '' : String(l.broker_id),
+      bag_count:            String(l.bag_count),
+      brokerage_per_bag:    String(l.brokerage_per_bag),
     });
     setFormOpen(true);
     setSavedMsg(null);
@@ -164,6 +203,25 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setForm(EMPTY);
   }
 
+  /** When the user picks a broker, auto-fill the per-bag rate from the
+   *  broker's master record (only if the user hasn't typed one). */
+  function onPickBroker(value: string) {
+    if (value === '') {
+      setForm((f) => ({ ...f, broker_id: '' }));
+      return;
+    }
+    const id = Number(value);
+    const b = brokers.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      broker_id: value,
+      brokerage_per_bag:
+        f.brokerage_per_bag.trim() === '' && b && b.brokerage_per_bag !== null
+          ? String(b.brokerage_per_bag)
+          : f.brokerage_per_bag,
+    }));
+  }
+
   async function handleSave() {
     setError(null);
     setSavedMsg(null);
@@ -173,6 +231,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const receivedKg  = toNumOrNull(form.received_kg);
     const costPerKg   = toNumOrNull(form.cost_per_kg);
     const gst         = toNumOrNull(form.gst_pct) ?? 0;
+    const brokerId    = form.broker_id === '' ? null : Number(form.broker_id);
+    const bagCount    = Math.trunc(toNumOrNull(form.bag_count) ?? 0);
+    const brokerRate  = toNumOrNull(form.brokerage_per_bag) ?? 0;
 
     if (yarnCountId === null) { setError('Yarn count is required.'); return; }
     if (millId === null)      { setError('Supplier mill is required.'); return; }
@@ -182,7 +243,6 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     if (form.invoice_no.trim() === '')          { setError('Invoice number is required.'); return; }
 
     const payload = {
-      // lot_code omitted - 'lot' doc_sequence trigger fills it.
       yarn_kind: yarnKind,
       yarn_count_id: yarnCountId,
       mill_id: millId,
@@ -192,12 +252,11 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       gst_pct: gst,
       invoice_no: form.invoice_no.trim(),
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
-      ...(editingId === null
-        ? {
-            current_kg: receivedKg,
-            delivery_destination: 'warehouse' as const,
-          }
-        : {}),
+      delivery_destination: form.delivery_destination,
+      broker_id: brokerId,
+      bag_count: bagCount,
+      brokerage_per_bag: brokerRate,
+      ...(editingId === null ? { current_kg: receivedKg } : {}),
     };
 
     setBusy(true);
@@ -238,6 +297,11 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   function millLabel(id: number): string {
     const m = mills.find((x) => x.id === id);
     return m ? m.code + ' - ' + m.name : '#' + String(id);
+  }
+  function brokerLabel(id: number | null): string {
+    if (id === null) return '-';
+    const b = brokers.find((x) => x.id === id);
+    return b ? b.name : '#' + String(id);
   }
 
   return (
@@ -331,12 +395,54 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             </div>
 
             <div>
+              <label className="label" htmlFor="y-delivery">Delivery destination *</label>
+              <select id="y-delivery" className="input w-full"
+                value={form.delivery_destination}
+                onChange={(e) => setForm((f) => ({ ...f, delivery_destination: e.target.value as Delivery }))}>
+                <option value="in_house">In-house warehouse</option>
+                <option value="sizing">Sizing warehouse</option>
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="y-broker">Broker</label>
+              <select id="y-broker" className="input w-full"
+                value={form.broker_id}
+                onChange={(e) => onPickBroker(e.target.value)}>
+                <option value="">--- none ---</option>
+                {brokers.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.name}{b.brokerage_per_bag !== null ? ' (Rs ' + String(b.brokerage_per_bag) + '/bag)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="y-bags">Bag count</label>
+              <input id="y-bags" type="number" min={0} step="1" className="input num w-full"
+                value={form.bag_count}
+                onChange={(e) => setForm((f) => ({ ...f, bag_count: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label" htmlFor="y-brk-rate">Brokerage Rs/bag</label>
+              <input id="y-brk-rate" type="number" min={0} step="0.01" className="input num w-full"
+                placeholder="auto from broker"
+                value={form.brokerage_per_bag}
+                onChange={(e) => setForm((f) => ({ ...f, brokerage_per_bag: e.target.value }))} />
+            </div>
+
+            <div>
               <label className="label" htmlFor="y-inv">Invoice no *</label>
               <input id="y-inv" type="text" required className="input w-full" placeholder="INV-12345"
                 value={form.invoice_no}
                 onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))} />
             </div>
-            <div className="md:col-span-3">
+            <div>
+              <label className="label">Brokerage total (auto)</label>
+              <div className="input num bg-amber-50 text-amber-800 font-semibold select-none">
+                {fmtMoney(brokeragePreview)}
+              </div>
+            </div>
+            <div className="md:col-span-2">
               <label className="label" htmlFor="y-notes">Notes</label>
               <input id="y-notes" type="text" className="input w-full" placeholder="(optional)"
                 value={form.notes}
@@ -374,8 +480,12 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <th className="text-right px-3 py-3">Rate Rs/kg</th>
                 <th className="text-right px-3 py-3">GST %</th>
                 <th className="text-right px-3 py-3">Total Rs</th>
+                <th className="text-left px-3 py-3">Delivery</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Broker</th>
+                <th className="text-right px-3 py-3">Bags</th>
+                <th className="text-right px-3 py-3">Brokerage Rs</th>
                 <th className="text-left px-3 py-3">Date</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Invoice</th>
+                <th className="text-left px-3 py-3 hidden lg:table-cell">Invoice</th>
                 <th className="text-right px-3 py-3" />
               </tr>
             </thead>
@@ -389,8 +499,12 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   <td className="px-3 py-3 text-right num">{fmtMoney(l.cost_per_kg)}</td>
                   <td className="px-3 py-3 text-right num">{l.gst_pct}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(l.total_amount)}</td>
+                  <td className="px-3 py-3 text-ink-soft">{deliveryLabel(l.delivery_destination)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{brokerLabel(l.broker_id)}</td>
+                  <td className="px-3 py-3 text-right num">{l.bag_count}</td>
+                  <td className="px-3 py-3 text-right num text-amber-700">{fmtMoney(l.brokerage_amount)}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(l.received_date)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{l.invoice_no ?? '-'}</td>
+                  <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{l.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button type="button" className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
