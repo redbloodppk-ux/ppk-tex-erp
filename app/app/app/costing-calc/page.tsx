@@ -181,8 +181,8 @@ export default function CostingCalcPage() {
     const payload = {
       quality_code: qualityCode.trim(),
       quality_name: qualityName.trim(),
-      fabric_type:  isTowel ? 'towel' : 'fabric',
-      production_mode: 'in_house' as const,
+      fabric_type:  isTowel ? 'towel' : 'woven',
+      production_mode: 'inhouse' as const,
       warp_count_id: Number(warpCountId),
       weft_count_id: Number(weftCountId),
       warp_ends:        totalEnds,
