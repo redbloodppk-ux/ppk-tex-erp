@@ -23,7 +23,9 @@ const DEFAULT_BAGS_PER_M = 0.50;
 const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
 const DEFAULT_SIZED_PAAVU_BEAM_PER_M = 1.50;
 
-interface CountOption { id: number; code: string; display_name: string; }
+interface CountOption  { id: number; code: string; display_name: string; }
+interface EndsOption   { id: number; code: string; name: string; ends_count: number; }
+interface BobbinOption { id: number; code: string; description: string; }
 
 export default function CostingCalcPage() {
   const supabase = createClient();
@@ -82,7 +84,12 @@ export default function CostingCalcPage() {
   const [qualityName, setQualityName] = useState('');
   const [warpCountId, setWarpCountId] = useState('');
   const [weftCountId, setWeftCountId] = useState('');
+  const [endsId, setEndsId] = useState('');
+  const [bobbinId, setBobbinId] = useState('');
+  const [porvaiCountId, setPorvaiCountId] = useState('');
   const [counts, setCounts] = useState<CountOption[]>([]);
+  const [endsOptions, setEndsOptions] = useState<EndsOption[]>([]);
+  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState<string | null>(null);
@@ -90,12 +97,15 @@ export default function CostingCalcPage() {
   useEffect(() => {
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
-        .from('yarn_count')
-        .select('id, code, display_name')
-        .neq('status', 'archived')
-        .order('code');
-      setCounts((data ?? []) as unknown as CountOption[]);
+      const sb = supabase as any;
+      const [yc, em, bb] = await Promise.all([
+        sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
+        sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
+        sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
+      ]);
+      setCounts((yc.data ?? []) as unknown as CountOption[]);
+      setEndsOptions((em.data ?? []) as unknown as EndsOption[]);
+      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
     })();
   }, [supabase]);
 
@@ -185,20 +195,35 @@ export default function CostingCalcPage() {
       production_mode: 'inhouse' as const,
       warp_count_id: Number(warpCountId),
       weft_count_id: Number(weftCountId),
-      warp_ends:        totalEnds,
+      warp_ends:        endsId !== ''
+        ? (endsOptions.find((e) => e.id === Number(endsId))?.ends_count ?? totalEnds)
+        : totalEnds,
       tape_length_m:    Number((tapeLengthIn / 39.37).toFixed(4)),
       pick_ppi:         picksPerInch,
       fabric_length_m:  Number((loomWidthIn / 39.37).toFixed(4)),
       reed_count:       reedCount,
       fabric_width_in:  finishedWidthIn,
       selvedge_ends:    0,
-      use_bobbin_1:     useBobbin,
+      use_bobbin_1:     useBobbin && bobbinId !== '',
+      bobbin_1_id:      useBobbin && bobbinId !== '' ? Number(bobbinId) : null,
+      bobbin_1_loading: useBobbin ? bobbinWaste : null,
       use_bobbin_2:     false,
       use_porvai:       usePorvai && isTowel,
+      porvai_count_id:  usePorvai && porvaiCountId !== '' ? Number(porvaiCountId) : null,
+      porvai_slevage_length_m: usePorvai ? Number((selvedgeLengthIn / 39.37).toFixed(4)) : null,
       pick_paise_market: weavingPaise,
       sizing_cost_per_m: sizedPaavuPerM,
       auto_cost_per_m:   autoWarp,
       warp_commission_per_m: salesCommM,
+      // Derived weights snapshot (Quick Calc -> costing_master columns added in migration 059)
+      warp_m_per_kg:   Number(r.warpMPerKg.toFixed(4)),
+      warp_kg_per_m:   Number(r.warpKgPerM.toFixed(6)),
+      weft_m_per_kg:   Number(r.weftMPerKg.toFixed(4)),
+      weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
+      porvai_m_per_kg: usePorvai ? Number(r.porvaiMPerKg.toFixed(4)) : null,
+      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0 ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
+      grams_per_m:     Number(r.gramsPerM.toFixed(2)),
+      gsm:             Number(r.gramsPerSqM.toFixed(2)),
       save_path:        'quick_quote' as const,
       approval_status:  'pending' as const,
       status:           'active' as const,
@@ -457,6 +482,36 @@ export default function CostingCalcPage() {
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
             </select>
           </div>
+          <div>
+            <label className="label">Ends spec</label>
+            <select className="input w-full" value={endsId}
+              onChange={(e) => setEndsId(e.target.value)}>
+              <option value="">--- use form value ---</option>
+              {endsOptions.map((e) => (
+                <option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Bobbin</label>
+            <select className="input w-full" value={bobbinId}
+              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
+              <option value="">--- none ---</option>
+              {bobbins.map((b) => (
+                <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Porvai yarn count</label>
+            <select className="input w-full" value={porvaiCountId}
+              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
+              <option value="">--- none ---</option>
+              {counts.map((c) => (
+                <option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {saveError && <div className="mt-3 p-3 rounded-lg bg-red-50 text-err text-sm">{saveError}</div>}
@@ -531,6 +586,4 @@ function ResultRow({ label, value, small, big, highlight }: {
       <span className={"num " + (highlight ? tone + " font-bold" : '')}>{value}</span>
     </div>
   );
-}
- );
 }
