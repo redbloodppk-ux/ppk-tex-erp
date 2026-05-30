@@ -1,36 +1,20 @@
-// Quick Costing Calculator - matched to "Dobby towel cost calculation.xlsx"
-//
-// All formulas are taken from the Excel that PPK TEX uses on the shop floor.
-// Recent change: replaces /costing/new - this page now also saves the costing
-// and submits it for approval (Build Guide T-B11).
-//
-// On Save the calculator:
-//   1) writes a costing_master row with approval_status = 'pending'
-//   2) marks save_path = 'quick' so we can tell calc-saved costings apart
-//   3) redirects to /app/costing/approvals where an owner / sales_manager
-//      can approve or reject
+// Quick Costing Calculator — pure calculator, no save. Matches
+// "Dobby towel cost calculation.xlsx" formulas. Use /app/costing/new
+// to save a costing master row.
 
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { useMemo, useState } from 'react';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
-import { Calculator, Info, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
+import { Calculator, Info, Plus } from 'lucide-react';
 
 // Default mill overhead rates (Rs/m).
 const DEFAULT_BAGS_PER_M = 0.50;
 const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
 const DEFAULT_SIZED_PAAVU_BEAM_PER_M = 1.50;
 
-interface CountOption  { id: number; code: string; display_name: string; }
-interface EndsOption   { id: number; code: string; name: string; ends_count: number; }
-interface BobbinOption { id: number; code: string; description: string; }
-
 export default function CostingCalcPage() {
-  const supabase = createClient();
-  const router = useRouter();
-
   // Cloth construction
   const [warpCount, setWarpCount] = useState(40);
   const [weftCount, setWeftCount] = useState(39);
@@ -78,36 +62,6 @@ export default function CostingCalcPage() {
   const [showProd, setShowProd] = useState(true);
   const [loomRpm, setLoomRpm] = useState(110);
   const [efficiency, setEfficiency] = useState(0.85);
-
-  // -- Save & Submit state --------------------------------------------------
-  const [qualityCode, setQualityCode] = useState('');
-  const [qualityName, setQualityName] = useState('');
-  const [warpCountId, setWarpCountId] = useState('');
-  const [weftCountId, setWeftCountId] = useState('');
-  const [endsId, setEndsId] = useState('');
-  const [bobbinId, setBobbinId] = useState('');
-  const [porvaiCountId, setPorvaiCountId] = useState('');
-  const [counts, setCounts] = useState<CountOption[]>([]);
-  const [endsOptions, setEndsOptions] = useState<EndsOption[]>([]);
-  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveOk, setSaveOk] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const [yc, em, bb] = await Promise.all([
-        sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
-        sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
-        sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
-      ]);
-      setCounts((yc.data ?? []) as unknown as CountOption[]);
-      setEndsOptions((em.data ?? []) as unknown as EndsOption[]);
-      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
-    })();
-  }, [supabase]);
 
   // Compute everything
   const r = useMemo(() => {
@@ -179,100 +133,16 @@ export default function CostingCalcPage() {
     showProd, loomRpm, efficiency,
   ]);
 
-  // -- Save handler ---------------------------------------------------------
-  async function handleSaveSubmit() {
-    setSaveError(null);
-    setSaveOk(null);
-    if (qualityCode.trim() === '') return setSaveError('Quality code is required.');
-    if (qualityName.trim() === '') return setSaveError('Quality name is required.');
-    if (warpCountId === '')        return setSaveError('Pick the warp yarn count.');
-    if (weftCountId === '')        return setSaveError('Pick the weft yarn count.');
-
-    const payload = {
-      quality_code: qualityCode.trim(),
-      quality_name: qualityName.trim(),
-      fabric_type:  isTowel ? 'towel' : 'woven',
-      production_mode: 'inhouse' as const,
-      warp_count_id: Number(warpCountId),
-      weft_count_id: Number(weftCountId),
-      warp_ends:        endsId !== ''
-        ? (endsOptions.find((e) => e.id === Number(endsId))?.ends_count ?? totalEnds)
-        : totalEnds,
-      tape_length_m:    Number((tapeLengthIn / 39.37).toFixed(4)),
-      pick_ppi:         picksPerInch,
-      fabric_length_m:  Number((loomWidthIn / 39.37).toFixed(4)),
-      reed_count:       reedCount,
-      fabric_width_in:  finishedWidthIn,
-      selvedge_ends:    0,
-      use_bobbin_1:     useBobbin && bobbinId !== '',
-      bobbin_1_id:      useBobbin && bobbinId !== '' ? Number(bobbinId) : null,
-      bobbin_1_loading: useBobbin ? bobbinWaste : null,
-      use_bobbin_2:     false,
-      use_porvai:       usePorvai && isTowel,
-      porvai_count_id:  usePorvai && porvaiCountId !== '' ? Number(porvaiCountId) : null,
-      porvai_slevage_length_m: usePorvai ? Number((selvedgeLengthIn / 39.37).toFixed(4)) : null,
-      pick_paise_market: weavingPaise,
-      sizing_cost_per_m: sizedPaavuPerM,
-      auto_cost_per_m:   autoWarp,
-      warp_commission_per_m: salesCommM,
-      // Derived weights snapshot (Quick Calc -> costing_master columns added in migration 059)
-      warp_m_per_kg:   Number(r.warpMPerKg.toFixed(4)),
-      warp_kg_per_m:   Number(r.warpKgPerM.toFixed(6)),
-      weft_m_per_kg:   Number(r.weftMPerKg.toFixed(4)),
-      weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
-      porvai_m_per_kg: usePorvai ? Number(r.porvaiMPerKg.toFixed(4)) : null,
-      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0 ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
-      grams_per_m:     Number(r.gramsPerM.toFixed(2)),
-      gsm:             Number(r.gramsPerSqM.toFixed(2)),
-      save_path:        'quick_quote' as const,
-      approval_status:  'pending' as const,
-      status:           'active' as const,
-      notes:            'Saved from Quick Calculator.',
-    };
-
-    setSaving(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb2 = supabase as any;
-    const insertCosting = await sb2.from('costing_master').insert(payload).select('id').single();
-    if (insertCosting.error) {
-      setSaving(false);
-      setSaveError(insertCosting.error.message);
-      return;
-    }
-    const newCostingId: number = insertCosting.data.id;
-
-    // Also create a fabric_quality row with consumption snapshot (migration 060).
-    const fqPayload = {
-      name: qualityCode.trim() + ' - ' + qualityName.trim(),
-      width_in:        finishedWidthIn,
-      weight_gsm:      Number(r.gramsPerSqM.toFixed(2)),
-      rate_per_m:      Number(r.costPerM.toFixed(2)),
-      active:          true,
-      costing_id:      newCostingId,
-      weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
-      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
-        ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
-      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
-        ? Number((1 / bobbinMetres).toFixed(6)) : null,
-    };
-    const insertFq = await sb2.from('fabric_quality').insert(fqPayload);
-    setSaving(false);
-    if (insertFq.error) {
-      setSaveError('Costing saved, but Fabric Quality creation failed: ' + insertFq.error.message);
-      return;
-    }
-    setSaveOk('Saved as ' + qualityCode + ' + Fabric Quality (pending approval).');
-    setTimeout(() => {
-      router.push('/app/costing/approvals');
-      router.refresh();
-    }, 800);
-  }
-
   return (
     <div>
       <PageHeader
         title="Fabric Costing Calculator"
-        subtitle="Matches Dobby towel cost sheet. Fill the numbers, then Save & Submit for approval."
+        subtitle="Play with numbers — nothing is saved. Use New Costing to store a costing master row."
+        actions={
+          <Link href="/app/costing/new" className="btn-primary">
+            <Plus className="w-4 h-4" /> New Costing
+          </Link>
+        }
       />
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
@@ -463,93 +333,6 @@ export default function CostingCalcPage() {
               <ResultRow label="Ends check (reed x width + 50)" value={r.endsCheck.toFixed(0)} small />
             </>
           )}
-        </div>
-      </div>
-
-      {/* SAVE & SUBMIT panel */}
-      <div className="card p-5 mt-4 border border-indigo-200 bg-indigo-50/30">
-        <h2 className="font-display font-bold text-base mb-1 flex items-center gap-2">
-          <Save className="w-4 h-4 text-indigo" /> Save & submit for approval
-        </h2>
-        <p className="text-xs text-ink-mute mb-3">
-          Saves this calculation as a Costing Master row with approval_status = pending. An owner or sales manager then approves it on the Approvals screen.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className="label">Quality Code *</label>
-            <input className="input num w-full" placeholder="e.g. DOBBY-TOWEL-31"
-              value={qualityCode} onChange={(e) => setQualityCode(e.target.value)} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">Quality Name *</label>
-            <input className="input w-full" placeholder="e.g. Dobby Towel 31in"
-              value={qualityName} onChange={(e) => setQualityName(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Fabric Type</label>
-            <div className="input bg-cloud/40 text-ink-soft select-none">{isTowel ? 'Towel' : 'Fabric'}</div>
-          </div>
-          <div>
-            <label className="label">Warp Count *</label>
-            <select className="input w-full" value={warpCountId}
-              onChange={(e) => setWarpCountId(e.target.value)}>
-              <option value="">--- pick ---</option>
-              {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Weft Count *</label>
-            <select className="input w-full" value={weftCountId}
-              onChange={(e) => setWeftCountId(e.target.value)}>
-              <option value="">--- pick ---</option>
-              {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Ends spec</label>
-            <select className="input w-full" value={endsId}
-              onChange={(e) => setEndsId(e.target.value)}>
-              <option value="">--- use form value ---</option>
-              {endsOptions.map((e) => (
-                <option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Bobbin</label>
-            <select className="input w-full" value={bobbinId}
-              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
-              <option value="">--- none ---</option>
-              {bobbins.map((b) => (
-                <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Porvai yarn count</label>
-            <select className="input w-full" value={porvaiCountId}
-              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
-              <option value="">--- none ---</option>
-              {counts.map((c) => (
-                <option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {saveError && <div className="mt-3 p-3 rounded-lg bg-red-50 text-err text-sm">{saveError}</div>}
-        {saveOk && (
-          <div className="mt-3 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4" /> {saveOk}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 mt-3">
-          <button type="button" disabled={saving} onClick={handleSaveSubmit}
-            className="btn-primary">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save & Submit for Approval
-          </button>
         </div>
       </div>
 
