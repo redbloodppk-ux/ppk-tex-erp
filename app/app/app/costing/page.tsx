@@ -7,30 +7,41 @@ import { CostingActiveToggle } from '@/app/components/costing-active-toggle';
 
 export const metadata = { title: 'Fabric Costing' };
 
-interface CostingRow {
+interface MasterRow {
   id: number;
-  code: string | null;
-  name: string | null;
+  quality_code: string | null;
+  quality_name: string | null;
   status: string | null;
+  approval_status: string | null;
+  production_mode: string | null;
+  fabric_type: string | null;
+  fabric_width_in: number | null;
+  gsm: number | null;
+  updated_at: string | null;
+}
+
+interface CostRow {
+  id: number;
   quoted_cost_per_m: number | null;
   true_cost_per_m: number | null;
-  selling_price_per_m: number | null;
-  business_model: string | null;
-  updated_at: string | null;
 }
 
 export default async function CostingPage() {
   const supabase = await createClient();
   const [
-    { data: rows },
+    { data: masters },
+    { data: costs },
     { count: pendingCount },
     { data: { user } },
   ] = await Promise.all([
     supabase
-      .from('v_costing_two_cost')
-      .select('id, code, name, status, quoted_cost_per_m, true_cost_per_m, selling_price_per_m, business_model, updated_at')
+      .from('costing_master')
+      .select('id, quality_code, quality_name, status, approval_status, production_mode, fabric_type, fabric_width_in, gsm, updated_at')
       .order('updated_at', { ascending: false })
-      .limit(100),
+      .limit(200),
+    supabase
+      .from('v_costing_two_cost')
+      .select('id, quoted_cost_per_m, true_cost_per_m'),
     supabase
       .from('costing_master')
       .select('id', { count: 'exact', head: true })
@@ -47,7 +58,10 @@ export default async function CostingPage() {
     canSeeApprovals = role === 'owner' || role === 'auditor';
   }
 
-  const list = (rows ?? []) as unknown as CostingRow[];
+  const masterList = (masters ?? []) as unknown as MasterRow[];
+  const costList = (costs ?? []) as unknown as CostRow[];
+  const costById = new Map<number, CostRow>();
+  for (const c of costList) costById.set(c.id, c);
 
   return (
     <div>
@@ -93,7 +107,7 @@ export default async function CostingPage() {
         </div>
       ) : null}
 
-      {list.length === 0 ? (
+      {masterList.length === 0 ? (
         <ComingSoon note="No costing entries yet. Use the Quick Calc to play with numbers, or click New Costing to save one." />
       ) : (
         <div className="card overflow-hidden">
@@ -102,36 +116,57 @@ export default async function CostingPage() {
               <tr>
                 <th className="text-left px-4 py-3">Code</th>
                 <th className="text-left px-4 py-3">Quality Name</th>
-                <th className="text-left px-4 py-3">Model</th>
+                <th className="text-left px-4 py-3">Type</th>
+                <th className="text-left px-4 py-3">Mode</th>
+                <th className="text-right px-4 py-3">Width (in)</th>
+                <th className="text-right px-4 py-3">GSM</th>
                 <th className="text-right px-4 py-3">Quoted ₹/m</th>
                 <th className="text-right px-4 py-3">True ₹/m</th>
-                <th className="text-right px-4 py-3">Selling ₹/m</th>
+                <th className="text-center px-4 py-3">Approval</th>
                 <th className="text-center px-4 py-3">Active</th>
                 <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((r) => (
-                <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-4 py-3 font-mono text-xs">{r.code}</td>
-                  <td className="px-4 py-3 font-semibold">{r.name}</td>
-                  <td className="px-4 py-3 text-xs uppercase">{r.business_model}</td>
-                  <td className="px-4 py-3 text-right num text-indigo-700 font-semibold">{formatRupee(r.quoted_cost_per_m, { decimals: 2 })}</td>
-                  <td className="px-4 py-3 text-right num text-amber-700 font-semibold">{formatRupee(r.true_cost_per_m,   { decimals: 2 })}</td>
-                  <td className="px-4 py-3 text-right num text-violet-700 font-semibold">{formatRupee(r.selling_price_per_m, { decimals: 2 })}</td>
-                  <td className="px-4 py-3 text-center">
-                    <CostingActiveToggle id={r.id} initialActive={r.status === 'active'} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/app/costing/${r.id}`}
-                      className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
-                    >
-                      <Pencil className="w-3 h-3" /> Edit
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {masterList.map((r) => {
+                const c = costById.get(r.id);
+                return (
+                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-4 py-3 font-mono text-xs">{r.quality_code ?? '-'}</td>
+                    <td className="px-4 py-3 font-semibold">{r.quality_name ?? '-'}</td>
+                    <td className="px-4 py-3 text-xs uppercase">{r.fabric_type ?? '-'}</td>
+                    <td className="px-4 py-3 text-xs uppercase">{r.production_mode ?? '-'}</td>
+                    <td className="px-4 py-3 text-right num">{r.fabric_width_in ?? '-'}</td>
+                    <td className="px-4 py-3 text-right num">{r.gsm ?? '-'}</td>
+                    <td className="px-4 py-3 text-right num text-indigo-700 font-semibold">
+                      {c ? formatRupee(c.quoted_cost_per_m, { decimals: 2 }) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right num text-amber-700 font-semibold">
+                      {c ? formatRupee(c.true_cost_per_m, { decimals: 2 }) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`pill ${r.approval_status === 'approved'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : r.approval_status === 'rejected'
+                          ? 'bg-rose-50 text-rose-700'
+                          : 'bg-amber-50 text-amber-700'}`}>
+                        {r.approval_status ?? '-'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <CostingActiveToggle id={r.id} initialActive={r.status === 'active'} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/app/costing/${r.id}`}
+                        className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
