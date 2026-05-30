@@ -145,7 +145,11 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // Salaried / non-attendance employees skip the attendance + shed lookup
   // entirely — they don't have daily marks to read from.
   const attendanceRequired = selected ? selected.attendance_required !== false : true;
-  const periodIsRange = isMetreBasis || kind === 'settlement';
+  // Whether the auto-derived period spans a week (Mon-Sun) vs a single day.
+  // The operator can NEVER edit the period directly — both date pickers are
+  // always disabled. The period derives from the Pay date so it always lines
+  // up with attendance + production for the correct window.
+  const periodIsWeek = isMetreBasis || kind === 'settlement' || kind === 'advance';
 
   // If the employee changes to a metre-basis weaver or a weekly-basis employee
   // while Kind is "same_day", bump it to settlement so the date range is
@@ -171,23 +175,23 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWeekly, kind, selected]);
 
-  // Auto-fill the period when the operator can't pick dates directly.
-  //   - settlement / metre-basis  -> user picks the range, leave it alone.
-  //   - advance                   -> ISO week (Mon-Sun) containing pay date.
-  //                                  Advances are drawn against a full week's
-  //                                  wages, so the attendance + production
-  //                                  lookup should cover that week.
-  //   - same_day / adjustment     -> single-day period = pay date.
+  // The period is ALWAYS derived from the Pay date — both date pickers are
+  // disabled. This keeps the attendance + production lookup honest: the
+  // operator can't accidentally widen the window to inflate the auto-amount
+  // or hide missing attendance.
+  //   - settlement / advance / metre-basis  -> ISO week (Mon-Sun) of pay date.
+  //                                            Wages are paid against a full
+  //                                            week of attendance + output.
+  //   - same_day / adjustment               -> single day = pay date.
   useEffect(() => {
-    if (periodIsRange) return;
-    if (kind === 'advance') {
+    if (periodIsWeek) {
       setPeriodStart(weekMondayFor(payDate));
       setPeriodEnd(weekSundayFor(payDate));
     } else {
       setPeriodStart(payDate);
       setPeriodEnd(payDate);
     }
-  }, [periodIsRange, kind, payDate]);
+  }, [periodIsWeek, payDate]);
 
   // Fetch shifts worked + sheds active for the chosen employee in the
   // chosen period. Surfaced read-only above the Save button so the operator
@@ -529,7 +533,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             className="input disabled:bg-cloud/40 disabled:text-ink-mute"
             value={periodStart}
             onChange={(e) => setPeriodStart(e.target.value)}
-            disabled={!periodIsRange}
+            disabled
             required
           />
         </div>
@@ -541,19 +545,15 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             className="input disabled:bg-cloud/40 disabled:text-ink-mute"
             value={periodEnd}
             onChange={(e) => setPeriodEnd(e.target.value)}
-            disabled={!periodIsRange}
+            disabled
             required
           />
         </div>
       </div>
       <p className="text-[11px] text-ink-mute -mt-2">
-        {isMetreBasis
-          ? 'Metre-basis weavers: the amount is calculated from shift-log production on the picked dates, matched to this employee\u2019s shift and shed.'
-          : periodIsRange
-            ? 'The amount is spread across in-house batches whose production window overlaps Period start → Period end.'
-            : kind === 'advance'
-              ? 'Advance entries auto-fill the period to the ISO week (Mon–Sun) containing the Pay date, so attendance + production for that whole week is counted.'
-              : 'Same-day / adjustment entries: the period is locked to the Pay date. Switch Kind to Weekly settlement to enable a date range.'}
+        {periodIsWeek
+          ? 'Period auto-fills to the ISO week (Mon–Sun) containing the Pay date. Move the Pay date to slide the window.'
+          : 'Period is locked to the Pay date. Switch Kind to Weekly settlement or Advance for a full-week window.'}
       </p>
 
       <div>
