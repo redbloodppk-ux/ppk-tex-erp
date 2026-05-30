@@ -175,10 +175,29 @@ export default function NewCostingPage() {
   async function handleSaveSubmit() {
     setSaveError(null);
     setSaveOk(null);
-    if (qualityCode.trim() === '') return setSaveError('Quality code is required.');
+    const trimmedCode = qualityCode.trim();
+    if (trimmedCode === '')        return setSaveError('Quality code is required.');
     if (qualityName.trim() === '') return setSaveError('Quality name is required.');
     if (warpCountId === '')        return setSaveError('Pick the warp yarn count.');
     if (weftCountId === '')        return setSaveError('Pick the weft yarn count.');
+
+    // Pre-check the quality code — costing_master.quality_code is unique.
+    // We catch the duplicate here and surface a friendly message instead of
+    // the raw Postgres "duplicate key value violates unique constraint
+    // costing_master_quality_code_key" error.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbCheck = supabase as any;
+    const dup = await sbCheck
+      .from('costing_master')
+      .select('id, quality_code')
+      .eq('quality_code', trimmedCode)
+      .maybeSingle();
+    if (dup.data) {
+      setSaveError(
+        `Quality code "${trimmedCode}" is already used by costing #${dup.data.id}. Pick a different code.`,
+      );
+      return;
+    }
 
     // Ask whether to also create a matching fabric_quality row. The default
     // (OK) is yes — most new costings should have a paired fabric quality so
@@ -190,7 +209,7 @@ export default function NewCostingPage() {
     );
 
     const payload = {
-      quality_code: qualityCode.trim(),
+      quality_code: trimmedCode,
       quality_name: qualityName.trim(),
       fabric_type:  isTowel ? 'towel' : 'woven',
       production_mode: 'inhouse' as const,
@@ -236,7 +255,16 @@ export default function NewCostingPage() {
     const insertCosting = await sb2.from('costing_master').insert(payload).select('id').single();
     if (insertCosting.error) {
       setSaving(false);
-      setSaveError(insertCosting.error.message);
+      // Race-condition backstop: if another tab inserted the same code
+      // between our pre-check and this INSERT, surface a friendly message.
+      const code = insertCosting.error.code as string | undefined;
+      if (code === '23505') {
+        setSaveError(
+          `Quality code "${trimmedCode}" was just used by another save. Pick a different code.`,
+        );
+      } else {
+        setSaveError(insertCosting.error.message);
+      }
       return;
     }
     const newCostingId: number = insertCosting.data.id;
