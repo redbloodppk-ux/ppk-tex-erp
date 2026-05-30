@@ -66,25 +66,35 @@ interface WageEntryFormProps {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Use the local calendar date (IST) instead of UTC, otherwise late
+  // evening / early morning IST would default to the wrong day.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
+// Use UTC throughout so timezones (IST is +05:30) don't shift the result
+// to the previous day when we call toISOString(). Parsing the local-time
+// "YYYY-MM-DD" string and then formatting back via toISOString was making
+// Mon-Sun render as Sun-Sat in India.
 function weekMondayFor(dateISO: string): string {
-  // ISO week: Monday = start of week.
-  const d = new Date(`${dateISO}T00:00:00`);
-  const day = d.getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+  const [y, m, d] = dateISO.split('-').map(Number) as [number, number, number];
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay(); // 0 = Sun, 1 = Mon, ... 6 = Sat
   const offset = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  dt.setUTCDate(dt.getUTCDate() + offset);
+  return dt.toISOString().slice(0, 10);
 }
 
 function weekSundayFor(dateISO: string): string {
-  // ISO week ends on Sunday.
-  const d = new Date(`${dateISO}T00:00:00`);
-  const day = d.getDay();
+  const [y, m, d] = dateISO.split('-').map(Number) as [number, number, number];
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay();
   const offset = day === 0 ? 0 : 7 - day;
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  dt.setUTCDate(dt.getUTCDate() + offset);
+  return dt.toISOString().slice(0, 10);
 }
 
 function currentWeekMondayISO(): string {
