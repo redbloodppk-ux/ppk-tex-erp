@@ -1,4 +1,5 @@
 'use client';
+
 /**
  * Daily Attendance Marking — CORR-A2 / CORR-A4.
  *
@@ -296,8 +297,8 @@ export default function AttendanceMarkPage() {
     }
 
     // Fresh / unmarked employees start on 'present', except:
-    //   - their default_shift doesn't match the picked shift  → 'none'
-    //   - on Night and they were Present in today's Morning   → 'none'
+    //   - their default_shift doesn't match the picked shift  -> 'none'
+    //   - on Night and they were Present in today's Morning   -> 'none'
     const nextStatus: Record<number, AttendanceStatus> = {};
     const nextIn: Record<number, string | null> = {};
     const nextOut: Record<number, string | null> = {};
@@ -329,22 +330,38 @@ export default function AttendanceMarkPage() {
     void loadDay();
   }, [loadDay]);
 
-  const roles = Array.from(new Set(employees.map((e) => e.role))).sort();
-  const visible = employees.filter((e) => roleFilter === 'all' || e.role === roleFilter);
+  // Only show employees whose default_shift matches the picked shift.
+  // 'morning' -> Morning screen only, 'night' -> Night screen only,
+  // 'either' or null -> shown on both shifts. This keeps the supervisor's
+  // list focused on the people who actually work that shift.
+  const inThisShift = useCallback(
+    (e: Employee): boolean => {
+      const ds = e.default_shift;
+      return !ds || ds === 'either' || ds === shift;
+    },
+    [shift],
+  );
+
+  const roles = Array.from(
+    new Set(employees.filter(inThisShift).map((e) => e.role)),
+  ).sort();
+  const visible = employees.filter(
+    (e) => inThisShift(e) && (roleFilter === 'all' || e.role === roleFilter),
+  );
 
   // Sheds claimed by other workers on this (date, shift) that BLOCK the
   // current worker from picking the same shed. The rule is role-aware:
   //
-  //   - Weaver  (selfRole = 'weaver') → blocked only by OTHER WEAVERS.
+  //   - Weaver  (selfRole = 'weaver') -> blocked only by OTHER WEAVERS.
   //     One weaver per shed/shift is enforced. Winders may also be in
   //     that shed (they cover the weaver's loom), so winder picks are
   //     NOT counted as taken for a weaver.
   //
-  //   - Winder  (selfRole = 'winder') → nothing is taken. A winder may
+  //   - Winder  (selfRole = 'winder') -> nothing is taken. A winder may
   //     cover any shed (including sheds with a weaver already there)
   //     and may cover multiple sheds in the same shift.
   //
-  //   - Other roles → fall back to weaver-style exclusion against other
+  //   - Other roles -> fall back to weaver-style exclusion against other
   //     weavers, in case a future role gets a single-shed picker.
   //
   // The current employee's own picks are never counted (so their own
@@ -494,6 +511,32 @@ export default function AttendanceMarkPage() {
       setError(editGate.reason);
       return;
     }
+
+    // Shed-coverage check — every configured shed should have a weaver
+    // working it this shift. If any shed is empty (no weaver allocated, or
+    // the only weaver there is absent/none), list the gaps and ask the
+    // supervisor to confirm before saving. Lets the supervisor save anyway
+    // when a loom is genuinely idle (maintenance, no beam ready, etc.).
+    const weaverShedsCovered = new Set<string>();
+    for (const emp of employees) {
+      if (emp.role.toLowerCase() !== 'weaver') continue;
+      const status = statusByEmp[emp.id] ?? 'present';
+      if (!WORKED_STATUSES.has(status)) continue;
+      const shed = shedByEmp[emp.id];
+      if (shed) weaverShedsCovered.add(shed);
+    }
+    const missingSheds = SHEDS.filter((s) => !weaverShedsCovered.has(s));
+    if (missingSheds.length > 0) {
+      const list = missingSheds.map((s) => `Shed ${s}`).join(', ');
+      const verb = missingSheds.length === 1 ? 'has' : 'have';
+      const ok = window.confirm(
+        `${list} ${verb} no weaver allocated for this ${shift} shift.\n\nSave anyway?`,
+      );
+      if (!ok) {
+        return;
+      }
+    }
+
     setSaving(true);
 
     // Hard-offline path — don't even attempt the network call.
@@ -667,7 +710,7 @@ export default function AttendanceMarkPage() {
         {loading ? (
           <div className="flex items-center gap-2 py-8 text-ink-mute">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading employees…
+            Loading employees...
           </div>
         ) : isHoliday ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
