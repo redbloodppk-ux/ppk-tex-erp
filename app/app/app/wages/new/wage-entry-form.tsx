@@ -69,22 +69,30 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function currentWeekMondayISO(): string {
+function weekMondayFor(dateISO: string): string {
   // ISO week: Monday = start of week.
-  const d = new Date();
+  const d = new Date(`${dateISO}T00:00:00`);
   const day = d.getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
   const offset = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + offset);
   return d.toISOString().slice(0, 10);
 }
 
-function currentWeekSundayISO(): string {
+function weekSundayFor(dateISO: string): string {
   // ISO week ends on Sunday.
-  const d = new Date();
+  const d = new Date(`${dateISO}T00:00:00`);
   const day = d.getDay();
   const offset = day === 0 ? 0 : 7 - day;
   d.setDate(d.getDate() + offset);
   return d.toISOString().slice(0, 10);
+}
+
+function currentWeekMondayISO(): string {
+  return weekMondayFor(todayISO());
+}
+
+function currentWeekSundayISO(): string {
+  return weekSundayFor(todayISO());
 }
 
 export function WageEntryForm({ employees, initial }: WageEntryFormProps): React.ReactElement {
@@ -163,14 +171,23 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWeekly, kind, selected]);
 
-  // For non-range kinds (advance / adjustment / same_day) the period collapses
-  // to a single day = pay_date. Metre-basis weavers always keep the range.
+  // Auto-fill the period when the operator can't pick dates directly.
+  //   - settlement / metre-basis  -> user picks the range, leave it alone.
+  //   - advance                   -> ISO week (Mon-Sun) containing pay date.
+  //                                  Advances are drawn against a full week's
+  //                                  wages, so the attendance + production
+  //                                  lookup should cover that week.
+  //   - same_day / adjustment     -> single-day period = pay date.
   useEffect(() => {
-    if (!periodIsRange) {
+    if (periodIsRange) return;
+    if (kind === 'advance') {
+      setPeriodStart(weekMondayFor(payDate));
+      setPeriodEnd(weekSundayFor(payDate));
+    } else {
       setPeriodStart(payDate);
       setPeriodEnd(payDate);
     }
-  }, [periodIsRange, payDate]);
+  }, [periodIsRange, kind, payDate]);
 
   // Fetch shifts worked + sheds active for the chosen employee in the
   // chosen period. Surfaced read-only above the Save button so the operator
@@ -196,35 +213,71 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     async function loadContext(): Promise<void> {
       setCtx((c) => ({ ...c, loading: true }));
 
-      // 1) Pull the employee's attendance entries in the window. shed_no
-      //    comes from attendance_entry directly now (migration 033) — per
-      //    employee, per shift. We also keep the joined date + shift so we
-      //    can match production logs.
+      // 1) Pull the employee's attendance entries in the window.
+      //
+      //    We do this in TWO queries (one for attendance_day in the period,
+      //    one for attendance_entry by those day IDs) instead of a single
+      //    embedded select with `.gte('attendance_day.attendance_date', ...)`.
+      //    PostgREST's embedded-filter semantics are left-join based: when
+      //    the date filter rejects the day, the outer attendance_entry row
+      //    still comes back with `attendance_day = null`, but in some setups
+      //    Supabase returns zero rows at all — which made us report
+      //    "No attendance found" for employees who DID have an entry.
+      //    Two small queries is reliable across schemas and RLS policies.
+
+      type DayRow = {
+        id: number;
+        shift: string;
+        attendance_date: string;
+        is_working: boolean | null;
+      };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: attRows } = await (supabase as any)
-        .from('attendance_entry')
-        .select(
-          'shed_no, status, attendance_day:attendance_day_id ( shift, attendance_date )',
-        )
-        .eq('employee_id', Number(employeeId))
-        .in('status', ['present', 'half_day', 'late', 'early_leave'])
-        .gte('attendance_day.attendance_date', periodStart)
-        .lte('attendance_day.attendance_date', periodEnd);
+      const { data: dayRows } = await (supabase as any)
+        .from('attendance_day')
+        .select('id, shift, attendance_date, is_working')
+        .gte('attendance_date', periodStart)
+        .lte('attendance_date', periodEnd);
+
+      const days = (dayRows ?? []) as DayRow[];
+      const dayMap = new Map<number, DayRow>();
+      for (const d of days) dayMap.set(d.id, d);
+      const dayIds = days.map((d) => d.id);
 
       type AttRow = {
         shed_no: string | null;
         status: string;
         attendance_day: { shift: string; attendance_date: string } | null;
       };
-      // attendance_day comes back nested. Some rows can have day = null when
-      // the date filter doesn't apply (defensive — skip those).
-      const atts = ((attRows ?? []) as AttRow[]).filter((r) => r.attendance_day);
+      const atts: AttRow[] = [];
+      if (dayIds.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: entRows } = await (supabase as any)
+          .from('attendance_entry')
+          .select('attendance_day_id, shed_no, status')
+          .eq('employee_id', Number(employeeId))
+          .in('status', ['present', 'half_day', 'late', 'early_leave'])
+          .in('attendance_day_id', dayIds);
+        type RawEnt = {
+          attendance_day_id: number;
+          shed_no: string | null;
+          status: string;
+        };
+        for (const r of (entRows ?? []) as RawEnt[]) {
+          const d = dayMap.get(r.attendance_day_id);
+          if (!d) continue;
+          atts.push({
+            shed_no: r.shed_no,
+            status: r.status,
+            attendance_day: { shift: d.shift, attendance_date: d.attendance_date },
+          });
+        }
+      }
 
       let morning = 0;
       let night = 0;
       const shedSet = new Set<string>();
       let missingSheds = 0;
-      // (date, shift) → shed_no — used below to match production logs.
+      // (date, shift) -> shed_no — used below to match production logs.
       const shedByDateShift = new Map<string, string>();
       for (const r of atts) {
         const sh = r.attendance_day?.shift;
@@ -498,7 +551,9 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           ? 'Metre-basis weavers: the amount is calculated from shift-log production on the picked dates, matched to this employee\u2019s shift and shed.'
           : periodIsRange
             ? 'The amount is spread across in-house batches whose production window overlaps Period start → Period end.'
-            : 'For same-day / advance / adjustment entries the period is locked to the Pay date. Switch Kind to Weekly settlement to enable a date range.'}
+            : kind === 'advance'
+              ? 'Advance entries auto-fill the period to the ISO week (Mon–Sun) containing the Pay date, so attendance + production for that whole week is counted.'
+              : 'Same-day / adjustment entries: the period is locked to the Pay date. Switch Kind to Weekly settlement to enable a date range.'}
       </p>
 
       <div>
