@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { formatRupee } from '@/lib/utils';
 import { Plus, Calculator, ClipboardCheck, Pencil } from 'lucide-react';
 import { CostingActiveToggle } from '@/app/components/costing-active-toggle';
+import { CostingDeleteButton } from '@/app/components/costing-delete-button';
 
 export const metadata = { title: 'Fabric Costing' };
 
@@ -157,12 +158,15 @@ export default async function CostingPage() {
                       <CostingActiveToggle id={r.id} initialActive={r.status === 'active'} />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/app/costing/${r.id}`}
-                        className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
-                      >
-                        <Pencil className="w-3 h-3" /> Edit
-                      </Link>
+                      <div className="inline-flex items-center gap-3">
+                        <Link
+                          href={`/app/costing/${r.id}`}
+                          className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
+                        >
+                          <Pencil className="w-3 h-3" /> Edit
+                        </Link>
+                        <CostingDeleteButton id={r.id} code={r.quality_code} />
+                      </div>
                     </td>
                   </tr>
                 );
