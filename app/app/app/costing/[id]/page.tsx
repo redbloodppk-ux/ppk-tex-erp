@@ -575,9 +575,9 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <label className="label">Costing Code *</label>
-            <input className="input num w-full" value={qualityCode}
-              onChange={(e) => setQualityCode(e.target.value)} />
+            <label className="label">Costing Code</label>
+            <input className="input num w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={qualityCode} disabled readOnly />
           </div>
           <div className="md:col-span-2">
             <label className="label">Costing Name *</label>
