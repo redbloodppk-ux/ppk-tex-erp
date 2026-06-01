@@ -5,7 +5,7 @@
 
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
@@ -46,6 +46,18 @@ interface EditCostingPageProps {
 export default function EditCostingPage({ params }: EditCostingPageProps): React.ReactElement {
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Two edit modes driven by the ?mode= query param on the URL:
+  //   - mode is missing or anything else (default - "rates" mode):
+  //       reached by clicking the Code in the list. Construction is locked,
+  //       rate fields are editable.
+  //   - mode = 'construction':
+  //       reached by clicking the Edit button in the list. Construction is
+  //       editable, rate fields are locked.
+  const mode = searchParams.get('mode') ?? 'rates';
+  const lockConstruction = mode !== 'construction';
+  const lockRates = mode === 'construction';
+
   const [id, setId] = useState<number | null>(null);
   const [loaded, setLoaded] = useState<boolean>(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -391,8 +403,13 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   return (
     <div>
       <PageHeader
-        title={`Edit Costing ${qualityCode ? '- ' + qualityCode : ''}`}
-        subtitle="Every field round-trips from the saved snapshot. Save updates the row; Delete removes it (if unused)."
+        title={
+          (mode === 'construction' ? 'Edit Construction' : 'Edit Rates')
+          + (qualityCode ? ' - ' + qualityCode : '')
+        }
+        subtitle={mode === 'construction'
+          ? 'Structural fields editable; rate fields locked. Switch back to Rates by clicking the costing code on the list.'
+          : 'Rate fields editable; construction locked. Click Edit on the list to change construction.'}
         actions={
           <Link href="/app/costing" className="btn-ghost">
             <ArrowLeft className="w-4 h-4" /> Back to list
@@ -407,74 +424,77 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </h2>
 
           <p className="text-[11px] text-ink-mute italic">
-            Construction is locked on Edit — only rate fields below are editable.
-            To change construction, create a new costing instead.
+            {mode === 'construction'
+              ? 'Construction mode: structural fields are editable; rate fields below are locked.'
+              : 'Rates mode: rate fields are editable; construction is locked. Use the Edit button on the list to change construction.'}
           </p>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} lock /></Row>
-            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} lock /></Row>
-            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} lock /></Row>
-            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} lock /></Row>
-            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} lock /></Row>
-            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} lock /></Row>
-            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} lock /></Row>
+            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} lock={lockConstruction} /></Row>
+            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} lock={lockConstruction} /></Row>
+            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} lock={lockConstruction} /></Row>
+            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} lock={lockConstruction} /></Row>
+            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} lock={lockConstruction} /></Row>
+            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} lock={lockConstruction} /></Row>
+            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} lock={lockConstruction} /></Row>
             <Row>
               <L title="Inches of warp tape per metre of fabric - typically 39 to 42.">
                 Tape Length (in/m) <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
               </L>
-              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} lock />
+              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} lock={lockConstruction} />
             </Row>
           </div>
 
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Warp rates</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Yarn (Rs/kg)</L><Num value={warpRate} set={setWarpRate} step={5} /></Row>
-              <Row><L>Sizing (Rs/kg)</L><Num value={sizingRate} set={setSizingRate} step={1} /></Row>
-              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWarp} set={setAutoWarp} step={0.5} /></Row>
-              <Row><L>Sales commission (Rs/m)</L><Num value={salesCommM} set={setSalesCommM} step={0.1} /></Row>
+              <Row><L>Yarn (Rs/kg)</L><Num value={warpRate} set={setWarpRate} step={5} lock={lockRates} /></Row>
+              <Row><L>Sizing (Rs/kg)</L><Num value={sizingRate} set={setSizingRate} step={1} lock={lockRates} /></Row>
+              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWarp} set={setAutoWarp} step={0.5} lock={lockRates} /></Row>
+              <Row><L>Sales commission (Rs/m)</L><Num value={salesCommM} set={setSalesCommM} step={0.1} lock={lockRates} /></Row>
             </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Weft rates</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} /></Row>
-              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} /></Row>
-              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
+              <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} lock={lockRates} /></Row>
+              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} lock={lockRates} /></Row>
+              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} lock={lockRates} /></Row>
             </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} lock />
+            <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} lock={lockConstruction} />
             {useBobbin && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} /></Row>
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} lock /></Row>
-                <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} /></Row>
+                <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} lock={lockRates} /></Row>
+                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} lock={lockConstruction} /></Row>
+                <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} lock={lockRates} /></Row>
               </div>
             )}
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} lock />
+            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} lock={lockConstruction} />
             {usePorvai && (
               <>
                 <div className="mt-2 flex gap-2 text-xs">
-                  <button type="button" disabled
-                    className={"px-3 py-1.5 rounded-lg border opacity-60 cursor-not-allowed " + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By denier</button>
-                  <button type="button" disabled
-                    className={"px-3 py-1.5 rounded-lg border opacity-60 cursor-not-allowed " + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By count (Ne)</button>
+                  <button type="button" disabled={lockConstruction}
+                    onClick={() => setPorvaiByDenier(true)}
+                    className={"px-3 py-1.5 rounded-lg border " + (lockConstruction ? 'opacity-60 cursor-not-allowed ' : '') + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By denier</button>
+                  <button type="button" disabled={lockConstruction}
+                    onClick={() => setPorvaiByDenier(false)}
+                    className={"px-3 py-1.5 rounded-lg border " + (lockConstruction ? 'opacity-60 cursor-not-allowed ' : '') + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By count (Ne)</button>
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
                   {porvaiByDenier ? (
-                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} lock /></Row>
+                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} lock={lockConstruction} /></Row>
                   ) : (
-                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} lock /></Row>
+                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} lock={lockConstruction} /></Row>
                   )}
-                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} lock /></Row>
-                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} lock /></Row>
-                  <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} /></Row>
+                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} lock={lockConstruction} /></Row>
+                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} lock={lockConstruction} /></Row>
+                  <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} lock={lockRates} /></Row>
                 </div>
               </>
             )}
@@ -483,36 +503,36 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Mill overheads</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} /></Row>
-              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} /></Row>
-              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} /></Row>
-              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} /></Row>
+              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} lock={lockRates} /></Row>
+              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} lock={lockRates} /></Row>
+              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} lock={lockRates} /></Row>
+              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} lock={lockRates} /></Row>
             </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Profit &amp; market</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} /></Row>
-              <Row><L>Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} /></Row>
+              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} lock={lockRates} /></Row>
+              <Row><L>Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} lock={lockRates} /></Row>
             </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} lock />
+            <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} lock={lockConstruction} />
             {isTowel && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} lock /></Row>
+                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} lock={lockConstruction} /></Row>
               </div>
             )}
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Show production stats" checked={showProd} set={setShowProd} lock />
+            <Toggle label="Show production stats" checked={showProd} set={setShowProd} lock={lockConstruction} />
             {showProd && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Loom RPM</L><Num value={loomRpm} set={setLoomRpm} step={5} lock /></Row>
-                <Row><L>Efficiency %</L><Pct value={efficiency} set={setEfficiency} lock /></Row>
+                <Row><L>Loom RPM</L><Num value={loomRpm} set={setLoomRpm} step={5} lock={lockConstruction} /></Row>
+                <Row><L>Efficiency %</L><Pct value={efficiency} set={setEfficiency} lock={lockConstruction} /></Row>
               </div>
             )}
           </div>
@@ -555,12 +575,12 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <label className="label">Quality Code *</label>
+            <label className="label">Costing Code *</label>
             <input className="input num w-full" value={qualityCode}
               onChange={(e) => setQualityCode(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <label className="label">Quality Name *</label>
+            <label className="label">Costing Name *</label>
             <input className="input w-full" value={qualityName}
               onChange={(e) => setQualityName(e.target.value)} />
           </div>
@@ -570,8 +590,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Warp Count *</label>
-            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
-              value={warpCountId} disabled
+            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+              value={warpCountId} disabled={lockConstruction}
               onChange={(e) => setWarpCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
@@ -579,8 +599,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Weft Count *</label>
-            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
-              value={weftCountId} disabled
+            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+              value={weftCountId} disabled={lockConstruction}
               onChange={(e) => setWeftCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
@@ -588,8 +608,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Ends spec</label>
-            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
-              value={endsId} disabled
+            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+              value={endsId} disabled={lockConstruction}
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
@@ -597,8 +617,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Bobbin</label>
-            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
-              value={bobbinId} disabled
+            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+              value={bobbinId} disabled={lockConstruction || useBobbin === false}
               onChange={(e) => setBobbinId(e.target.value)}>
               <option value="">--- none ---</option>
               {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
@@ -606,8 +626,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Porvai yarn count</label>
-            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
-              value={porvaiCountId} disabled
+            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+              value={porvaiCountId} disabled={lockConstruction || usePorvai === false}
               onChange={(e) => setPorvaiCountId(e.target.value)}>
               <option value="">--- none ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}

@@ -133,7 +133,11 @@ export default async function CostingPage() {
                 const c = costById.get(r.id);
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-4 py-3 font-mono text-xs">{r.quality_code ?? '-'}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      <Link href={`/app/costing/${r.id}`} className="text-indigo-700 hover:text-indigo-900 underline decoration-dotted font-semibold">
+                        {r.quality_code ?? '-'}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 font-semibold">{r.quality_name ?? '-'}</td>
                     <td className="px-4 py-3 text-xs uppercase">{r.fabric_type ?? '-'}</td>
                     <td className="px-4 py-3 text-xs uppercase">{r.production_mode ?? '-'}</td>
@@ -160,8 +164,9 @@ export default async function CostingPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-3">
                         <Link
-                          href={`/app/costing/${r.id}`}
+                          href={`/app/costing/${r.id}?mode=construction`}
                           className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
+                          title="Edit construction (rates locked)"
                         >
                           <Pencil className="w-3 h-3" /> Edit
                         </Link>

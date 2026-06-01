@@ -491,16 +491,16 @@ export default function NewCostingPage() {
         </h2>
 
         <p className="text-xs text-ink-mute mb-3">
-          Saves this as a costing master row (status = active, pending approval). To create a new fabric, use Settings -> Fabric Qualities -> New.
+          Saves this as a costing master row (status = active, pending approval). To create a new fabric, use Settings → Fabric Qualities → New.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <label className="label">Quality Code *</label>
+            <label className="label">Costing Code *</label>
             <input className="input num w-full" placeholder="e.g. DOBBY-TOWEL-31"
               value={qualityCode} onChange={(e) => setQualityCode(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <label className="label">Quality Name *</label>
+            <label className="label">Costing Name *</label>
             <input className="input w-full" placeholder="e.g. Dobby Towel 31in"
               value={qualityName} onChange={(e) => setQualityName(e.target.value)} />
           </div>
