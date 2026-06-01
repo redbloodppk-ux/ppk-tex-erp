@@ -221,31 +221,31 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
   const [busy, setBusy] = useState(false);
   return (
     <div className="p-3 bg-indigo-50/40 border-y border-indigo-200 grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
-      <div>
+      <div className="min-w-0">
         <label className="label text-[10px]">Received date *</label>
-        <input type="date" className="input h-8 text-sm" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input type="date" className="input h-8 text-sm w-full" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
       {qtyFields.map((f) => (
-        <div key={f.key}>
+        <div key={f.key} className="min-w-0">
           <label className="label text-[10px]">{f.label}</label>
-          <input type="number" step={f.step ?? 1} className="input num h-8 text-sm"
+          <input type="number" step={f.step ?? 1} className="input num h-8 text-sm w-full"
             value={qty[f.key] ?? ''} onChange={(e) => setQty({ ...qty, [f.key]: e.target.value })} />
         </div>
       ))}
-      <div>
+      <div className="min-w-0">
         <label className="label text-[10px]">Supplier party</label>
-        <select className="input h-8 text-sm" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
+        <select className="input h-8 text-sm w-full" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
           <option value="">--- none ---</option>
           {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </div>
-      <div className="flex gap-1.5 justify-end">
+      <div className="flex gap-1.5 justify-end min-w-0">
         <button type="button" onClick={onCancel} className="btn-ghost h-8 text-xs">Cancel</button>
         <button type="button" disabled={busy} onClick={async () => {
           setBusy(true);
           await onSave({ given_date: date, supplier_party_id: supplier, qty });
           setBusy(false);
-        }} className="btn-primary h-8 text-xs">
+        }} className="btn-primary h-8 text-xs whitespace-nowrap">
           {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Restock
         </button>
       </div>
