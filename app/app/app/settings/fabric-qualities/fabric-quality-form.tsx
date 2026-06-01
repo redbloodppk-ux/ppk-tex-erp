@@ -47,7 +47,7 @@ interface CalcSnapshot {
   porvaiCountId?: string;
   isTowel?: boolean; towelLength?: number;
   warpCountId?: string; weftCountId?: string; endsId?: string;
-  code?: string; fabricType?: 'woven' | 'towel' | 'dupatta';
+  code?: string; fabricType?: string;
   productionMode?: 'inhouse' | 'job_work' | 'outsourcing';
   useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
   hsn?: string; crimpPct?: number; gstPct?: number;
@@ -104,7 +104,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   // Header / dropdown state
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [fabricType, setFabricType] = useState<'woven' | 'towel' | 'dupatta'>('woven');
+  const [fabricType, setFabricType] = useState<string>('woven');
   const [productionMode, setProductionMode] = useState<'inhouse' | 'job_work' | 'outsourcing'>('inhouse');
   const [hsn, setHsn] = useState('');
   const [crimpPct, setCrimpPct] = useState(0);
@@ -151,7 +151,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (!data) return;
       setName(data.name ?? '');
       setCode(data.code ?? '');
-      if (data.fabric_type === 'woven' || data.fabric_type === 'towel' || data.fabric_type === 'dupatta') {
+      if (typeof data.fabric_type === 'string' && data.fabric_type.length > 0) {
         setFabricType(data.fabric_type);
       }
       if (data.production_mode === 'inhouse' || data.production_mode === 'job_work' || data.production_mode === 'outsourcing') {
@@ -462,7 +462,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
             <label className="label">Fabric type *</label>
             <div className="flex items-stretch gap-1.5">
               <select className="input w-full" value={fabricType}
-                onChange={(e) => setFabricType(e.target.value as 'woven' | 'towel' | 'dupatta')}>
+                onChange={(e) => setFabricType(e.target.value as string)}>
                 {fabricTypes.length === 0 && (
                   <>
                     <option value="woven">Woven</option>
