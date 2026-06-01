@@ -512,11 +512,11 @@ export default function AttendanceMarkPage() {
       return;
     }
 
-    // Shed-coverage check — every configured shed should have a weaver
-    // working it this shift. If any shed is empty (no weaver allocated, or
-    // the only weaver there is absent/none), list the gaps and ask the
-    // supervisor to confirm before saving. Lets the supervisor save anyway
-    // when a loom is genuinely idle (maintenance, no beam ready, etc.).
+    // Shed-coverage check — every configured shed should have a working
+    // weaver this shift. Any shed whose only assigned weaver(s) are NOT in
+    // a worked status (Absent / None / etc.) or whose row is empty are
+    // shown as "closed/off — no weaver" so the supervisor knows the loom
+    // is intentionally idle today. The supervisor can confirm and save.
     const weaverShedsCovered = new Set<string>();
     for (const emp of employees) {
       if (emp.role.toLowerCase() !== 'weaver') continue;
@@ -525,12 +525,16 @@ export default function AttendanceMarkPage() {
       const shed = shedByEmp[emp.id];
       if (shed) weaverShedsCovered.add(shed);
     }
-    const missingSheds = SHEDS.filter((s) => !weaverShedsCovered.has(s));
-    if (missingSheds.length > 0) {
-      const list = missingSheds.map((s) => `Shed ${s}`).join(', ');
-      const verb = missingSheds.length === 1 ? 'has' : 'have';
+    const closedSheds = SHEDS.filter((s) => !weaverShedsCovered.has(s));
+
+    if (closedSheds.length > 0) {
+      const lines = closedSheds.map(
+        (s) => `Shed ${s} is closed/off - no weaver.`,
+      );
       const ok = window.confirm(
-        `${list} ${verb} no weaver allocated for this ${shift} shift.\n\nSave anyway?`,
+        `${shift === 'morning' ? 'Morning' : 'Night'} shift:\n\n` +
+        lines.join('\n') +
+        '\n\nSave anyway?',
       );
       if (!ok) {
         return;
