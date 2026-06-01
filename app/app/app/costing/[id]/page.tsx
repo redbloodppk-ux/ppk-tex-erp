@@ -434,7 +434,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
             <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} lock={lockConstruction} /></Row>
             <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} lock={lockConstruction} /></Row>
             <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} lock={lockConstruction} /></Row>
-            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} lock={lockConstruction} /></Row>
+            <Row><L>Reed space (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} lock={lockConstruction} /></Row>
             <Row><L>Reed</L><Num value={reedCount} set={setReedCount} lock={lockConstruction} /></Row>
             <Row>
               <L title="Inches of warp tape per metre of fabric - typically 39 to 42.">
