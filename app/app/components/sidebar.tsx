@@ -77,6 +77,7 @@ const NAV: NavItem[] = [
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Admin
+  { href: '/app/parties',       label: 'Parties',            icon: Users,           group: 'admin',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/ledgers',       label: 'Ledgers',            icon: BookCheck,       group: 'admin',      roles: ['owner','accounts','auditor'] },
   { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'admin',      roles: ['owner','auditor'] },
   { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
