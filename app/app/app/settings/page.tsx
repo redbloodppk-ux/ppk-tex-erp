@@ -82,6 +82,23 @@ export default async function SettingsPage() {
           <ChevronRight className="w-4 h-4 text-ink-mute" />
         </Link>
         <Link
+          href="/app/settings/fabric-types"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Fabric Types</div>
+              <div className="text-xs text-ink-soft">
+                Master list of fabric categories (woven, towel, dupatta, …) shown on the Fabric Quality form&apos;s Fabric type dropdown.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
+        <Link
           href="/app/settings/ends-master"
           className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
         >

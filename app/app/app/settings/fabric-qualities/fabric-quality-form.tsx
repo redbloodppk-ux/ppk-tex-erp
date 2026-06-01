@@ -84,7 +84,11 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
 
   const [useBobbin, setUseBobbin] = useState(false);
-  const [bobbinMetres, setBobbinMetres] = useState(2000);
+  // Bobbin metres defaults to 1 and is non-editable on this form. The
+  // costing flow stores the true bobbin metres on the Bobbin master
+  // record; here we only need a non-zero divisor so the bobbin pcs/m
+  // calculation behaves consistently.
+  const [bobbinMetres] = useState(1);
   const [bobbinId, setBobbinId] = useState('');
 
   const [usePorvai, setUsePorvai] = useState(true);
@@ -168,7 +172,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (s.reedCount         != null) setReedCount(s.reedCount);
       if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
       if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
-      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
       if (s.bobbinId          != null) setBobbinId(s.bobbinId);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
       if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
@@ -343,8 +346,25 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           <div className="border-t border-line/60 pt-3">
             <Toggle label="Include bobbin / cone" checked={useBobbin} set={setUseBobbin} />
             {useBobbin && (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
+              <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  <Row>
+                    <L>Bobbin metres</L>
+                    <input type="number" value={bobbinMetres} disabled readOnly
+                      className="input num text-right h-8 text-sm w-28 bg-cloud/40 text-ink-soft cursor-not-allowed" />
+                  </Row>
+                </div>
+                <div>
+                  <label className="label text-xs">Bobbin</label>
+                  <div className="flex items-stretch gap-1.5">
+                    <select className="input w-full" value={bobbinId}
+                      onChange={(e) => setBobbinId(e.target.value)}>
+                      <option value="">--- pick a bobbin ---</option>
+                      {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+                    </select>
+                    <NewLink href="/app/bobbin" title="Add new bobbin" />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -504,19 +524,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               <NewLink href="/app/settings/ends-master" title="Add new ends spec" />
             </div>
           </div>
-          {useBobbin && (
-            <div>
-              <label className="label">Bobbin</label>
-              <div className="flex items-stretch gap-1.5">
-                <select className="input w-full" value={bobbinId}
-                  onChange={(e) => setBobbinId(e.target.value)}>
-                  <option value="">--- none ---</option>
-                  {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
-                </select>
-                <NewLink href="/app/bobbin" title="Add new bobbin" />
-              </div>
-            </div>
-          )}
           <div>
             <label className="label">Porvai yarn count</label>
             <div className="flex items-stretch gap-1.5">
