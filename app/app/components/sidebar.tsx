@@ -38,15 +38,17 @@ const NAV: NavItem[] = [
   { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'overview',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Sales
-  { href: '/app/customers',       label: 'Customers',        icon: Users,           group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
-  { href: '/app/jobwork-parties', label: 'Jobwork Parties',  icon: Users,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
+  // Customers + Jobwork Parties moved into the unified Parties master
+  // under Admin. Both old pages still work at their old URLs for any
+  // bookmarks / legacy links.
   { href: '/app/costing',         label: 'Fabric Costing',   icon: Calculator,      group: 'sales',      roles: ['owner','mill_manager','sales_manager','auditor'] },
   { href: '/app/orders',        label: 'Sales Orders',       icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',      label: 'Invoices',           icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
   { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Inventory
-  { href: '/app/mills',              label: 'Mills',              icon: Building2,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  // Mills moved into the unified Parties master under Admin (filter by
+  // Mill / Yarn Supplier). Old /app/mills route still works for bookmarks.
   { href: '/app/yarn-stock',         label: 'Yarn Stock',         icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/porvai-yarn-stock',  label: 'Porvai Yarn Stock',  icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/bobbin',             label: 'Bobbin Stock',       icon: Package,         group: 'inventory',  roles: ['owner','mill_manager','auditor'] },
