@@ -12,19 +12,26 @@ interface FQRow {
   id: number;
   code: string;
   name: string;
-  hsn: string | null;
+  fabric_type: string | null;
+  production_mode: string | null;
   width_in: number | null;
   pick_per_inch: number | null;
   reed: number | null;
   active: boolean;
 }
 
+const PRODUCTION_MODE_LABEL: Record<string, string> = {
+  inhouse: 'In-house',
+  job_work: 'Job work',
+  outsourcing: 'Outsourcing',
+};
+
 export default async function FabricQualitiesPage() {
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('fabric_quality')
-    .select('id, code, name, hsn, width_in, pick_per_inch, reed, active')
+    .select('id, code, name, fabric_type, production_mode, width_in, pick_per_inch, reed, active')
     .order('name');
 
   const rows = (data ?? []) as unknown as FQRow[];
@@ -54,7 +61,8 @@ export default async function FabricQualitiesPage() {
             <tr>
               <th className="text-left px-4 py-3">Code</th>
               <th className="text-left px-4 py-3">Quality</th>
-              <th className="text-left px-4 py-3 hidden md:table-cell">HSN</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">Fabric Type</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">Production Mode</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Pick/inch</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Reed</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Width (in)</th>
@@ -72,7 +80,12 @@ export default async function FabricQualitiesPage() {
                     {r.name}
                   </Link>
                 </td>
-                <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{r.hsn ?? '-'}</td>
+                <td className="px-4 py-3 hidden md:table-cell text-ink-soft capitalize">
+                  {r.fabric_type ?? '-'}
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell text-ink-soft">
+                  {r.production_mode ? (PRODUCTION_MODE_LABEL[r.production_mode] ?? r.production_mode) : '-'}
+                </td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.pick_per_inch ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.reed ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.width_in ?? '-'}</td>
@@ -93,7 +106,7 @@ export default async function FabricQualitiesPage() {
               </tr>
             )) : (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No fabric qualities yet. <Link href="/app/settings/fabric-qualities/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>
