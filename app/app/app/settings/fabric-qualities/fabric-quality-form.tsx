@@ -1,66 +1,60 @@
 'use client';
-/**
- * Shared Fabric Quality form for /new and /[id].
- * Mirrors the Smart MASTER -> FABRIC CREATION screen:
- *   - Header card (QUALITY, QLTY FOR SALES, HSN, PICK/INCH, REED, REED SPACE,
- *     WIDTH, METER/PC, OUTPUT [unit + value], CRIMP %, GST %)
- *   - 4 child sub-tables (Ends counts / Warp counts / Weft / Weaving rates)
- *
- * The four child tables are FULL rewrites on save: we delete-then-insert
- * the whole set for the parent. This keeps the client logic simple and
- * avoids tracking per-row dirty flags.
- */
-import { useState } from 'react';
+// FabricQualityForm — construction-only Calculator UI.
+//
+// Same shape as /app/costing/new (warp/weft/ends, bobbin, porvai, etc.)
+// but ALL rate / cost inputs are stripped. The Derived Weights panel
+// shows m/kg, grams/m and GSM only — no Rs/m or profit calculations.
+//
+// The full input state is snapshotted into fabric_quality.calc_snapshot
+// so the edit page round-trips every field.
+
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Plus, Trash2, Archive, Save } from 'lucide-react';
+import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2 } from 'lucide-react';
 
-type OutputUnit = '' | 'per_day_m' | 'per_shift_m';
-type RecordStatus = 'active' | 'inactive' | 'archived';
-
-export interface EndsRowOption {
-  id: number;
-  code: string;
-  name: string;
-}
-export interface YarnCountOption {
-  id: number;
-  code: string;
-  display_name: string;
-}
-
+// Legacy types kept exported so the existing /new + /[id] server pages
+// keep type-checking. The construction form does not actually use the
+// per-row line arrays anymore.
+export interface EndsRowOption { id: number; code: string; name: string; }
+export interface YarnCountOption { id: number; code: string; display_name: string; }
 export interface FabricQualityHeader {
-  name: string;
-  quality_for_sales: string;
-  hsn: string;
-  pick_per_inch: string;
-  reed: string;
-  reed_space: string;
-  width_in: string;
-  meter_per_pc: string;
-  output_unit: OutputUnit;
-  output_value: string;
-  crimp_pct: string;
-  gst_pct: string;
-  weight_gsm: string;
-  rate_per_m: string;
-  active: boolean;
-  status: RecordStatus;
-  notes: string;
+  name: string; quality_for_sales: string; hsn: string;
+  pick_per_inch: string; reed: string; reed_space: string;
+  width_in: string; meter_per_pc: string;
+  output_unit: string; output_value: string;
+  crimp_pct: string; gst_pct: string;
+  weight_gsm: string; rate_per_m: string;
+  active: boolean; status: string; notes: string;
 }
-
-export interface FQEndsLine   { sno: number; ends_id: number | null; }
-export interface FQWarpLine   { sno: number; yarn_count_id: number | null; }
-export interface FQWeftLine   {
+export interface FQEndsLine { sno: number; ends_id: number | null; }
+export interface FQWarpLine { sno: number; yarn_count_id: number | null; }
+export interface FQWeftLine {
   sno: number; yarn_count_id: number | null;
-  wgt_per_mtr_actual: string;
-  meter_per_kg: string;
-  wgt_per_mtr_manual: string;
+  wgt_per_mtr_actual: string; meter_per_kg: string; wgt_per_mtr_manual: string;
 }
-export interface FQRateLine   { sno: number; fabric_type: string; rate_per_meter: string; }
+export interface FQRateLine { sno: number; fabric_type: string; rate_per_meter: string; }
+
+interface BobbinOption { id: number; code: string; description: string; }
+
+interface CalcSnapshot {
+  warpCount?: number; weftCount?: number; totalEnds?: number;
+  picksPerInch?: number; loomWidthIn?: number; finishedWidthIn?: number;
+  reedCount?: number; tapeLengthIn?: number;
+  useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
+  usePorvai?: boolean; porvaiByDenier?: boolean; porvaiDenier?: number;
+  porvaiCountManual?: number; porvaiPick?: number; selvedgeLengthIn?: number;
+  porvaiCountId?: string;
+  isTowel?: boolean; towelLength?: number;
+  warpCountId?: string; weftCountId?: string; endsId?: string;
+  qualityForSales?: string; hsn?: string; crimpPct?: number; gstPct?: number;
+  notes?: string;
+}
 
 export interface FabricQualityFormProps {
   fabricQualityId?: number;
+  // Legacy props from the previous form — kept for API compatibility with
+  // /settings/fabric-qualities/[id]; not used here.
   code?: string;
   header?: Partial<FabricQualityHeader>;
   endsLines?: FQEndsLine[];
@@ -71,531 +65,488 @@ export interface FabricQualityFormProps {
   countOptions: YarnCountOption[];
 }
 
-const EMPTY_HEADER: FabricQualityHeader = {
-  name: '',
-  quality_for_sales: '',
-  hsn: '',
-  pick_per_inch: '',
-  reed: '',
-  reed_space: '',
-  width_in: '',
-  meter_per_pc: '',
-  output_unit: '',
-  output_value: '',
-  crimp_pct: '',
-  gst_pct: '',
-  weight_gsm: '',
-  rate_per_m: '',
-  active: true,
-  status: 'active',
-  notes: '',
-};
-
-function blankEnds(sno: number): FQEndsLine { return { sno, ends_id: null }; }
-function blankWarp(sno: number): FQWarpLine { return { sno, yarn_count_id: null }; }
-function blankWeft(sno: number): FQWeftLine {
-  return { sno, yarn_count_id: null, wgt_per_mtr_actual: '', meter_per_kg: '', wgt_per_mtr_manual: '' };
-}
-function blankRate(sno: number): FQRateLine { return { sno, fabric_type: '', rate_per_meter: '' }; }
-
-function toNumOrNull(v: string): number | null {
-  const t = v.trim();
-  if (t === '') return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
-export function FabricQualityForm(props: FabricQualityFormProps) {
+export function FabricQualityForm(props: FabricQualityFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
   const isEdit = typeof props.fabricQualityId === 'number';
 
-  const [hdr, setHdr] = useState<FabricQualityHeader>({ ...EMPTY_HEADER, ...(props.header ?? {}) });
-  const [ends, setEnds] = useState<FQEndsLine[]>(
-    props.endsLines && props.endsLines.length > 0 ? props.endsLines : [blankEnds(1)],
-  );
-  const [warps, setWarps] = useState<FQWarpLine[]>(
-    props.warpLines && props.warpLines.length > 0 ? props.warpLines : [blankWarp(1)],
-  );
-  const [wefts, setWefts] = useState<FQWeftLine[]>(
-    props.weftLines && props.weftLines.length > 0 ? props.weftLines : [blankWeft(1)],
-  );
-  const [rates, setRates] = useState<FQRateLine[]>(
-    props.rateLines && props.rateLines.length > 0 ? props.rateLines : [blankRate(1)],
-  );
+  // Cloth construction state
+  const [warpCount, setWarpCount] = useState(40);
+  const [weftCount, setWeftCount] = useState(39);
+  const [totalEnds, setTotalEnds] = useState(2400);
+  const [picksPerInch, setPicksPerInch] = useState(46);
+  const [loomWidthIn, setLoomWidthIn] = useState(31.5);
+  const [finishedWidthIn, setFinishedWidthIn] = useState(31);
+  const [reedCount, setReedCount] = useState(72);
+  const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [useBobbin, setUseBobbin] = useState(true);
+  const [bobbinMetres, setBobbinMetres] = useState(2000);
 
-  function patchHdr(p: Partial<FabricQualityHeader>) { setHdr((h) => ({ ...h, ...p })); }
-  function addRow<T>(setter: (fn: (prev: T[]) => T[]) => void, blank: (sno: number) => T) {
-    setter((prev) => [...prev, blank(prev.length + 1)]);
-  }
-  function delRow<T extends { sno: number }>(setter: (fn: (prev: T[]) => T[]) => void, sno: number) {
-    setter((prev) => prev.filter((r) => r.sno !== sno).map((r, i) => ({ ...r, sno: i + 1 })));
-  }
+  const [usePorvai, setUsePorvai] = useState(true);
+  const [porvaiByDenier, setPorvaiByDenier] = useState(true);
+  const [porvaiDenier, setPorvaiDenier] = useState(150);
+  const [porvaiCountManual, setPorvaiCountManual] = useState(35.43);
+  const [porvaiPick, setPorvaiPick] = useState(46);
+  const [selvedgeLengthIn, setSelvedgeLengthIn] = useState(2.5);
 
-  async function handleSave() {
-    setBusy(true); setError(null); setSavedMsg(null);
-    try {
-      const name = hdr.name.trim();
-      if (name === '') { setError('QUALITY is required.'); setBusy(false); return; }
+  const [isTowel, setIsTowel] = useState(true);
+  const [towelLength, setTowelLength] = useState(1.7);
 
-      const payload = {
-        name,
-        quality_for_sales: hdr.quality_for_sales.trim() === '' ? null : hdr.quality_for_sales.trim(),
-        hsn:               hdr.hsn.trim() === '' ? null : hdr.hsn.trim(),
-        pick_per_inch:     toNumOrNull(hdr.pick_per_inch),
-        reed:              toNumOrNull(hdr.reed),
-        reed_space:        toNumOrNull(hdr.reed_space),
-        width_in:          toNumOrNull(hdr.width_in),
-        meter_per_pc:      toNumOrNull(hdr.meter_per_pc),
-        output_unit:       hdr.output_unit === '' ? null : hdr.output_unit,
-        output_value:      toNumOrNull(hdr.output_value),
-        crimp_pct:         toNumOrNull(hdr.crimp_pct),
-        gst_pct:           toNumOrNull(hdr.gst_pct),
-        weight_gsm:        toNumOrNull(hdr.weight_gsm),
-        rate_per_m:        toNumOrNull(hdr.rate_per_m),
-        active:            hdr.active,
-        notes:             hdr.notes.trim() === '' ? null : hdr.notes.trim(),
-      };
+  // Header / dropdown state
+  const [name, setName] = useState('');
+  const [qualityForSales, setQualityForSales] = useState('');
+  const [hsn, setHsn] = useState('');
+  const [crimpPct, setCrimpPct] = useState(0);
+  const [gstPct, setGstPct] = useState(5);
+  const [notes, setNotes] = useState('');
+  const [warpCountId, setWarpCountId] = useState('');
+  const [weftCountId, setWeftCountId] = useState('');
+  const [endsId, setEndsId] = useState('');
+  const [bobbinId, setBobbinId] = useState('');
+  const [porvaiCountId, setPorvaiCountId] = useState('');
+  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
 
-      // 1) upsert header
-      let fqId = props.fabricQualityId ?? null;
-      if (isEdit) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: err } = await (supabase as any)
-          .from('fabric_quality')
-          .update(payload)
-          .eq('id', fqId);
-        if (err) throw new Error(err.message);
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data, error: err } = await (supabase as any)
-          .from('fabric_quality')
-          .insert(payload)
-          .select('id')
-          .single();
-        if (err) throw new Error(err.message);
-        fqId = (data as { id: number }).id;
-      }
-      if (fqId == null) throw new Error('Failed to resolve fabric_quality id.');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState<string | null>(null);
+  const didApplySnapshot = useRef<boolean>(false);
 
-      // 2) replace child tables (delete all, insert filtered non-empty rows)
-      const endsRows = ends
-        .filter((r) => r.ends_id !== null)
-        .map((r) => ({ fabric_quality_id: fqId, sno: r.sno, ends_id: r.ends_id }));
-      const warpRows = warps
-        .filter((r) => r.yarn_count_id !== null)
-        .map((r) => ({ fabric_quality_id: fqId, sno: r.sno, yarn_count_id: r.yarn_count_id }));
-      const weftRows = wefts
-        .filter((r) =>
-          r.yarn_count_id !== null
-          || r.wgt_per_mtr_actual.trim() !== ''
-          || r.meter_per_kg.trim() !== ''
-          || r.wgt_per_mtr_manual.trim() !== '',
-        )
-        .map((r) => ({
-          fabric_quality_id: fqId,
-          sno: r.sno,
-          yarn_count_id: r.yarn_count_id,
-          wgt_per_mtr_actual: toNumOrNull(r.wgt_per_mtr_actual),
-          meter_per_kg:       toNumOrNull(r.meter_per_kg),
-          wgt_per_mtr_manual: toNumOrNull(r.wgt_per_mtr_manual),
-        }));
-      const rateRows = rates
-        .filter((r) => r.fabric_type.trim() !== '' || r.rate_per_meter.trim() !== '')
-        .map((r) => ({
-          fabric_quality_id: fqId,
-          sno: r.sno,
-          fabric_type: r.fabric_type.trim() === '' ? null : r.fabric_type.trim(),
-          rate_per_meter: toNumOrNull(r.rate_per_meter),
-        }));
-
+  // Load bobbin dropdown once (counts + ends already passed in as props).
+  useEffect(() => {
+    void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const dels = await Promise.all([
-        sb.from('fabric_quality_ends').delete().eq('fabric_quality_id', fqId),
-        sb.from('fabric_quality_warp_count').delete().eq('fabric_quality_id', fqId),
-        sb.from('fabric_quality_weft').delete().eq('fabric_quality_id', fqId),
-        sb.from('fabric_quality_weaving_rate').delete().eq('fabric_quality_id', fqId),
-      ]);
-      for (const d of dels) {
-        if (d.error) throw new Error(d.error.message);
-      }
+      const bb = await sb.from('bobbin')
+        .select('id, code, description')
+        .neq('status', 'archived')
+        .order('code');
+      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
+    })();
+  }, [supabase]);
 
-      const ins = await Promise.all([
-        endsRows.length === 0 ? Promise.resolve({ error: null }) : sb.from('fabric_quality_ends').insert(endsRows),
-        warpRows.length === 0 ? Promise.resolve({ error: null }) : sb.from('fabric_quality_warp_count').insert(warpRows),
-        weftRows.length === 0 ? Promise.resolve({ error: null }) : sb.from('fabric_quality_weft').insert(weftRows),
-        rateRows.length === 0 ? Promise.resolve({ error: null }) : sb.from('fabric_quality_weaving_rate').insert(rateRows),
-      ]);
-      for (const i of ins) {
-        if (i.error) throw new Error(i.error.message);
-      }
+  // On edit: load existing fabric_quality row + apply its calc_snapshot.
+  useEffect(() => {
+    if (!isEdit || props.fabricQualityId == null) return;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('fabric_quality')
+        .select('name, quality_for_sales, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
+        .eq('id', props.fabricQualityId)
+        .single();
+      if (!data) return;
+      setName(data.name ?? '');
+      setQualityForSales(data.quality_for_sales ?? '');
+      setHsn(data.hsn ?? '');
+      if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
+      if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
+      setNotes(data.notes ?? '');
 
-      setBusy(false);
-      setSavedMsg('Saved.');
-      if (!isEdit) {
-        router.push('/app/settings/fabric-qualities/' + String(fqId));
-        router.refresh();
-      } else {
-        router.refresh();
-      }
-    } catch (e: unknown) {
-      setBusy(false);
-      setError(e instanceof Error ? e.message : 'Save failed.');
+      const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
+      if (s.warpCount         != null) setWarpCount(s.warpCount);
+      if (s.weftCount         != null) setWeftCount(s.weftCount);
+      if (s.totalEnds         != null) setTotalEnds(s.totalEnds);
+      if (s.picksPerInch      != null) setPicksPerInch(s.picksPerInch);
+      if (s.loomWidthIn       != null) setLoomWidthIn(s.loomWidthIn);
+      if (s.finishedWidthIn   != null) setFinishedWidthIn(s.finishedWidthIn);
+      if (s.reedCount         != null) setReedCount(s.reedCount);
+      if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
+      if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
+      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
+      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
+      if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
+      if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
+      if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
+      if (s.porvaiCountManual != null) setPorvaiCountManual(s.porvaiCountManual);
+      if (s.porvaiPick        != null) setPorvaiPick(s.porvaiPick);
+      if (s.selvedgeLengthIn  != null) setSelvedgeLengthIn(s.selvedgeLengthIn);
+      if (s.porvaiCountId     != null) setPorvaiCountId(s.porvaiCountId);
+      if (s.isTowel           != null) setIsTowel(s.isTowel);
+      if (s.towelLength       != null) setTowelLength(s.towelLength);
+      if (s.warpCountId       != null) setWarpCountId(s.warpCountId);
+      if (s.weftCountId       != null) setWeftCountId(s.weftCountId);
+      if (s.endsId            != null) setEndsId(s.endsId);
+      didApplySnapshot.current = true;
+    })();
+  }, [isEdit, props.fabricQualityId, supabase]);
+
+  // Construction-only derived numbers. No rates, no cost.
+  const r = useMemo(() => {
+    const warpMPerKg = warpCount > 0 && totalEnds > 0 && tapeLengthIn > 0
+      ? ((1848 * warpCount) / totalEnds) * 36 / tapeLengthIn * 1.01 : 0;
+    const warpKgPerM = warpMPerKg > 0 ? 1 / warpMPerKg : 0;
+    const weftMPerKg = weftCount > 0 && picksPerInch > 0 && (loomWidthIn + 3) > 0
+      ? (1690 * weftCount) / picksPerInch / (loomWidthIn + 3) : 0;
+    const weftKgPerM = weftMPerKg > 0 ? 1 / weftMPerKg : 0;
+    const gramsPerM = (warpKgPerM + weftKgPerM) * 1000;
+    const gramsPerSqM = finishedWidthIn > 0 ? (gramsPerM * 39.37) / finishedWidthIn : 0;
+
+    const porvaiCount = porvaiByDenier
+      ? (porvaiDenier > 0 ? 5315 / porvaiDenier : 0) : porvaiCountManual;
+    const porvaiMPerKg = usePorvai && porvaiCount > 0 && porvaiPick > 0 && (selvedgeLengthIn + 3) > 0
+      ? (1690 * porvaiCount) / porvaiPick / (selvedgeLengthIn + 3) : 0;
+    const porvaiKgPerM = usePorvai && porvaiMPerKg > 0 ? 1 / porvaiMPerKg : 0;
+
+    const gramsPerTowel = isTowel ? gramsPerM * towelLength : null;
+    const endsCheck = reedCount * finishedWidthIn + 50;
+
+    const bobbinPcsPerM = useBobbin && bobbinMetres > 0 ? 1 / bobbinMetres : 0;
+
+    return {
+      warpMPerKg, warpKgPerM, weftMPerKg, weftKgPerM,
+      gramsPerM, gramsPerSqM, gramsPerTowel,
+      porvaiCount, porvaiMPerKg, porvaiKgPerM,
+      bobbinPcsPerM, endsCheck,
+    };
+  }, [
+    warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
+    finishedWidthIn, reedCount, tapeLengthIn,
+    useBobbin, bobbinMetres,
+    usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
+    porvaiPick, selvedgeLengthIn,
+    isTowel, towelLength,
+  ]);
+
+  async function handleSave(): Promise<void> {
+    setSaveError(null);
+    setSaveOk(null);
+    if (name.trim() === '') return setSaveError('Fabric name is required.');
+
+    setSaving(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+
+    const payload = {
+      name: name.trim(),
+      quality_for_sales: qualityForSales.trim() || null,
+      hsn: hsn.trim() || null,
+      pick_per_inch: picksPerInch,
+      reed: reedCount,
+      reed_space: loomWidthIn,
+      width_in: finishedWidthIn,
+      meter_per_pc: isTowel ? towelLength : null,
+      crimp_pct: crimpPct,
+      gst_pct: gstPct,
+      weight_gsm: Number(r.gramsPerSqM.toFixed(2)),
+      active: true,
+      notes: notes.trim() || null,
+      weft_kg_per_m: Number(r.weftKgPerM.toFixed(6)),
+      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
+        ? Number(r.porvaiKgPerM.toFixed(6)) : null,
+      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
+        ? Number(r.bobbinPcsPerM.toFixed(6)) : null,
+      calc_snapshot: {
+        warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
+        finishedWidthIn, reedCount, tapeLengthIn,
+        useBobbin, bobbinMetres, bobbinId,
+        usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
+        porvaiPick, selvedgeLengthIn, porvaiCountId,
+        isTowel, towelLength,
+        warpCountId, weftCountId, endsId,
+        qualityForSales, hsn, crimpPct, gstPct, notes,
+      },
+    };
+
+    let err: { message: string; code?: string } | null = null;
+    if (isEdit && props.fabricQualityId != null) {
+      const res = await sb.from('fabric_quality').update(payload).eq('id', props.fabricQualityId);
+      err = res.error;
+    } else {
+      const res = await sb.from('fabric_quality').insert(payload);
+      err = res.error;
     }
+    setSaving(false);
+    if (err) {
+      if (err.code === '23505') {
+        setSaveError(`Name "${name.trim()}" is already used. Pick a different name.`);
+      } else {
+        setSaveError(err.message);
+      }
+      return;
+    }
+    setSaveOk(isEdit ? 'Saved.' : 'Fabric quality created.');
+    setTimeout(() => {
+      router.push('/app/settings/fabric-qualities');
+      router.refresh();
+    }, 600);
   }
 
-  async function handleArchive() {
-    if (!isEdit) return;
-    const ok = window.confirm('Archive this fabric quality?');
-    if (ok === false) return;
-    setBusy(true); setError(null);
+  async function handleDelete(): Promise<void> {
+    if (!isEdit || props.fabricQualityId == null) return;
+    const ok = window.confirm(
+      `Delete fabric quality "${name}"?\n\nThis cannot be undone. If it is referenced by orders / production, the delete will fail.`,
+    );
+    if (!ok) return;
+    setSaveError(null);
+    setDeleting(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any)
-      .from('fabric_quality').update({ active: false }).eq('id', props.fabricQualityId);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    const sb = supabase as any;
+    const { error } = await sb.from('fabric_quality').delete().eq('id', props.fabricQualityId);
+    setDeleting(false);
+    if (error) {
+      if ((error as { code?: string }).code === '23503') {
+        setSaveError('In use by other records - cannot delete.');
+      } else {
+        setSaveError(error.message);
+      }
+      return;
+    }
     router.push('/app/settings/fabric-qualities');
     router.refresh();
   }
 
-  async function handleDelete() {
-    if (!isEdit) return;
-    const ok = window.confirm('Permanently delete this fabric quality and ALL its sub-rows? This cannot be undone.');
-    if (ok === false) return;
-    setBusy(true); setError(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any)
-      .from('fabric_quality').delete().eq('id', props.fabricQualityId);
-    setBusy(false);
-    if (err) { setError(err.message + ' - try Archive instead.'); return; }
-    router.push('/app/settings/fabric-qualities');
-    router.refresh();
-  }
+  void didApplySnapshot.current;
 
   return (
-    <div className="space-y-4">
-      {/* ──────────── HEADER CARD ──────────── */}
-      <div className="card p-5 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-2">
-            <label className="label">Code</label>
-            <div className="input bg-cloud/60 text-ink-mute select-none">
-              {props.code ?? 'Auto (FQ-NNNN)'}
-            </div>
-          </div>
-          <div className="md:col-span-4">
-            <label className="label">QUALITY *</label>
-            <input className="input w-full" value={hdr.name}
-              onChange={(e) => patchHdr({ name: e.target.value })} />
-          </div>
-          <div className="md:col-span-4">
-            <label className="label">QLTY FOR SALES</label>
-            <input className="input w-full" value={hdr.quality_for_sales}
-              onChange={(e) => patchHdr({ quality_for_sales: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">HSN</label>
-            <input className="input w-full" value={hdr.hsn}
-              onChange={(e) => patchHdr({ hsn: e.target.value })} />
+    <div>
+      <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
+        <div className="card p-5 space-y-4">
+          <h2 className="font-display font-bold text-base flex items-center gap-2">
+            <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
+          </h2>
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} /></Row>
+            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} /></Row>
+            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} /></Row>
+            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} /></Row>
+            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} /></Row>
+            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} /></Row>
+            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} /></Row>
+            <Row>
+              <L title="Inches of warp tape per metre of fabric.">
+                Tape Length (in/m) <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
+              </L>
+              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} />
+            </Row>
           </div>
 
-          <div className="md:col-span-2">
-            <label className="label">PICK/INCH</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.pick_per_inch}
-              onChange={(e) => patchHdr({ pick_per_inch: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">REED</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.reed}
-              onChange={(e) => patchHdr({ reed: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">REED SPACE</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.reed_space}
-              onChange={(e) => patchHdr({ reed_space: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">WIDTH (in)</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.width_in}
-              onChange={(e) => patchHdr({ width_in: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">METER/PC</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.meter_per_pc}
-              onChange={(e) => patchHdr({ meter_per_pc: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">WEIGHT (gsm)</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.weight_gsm}
-              onChange={(e) => patchHdr({ weight_gsm: e.target.value })} />
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Include bobbin / cone" checked={useBobbin} set={setUseBobbin} />
+            {useBobbin && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
+              </div>
+            )}
           </div>
 
-          <div className="md:col-span-3">
-            <label className="label">OUTPUT (unit)</label>
-            <select className="input w-full" value={hdr.output_unit}
-              onChange={(e) => patchHdr({ output_unit: e.target.value as OutputUnit })}>
-              <option value="">--- none ---</option>
-              <option value="per_day_m">Per Day (m)</option>
-              <option value="per_shift_m">Per Shift (m)</option>
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">OUTPUT value</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.output_value}
-              onChange={(e) => patchHdr({ output_value: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">CRIMP %</label>
-            <input type="number" step="0.001" className="input num w-full" value={hdr.crimp_pct}
-              onChange={(e) => patchHdr({ crimp_pct: e.target.value })} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">GST %</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.gst_pct}
-              onChange={(e) => patchHdr({ gst_pct: e.target.value })} />
-          </div>
-          <div className="md:col-span-3">
-            <label className="label">Reference rate (Rs/m)</label>
-            <input type="number" step="0.01" className="input num w-full" value={hdr.rate_per_m}
-              onChange={(e) => patchHdr({ rate_per_m: e.target.value })} />
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} />
+            {usePorvai && (
+              <>
+                <div className="mt-2 flex gap-2 text-xs">
+                  <button type="button"
+                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
+                    onClick={() => setPorvaiByDenier(true)}>By denier</button>
+                  <button type="button"
+                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
+                    onClick={() => setPorvaiByDenier(false)}>By count (Ne)</button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                  {porvaiByDenier ? (
+                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} /></Row>
+                  ) : (
+                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} /></Row>
+                  )}
+                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} /></Row>
+                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} /></Row>
+                </div>
+                {porvaiByDenier && (
+                  <p className="text-[11px] text-ink-mute mt-1.5 italic">
+                    Derived count (NeC) = {r.porvaiCount.toFixed(2)}
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
-          <div className="md:col-span-12">
-            <label className="label">Notes</label>
-            <input className="input w-full" value={hdr.notes}
-              onChange={(e) => patchHdr({ notes: e.target.value })} placeholder="(optional)" />
-          </div>
-        </div>
-      </div>
-
-      {/* ──────────── ENDS / WARP COUNT (side by side) ──────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-sm">Ends Counts</h3>
-            <button type="button" className="btn-ghost text-xs"
-              onClick={() => addRow(setEnds, blankEnds)}>
-              <Plus className="w-3.5 h-3.5" /> Add row
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-line/60 text-left text-ink-mute">
-              <th className="py-2 pr-3 w-12">SNO</th>
-              <th className="py-2 pr-3">ENDS COUNT</th>
-              <th className="py-2 pr-3 w-12" />
-            </tr></thead>
-            <tbody>
-              {ends.map((r) => (
-                <tr key={r.sno} className="border-b border-line/60">
-                  <td className="py-1 pr-3 num">{r.sno}</td>
-                  <td className="py-1 pr-3">
-                    <select className="input w-full"
-                      value={r.ends_id === null ? '' : String(r.ends_id)}
-                      onChange={(e) => setEnds((prev) => prev.map((x) =>
-                        x.sno === r.sno ? { ...x, ends_id: e.target.value === '' ? null : Number(e.target.value) } : x,
-                      ))}>
-                      <option value="">--- pick ---</option>
-                      {props.endsOptions.map((o) => (
-                        <option key={o.id} value={String(o.id)}>{o.code} - {o.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-1 pr-3">
-                    <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
-                      onClick={() => delRow(setEnds, r.sno)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-sm">Warp Counts</h3>
-            <button type="button" className="btn-ghost text-xs"
-              onClick={() => addRow(setWarps, blankWarp)}>
-              <Plus className="w-3.5 h-3.5" /> Add row
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-line/60 text-left text-ink-mute">
-              <th className="py-2 pr-3 w-12">SNO</th>
-              <th className="py-2 pr-3">WARP COUNT</th>
-              <th className="py-2 pr-3 w-12" />
-            </tr></thead>
-            <tbody>
-              {warps.map((r) => (
-                <tr key={r.sno} className="border-b border-line/60">
-                  <td className="py-1 pr-3 num">{r.sno}</td>
-                  <td className="py-1 pr-3">
-                    <select className="input w-full"
-                      value={r.yarn_count_id === null ? '' : String(r.yarn_count_id)}
-                      onChange={(e) => setWarps((prev) => prev.map((x) =>
-                        x.sno === r.sno ? { ...x, yarn_count_id: e.target.value === '' ? null : Number(e.target.value) } : x,
-                      ))}>
-                      <option value="">--- pick ---</option>
-                      {props.countOptions.map((o) => (
-                        <option key={o.id} value={String(o.id)}>{o.code} - {o.display_name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-1 pr-3">
-                    <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
-                      onClick={() => delRow(setWarps, r.sno)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ──────────── WEFT (left) + WEAVING RATE (right) ──────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-sm">Weft Details</h3>
-            <button type="button" className="btn-ghost text-xs"
-              onClick={() => addRow(setWefts, blankWeft)}>
-              <Plus className="w-3.5 h-3.5" /> Add row
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-line/60 text-left text-ink-mute">
-                <th className="py-2 pr-2 w-10">SNO</th>
-                <th className="py-2 pr-2">WEFT COUNT</th>
-                <th className="py-2 pr-2">WGT/MTR (ACT)</th>
-                <th className="py-2 pr-2">METER/1 KG</th>
-                <th className="py-2 pr-2">WGT/MTR (MAN)</th>
-                <th className="py-2 pr-2 w-8" />
-              </tr></thead>
-              <tbody>
-                {wefts.map((r) => (
-                  <tr key={r.sno} className="border-b border-line/60">
-                    <td className="py-1 pr-2 num">{r.sno}</td>
-                    <td className="py-1 pr-2">
-                      <select className="input w-full text-xs"
-                        value={r.yarn_count_id === null ? '' : String(r.yarn_count_id)}
-                        onChange={(e) => setWefts((prev) => prev.map((x) =>
-                          x.sno === r.sno ? { ...x, yarn_count_id: e.target.value === '' ? null : Number(e.target.value) } : x,
-                        ))}>
-                        <option value="">--- pick ---</option>
-                        {props.countOptions.map((o) => (
-                          <option key={o.id} value={String(o.id)}>{o.code} - {o.display_name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input type="number" step="0.001" className="input num w-20"
-                        value={r.wgt_per_mtr_actual}
-                        onChange={(e) => setWefts((prev) => prev.map((x) =>
-                          x.sno === r.sno ? { ...x, wgt_per_mtr_actual: e.target.value } : x))} />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input type="number" step="0.001" className="input num w-20"
-                        value={r.meter_per_kg}
-                        onChange={(e) => setWefts((prev) => prev.map((x) =>
-                          x.sno === r.sno ? { ...x, meter_per_kg: e.target.value } : x))} />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input type="number" step="0.001" className="input num w-20"
-                        value={r.wgt_per_mtr_manual}
-                        onChange={(e) => setWefts((prev) => prev.map((x) =>
-                          x.sno === r.sno ? { ...x, wgt_per_mtr_manual: e.target.value } : x))} />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
-                        onClick={() => delRow(setWefts, r.sno)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Towel fabric?" checked={isTowel} set={setIsTowel} />
+            {isTowel && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} /></Row>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-sm">Weaving Rates</h3>
-            <button type="button" className="btn-ghost text-xs"
-              onClick={() => addRow(setRates, blankRate)}>
-              <Plus className="w-3.5 h-3.5" /> Add row
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-line/60 text-left text-ink-mute">
-              <th className="py-2 pr-3 w-12">SNO</th>
-              <th className="py-2 pr-3">FABRIC TYPE</th>
-              <th className="py-2 pr-3">RATE/METER (Rs)</th>
-              <th className="py-2 pr-3 w-10" />
-            </tr></thead>
-            <tbody>
-              {rates.map((r) => (
-                <tr key={r.sno} className="border-b border-line/60">
-                  <td className="py-1 pr-3 num">{r.sno}</td>
-                  <td className="py-1 pr-3">
-                    <input className="input w-full" value={r.fabric_type}
-                      onChange={(e) => setRates((prev) => prev.map((x) =>
-                        x.sno === r.sno ? { ...x, fabric_type: e.target.value } : x))} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <input type="number" step="0.01" className="input num w-24"
-                      value={r.rate_per_meter}
-                      onChange={(e) => setRates((prev) => prev.map((x) =>
-                        x.sno === r.sno ? { ...x, rate_per_meter: e.target.value } : x))} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
-                      onClick={() => delRow(setRates, r.sno)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {error && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{error}</div>}
-      {savedMsg && <div className="p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{savedMsg}</div>}
-
-      <div className="flex justify-between gap-2">
-        <div className="flex gap-2">
-          {isEdit && (
+        <div className="card p-5 bg-gradient-to-br from-indigo-50/50 to-violet-50/30 self-start">
+          <h2 className="font-display font-bold text-base mb-3">Derived weights</h2>
+          <ResultRow label="Warp m/kg" value={r.warpMPerKg.toFixed(2)} small />
+          <ResultRow label="Weft m/kg" value={r.weftMPerKg.toFixed(2)} small />
+          <ResultRow label="Wgt / m (warp)" value={(r.warpKgPerM * 1000).toFixed(2) + ' g'} small />
+          <ResultRow label="Wgt / m (weft)" value={(r.weftKgPerM * 1000).toFixed(2) + ' g'} small />
+          <ResultRow label="Grams / metre" value={r.gramsPerM.toFixed(2) + ' g'} small />
+          <ResultRow label="GSM (g/sq.m)" value={r.gramsPerSqM.toFixed(2)} highlight="indigo" big />
+          {usePorvai && r.porvaiMPerKg > 0 && (
             <>
-              <button type="button" onClick={handleArchive} disabled={busy}
-                className="btn-ghost text-amber-700" title="Mark inactive">
-                <Archive className="w-4 h-4" /> Archive
-              </button>
-              <button type="button" onClick={handleDelete} disabled={busy}
-                className="btn-ghost text-red-700" title="Permanently delete">
-                <Trash2 className="w-4 h-4" /> Delete
-              </button>
+              <Divider />
+              <ResultRow label="Porvai m/kg" value={r.porvaiMPerKg.toFixed(2)} small />
+              <ResultRow label="Wgt / m (porvai)" value={(r.porvaiKgPerM * 1000).toFixed(2) + ' g'} small />
             </>
           )}
+          {useBobbin && r.bobbinPcsPerM > 0 && (
+            <>
+              <Divider />
+              <ResultRow label="Bobbin pcs / m" value={r.bobbinPcsPerM.toFixed(4)} small />
+            </>
+          )}
+          {isTowel && r.gramsPerTowel !== null && (
+            <>
+              <Divider />
+              <ResultRow label={"Weight / towel (" + towelLength + " m)"}
+                value={(r.gramsPerTowel ?? 0).toFixed(1) + ' g'} highlight="violet" big />
+            </>
+          )}
+          <Divider />
+          <ResultRow label="Ends check (reed x width + 50)" value={r.endsCheck.toFixed(0)} small />
         </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => router.back()} className="btn-ghost">Cancel</button>
-          <button type="button" onClick={handleSave} disabled={busy} className="btn-primary">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isEdit ? 'Save' : 'Create'}
+      </div>
+
+      {/* IDENTITY + SAVE panel */}
+      <div className="card p-5 mt-4 border border-indigo-200 bg-indigo-50/30">
+        <h2 className="font-display font-bold text-base mb-3 flex items-center gap-2">
+          <Save className="w-4 h-4 text-indigo" /> {isEdit ? 'Save changes' : 'Save fabric quality'}
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="md:col-span-2">
+            <label className="label">Fabric name *</label>
+            <input className="input w-full" placeholder="e.g. Dobby Towel 31in 72x46"
+              value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Quality for sales</label>
+            <input className="input w-full" placeholder="optional"
+              value={qualityForSales} onChange={(e) => setQualityForSales(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">HSN</label>
+            <input className="input w-full" placeholder="optional"
+              value={hsn} onChange={(e) => setHsn(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Warp Count</label>
+            <select className="input w-full" value={warpCountId}
+              onChange={(e) => setWarpCountId(e.target.value)}>
+              <option value="">--- pick ---</option>
+              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Weft Count</label>
+            <select className="input w-full" value={weftCountId}
+              onChange={(e) => setWeftCountId(e.target.value)}>
+              <option value="">--- pick ---</option>
+              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Ends spec</label>
+            <select className="input w-full" value={endsId}
+              onChange={(e) => setEndsId(e.target.value)}>
+              <option value="">--- use form value ---</option>
+              {props.endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Bobbin</label>
+            <select className="input w-full" value={bobbinId}
+              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
+              <option value="">--- none ---</option>
+              {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Porvai yarn count</label>
+            <select className="input w-full" value={porvaiCountId}
+              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
+              <option value="">--- none ---</option>
+              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Crimp %</label>
+            <input type="number" className="input num w-full" step={0.1}
+              value={crimpPct} onChange={(e) => setCrimpPct(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">GST %</label>
+            <input type="number" className="input num w-full" step={0.5}
+              value={gstPct} onChange={(e) => setGstPct(Number(e.target.value))} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="label">Notes</label>
+            <input className="input w-full" placeholder="optional"
+              value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+
+        {saveError && <div className="mt-3 p-3 rounded-lg bg-red-50 text-err text-sm">{saveError}</div>}
+        {saveOk && (
+          <div className="mt-3 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4" /> {saveOk}
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mt-3">
+          {isEdit ? (
+            <button type="button" disabled={deleting || saving} onClick={handleDelete}
+              className="inline-flex items-center gap-1.5 text-sm text-rose-700 hover:text-rose-900 font-semibold disabled:opacity-50">
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete this fabric
+            </button>
+          ) : <span />}
+          <button type="button" disabled={saving || deleting} onClick={handleSave}
+            className="btn-primary">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isEdit ? 'Save changes' : 'Save fabric'}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// small UI helpers (same as costing)
+function Row({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-[1fr_auto] items-center gap-2">{children}</div>;
+}
+function L({ children, title }: { children: React.ReactNode; title?: string }) {
+  return <span className="text-xs text-ink-soft" title={title}>{children}</span>;
+}
+function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void; step?: number }) {
+  return (
+    <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
+      onChange={(e) => set(Number(e.target.value))}
+      className="input num text-right h-8 text-sm w-28" />
+  );
+}
+function Toggle({ label, checked, set }: { label: string; checked: boolean; set: (b: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)}
+        className="w-4 h-4 accent-indigo-600" />
+      <span>{label}</span>
+    </label>
+  );
+}
+function Divider() { return <div className="h-px bg-line/60 my-2" />; }
+function ResultRow({ label, value, small, big, highlight }: {
+  label: string; value: string; small?: boolean; big?: boolean;
+  highlight?: 'indigo' | 'amber' | 'violet' | 'emerald';
+}) {
+  const tone = {
+    indigo: 'text-indigo-700', amber: 'text-amber-700',
+    violet: 'text-violet-700', emerald: 'text-emerald-700',
+  }[highlight ?? 'indigo'];
+  const size = big ? 'text-lg font-bold' : small ? 'text-sm text-ink-soft' : 'text-base font-semibold';
+  return (
+    <div className={"flex items-center justify-between py-1 " + size}>
+      <span>{label}</span>
+      <span className={"num " + (highlight ? tone + " font-bold" : '')}>{value}</span>
     </div>
   );
 }
