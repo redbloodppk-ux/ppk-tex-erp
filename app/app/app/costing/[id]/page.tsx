@@ -1,56 +1,54 @@
-// /app/costing/[id] — edit an existing costing master row.
-//
-// Lets the operator tweak the saved figures (quality code, name, rate per
-// metre, GSM, width, profit %, notes) and toggle Active vs Archived.
-// Full recalculation lives on /app/costing/new — this page is for adjusting
-// a saved snapshot, not re-running the entire calculator.
+// /app/costing/[id] — full Calculator UI prefilled from the saved costing
+// snapshot. Every input field is editable. Save runs UPDATE on the row +
+// updates the snapshot. Delete hard-deletes (FK violation -> archive
+// instead).
 
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Save, ArrowLeft } from 'lucide-react';
+import { formatRupee } from '@/lib/utils';
+import { Calculator, Info, Save, Loader2, CheckCircle2, Trash2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+
+const DEFAULT_BAGS_PER_M = 0.50;
+const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
+const DEFAULT_SIZED_PAAVU_BEAM_PER_M = 1.50;
+
+interface CountOption  { id: number; code: string; display_name: string; }
+interface EndsOption   { id: number; code: string; name: string; ends_count: number; }
+interface BobbinOption { id: number; code: string; description: string; }
+
+interface CalcSnapshot {
+  warpCount?: number; weftCount?: number; totalEnds?: number;
+  picksPerInch?: number; loomWidthIn?: number; finishedWidthIn?: number;
+  reedCount?: number; tapeLengthIn?: number;
+  warpRate?: number; sizingRate?: number; autoWarp?: number; salesCommM?: number;
+  weftRate?: number; autoWeft?: number; weavingPaise?: number;
+  useBobbin?: boolean; bobbinPrice?: number; bobbinMetres?: number;
+  bobbinWaste?: number; bobbinId?: string;
+  usePorvai?: boolean; porvaiByDenier?: boolean; porvaiDenier?: number;
+  porvaiCountManual?: number; porvaiPick?: number; selvedgeLengthIn?: number;
+  porvaiYarnCost?: number; porvaiCountId?: string;
+  bagsPerM?: number; emptyBeamPerM?: number; sizedPaavuPerM?: number;
+  otherChargesPerM?: number;
+  profitPct?: number; marketRate?: number;
+  isTowel?: boolean; towelLength?: number;
+  showProd?: boolean; loomRpm?: number; efficiency?: number;
+  warpCountId?: string; weftCountId?: string; endsId?: string;
+}
 
 interface EditCostingPageProps {
   params: Promise<{ id: string }>;
-}
-
-interface CostingRow {
-  id: number;
-  quality_code: string | null;
-  quality_name: string | null;
-  fabric_type: string | null;
-  fabric_width_in: number | null;
-  gsm: number | null;
-  grams_per_m: number | null;
-  pick_paise_market: number | null;
-  status: string;
-  approval_status: string;
-  notes: string | null;
 }
 
 export default function EditCostingPage({ params }: EditCostingPageProps): React.ReactElement {
   const supabase = createClient();
   const router = useRouter();
   const [id, setId] = useState<number | null>(null);
-  const [row, setRow] = useState<CostingRow | null>(null);
+  const [loaded, setLoaded] = useState<boolean>(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-
-  // Editable fields
-  const [qualityCode, setQualityCode] = useState('');
-  const [qualityName, setQualityName] = useState('');
-  const [finishedWidthIn, setFinishedWidthIn] = useState<number>(0);
-  const [gsm, setGsm] = useState<number>(0);
-  const [gramsPerM, setGramsPerM] = useState<number>(0);
-  const [weavingPaise, setWeavingPaise] = useState<number>(0);
-  const [notes, setNotes] = useState('');
-  const [active, setActive] = useState<boolean>(true);
-
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-  const [saveOk, setSaveOk] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -59,6 +57,88 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     })();
   }, [params]);
 
+  // Calculator state - defaults match /app/costing/new
+  const [warpCount, setWarpCount] = useState(40);
+  const [weftCount, setWeftCount] = useState(39);
+  const [totalEnds, setTotalEnds] = useState(2400);
+  const [picksPerInch, setPicksPerInch] = useState(46);
+  const [loomWidthIn, setLoomWidthIn] = useState(31.5);
+  const [finishedWidthIn, setFinishedWidthIn] = useState(31);
+  const [reedCount, setReedCount] = useState(72);
+  const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
+
+  const [warpRate, setWarpRate] = useState(310);
+  const [sizingRate, setSizingRate] = useState(26);
+  const [autoWarp, setAutoWarp] = useState(2);
+  const [salesCommM, setSalesCommM] = useState(0);
+
+  const [weftRate, setWeftRate] = useState(285);
+  const [autoWeft, setAutoWeft] = useState(2);
+  const [weavingPaise, setWeavingPaise] = useState(16);
+
+  const [useBobbin, setUseBobbin] = useState(true);
+  const [bobbinPrice, setBobbinPrice] = useState(4704);
+  const [bobbinMetres, setBobbinMetres] = useState(2000);
+  const [bobbinWaste, setBobbinWaste] = useState(0.10);
+
+  const [usePorvai, setUsePorvai] = useState(true);
+  const [porvaiByDenier, setPorvaiByDenier] = useState(true);
+  const [porvaiDenier, setPorvaiDenier] = useState(150);
+  const [porvaiCountManual, setPorvaiCountManual] = useState(35.43);
+  const [porvaiPick, setPorvaiPick] = useState(46);
+  const [selvedgeLengthIn, setSelvedgeLengthIn] = useState(2.5);
+  const [porvaiYarnCost, setPorvaiYarnCost] = useState(195);
+
+  const [bagsPerM, setBagsPerM] = useState(DEFAULT_BAGS_PER_M);
+  const [emptyBeamPerM, setEmptyBeamPerM] = useState(DEFAULT_EMPTY_BEAM_PER_M);
+  const [sizedPaavuPerM, setSizedPaavuPerM] = useState(DEFAULT_SIZED_PAAVU_BEAM_PER_M);
+  const [otherChargesPerM, setOtherChargesPerM] = useState(0);
+
+  const [profitPct, setProfitPct] = useState(0.10);
+  const [marketRate, setMarketRate] = useState(0);
+
+  const [isTowel, setIsTowel] = useState(true);
+  const [towelLength, setTowelLength] = useState(1.7);
+
+  const [showProd, setShowProd] = useState(true);
+  const [loomRpm, setLoomRpm] = useState(110);
+  const [efficiency, setEfficiency] = useState(0.85);
+
+  // Save-panel state
+  const [qualityCode, setQualityCode] = useState('');
+  const [qualityName, setQualityName] = useState('');
+  const [warpCountId, setWarpCountId] = useState('');
+  const [weftCountId, setWeftCountId] = useState('');
+  const [endsId, setEndsId] = useState('');
+  const [bobbinId, setBobbinId] = useState('');
+  const [porvaiCountId, setPorvaiCountId] = useState('');
+  const [counts, setCounts] = useState<CountOption[]>([]);
+  const [endsOptions, setEndsOptions] = useState<EndsOption[]>([]);
+  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
+
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState<string | null>(null);
+  const didApplySnapshot = useRef<boolean>(false);
+
+  // Load master dropdowns once.
+  useEffect(() => {
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [yc, em, bb] = await Promise.all([
+        sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
+        sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
+        sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
+      ]);
+      setCounts((yc.data ?? []) as unknown as CountOption[]);
+      setEndsOptions((em.data ?? []) as unknown as EndsOption[]);
+      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
+    })();
+  }, [supabase]);
+
+  // Load the saved costing row and apply its calc_snapshot to the form.
   useEffect(() => {
     if (id == null) return;
     void (async () => {
@@ -66,52 +146,198 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       const sb = supabase as any;
       const { data, error } = await sb
         .from('costing_master')
-        .select('id, quality_code, quality_name, fabric_type, fabric_width_in, gsm, grams_per_m, pick_paise_market, status, approval_status, notes')
+        .select('quality_code, quality_name, fabric_type, calc_snapshot')
         .eq('id', id)
         .single();
       if (error) {
         setLoadErr(error.message);
+        setLoaded(true);
         return;
       }
-      const r = data as CostingRow;
-      setRow(r);
-      setQualityCode(r.quality_code ?? '');
-      setQualityName(r.quality_name ?? '');
-      setFinishedWidthIn(Number(r.fabric_width_in ?? 0));
-      setGsm(Number(r.gsm ?? 0));
-      setGramsPerM(Number(r.grams_per_m ?? 0));
-      setWeavingPaise(Number(r.pick_paise_market ?? 0));
-      setNotes(r.notes ?? '');
-      setActive(r.status === 'active');
+      setQualityCode(data.quality_code ?? '');
+      setQualityName(data.quality_name ?? '');
+      const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
+      if (s.warpCount         != null) setWarpCount(s.warpCount);
+      if (s.weftCount         != null) setWeftCount(s.weftCount);
+      if (s.totalEnds         != null) setTotalEnds(s.totalEnds);
+      if (s.picksPerInch      != null) setPicksPerInch(s.picksPerInch);
+      if (s.loomWidthIn       != null) setLoomWidthIn(s.loomWidthIn);
+      if (s.finishedWidthIn   != null) setFinishedWidthIn(s.finishedWidthIn);
+      if (s.reedCount         != null) setReedCount(s.reedCount);
+      if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
+      if (s.warpRate          != null) setWarpRate(s.warpRate);
+      if (s.sizingRate        != null) setSizingRate(s.sizingRate);
+      if (s.autoWarp          != null) setAutoWarp(s.autoWarp);
+      if (s.salesCommM        != null) setSalesCommM(s.salesCommM);
+      if (s.weftRate          != null) setWeftRate(s.weftRate);
+      if (s.autoWeft          != null) setAutoWeft(s.autoWeft);
+      if (s.weavingPaise      != null) setWeavingPaise(s.weavingPaise);
+      if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
+      if (s.bobbinPrice       != null) setBobbinPrice(s.bobbinPrice);
+      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
+      if (s.bobbinWaste       != null) setBobbinWaste(s.bobbinWaste);
+      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
+      if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
+      if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
+      if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
+      if (s.porvaiCountManual != null) setPorvaiCountManual(s.porvaiCountManual);
+      if (s.porvaiPick        != null) setPorvaiPick(s.porvaiPick);
+      if (s.selvedgeLengthIn  != null) setSelvedgeLengthIn(s.selvedgeLengthIn);
+      if (s.porvaiYarnCost    != null) setPorvaiYarnCost(s.porvaiYarnCost);
+      if (s.porvaiCountId     != null) setPorvaiCountId(s.porvaiCountId);
+      if (s.bagsPerM          != null) setBagsPerM(s.bagsPerM);
+      if (s.emptyBeamPerM     != null) setEmptyBeamPerM(s.emptyBeamPerM);
+      if (s.sizedPaavuPerM    != null) setSizedPaavuPerM(s.sizedPaavuPerM);
+      if (s.otherChargesPerM  != null) setOtherChargesPerM(s.otherChargesPerM);
+      if (s.profitPct         != null) setProfitPct(s.profitPct);
+      if (s.marketRate        != null) setMarketRate(s.marketRate);
+      if (s.isTowel           != null) setIsTowel(s.isTowel);
+      if (s.towelLength       != null) setTowelLength(s.towelLength);
+      if (s.showProd          != null) setShowProd(s.showProd);
+      if (s.loomRpm           != null) setLoomRpm(s.loomRpm);
+      if (s.efficiency        != null) setEfficiency(s.efficiency);
+      if (s.warpCountId       != null) setWarpCountId(s.warpCountId);
+      if (s.weftCountId       != null) setWeftCountId(s.weftCountId);
+      if (s.endsId            != null) setEndsId(s.endsId);
+      didApplySnapshot.current = true;
+      setLoaded(true);
     })();
   }, [id, supabase]);
 
+  // Compute everything (mirrors /app/costing/new).
+  const r = useMemo(() => {
+    const warpMPerKg = warpCount > 0 && totalEnds > 0 && tapeLengthIn > 0
+      ? ((1848 * warpCount) / totalEnds) * 36 / tapeLengthIn * 1.01 : 0;
+    const warpKgPerM = warpMPerKg > 0 ? 1 / warpMPerKg : 0;
+    const weftMPerKg = weftCount > 0 && picksPerInch > 0 && (loomWidthIn + 3) > 0
+      ? (1690 * weftCount) / picksPerInch / (loomWidthIn + 3) : 0;
+    const weftKgPerM = weftMPerKg > 0 ? 1 / weftMPerKg : 0;
+    const gramsPerM = (warpKgPerM + weftKgPerM) * 1000;
+    const gramsPerSqM = finishedWidthIn > 0 ? (gramsPerM * 39.37) / finishedWidthIn : 0;
+    const warpCost = warpMPerKg > 0
+      ? (warpRate + sizingRate + autoWarp) / warpMPerKg + salesCommM : 0;
+    const weftCost = weftMPerKg > 0 ? (weftRate + autoWeft) / weftMPerKg : 0;
+    const pickCost = (picksPerInch * weavingPaise) / 100;
+    const bobbinCost = useBobbin && bobbinMetres > 0
+      ? bobbinPrice / bobbinMetres + bobbinWaste : 0;
+    const porvaiCount = porvaiByDenier
+      ? (porvaiDenier > 0 ? 5315 / porvaiDenier : 0) : porvaiCountManual;
+    const porvaiMPerKg = usePorvai && porvaiCount > 0 && porvaiPick > 0 && (selvedgeLengthIn + 3) > 0
+      ? (1690 * porvaiCount) / porvaiPick / (selvedgeLengthIn + 3) : 0;
+    const porvaiCost = usePorvai && porvaiMPerKg > 0 ? porvaiYarnCost / porvaiMPerKg : 0;
+    const overheads = bagsPerM + emptyBeamPerM + sizedPaavuPerM + otherChargesPerM;
+    const subtotal = warpCost + weftCost + pickCost + bobbinCost + porvaiCost + overheads;
+    const profitAmount = subtotal * profitPct;
+    const costPerM = subtotal + profitAmount;
+    const profitLoss = marketRate > 0 ? marketRate - costPerM : null;
+    const costPerTowel = isTowel ? costPerM * towelLength : null;
+    const gramsPerTowel = isTowel ? gramsPerM * towelLength : null;
+    const metresPerDay = showProd && picksPerInch > 0
+      ? (loomRpm * 60 * 24 * efficiency) / 39.37 / picksPerInch : 0;
+    const towelsPerDay = showProd && isTowel && towelLength > 0
+      ? metresPerDay / towelLength : 0;
+    const endsCheck = reedCount * finishedWidthIn + 50;
+    return {
+      warpMPerKg, warpKgPerM, weftMPerKg, weftKgPerM, gramsPerM, gramsPerSqM,
+      warpCost, weftCost, pickCost, bobbinCost, porvaiCost, overheads,
+      bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
+      subtotal, profitAmount, costPerM, profitLoss, costPerTowel, gramsPerTowel,
+      metresPerDay, towelsPerDay, endsCheck, porvaiCount, porvaiMPerKg,
+    };
+  }, [
+    warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
+    reedCount, tapeLengthIn,
+    warpRate, sizingRate, autoWarp, salesCommM, weftRate, autoWeft, weavingPaise,
+    useBobbin, bobbinPrice, bobbinMetres, bobbinWaste,
+    usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual, porvaiPick, selvedgeLengthIn, porvaiYarnCost,
+    bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
+    profitPct, marketRate, isTowel, towelLength,
+    showProd, loomRpm, efficiency,
+  ]);
+
   async function handleSave(): Promise<void> {
     if (id == null) return;
-    setSaveErr(null);
+    setSaveError(null);
     setSaveOk(null);
-    if (qualityCode.trim() === '') return setSaveErr('Quality code is required.');
-    if (qualityName.trim() === '') return setSaveErr('Quality name is required.');
+    const trimmedCode = qualityCode.trim();
+    if (trimmedCode === '')         return setSaveError('Quality code is required.');
+    if (qualityName.trim() === '')  return setSaveError('Quality name is required.');
+    if (warpCountId === '')         return setSaveError('Pick the warp yarn count.');
+    if (weftCountId === '')         return setSaveError('Pick the weft yarn count.');
 
     setSaving(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const { error } = await sb
+
+    const dup = await sb
       .from('costing_master')
-      .update({
-        quality_code: qualityCode.trim(),
-        quality_name: qualityName.trim(),
-        fabric_width_in: finishedWidthIn,
-        gsm: gsm,
-        grams_per_m: gramsPerM,
-        pick_paise_market: weavingPaise,
-        notes: notes.trim() || null,
-        status: active ? 'active' : 'archived',
-      })
-      .eq('id', id);
+      .select('id')
+      .eq('quality_code', trimmedCode)
+      .neq('id', id)
+      .maybeSingle();
+    if (dup.data) {
+      setSaving(false);
+      setSaveError(`Quality code "${trimmedCode}" is already used by costing #${dup.data.id}.`);
+      return;
+    }
+
+    const payload = {
+      quality_code: trimmedCode,
+      quality_name: qualityName.trim(),
+      fabric_type: isTowel ? 'towel' : 'woven',
+      warp_count_id: Number(warpCountId),
+      weft_count_id: Number(weftCountId),
+      warp_ends: endsId !== ''
+        ? (endsOptions.find((e) => e.id === Number(endsId))?.ends_count ?? totalEnds)
+        : totalEnds,
+      tape_length_m:   Number((tapeLengthIn / 39.37).toFixed(4)),
+      pick_ppi:        picksPerInch,
+      fabric_length_m: Number((loomWidthIn / 39.37).toFixed(4)),
+      reed_count:      reedCount,
+      fabric_width_in: finishedWidthIn,
+      use_bobbin_1:    useBobbin && bobbinId !== '',
+      bobbin_1_id:     useBobbin && bobbinId !== '' ? Number(bobbinId) : null,
+      bobbin_1_loading: useBobbin ? bobbinWaste : null,
+      use_porvai:      usePorvai && isTowel,
+      porvai_count_id: usePorvai && porvaiCountId !== '' ? Number(porvaiCountId) : null,
+      porvai_slevage_length_m: usePorvai ? Number((selvedgeLengthIn / 39.37).toFixed(4)) : null,
+      pick_paise_market: weavingPaise,
+      sizing_cost_per_m: sizedPaavuPerM,
+      auto_cost_per_m: autoWarp,
+      warp_commission_per_m: salesCommM,
+      warp_m_per_kg:   Number(r.warpMPerKg.toFixed(4)),
+      warp_kg_per_m:   Number(r.warpKgPerM.toFixed(6)),
+      weft_m_per_kg:   Number(r.weftMPerKg.toFixed(4)),
+      weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
+      porvai_m_per_kg: usePorvai ? Number(r.porvaiMPerKg.toFixed(4)) : null,
+      porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0 ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
+      grams_per_m: Number(r.gramsPerM.toFixed(2)),
+      gsm:         Number(r.gramsPerSqM.toFixed(2)),
+      calc_snapshot: {
+        warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
+        finishedWidthIn, reedCount, tapeLengthIn,
+        warpRate, sizingRate, autoWarp, salesCommM,
+        weftRate, autoWeft, weavingPaise,
+        useBobbin, bobbinPrice, bobbinMetres, bobbinWaste, bobbinId,
+        usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
+        porvaiPick, selvedgeLengthIn, porvaiYarnCost, porvaiCountId,
+        bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
+        profitPct, marketRate,
+        isTowel, towelLength,
+        showProd, loomRpm, efficiency,
+        warpCountId, weftCountId, endsId,
+      },
+    };
+
+    const { error } = await sb.from('costing_master').update(payload).eq('id', id);
     setSaving(false);
     if (error) {
-      setSaveErr(error.message);
+      const code = (error as { code?: string }).code;
+      if (code === '23505') {
+        setSaveError(`Quality code "${trimmedCode}" is already used. Pick a different code.`);
+      } else {
+        setSaveError(error.message);
+      }
       return;
     }
     setSaveOk('Saved.');
@@ -121,11 +347,52 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     }, 600);
   }
 
+  async function handleDelete(): Promise<void> {
+    if (id == null) return;
+    const ok = window.confirm(
+      `Delete costing ${qualityCode || '#' + id}?\n\nThis cannot be undone. If the costing is in use by sales orders, invoices, or production, the delete will fail.`,
+    );
+    if (!ok) return;
+    setSaveError(null);
+    setDeleting(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error } = await sb.from('costing_master').delete().eq('id', id);
+    setDeleting(false);
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === '23503') {
+        setSaveError('In use by other records — untick Active on the list to archive instead.');
+      } else {
+        setSaveError(error.message);
+      }
+      return;
+    }
+    router.push('/app/costing');
+    router.refresh();
+  }
+
+  if (!loaded) {
+    return (
+      <div className="card p-6 text-ink-mute text-sm flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading costing...
+      </div>
+    );
+  }
+  if (loadErr) {
+    return (
+      <div className="card p-6 text-err text-sm">
+        {loadErr}
+      </div>
+    );
+  }
+  void didApplySnapshot.current;
+
   return (
     <div>
       <PageHeader
-        title={row ? `Edit Costing - ${row.quality_code ?? row.id}` : 'Edit Costing'}
-        subtitle="Adjust the saved costing snapshot. For a full recalc, create a new costing from the calculator."
+        title={`Edit Costing ${qualityCode ? '- ' + qualityCode : ''}`}
+        subtitle="Every field round-trips from the saved snapshot. Save updates the row; Delete removes it (if unused)."
         actions={
           <Link href="/app/costing" className="btn-ghost">
             <ArrowLeft className="w-4 h-4" /> Back to list
@@ -133,80 +400,284 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
         }
       />
 
-      {loadErr && (
-        <div className="card p-4 text-sm text-err">{loadErr}</div>
-      )}
+      <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
+        <div className="card p-5 space-y-4">
+          <h2 className="font-display font-bold text-base flex items-center gap-2">
+            <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
+          </h2>
 
-      {row && (
-        <div className="card p-5 space-y-4 max-w-2xl">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Quality Code *</label>
-              <input className="input num w-full" value={qualityCode}
-                onChange={(e) => setQualityCode(e.target.value)} />
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} /></Row>
+            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} /></Row>
+            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} /></Row>
+            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} /></Row>
+            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} /></Row>
+            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} /></Row>
+            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} /></Row>
+            <Row>
+              <L title="Inches of warp tape per metre of fabric - typically 39 to 42.">
+                Tape Length (in/m) <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
+              </L>
+              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} />
+            </Row>
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
+            <h3 className="font-display font-bold text-sm mb-2">Warp rates</h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <Row><L>Yarn (Rs/kg)</L><Num value={warpRate} set={setWarpRate} step={5} /></Row>
+              <Row><L>Sizing (Rs/kg)</L><Num value={sizingRate} set={setSizingRate} step={1} /></Row>
+              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWarp} set={setAutoWarp} step={0.5} /></Row>
+              <Row><L>Sales commission (Rs/m)</L><Num value={salesCommM} set={setSalesCommM} step={0.1} /></Row>
             </div>
-            <div>
-              <label className="label">Quality Name *</label>
-              <input className="input w-full" value={qualityName}
-                onChange={(e) => setQualityName(e.target.value)} />
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
+            <h3 className="font-display font-bold text-sm mb-2">Weft rates</h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} /></Row>
+              <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} /></Row>
+              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
             </div>
-            <div>
-              <label className="label">Fabric Type</label>
-              <div className="input bg-cloud/40 text-ink-soft select-none capitalize">
-                {row.fabric_type ?? '-'}
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} />
+            {useBobbin && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} /></Row>
+                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
+                <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} /></Row>
               </div>
-            </div>
-            <div>
-              <label className="label">Finished width (in)</label>
-              <input type="number" className="input num w-full" value={finishedWidthIn} step={0.5}
-                onChange={(e) => setFinishedWidthIn(Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="label">GSM</label>
-              <input type="number" className="input num w-full" value={gsm} step={0.5}
-                onChange={(e) => setGsm(Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="label">Grams / metre</label>
-              <input type="number" className="input num w-full" value={gramsPerM} step={0.5}
-                onChange={(e) => setGramsPerM(Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="label">Weaving (paise / pick)</label>
-              <input type="number" className="input num w-full" value={weavingPaise} step={0.5}
-                onChange={(e) => setWeavingPaise(Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="label">Status</label>
-              <label className="flex items-center gap-2 input cursor-pointer">
-                <input type="checkbox" checked={active}
-                  onChange={(e) => setActive(e.target.checked)}
-                  className="w-4 h-4 accent-emerald-600" />
-                <span className={active ? 'text-emerald-700 font-semibold text-sm' : 'text-ink-mute text-sm'}>
-                  {active ? 'Active' : 'Inactive (archived)'}
-                </span>
-              </label>
+            )}
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} />
+            {usePorvai && (
+              <>
+                <div className="mt-2 flex gap-2 text-xs">
+                  <button type="button"
+                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
+                    onClick={() => setPorvaiByDenier(true)}>By denier</button>
+                  <button type="button"
+                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
+                    onClick={() => setPorvaiByDenier(false)}>By count (Ne)</button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                  {porvaiByDenier ? (
+                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} /></Row>
+                  ) : (
+                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} /></Row>
+                  )}
+                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} /></Row>
+                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} /></Row>
+                  <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} /></Row>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
+            <h3 className="font-display font-bold text-sm mb-2">Mill overheads</h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} /></Row>
+              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} /></Row>
+              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} /></Row>
+              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} /></Row>
             </div>
           </div>
 
-          <div>
-            <label className="label">Notes</label>
-            <textarea className="input w-full min-h-[80px]" value={notes}
-              onChange={(e) => setNotes(e.target.value)} />
+          <div className="border-t border-line/60 pt-3">
+            <h3 className="font-display font-bold text-sm mb-2">Profit &amp; market</h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} /></Row>
+              <Row><L>Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} /></Row>
+            </div>
           </div>
 
-          {saveErr && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{saveErr}</div>}
-          {saveOk  && <div className="p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{saveOk}</div>}
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} />
+            {isTowel && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} /></Row>
+              </div>
+            )}
+          </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Link href="/app/costing" className="btn-ghost">Cancel</Link>
-            <button type="button" disabled={saving} onClick={handleSave} className="btn-primary">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save changes
-            </button>
+          <div className="border-t border-line/60 pt-3">
+            <Toggle label="Show production stats" checked={showProd} set={setShowProd} />
+            {showProd && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Loom RPM</L><Num value={loomRpm} set={setLoomRpm} step={5} /></Row>
+                <Row><L>Efficiency %</L><Pct value={efficiency} set={setEfficiency} /></Row>
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        <div className="card p-5 bg-gradient-to-br from-indigo-50/50 to-violet-50/30 self-start">
+          <h2 className="font-display font-bold text-base mb-3">Derived weights</h2>
+          <ResultRow label="Warp m/kg" value={r.warpMPerKg.toFixed(2)} small />
+          <ResultRow label="Weft m/kg" value={r.weftMPerKg.toFixed(2)} small />
+          <ResultRow label="Grams / metre" value={r.gramsPerM.toFixed(2) + ' g'} small />
+          <ResultRow label="GSM (g/sq.m)" value={r.gramsPerSqM.toFixed(2)} small />
+          {usePorvai && r.porvaiMPerKg > 0 && (
+            <ResultRow label="Porvai m/kg" value={r.porvaiMPerKg.toFixed(2)} small />
+          )}
+          <Divider />
+          <h2 className="font-display font-bold text-base mb-3">Cost breakdown (Rs / m)</h2>
+          <ResultRow label="Warp" value={formatRupee(r.warpCost, { decimals: 3 })} small />
+          <ResultRow label="Weft" value={formatRupee(r.weftCost, { decimals: 3 })} small />
+          <ResultRow label="Weaving (pick)" value={formatRupee(r.pickCost, { decimals: 3 })} small />
+          {useBobbin && (<ResultRow label="Bobbin & weft" value={formatRupee(r.bobbinCost, { decimals: 3 })} small />)}
+          {usePorvai && (<ResultRow label="Porvai" value={formatRupee(r.porvaiCost, { decimals: 3 })} small />)}
+          <Divider />
+          <ResultRow label="Subtotal" value={formatRupee(r.subtotal, { decimals: 2 })} />
+          <ResultRow label={"Profit (" + (profitPct * 100).toFixed(1) + "%)"} value={formatRupee(r.profitAmount, { decimals: 2 })} small />
+          <Divider />
+          <ResultRow label="Cost / metre" value={formatRupee(r.costPerM, { decimals: 2 })} highlight="indigo" big />
+          {isTowel && r.costPerTowel !== null && (
+            <>
+              <Divider />
+              <ResultRow label={"Cost / towel (" + towelLength + " m)"}
+                value={formatRupee(r.costPerTowel, { decimals: 2 })} highlight="violet" big />
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card p-5 mt-4 border border-indigo-200 bg-indigo-50/30">
+        <h2 className="font-display font-bold text-base mb-1 flex items-center gap-2">
+          <Save className="w-4 h-4 text-indigo" /> Save changes
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="label">Quality Code *</label>
+            <input className="input num w-full" value={qualityCode}
+              onChange={(e) => setQualityCode(e.target.value)} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="label">Quality Name *</label>
+            <input className="input w-full" value={qualityName}
+              onChange={(e) => setQualityName(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Fabric Type</label>
+            <div className="input bg-cloud/40 text-ink-soft select-none">{isTowel ? 'Towel' : 'Fabric'}</div>
+          </div>
+          <div>
+            <label className="label">Warp Count *</label>
+            <select className="input w-full" value={warpCountId}
+              onChange={(e) => setWarpCountId(e.target.value)}>
+              <option value="">--- pick ---</option>
+              {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Weft Count *</label>
+            <select className="input w-full" value={weftCountId}
+              onChange={(e) => setWeftCountId(e.target.value)}>
+              <option value="">--- pick ---</option>
+              {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Ends spec</label>
+            <select className="input w-full" value={endsId}
+              onChange={(e) => setEndsId(e.target.value)}>
+              <option value="">--- use form value ---</option>
+              {endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Bobbin</label>
+            <select className="input w-full" value={bobbinId}
+              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
+              <option value="">--- none ---</option>
+              {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Porvai yarn count</label>
+            <select className="input w-full" value={porvaiCountId}
+              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
+              <option value="">--- none ---</option>
+              {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+            </select>
+          </div>
+        </div>
+
+        {saveError && <div className="mt-3 p-3 rounded-lg bg-red-50 text-err text-sm">{saveError}</div>}
+        {saveOk    && (
+          <div className="mt-3 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4" /> {saveOk}
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mt-3">
+          <button type="button" disabled={deleting || saving} onClick={handleDelete}
+            className="inline-flex items-center gap-1.5 text-sm text-rose-700 hover:text-rose-900 font-semibold disabled:opacity-50">
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Delete this costing
+          </button>
+          <button type="button" disabled={saving || deleting} onClick={handleSave}
+            className="btn-primary">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-[1fr_auto] items-center gap-2">{children}</div>;
+}
+function L({ children, title }: { children: React.ReactNode; title?: string }) {
+  return <span className="text-xs text-ink-soft" title={title}>{children}</span>;
+}
+function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void; step?: number }) {
+  return (
+    <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
+      onChange={(e) => set(Number(e.target.value))}
+      className="input num text-right h-8 text-sm w-28" />
+  );
+}
+function Pct({ value, set }: { value: number; set: (n: number) => void }) {
+  return (
+    <div className="relative w-28">
+      <input type="number" value={(value * 100).toFixed(2)} step={0.5}
+        onChange={(e) => set(Number(e.target.value) / 100)}
+        className="input num text-right h-8 text-sm pr-6" />
+      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-mute">%</span>
+    </div>
+  );
+}
+function Toggle({ label, checked, set }: { label: string; checked: boolean; set: (b: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)}
+        className="w-4 h-4 accent-indigo-600" />
+      <span>{label}</span>
+    </label>
+  );
+}
+function Divider() { return <div className="h-px bg-line/60 my-2" />; }
+function ResultRow({ label, value, small, big, highlight }: {
+  label: string; value: string; small?: boolean; big?: boolean;
+  highlight?: 'indigo' | 'amber' | 'violet' | 'emerald';
+}) {
+  const tone = {
+    indigo: 'text-indigo-700', amber: 'text-amber-700',
+    violet: 'text-violet-700', emerald: 'text-emerald-700',
+  }[highlight ?? 'indigo'];
+  const size = big ? 'text-lg font-bold' : small ? 'text-sm text-ink-soft' : 'text-base font-semibold';
+  return (
+    <div className={"flex items-center justify-between py-1 " + size}>
+      <span>{label}</span>
+      <span className={"num " + (highlight ? tone + " font-bold" : '')}>{value}</span>
     </div>
   );
 }

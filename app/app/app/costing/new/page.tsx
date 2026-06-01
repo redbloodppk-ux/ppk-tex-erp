@@ -247,6 +247,22 @@ export default function NewCostingPage() {
       approval_status:  'pending' as const,
       status:           'active' as const,
       notes:            'Saved from New Costing.',
+      // Full snapshot of the Calculator inputs so the Edit page can
+      // round-trip every field without needing 30+ schema columns.
+      calc_snapshot: {
+        warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
+        finishedWidthIn, reedCount, tapeLengthIn,
+        warpRate, sizingRate, autoWarp, salesCommM,
+        weftRate, autoWeft, weavingPaise,
+        useBobbin, bobbinPrice, bobbinMetres, bobbinWaste, bobbinId,
+        usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
+        porvaiPick, selvedgeLengthIn, porvaiYarnCost, porvaiCountId,
+        bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
+        profitPct, marketRate,
+        isTowel, towelLength,
+        showProd, loomRpm, efficiency,
+        warpCountId, weftCountId, endsId,
+      },
     };
 
     setSaving(true);
