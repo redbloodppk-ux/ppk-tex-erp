@@ -75,6 +75,8 @@ interface PerEmployee {
   covered_sheds: string[];
   weaver_absent_count: number;
   expected_shift_sheds: number;
+  /** Sum of wage_entry rows with kind='settlement' whose period == this week. */
+  settlement: number;
   advances: number;
   adjustments: number;
   net_payable: number;
@@ -87,6 +89,8 @@ interface PerWorkerRow {
   /** Auto-computed wage earned this week from shift_log (metres × loom rate).
    *  Only populated for metre-basis employees (weavers); 0 for loom-shift rows. */
   wages_earned: number;
+  /** Sum of wage_entry rows with kind='settlement' whose period == this week. */
+  settlement: number;
   wages_paid: number;   // settlement + same_day
   advances: number;
   adjustments: number;
@@ -179,13 +183,19 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const loomShiftEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'loom_shifts');
   const metreEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'metres');
 
-  // Wage entries in the week.
+  // Wage entries that BELONG to this week. We filter by period_start (the
+  // Monday of the wage's period) instead of pay_date so that a Weekly
+  // Settlement made on, say, Mon 1-Jun for the previous week (25-31 May)
+  // still shows up in the 25-31 May summary - exactly what the slider in
+  // the wage form was designed for. For same_day / advance / adjustment
+  // entries the period auto-matches the pay_date's week, so they still
+  // surface under the right week without any change to how they're entered.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: wageRaw } = await (supabase as any)
     .from('wage_entry')
     .select('id, employee_id, pay_date, period_start, period_end, kind, amount, notes')
-    .gte('pay_date', weekStart)
-    .lte('pay_date', weekEnd)
+    .gte('period_start', weekStart)
+    .lte('period_start', weekEnd)
     .order('pay_date', { ascending: true });
   const wages = (wageRaw ?? []) as WageRow[];
 
@@ -233,14 +243,18 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // Per-employee roll-ups across all kinds in the week.
   const advancesByEmp = new Map<number, number>();
   const adjustmentsByEmp = new Map<number, number>();
-  const wagesPaidByEmp = new Map<number, number>();  // settlement + same_day
+  const wagesPaidByEmp = new Map<number, number>();  // settlement + same_day combined
+  const settlementByEmp = new Map<number, number>(); // settlement-kind only
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
     if (w.kind === 'advance') {
       advancesByEmp.set(w.employee_id, (advancesByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'adjustment') {
       adjustmentsByEmp.set(w.employee_id, (adjustmentsByEmp.get(w.employee_id) ?? 0) + a);
-    } else if (w.kind === 'settlement' || w.kind === 'same_day') {
+    } else if (w.kind === 'settlement') {
+      settlementByEmp.set(w.employee_id, (settlementByEmp.get(w.employee_id) ?? 0) + a);
+      wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
+    } else if (w.kind === 'same_day') {
       wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
     }
   }
@@ -312,6 +326,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
     return list.map((e) => {
       const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
+      const settlement = settlementByEmp.get(e.id) ?? 0;
       const adv = advancesByEmp.get(e.id) ?? 0;
       const adj = adjustmentsByEmp.get(e.id) ?? 0;
       return {
@@ -319,6 +334,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         code: e.code,
         full_name: e.full_name,
         wages_earned: wagesEarnedByEmp.get(e.id) ?? 0,
+        settlement,
         wages_paid,
         advances: adv,
         adjustments: adj,
@@ -474,6 +490,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         : 0;
     }
     const book = full - deduction;
+    const settlement = settlementByEmp.get(e.id) ?? 0;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
     return {
@@ -488,6 +505,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       weaver_absent_count: weaverAbsentCount,
       expected_shift_sheds: expectedShiftSheds,
       book_salary: book,
+      settlement,
       advances: adv,
       adjustments: adj,
       net_payable: book - adv + adj,
@@ -620,6 +638,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-left px-4 py-3">Coverage / Absences</th>
               <th className="text-right px-4 py-3">Deduction</th>
               <th className="text-right px-4 py-3">Book salary</th>
+              <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
               <th className="text-right px-4 py-3">Net payable</th>
@@ -657,6 +676,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                     {p.absent_deduction > 0 ? `\u2212${formatRupee(p.absent_deduction)}` : <span className="text-ink-mute">—</span>}
                   </td>
                   <td className="px-4 py-3 text-right num">{formatRupee(p.book_salary)}</td>
+                  <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                   <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                   <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
                   <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
@@ -664,7 +684,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               );
             }) : (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={10} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No weekly-basis employees configured. Set wage_alloc_basis = weekly on an Employee to see them here.
                 </td>
               </tr>
@@ -680,6 +700,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
@@ -693,6 +714,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   <div className="font-medium">{p.full_name}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                 </td>
+                <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
@@ -700,7 +722,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No loom-shift basis employees configured.
                 </td>
               </tr>
@@ -720,6 +742,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
               <th className="text-right px-4 py-3">Wages earned<br /><span className="text-[10px] normal-case text-ink-mute">metres × loom rate</span></th>
+              <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
@@ -736,6 +759,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                 <td className="px-4 py-3 text-right num font-semibold text-indigo-700">
                   {p.wages_earned > 0 ? formatRupee(p.wages_earned) : '—'}
                 </td>
+                <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
@@ -743,7 +767,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               </tr>
             )) : (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No metre-produced basis employees configured.
                 </td>
               </tr>
