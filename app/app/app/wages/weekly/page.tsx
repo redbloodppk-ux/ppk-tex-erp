@@ -397,29 +397,34 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
   }
 
-  // --- Winder: covered_sheds per winder + weaver-absence counts per shed.
-  const coveredShedsByWinder = new Map<number, Set<string>>();
-  const weaverAbsentByShed = new Map<string, number>();
+  // --- Winder: covered (shed, shift) pairs per winder + weaver-absence
+  //     counts per (shed, shift). Tracking the shift on each coverage is
+  //     critical: if a winder only ever works the morning shift (e.g.
+  //     KAMACHI, MALIGA), counting "both shifts of every covered shed" as
+  //     expected (the previous "x 14" multiplier) overstates expected
+  //     coverage and lets night-shift weaver absences in those sheds inflate
+  //     her tally - both pushing the deduction the wrong way.
+  //
+  //     Coverage keys are "shed:shift" (e.g. "1:morning"). Each pair covers
+  //     7 days a week, so expected_shift_sheds = pairs * 7.
+  const coveredShiftShedsByWinder = new Map<number, Set<string>>();
+  const weaverAbsentByShiftShed = new Map<string, number>();
   if (winderIds.length > 0) {
-    // 1) Fetch this week's attendance rows for each winder to compute
-    //    covered_sheds. We need status + shed_nos + shed_no.
     type WinderAttRow = {
       employee_id: number;
       status: string;
       shed_no: string | null;
       shed_nos: string[] | null;
-      attendance_day: { attendance_date: string } | null;
+      attendance_day: { attendance_date: string; shift: string | null } | null;
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: winAttRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date )')
+      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date, shift )')
       .in('employee_id', winderIds)
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
     const winAtt = (winAttRaw ?? []) as WinderAttRow[];
-    // Group rows by winder, keep only those whose join produced a date
-    // (Supabase returns null for the related row when the date filter fails).
     const rowsByWinder = new Map<number, WinderAttRow[]>();
     for (const r of winAtt) {
       if (!r.attendance_day?.attendance_date) continue;
@@ -433,34 +438,37 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         const acc = new Set<string>();
         for (const r of rows) {
           if (filterAbsent && r.status === 'absent') continue;
+          const shift = r.attendance_day?.shift;
+          if (!shift) continue;
           const arr = Array.isArray(r.shed_nos) ? r.shed_nos : [];
           for (const s of arr) {
-            if (typeof s === 'string' && s.length > 0) acc.add(s);
+            if (typeof s === 'string' && s.length > 0) acc.add(`${s}:${shift}`);
           }
-          if (arr.length === 0 && r.shed_no) acc.add(r.shed_no);
+          if (arr.length === 0 && r.shed_no) acc.add(`${r.shed_no}:${shift}`);
         }
         return acc;
       };
+      // Skip absent rows first; if that produces nothing, fall back to all
+      // rows so a winder who was absent every working day still shows their
+      // recent assignment in the read-only Coverage column.
       let covered = collect(true);
       if (covered.size === 0) covered = collect(false);
-      coveredShedsByWinder.set(wid, covered);
+      coveredShiftShedsByWinder.set(wid, covered);
     }
 
-    // 2) Fetch weaver absences in the week and tally per shed_no.
-    //    Only count absences that have an explicit shed_no. Records without
-    //    shed_no are not attributable to any specific shed (e.g. weaver marked
-    //    absent without a shed assignment that shift), so they must not
-    //    inflate any winder's weaver-absent tally.
+    // Fetch weaver absences in the week and tally per (shed, shift).
+    // Rows without an explicit shed_no are not attributable to any shed and
+    // must not inflate any winder's tally.
     type WeaverAbsRow = {
       status: string;
       shed_no: string | null;
       employee: { role: string | null } | null;
-      attendance_day: { attendance_date: string } | null;
+      attendance_day: { attendance_date: string; shift: string | null } | null;
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: weaverAbsRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('status, shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date )')
+      .select('status, shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date, shift )')
       .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
@@ -469,8 +477,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       const role = (r.employee?.role ?? '').toLowerCase();
       if (role !== 'weaver') continue;
       const shed = r.shed_no;
-      if (!shed) continue;
-      weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
+      const shift = r.attendance_day?.shift;
+      if (!shed || !shift) continue;
+      const key = `${shed}:${shift}`;
+      weaverAbsentByShiftShed.set(key, (weaverAbsentByShiftShed.get(key) ?? 0) + 1);
     }
   }
 
@@ -486,11 +496,19 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       absent = absentDaysByEmp.get(e.id) ?? 0;
       deduction = (full / 7) * absent;
     } else if (role === 'winder') {
-      const covered = coveredShedsByWinder.get(e.id) ?? new Set<string>();
-      coveredShedsArr = Array.from(covered).sort();
-      expectedShiftSheds = coveredShedsArr.length * 14;
-      for (const shed of coveredShedsArr) {
-        weaverAbsentCount += weaverAbsentByShed.get(shed) ?? 0;
+      // covered is a set of "shed:shift" keys. Each one represents 7 days
+      // of coverage (one shed in one shift, all week). So expected coverage
+      // = number of (shed, shift) pairs * 7.
+      const covered = coveredShiftShedsByWinder.get(e.id) ?? new Set<string>();
+      const coveredKeys = Array.from(covered);
+      // For the read-only "Coverage" cell we show only the shed numbers
+      // (deduped across shifts), since "sheds 1, 3" reads cleaner than
+      // "1:morning, 3:morning" - the multiplier already accounts for shift.
+      const shedSet = new Set<string>(coveredKeys.map((k) => k.split(':')[0] ?? ''));
+      coveredShedsArr = Array.from(shedSet).filter((s) => s.length > 0).sort();
+      expectedShiftSheds = coveredKeys.length * 7;
+      for (const key of coveredKeys) {
+        weaverAbsentCount += weaverAbsentByShiftShed.get(key) ?? 0;
       }
       deduction = expectedShiftSheds > 0
         ? (full * weaverAbsentCount) / expectedShiftSheds
