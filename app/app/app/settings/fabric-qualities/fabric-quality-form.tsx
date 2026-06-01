@@ -1,7 +1,7 @@
 'use client';
 // FabricQualityForm — construction-only Calculator UI.
 //
-// Same shape as /app/costing/new (warp/weft/ends, bobbin, porvai, etc.)
+// Same shape as /app/costing/new (warp/weft/ends, porvai, etc.) minus bobbin
 // but ALL rate / cost inputs are stripped. The Derived Weights panel
 // shows m/kg, grams/m and GSM only — no Rs/m or profit calculations.
 //
@@ -35,13 +35,10 @@ export interface FQWeftLine {
 }
 export interface FQRateLine { sno: number; fabric_type: string; rate_per_meter: string; }
 
-interface BobbinOption { id: number; code: string; description: string; }
-
 interface CalcSnapshot {
   warpCount?: number; weftCount?: number; totalEnds?: number;
   picksPerInch?: number; loomWidthIn?: number; finishedWidthIn?: number;
   reedCount?: number; tapeLengthIn?: number;
-  useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
   usePorvai?: boolean; porvaiByDenier?: boolean; porvaiDenier?: number;
   porvaiCountManual?: number; porvaiPick?: number; selvedgeLengthIn?: number;
   porvaiCountId?: string;
@@ -82,9 +79,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [reedCount, setReedCount] = useState(72);
   const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
 
-  const [useBobbin, setUseBobbin] = useState(true);
-  const [bobbinMetres, setBobbinMetres] = useState(2000);
-
   const [usePorvai, setUsePorvai] = useState(true);
   const [porvaiByDenier, setPorvaiByDenier] = useState(true);
   const [porvaiDenier, setPorvaiDenier] = useState(150);
@@ -107,28 +101,13 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [warpCountId, setWarpCountId] = useState('');
   const [weftCountId, setWeftCountId] = useState('');
   const [endsId, setEndsId] = useState('');
-  const [bobbinId, setBobbinId] = useState('');
   const [porvaiCountId, setPorvaiCountId] = useState('');
-  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState<string | null>(null);
   const didApplySnapshot = useRef<boolean>(false);
-
-  // Load bobbin dropdown once (counts + ends already passed in as props).
-  useEffect(() => {
-    void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const bb = await sb.from('bobbin')
-        .select('id, code, description')
-        .neq('status', 'archived')
-        .order('code');
-      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
-    })();
-  }, [supabase]);
 
   // On edit: load existing fabric_quality row + apply its calc_snapshot.
   useEffect(() => {
@@ -164,9 +143,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (s.finishedWidthIn   != null) setFinishedWidthIn(s.finishedWidthIn);
       if (s.reedCount         != null) setReedCount(s.reedCount);
       if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
-      if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
-      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
-      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
       if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
       if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
@@ -203,18 +179,15 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
     const gramsPerTowel = isTowel ? gramsPerM * towelLength : null;
     const endsCheck = reedCount * finishedWidthIn + 50;
 
-    const bobbinPcsPerM = useBobbin && bobbinMetres > 0 ? 1 / bobbinMetres : 0;
-
     return {
       warpMPerKg, warpKgPerM, weftMPerKg, weftKgPerM,
       gramsPerM, gramsPerSqM, gramsPerTowel,
       porvaiCount, porvaiMPerKg, porvaiKgPerM,
-      bobbinPcsPerM, endsCheck,
+      endsCheck,
     };
   }, [
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
     finishedWidthIn, reedCount, tapeLengthIn,
-    useBobbin, bobbinMetres,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
     porvaiPick, selvedgeLengthIn,
     isTowel, towelLength,
@@ -248,12 +221,10 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       weft_kg_per_m: Number(r.weftKgPerM.toFixed(6)),
       porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
         ? Number(r.porvaiKgPerM.toFixed(6)) : null,
-      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
-        ? Number(r.bobbinPcsPerM.toFixed(6)) : null,
+      bobbin_pcs_per_m: null,
       calc_snapshot: {
         warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
         finishedWidthIn, reedCount, tapeLengthIn,
-        useBobbin, bobbinMetres, bobbinId,
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiCountId,
         isTowel, towelLength,
@@ -337,15 +308,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Include bobbin / cone" checked={useBobbin} set={setUseBobbin} />
-            {useBobbin && (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-line/60 pt-3">
             <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} />
             {usePorvai && (
               <>
@@ -398,12 +360,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               <Divider />
               <ResultRow label="Porvai m/kg" value={r.porvaiMPerKg.toFixed(2)} small />
               <ResultRow label="Wgt / m (porvai)" value={(r.porvaiKgPerM * 1000).toFixed(2) + ' g'} small />
-            </>
-          )}
-          {useBobbin && r.bobbinPcsPerM > 0 && (
-            <>
-              <Divider />
-              <ResultRow label="Bobbin pcs / m" value={r.bobbinPcsPerM.toFixed(4)} small />
             </>
           )}
           {isTowel && r.gramsPerTowel !== null && (
@@ -479,14 +435,6 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {props.endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Bobbin</label>
-            <select className="input w-full" value={bobbinId}
-              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
-              <option value="">--- none ---</option>
-              {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
             </select>
           </div>
           <div>
