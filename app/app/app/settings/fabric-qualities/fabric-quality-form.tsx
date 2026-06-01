@@ -48,6 +48,7 @@ interface CalcSnapshot {
   isTowel?: boolean; towelLength?: number;
   warpCountId?: string; weftCountId?: string; endsId?: string;
   code?: string; fabricType?: 'woven' | 'towel' | 'dupatta';
+  productionMode?: 'inhouse' | 'job_work' | 'outsourcing';
   hsn?: string; crimpPct?: number; gstPct?: number;
   notes?: string;
 }
@@ -98,6 +99,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [fabricType, setFabricType] = useState<'woven' | 'towel' | 'dupatta'>('woven');
+  const [productionMode, setProductionMode] = useState<'inhouse' | 'job_work' | 'outsourcing'>('inhouse');
   const [hsn, setHsn] = useState('');
   const [crimpPct, setCrimpPct] = useState(0);
   const [gstPct, setGstPct] = useState(5);
@@ -136,7 +138,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const sb = supabase as any;
       const { data } = await sb
         .from('fabric_quality')
-        .select('name, code, fabric_type, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
+        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
         .eq('id', props.fabricQualityId)
         .single();
       if (!data) return;
@@ -144,6 +146,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       setCode(data.code ?? '');
       if (data.fabric_type === 'woven' || data.fabric_type === 'towel' || data.fabric_type === 'dupatta') {
         setFabricType(data.fabric_type);
+      }
+      if (data.production_mode === 'inhouse' || data.production_mode === 'job_work' || data.production_mode === 'outsourcing') {
+        setProductionMode(data.production_mode);
       }
       setHsn(data.hsn ?? '');
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
@@ -228,6 +233,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       name: name.trim(),
       code: code.trim() || null,
       fabric_type: fabricType,
+      production_mode: productionMode,
       hsn: hsn.trim() || null,
       pick_per_inch: picksPerInch,
       reed: reedCount,
@@ -252,7 +258,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
         porvaiPick, selvedgeLengthIn, porvaiCountId,
         isTowel, towelLength,
         warpCountId, weftCountId, endsId,
-        code, fabricType, hsn, crimpPct, gstPct, notes,
+        code, fabricType, productionMode, hsn, crimpPct, gstPct, notes,
       },
     };
 
@@ -435,6 +441,15 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               <option value="woven">Woven</option>
               <option value="towel">Towel</option>
               <option value="dupatta">Dupatta</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Production mode *</label>
+            <select className="input w-full" value={productionMode}
+              onChange={(e) => setProductionMode(e.target.value as 'inhouse' | 'job_work' | 'outsourcing')}>
+              <option value="inhouse">In-house</option>
+              <option value="job_work">Job work</option>
+              <option value="outsourcing">Outsourcing</option>
             </select>
           </div>
           <div>
