@@ -508,7 +508,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       settlement,
       advances: adv,
       adjustments: adj,
-      net_payable: book - adv + adj,
+      // "Net paid" = total cash actually flowing out to this employee this week
+      // (settlement + advances + adjustments). Book salary stays as the
+      // entitlement reference, but it is NOT in the cash math anymore.
+      net_payable: settlement + adv + adj,
     };
   });
 
@@ -641,7 +644,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net payable</th>
+              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + advances + adjustments</span></th>
             </tr>
           </thead>
           <tbody>
@@ -704,7 +707,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net payable</th>
+              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + advances + adjustments</span></th>
             </tr>
           </thead>
           <tbody>
@@ -718,7 +721,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
+                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.settlement + p.advances + p.adjustments)}</td>
               </tr>
             )) : (
               <tr>
@@ -742,7 +745,6 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
               <th className="text-right px-4 py-3">Wages earned<br /><span className="text-[10px] normal-case text-ink-mute">metres × loom rate</span></th>
-              <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
@@ -759,7 +761,6 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                 <td className="px-4 py-3 text-right num font-semibold text-indigo-700">
                   {p.wages_earned > 0 ? formatRupee(p.wages_earned) : '—'}
                 </td>
-                <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
@@ -767,7 +768,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               </tr>
             )) : (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-ink-soft">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-ink-soft">
                   No metre-produced basis employees configured.
                 </td>
               </tr>
