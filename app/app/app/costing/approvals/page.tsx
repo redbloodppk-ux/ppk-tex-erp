@@ -258,16 +258,16 @@ export default async function ApprovalsPage() {
         {recent.length === 0 ? (
           <div className="card p-4 text-sm text-ink-soft">No decisions yet.</div>
         ) : (
-          <div className="card overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="text-left px-4 py-2.5">Code</th>
+                  <th className="text-left px-4 py-2.5 whitespace-nowrap">Code</th>
                   <th className="text-left px-4 py-2.5">Quality</th>
-                  <th className="text-left px-4 py-2.5">Status</th>
-                  <th className="text-left px-4 py-2.5">Linked Fabric</th>
-                  <th className="text-left px-4 py-2.5">Decided by</th>
-                  <th className="text-right px-4 py-2.5">Decided on</th>
+                  <th className="text-left px-4 py-2.5 whitespace-nowrap">Status</th>
+                  <th className="text-left px-4 py-2.5 whitespace-nowrap">Linked Fabric</th>
+                  <th className="text-left px-4 py-2.5 whitespace-nowrap">Decided by</th>
+                  <th className="text-right px-4 py-2.5 whitespace-nowrap">Decided on</th>
                 </tr>
               </thead>
               <tbody>
