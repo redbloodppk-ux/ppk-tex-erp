@@ -102,7 +102,7 @@ export default function JobworkPage(): React.ReactElement {
     const bobbinSupplierTypeId = ptList.find((t) => t.name === 'Bobbin Supplier')?.id ?? null;
     const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
-    const [p, ap, bs, sp, q, c, ends, fqe, fqw, b, w, wb, wy] = await Promise.all([
+    const [p, ap, bs, sp, q, c, ends, b, w, wb, wy] = await Promise.all([
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
       bobbinSupplierTypeId === null
@@ -111,46 +111,45 @@ export default function JobworkPage(): React.ReactElement {
       sizingPartyTypeId === null
         ? Promise.resolve({ data: [], error: null })
         : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', sizingPartyTypeId).order('name'),
-      sb.from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
+      // calc_snapshot carries the warp_count_id, ends_id, total_ends entered
+      // on the Fabric Quality form - we use it to auto-fill the warp beam
+      // form when a fabric is picked.
+      sb.from('fabric_quality').select('id, code, name, calc_snapshot').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
-      // Child tables used to auto-fill warp count + total ends when a fabric
-      // is picked in the Warp Beam tab. Order by sno so we take the
-      // "primary" (sno=1) entry for each fabric.
-      sb.from('fabric_quality_ends').select('fabric_quality_id, ends_id, sno').order('sno'),
-      sb.from('fabric_quality_warp_count').select('fabric_quality_id, yarn_count_id, sno').order('sno'),
       sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_warp_yarn').select('id, jobwork_party_id, fabric_quality_id, ends_id, warp_count_id, given_date, total_kg, sizing_rate_per_kg, total_cost, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
-    const errObj = [p, ap, bs, sp, q, c, ends, fqe, fqw, b, w, wb, wy].find((r) => r.error);
+    const errObj = [p, ap, bs, sp, q, c, ends, b, w, wb, wy].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
     } else {
       const endsRows = (ends.data ?? []) as EndsOpt[];
-      const fqeRows  = (fqe.data ?? []) as Array<{ fabric_quality_id: number; ends_id: number | null; sno: number }>;
-      const fqwRows  = (fqw.data ?? []) as Array<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>;
 
       // Build map: fabric_quality_id -> {warp_count_id, ends_id, total_ends}
-      // Take the first (lowest sno) entry from each child list as the
-      // "primary" spec for that fabric.
+      // from each fabric's calc_snapshot. Snapshot fields are stored as
+      // strings (form state), so coerce to number.
+      type QualityRow = { id: number; code: string | null; name: string; calc_snapshot: Record<string, unknown> | null };
+      const qRows = (q.data ?? []) as QualityRow[];
       const endsCountById = new Map<number, number | null>(endsRows.map((e) => [e.id, e.ends_count]));
       const defaults = new Map<number, FabricDefaults>();
-      for (const r of fqeRows) {
-        const cur = defaults.get(r.fabric_quality_id);
-        if (!cur || (cur.ends_id === null && r.ends_id !== null)) {
-          defaults.set(r.fabric_quality_id, {
-            warp_count_id: cur?.warp_count_id ?? null,
-            ends_id: r.ends_id,
-            total_ends: r.ends_id != null ? endsCountById.get(r.ends_id) ?? null : null,
-          });
-        }
-      }
-      for (const r of fqwRows) {
-        const cur = defaults.get(r.fabric_quality_id) ?? { warp_count_id: null, ends_id: null, total_ends: null };
-        if (cur.warp_count_id === null) {
-          defaults.set(r.fabric_quality_id, { ...cur, warp_count_id: r.yarn_count_id });
+      const toNumOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') return null;
+        const n = typeof v === 'number' ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      for (const row of qRows) {
+        const snap = row.calc_snapshot ?? {};
+        const endsId      = toNumOrNull(snap['endsId']);
+        const warpCountId = toNumOrNull(snap['warpCountId']);
+        const snapTotalEnds = toNumOrNull(snap['totalEnds']);
+        // Prefer the explicit totalEnds from the snapshot; if missing, fall
+        // back to ends_master.ends_count for the linked ends record.
+        const totalEnds = snapTotalEnds ?? (endsId !== null ? endsCountById.get(endsId) ?? null : null);
+        if (endsId !== null || warpCountId !== null || totalEnds !== null) {
+          defaults.set(row.id, { warp_count_id: warpCountId, ends_id: endsId, total_ends: totalEnds });
         }
       }
 
@@ -158,7 +157,7 @@ export default function JobworkPage(): React.ReactElement {
       setAllParties((ap.data ?? []) as PartyOpt[]);
       setBobbinSuppliers((bs.data ?? []) as PartyOpt[]);
       setSizingParties((sp.data ?? []) as PartyOpt[]);
-      setQualities((q.data ?? []) as QualityOpt[]);
+      setQualities(qRows.map((r) => ({ id: r.id, code: r.code, name: r.name })));
       setCounts((c.data ?? []) as CountOpt[]);
       setEndsOptions(endsRows);
       setFabricDefaults(defaults);
