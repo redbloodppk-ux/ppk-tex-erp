@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee, formatDate } from '@/lib/utils';
 import { DecideButtons } from './decide-buttons';
+import { ApprovalStatusSelect } from './approval-status-select';
+import { LinkFabricSelect, type FabricOption } from './link-fabric-select';
 import { CheckCircle2, XCircle, Clock, ArrowRight } from 'lucide-react';
 
 export const metadata = { title: 'Costing Approvals' };
@@ -82,6 +84,7 @@ export default async function ApprovalsPage() {
     { data: recentRaw },
     { data: twoCostRaw },
     { data: usersRaw },
+    { data: fabricsRaw },
   ] = await Promise.all([
     supabase
       .from('costing_master')
@@ -102,6 +105,13 @@ export default async function ApprovalsPage() {
     supabase
       .from('app_user')
       .select('id, full_name'),
+    // Fabric Quality master + each one's currently-linked costing, so the
+    // Linked Fabric dropdown can pre-select the already-paired fabric.
+    supabase
+      .from('fabric_quality')
+      .select('id, code, name, costing_id')
+      .eq('active', true)
+      .order('name'),
   ]);
 
   const pending: CostingRow[] = (pendingRaw as CostingRow[] | null) ?? [];
@@ -113,6 +123,14 @@ export default async function ApprovalsPage() {
     ((usersRaw as { id: string; full_name: string }[] | null) ?? [])
       .map(u => [u.id, u.full_name]),
   );
+
+  type FabricRow = { id: number; code: string | null; name: string; costing_id: number | null };
+  const fabricRows = (fabricsRaw as FabricRow[] | null) ?? [];
+  const fabrics: FabricOption[] = fabricRows.map((f) => ({ id: f.id, code: f.code, name: f.name }));
+  const linkedFabricByCosting = new Map<number, number>();
+  for (const f of fabricRows) {
+    if (f.costing_id != null) linkedFabricByCosting.set(f.costing_id, f.id);
+  }
 
   return (
     <div className="space-y-6">
@@ -247,6 +265,7 @@ export default async function ApprovalsPage() {
                   <th className="text-left px-4 py-2.5">Code</th>
                   <th className="text-left px-4 py-2.5">Quality</th>
                   <th className="text-left px-4 py-2.5">Status</th>
+                  <th className="text-left px-4 py-2.5">Linked Fabric</th>
                   <th className="text-left px-4 py-2.5">Decided by</th>
                   <th className="text-right px-4 py-2.5">Decided on</th>
                 </tr>
@@ -257,7 +276,9 @@ export default async function ApprovalsPage() {
                     <td className="px-4 py-2.5 font-mono text-xs">{r.quality_code}</td>
                     <td className="px-4 py-2.5 font-semibold">{r.quality_name}</td>
                     <td className="px-4 py-2.5">
-                      {r.approval_status === 'approved' ? (
+                      {isOwner ? (
+                        <ApprovalStatusSelect costingId={r.id} initial={r.approval_status} />
+                      ) : r.approval_status === 'approved' ? (
                         <span className="inline-flex items-center gap-1 pill bg-emerald-50 text-emerald-700">
                           <CheckCircle2 className="w-3 h-3" /> Approved
                         </span>
@@ -265,6 +286,28 @@ export default async function ApprovalsPage() {
                         <span className="inline-flex items-center gap-1 pill bg-red-50 text-red-700">
                           <XCircle className="w-3 h-3" /> Rejected
                         </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {r.approval_status === 'approved' ? (
+                        isOwner ? (
+                          <LinkFabricSelect
+                            costingId={r.id}
+                            fabrics={fabrics}
+                            linkedFabricId={linkedFabricByCosting.get(r.id) ?? null}
+                          />
+                        ) : (
+                          <span className="text-xs text-ink-soft">
+                            {(() => {
+                              const fid = linkedFabricByCosting.get(r.id);
+                              if (fid == null) return '—';
+                              const f = fabrics.find((x) => x.id === fid);
+                              return f ? `${f.code ? f.code + ' - ' : ''}${f.name}` : '—';
+                            })()}
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-xs text-ink-mute">approved only</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-xs">
