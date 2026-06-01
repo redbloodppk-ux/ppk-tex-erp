@@ -47,7 +47,8 @@ interface CalcSnapshot {
   porvaiCountId?: string;
   isTowel?: boolean; towelLength?: number;
   warpCountId?: string; weftCountId?: string; endsId?: string;
-  qualityForSales?: string; hsn?: string; crimpPct?: number; gstPct?: number;
+  code?: string; fabricType?: 'woven' | 'towel' | 'dupatta';
+  hsn?: string; crimpPct?: number; gstPct?: number;
   notes?: string;
 }
 
@@ -95,7 +96,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
 
   // Header / dropdown state
   const [name, setName] = useState('');
-  const [qualityForSales, setQualityForSales] = useState('');
+  const [code, setCode] = useState('');
+  const [fabricType, setFabricType] = useState<'woven' | 'towel' | 'dupatta'>('woven');
   const [hsn, setHsn] = useState('');
   const [crimpPct, setCrimpPct] = useState(0);
   const [gstPct, setGstPct] = useState(5);
@@ -134,12 +136,15 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const sb = supabase as any;
       const { data } = await sb
         .from('fabric_quality')
-        .select('name, quality_for_sales, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
+        .select('name, code, fabric_type, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
         .eq('id', props.fabricQualityId)
         .single();
       if (!data) return;
       setName(data.name ?? '');
-      setQualityForSales(data.quality_for_sales ?? '');
+      setCode(data.code ?? '');
+      if (data.fabric_type === 'woven' || data.fabric_type === 'towel' || data.fabric_type === 'dupatta') {
+        setFabricType(data.fabric_type);
+      }
       setHsn(data.hsn ?? '');
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
       if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
@@ -221,7 +226,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
 
     const payload = {
       name: name.trim(),
-      quality_for_sales: qualityForSales.trim() || null,
+      code: code.trim() || null,
+      fabric_type: fabricType,
       hsn: hsn.trim() || null,
       pick_per_inch: picksPerInch,
       reed: reedCount,
@@ -246,7 +252,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
         porvaiPick, selvedgeLengthIn, porvaiCountId,
         isTowel, towelLength,
         warpCountId, weftCountId, endsId,
-        qualityForSales, hsn, crimpPct, gstPct, notes,
+        code, fabricType, hsn, crimpPct, gstPct, notes,
       },
     };
 
@@ -418,9 +424,18 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
-            <label className="label">Quality for sales</label>
-            <input className="input w-full" placeholder="optional"
-              value={qualityForSales} onChange={(e) => setQualityForSales(e.target.value)} />
+            <label className="label">Fabric code</label>
+            <input className="input num w-full" placeholder="auto-generated if blank"
+              value={code} onChange={(e) => setCode(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Fabric type *</label>
+            <select className="input w-full" value={fabricType}
+              onChange={(e) => setFabricType(e.target.value as 'woven' | 'towel' | 'dupatta')}>
+              <option value="woven">Woven</option>
+              <option value="towel">Towel</option>
+              <option value="dupatta">Dupatta</option>
+            </select>
           </div>
           <div>
             <label className="label">HSN</label>

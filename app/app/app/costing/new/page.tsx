@@ -199,14 +199,9 @@ export default function NewCostingPage() {
       return;
     }
 
-    // Ask whether to also create a matching fabric_quality row. The default
-    // (OK) is yes — most new costings should have a paired fabric quality so
-    // downstream Sales / Production can price against it.
-    const alsoCreateFabric = window.confirm(
-      'Do you need a new Fabric Quality for this costing?\n\n' +
-      'OK   = create matching Fabric Quality with weft / porvai / bobbin consumption per metre.\n' +
-      'Cancel = save only the costing master row.',
-    );
+    // /costing/new only inserts a costing_master row. Fabric Quality is a
+    // separate master maintained under Settings -> Fabric Qualities; the
+    // operator can build a matching fabric there if needed.
 
     const payload = {
       quality_code: trimmedCode,
@@ -283,33 +278,8 @@ export default function NewCostingPage() {
       }
       return;
     }
-    const newCostingId: number = insertCosting.data.id;
-
-    if (alsoCreateFabric) {
-      const fqPayload = {
-        name: qualityCode.trim() + ' - ' + qualityName.trim(),
-        width_in:        finishedWidthIn,
-        weight_gsm:      Number(r.gramsPerSqM.toFixed(2)),
-        rate_per_m:      Number(r.costPerM.toFixed(2)),
-        active:          true,
-        costing_id:      newCostingId,
-        weft_kg_per_m:   Number(r.weftKgPerM.toFixed(6)),
-        porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
-          ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
-        bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
-          ? Number((1 / bobbinMetres).toFixed(6)) : null,
-      };
-      const insertFq = await sb2.from('fabric_quality').insert(fqPayload);
-      setSaving(false);
-      if (insertFq.error) {
-        setSaveError('Costing saved, but Fabric Quality creation failed: ' + insertFq.error.message);
-        return;
-      }
-      setSaveOk('Saved costing ' + qualityCode + ' + Fabric Quality.');
-    } else {
-      setSaving(false);
-      setSaveOk('Saved costing ' + qualityCode + '. No Fabric Quality created.');
-    }
+    setSaving(false);
+    setSaveOk('Saved costing ' + qualityCode + '.');
     setTimeout(() => {
       router.push('/app/costing');
       router.refresh();
@@ -519,8 +489,9 @@ export default function NewCostingPage() {
         <h2 className="font-display font-bold text-base mb-1 flex items-center gap-2">
           <Save className="w-4 h-4 text-indigo" /> Save costing
         </h2>
+
         <p className="text-xs text-ink-mute mb-3">
-          Saves this as a costing master row (status = active, pending approval). On Save you will be asked whether to also create a matching Fabric Quality.
+          Saves this as a costing master row (status = active, pending approval). To create a new fabric, use Settings -> Fabric Qualities -> New.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
