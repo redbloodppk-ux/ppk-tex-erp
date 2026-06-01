@@ -34,6 +34,7 @@ interface Bobbin {
   total_amount: number;
   is_lurex: boolean;
   vendor_id: number | null;
+  supplier_party_id: number | null;
   purchase_date: string | null;
   invoice_no: string | null;
   production_mode: 'inhouse' | 'jobwork' | null;
@@ -42,7 +43,7 @@ interface Bobbin {
   notes: string | null;
 }
 
-interface MillOption {
+interface PartyOption {
   id: number;
   code: string;
   name: string;
@@ -60,7 +61,7 @@ interface FormState {
   bobbin_price: string;
   quantity: string;
   gst_pct: string;
-  vendor_id: string;
+  supplier_party_id: string;
   purchase_date: string;
   invoice_no: string;
   is_lurex: boolean;
@@ -75,7 +76,7 @@ const EMPTY_FORM: FormState = {
   bobbin_price: '0',
   quantity: '',
   gst_pct: '18',
-  vendor_id: '',
+  supplier_party_id: '',
   purchase_date: '',
   invoice_no: '',
   is_lurex: false,
@@ -117,7 +118,7 @@ export default function BobbinPage() {
   const supabase = createClient();
 
   const [rows, setRows] = useState<Bobbin[]>([]);
-  const [mills, setMills] = useState<MillOption[]>([]);
+  const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOption[]>([]);
   const [jobworkParties, setJobworkParties] = useState<JobworkPartyOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,20 +131,40 @@ export default function BobbinPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [bobbinRes, millRes, jwpRes] = await Promise.all([
+
+    // Step 1: find the party_type_master row whose name is 'Bobbin Supplier'
+    // so we can filter the parties dropdown to just those suppliers. If the
+    // type row doesn't exist yet we just show an empty list - the user can
+    // create it on the Party Types settings page.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ptRes = await (supabase as any)
+      .from('party_type_master')
+      .select('id')
+      .eq('name', 'Bobbin Supplier')
+      .maybeSingle();
+
+    const bobbinSupplierTypeId: number | null =
+      ptRes.data && typeof ptRes.data.id === 'number' ? ptRes.data.id : null;
+
+    // Step 2: pull bobbin rows, parties of that type, and jobwork parties
+    // in parallel.
+    const [bobbinRes, partyRes, jwpRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('bobbin')
-        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, purchase_date, invoice_no, production_mode, jobwork_party_id, status, notes')
+        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, supplier_party_id, purchase_date, invoice_no, production_mode, jobwork_party_id, status, notes')
         .neq('status', 'archived')
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
-        .from('mill')
-        .select('id, code, name')
-        .neq('status', 'archived')
-        .order('name'),
+      bobbinSupplierTypeId === null
+        ? Promise.resolve({ data: [], error: null })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : (supabase as any)
+            .from('party')
+            .select('id, code, name')
+            .eq('status', 'active')
+            .eq('party_type_id', bobbinSupplierTypeId)
+            .order('name'),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('jobwork_party')
@@ -153,13 +174,13 @@ export default function BobbinPage() {
     ]);
     if (bobbinRes.error) {
       setError(bobbinRes.error.message);
-    } else if (millRes.error) {
-      setError(millRes.error.message);
+    } else if (partyRes.error) {
+      setError(partyRes.error.message);
     } else if (jwpRes.error) {
       setError(jwpRes.error.message);
     } else {
       setRows((bobbinRes.data ?? []) as unknown as Bobbin[]);
-      setMills((millRes.data ?? []) as unknown as MillOption[]);
+      setBobbinSuppliers((partyRes.data ?? []) as unknown as PartyOption[]);
       setJobworkParties((jwpRes.data ?? []) as unknown as JobworkPartyOption[]);
       setError(null);
     }
@@ -196,7 +217,7 @@ export default function BobbinPage() {
       bobbin_price:    String(b.bobbin_price),
       quantity:        String(b.quantity),
       gst_pct:         String(b.gst_pct),
-      vendor_id:       b.vendor_id === null ? '' : String(b.vendor_id),
+      supplier_party_id: b.supplier_party_id === null ? '' : String(b.supplier_party_id),
       purchase_date:   b.purchase_date ?? '',
       invoice_no:      b.invoice_no ?? '',
       is_lurex:        b.is_lurex,
@@ -241,7 +262,8 @@ export default function BobbinPage() {
       bobbin_price: toNumOrNull(form.bobbin_price) ?? 0,
       quantity: Math.trunc(qty),
       gst_pct: toNumOrNull(form.gst_pct) ?? 0,
-      vendor_id: form.vendor_id === '' ? null : Number(form.vendor_id),
+      // New unified-party FK; the legacy mill vendor_id is left untouched.
+      supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
       purchase_date: form.purchase_date,
       invoice_no: form.invoice_no.trim(),
       is_lurex: form.is_lurex,
@@ -294,10 +316,10 @@ export default function BobbinPage() {
     setSavedMsg('Deleted ' + code + '.');
   }
 
-  function millLabel(id: number | null): string {
+  function supplierLabel(id: number | null): string {
     if (id === null) return '-';
-    const m = mills.find((x) => x.id === id);
-    return m ? m.code + ' - ' + m.name : '#' + String(id);
+    const p = bobbinSuppliers.find((x) => x.id === id);
+    return p ? p.code + ' - ' + p.name : '#' + String(id);
   }
 
   return (
@@ -417,18 +439,34 @@ export default function BobbinPage() {
             </div>
 
             <div>
-              <label className="label" htmlFor="b-vendor">Supplier (mill)</label>
-              <select
-                id="b-vendor"
-                className="input w-full"
-                value={form.vendor_id}
-                onChange={(e) => setForm((f) => ({ ...f, vendor_id: e.target.value }))}
-              >
-                <option value="">--- none ---</option>
-                {mills.map((m) => (
-                  <option key={m.id} value={String(m.id)}>{m.code} - {m.name}</option>
-                ))}
-              </select>
+              <label className="label" htmlFor="b-supplier">Supplier</label>
+              <div className="flex items-stretch gap-1.5">
+                <select
+                  id="b-supplier"
+                  className="input w-full"
+                  value={form.supplier_party_id}
+                  onChange={(e) => setForm((f) => ({ ...f, supplier_party_id: e.target.value }))}
+                >
+                  <option value="">--- none ---</option>
+                  {bobbinSuppliers.map((p) => (
+                    <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
+                  ))}
+                </select>
+                <a
+                  href="/app/parties/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Add new bobbin supplier"
+                  className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0"
+                >
+                  +
+                </a>
+              </div>
+              {bobbinSuppliers.length === 0 && (
+                <p className="mt-1 text-[11px] text-ink-mute">
+                  No active parties with type <span className="font-semibold">Bobbin Supplier</span> yet.
+                </p>
+              )}
             </div>
             <div>
               <label className="label" htmlFor="b-date">Purchase date *</label>
@@ -566,7 +604,7 @@ export default function BobbinPage() {
                   <td className="px-3 py-3 text-right num">{fmtMoney(b.bobbin_price)}</td>
                   <td className="px-3 py-3 text-right num">{b.gst_pct}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(b.total_amount)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{millLabel(b.vendor_id)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(b.supplier_party_id)}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3">
