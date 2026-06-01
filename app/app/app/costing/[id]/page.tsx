@@ -406,19 +406,23 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
             <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
           </h2>
 
+          <p className="text-[11px] text-ink-mute italic">
+            Construction is locked on Edit — only rate fields below are editable.
+            To change construction, create a new costing instead.
+          </p>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} /></Row>
-            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} /></Row>
-            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} /></Row>
-            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} /></Row>
-            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} /></Row>
-            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} /></Row>
-            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} /></Row>
+            <Row><L>Warp Count (Ne)</L><Num value={warpCount} set={setWarpCount} step={0.5} lock /></Row>
+            <Row><L>Weft Count (Ne)</L><Num value={weftCount} set={setWeftCount} step={0.5} lock /></Row>
+            <Row><L>Total Ends</L><Num value={totalEnds} set={setTotalEnds} step={10} lock /></Row>
+            <Row><L>Pick / Inch</L><Num value={picksPerInch} set={setPicksPerInch} lock /></Row>
+            <Row><L>Loom width (in)</L><Num value={loomWidthIn} set={setLoomWidthIn} step={0.5} lock /></Row>
+            <Row><L>Finished width (in)</L><Num value={finishedWidthIn} set={setFinishedWidthIn} step={0.5} lock /></Row>
+            <Row><L>Reed</L><Num value={reedCount} set={setReedCount} lock /></Row>
             <Row>
               <L title="Inches of warp tape per metre of fabric - typically 39 to 42.">
                 Tape Length (in/m) <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
               </L>
-              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} />
+              <Num value={tapeLengthIn} set={setTapeLengthIn} step={0.5} lock />
             </Row>
           </div>
 
@@ -442,36 +446,34 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} />
+            <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} lock />
             {useBobbin && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
                 <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} /></Row>
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
+                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} lock /></Row>
                 <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} /></Row>
               </div>
             )}
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} />
+            <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} lock />
             {usePorvai && (
               <>
                 <div className="mt-2 flex gap-2 text-xs">
-                  <button type="button"
-                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
-                    onClick={() => setPorvaiByDenier(true)}>By denier</button>
-                  <button type="button"
-                    className={"px-3 py-1.5 rounded-lg border " + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}
-                    onClick={() => setPorvaiByDenier(false)}>By count (Ne)</button>
+                  <button type="button" disabled
+                    className={"px-3 py-1.5 rounded-lg border opacity-60 cursor-not-allowed " + (porvaiByDenier ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By denier</button>
+                  <button type="button" disabled
+                    className={"px-3 py-1.5 rounded-lg border opacity-60 cursor-not-allowed " + (porvaiByDenier === false ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-ink-soft border-line")}>By count (Ne)</button>
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
                   {porvaiByDenier ? (
-                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} /></Row>
+                    <Row><L>Denier</L><Num value={porvaiDenier} set={setPorvaiDenier} step={5} lock /></Row>
                   ) : (
-                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} /></Row>
+                    <Row><L>Porvai count (Ne)</L><Num value={porvaiCountManual} set={setPorvaiCountManual} step={0.5} lock /></Row>
                   )}
-                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} /></Row>
-                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} /></Row>
+                  <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} lock /></Row>
+                  <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} lock /></Row>
                   <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} /></Row>
                 </div>
               </>
@@ -497,20 +499,20 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} />
+            <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} lock />
             {isTowel && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} /></Row>
+                <Row><L>Towel length (m)</L><Num value={towelLength} set={setTowelLength} step={0.05} lock /></Row>
               </div>
             )}
           </div>
 
           <div className="border-t border-line/60 pt-3">
-            <Toggle label="Show production stats" checked={showProd} set={setShowProd} />
+            <Toggle label="Show production stats" checked={showProd} set={setShowProd} lock />
             {showProd && (
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Loom RPM</L><Num value={loomRpm} set={setLoomRpm} step={5} /></Row>
-                <Row><L>Efficiency %</L><Pct value={efficiency} set={setEfficiency} /></Row>
+                <Row><L>Loom RPM</L><Num value={loomRpm} set={setLoomRpm} step={5} lock /></Row>
+                <Row><L>Efficiency %</L><Pct value={efficiency} set={setEfficiency} lock /></Row>
               </div>
             )}
           </div>
@@ -568,7 +570,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Warp Count *</label>
-            <select className="input w-full" value={warpCountId}
+            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={warpCountId} disabled
               onChange={(e) => setWarpCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
@@ -576,7 +579,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Weft Count *</label>
-            <select className="input w-full" value={weftCountId}
+            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={weftCountId} disabled
               onChange={(e) => setWeftCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
@@ -584,7 +588,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Ends spec</label>
-            <select className="input w-full" value={endsId}
+            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={endsId} disabled
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
@@ -592,16 +597,18 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Bobbin</label>
-            <select className="input w-full" value={bobbinId}
-              onChange={(e) => setBobbinId(e.target.value)} disabled={useBobbin === false}>
+            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={bobbinId} disabled
+              onChange={(e) => setBobbinId(e.target.value)}>
               <option value="">--- none ---</option>
               {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
             </select>
           </div>
           <div>
             <label className="label">Porvai yarn count</label>
-            <select className="input w-full" value={porvaiCountId}
-              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
+            <select className="input w-full bg-cloud/40 text-ink-soft cursor-not-allowed"
+              value={porvaiCountId} disabled
+              onChange={(e) => setPorvaiCountId(e.target.value)}>
               <option value="">--- none ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
             </select>
@@ -638,27 +645,40 @@ function Row({ children }: { children: React.ReactNode }) {
 function L({ children, title }: { children: React.ReactNode; title?: string }) {
   return <span className="text-xs text-ink-soft" title={title}>{children}</span>;
 }
-function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void; step?: number }) {
+function Num({ value, set, step = 1, lock = false }: {
+  value: number; set: (n: number) => void; step?: number; lock?: boolean;
+}) {
   return (
     <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
-      onChange={(e) => set(Number(e.target.value))}
-      className="input num text-right h-8 text-sm w-28" />
+      onChange={(e) => set(Number(e.target.value))} disabled={lock}
+      className={
+        'input num text-right h-8 text-sm w-28 ' +
+        (lock ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
+      } />
   );
 }
-function Pct({ value, set }: { value: number; set: (n: number) => void }) {
+function Pct({ value, set, lock = false }: {
+  value: number; set: (n: number) => void; lock?: boolean;
+}) {
   return (
     <div className="relative w-28">
       <input type="number" value={(value * 100).toFixed(2)} step={0.5}
-        onChange={(e) => set(Number(e.target.value) / 100)}
-        className="input num text-right h-8 text-sm pr-6" />
+        onChange={(e) => set(Number(e.target.value) / 100)} disabled={lock}
+        className={
+          'input num text-right h-8 text-sm pr-6 ' +
+          (lock ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
+        } />
       <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-mute">%</span>
     </div>
   );
 }
-function Toggle({ label, checked, set }: { label: string; checked: boolean; set: (b: boolean) => void }) {
+function Toggle({ label, checked, set, lock = false }: {
+  label: string; checked: boolean; set: (b: boolean) => void; lock?: boolean;
+}) {
   return (
-    <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)}
+    <label className={'flex items-center gap-2 text-sm font-semibold ' + (lock ? 'cursor-not-allowed text-ink-mute' : 'cursor-pointer')}>
+      <input type="checkbox" checked={checked} disabled={lock}
+        onChange={(e) => set(e.target.checked)}
         className="w-4 h-4 accent-indigo-600" />
       <span>{label}</span>
     </label>
