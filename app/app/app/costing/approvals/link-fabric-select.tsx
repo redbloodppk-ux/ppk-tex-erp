@@ -71,12 +71,12 @@ export function LinkFabricSelect({ costingId, fabrics, linkedFabricId }: LinkFab
   }
 
   return (
-    <div className="inline-flex items-center gap-2" title={err ?? undefined}>
+    <div className="inline-flex items-center gap-2 max-w-full" title={err ?? undefined}>
       <select
         value={value}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
-        className="input h-7 text-xs px-2 min-w-[160px]"
+        className="input h-9 text-sm px-2 pr-7 min-w-[220px] max-w-[320px] truncate"
       >
         <option value="">— link a fabric —</option>
         {fabrics.map((f) => (
@@ -85,14 +85,14 @@ export function LinkFabricSelect({ costingId, fabrics, linkedFabricId }: LinkFab
           </option>
         ))}
       </select>
-      {busy && <Loader2 className="w-3 h-3 animate-spin text-ink-mute" />}
+      {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-ink-mute shrink-0" />}
       {value !== '' && !busy && (
         <Link
           href={`/app/settings/fabric-qualities/${value}`}
-          className="inline-flex items-center text-xs text-indigo-700 hover:text-indigo-900"
+          className="inline-flex items-center text-xs text-indigo-700 hover:text-indigo-900 shrink-0"
           title="Open this fabric quality"
         >
-          <ExternalLink className="w-3 h-3" />
+          <ExternalLink className="w-4 h-4" />
         </Link>
       )}
     </div>

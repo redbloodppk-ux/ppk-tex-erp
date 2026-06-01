@@ -62,13 +62,13 @@ export function ApprovalStatusSelect({ costingId, initial }: ApprovalStatusSelec
         value={value}
         disabled={busy}
         onChange={(e) => onChange(e.target.value as Status)}
-        className={'input h-7 text-xs px-2 capitalize ' + cls}
+        className={'input h-9 text-sm px-2 pr-7 min-w-[120px] font-medium capitalize ' + cls}
       >
         <option value="pending">Pending</option>
         <option value="approved">Approved</option>
         <option value="rejected">Rejected</option>
       </select>
-      {busy && <Loader2 className="w-3 h-3 animate-spin text-ink-mute" />}
+      {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-ink-mute shrink-0" />}
     </div>
   );
 }
