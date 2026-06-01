@@ -20,7 +20,8 @@ type Tab = 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'status';
 interface PartyOpt { id: number; code: string; name: string; }
 interface QualityOpt { id: number; code: string | null; name: string; }
 interface CountOpt { id: number; code: string; display_name: string; }
-interface EndsOpt { id: number; code: string; name: string; }
+interface EndsOpt { id: number; code: string; name: string; ends_count: number | null; }
+interface FabricDefaults { warp_count_id: number | null; ends_id: number | null; total_ends: number | null; }
 
 interface BobbinRow {
   id: number; code: string; description: string;
@@ -72,6 +73,8 @@ export default function JobworkPage(): React.ReactElement {
   const [parties, setParties] = useState<PartyOpt[]>([]);
   const [allParties, setAllParties] = useState<PartyOpt[]>([]);
   const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOpt[]>([]);
+  const [sizingParties, setSizingParties] = useState<PartyOpt[]>([]);
+  const [fabricDefaults, setFabricDefaults] = useState<Map<number, FabricDefaults>>(new Map());
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [counts, setCounts] = useState<CountOpt[]>([]);
   const [endsOptions, setEndsOptions] = useState<EndsOpt[]>([]);
@@ -87,42 +90,78 @@ export default function JobworkPage(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    // Resolve the Bobbin Supplier party_type id once so we can filter the
-    // bobbin restock dropdown to just those suppliers. If the type row
-    // doesn't exist yet the filter falls back to an empty list (user can
-    // create it in Settings -> Party Types).
+    // Resolve party_type ids for the typed dropdowns (Bobbin Supplier for
+    // bobbin restock, Sizing Party for the warp-beam supplier). If a type
+    // row doesn't exist yet, the corresponding list falls back to empty -
+    // user can create it in Settings -> Party Types.
     const ptRes = await sb
       .from('party_type_master')
-      .select('id')
-      .eq('name', 'Bobbin Supplier')
-      .maybeSingle();
-    const bobbinSupplierTypeId: number | null =
-      ptRes.data && typeof ptRes.data.id === 'number' ? ptRes.data.id : null;
+      .select('id, name')
+      .in('name', ['Bobbin Supplier', 'Sizing Party']);
+    const ptList: Array<{ id: number; name: string }> = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
+    const bobbinSupplierTypeId = ptList.find((t) => t.name === 'Bobbin Supplier')?.id ?? null;
+    const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
-    const [p, ap, bs, q, c, ends, b, w, wb, wy] = await Promise.all([
+    const [p, ap, bs, sp, q, c, ends, fqe, fqw, b, w, wb, wy] = await Promise.all([
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
       bobbinSupplierTypeId === null
         ? Promise.resolve({ data: [], error: null })
         : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', bobbinSupplierTypeId).order('name'),
+      sizingPartyTypeId === null
+        ? Promise.resolve({ data: [], error: null })
+        : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', sizingPartyTypeId).order('name'),
       sb.from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
-      sb.from('ends_master').select('id, code, name').eq('active', true).order('ends_count'),
+      sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
+      // Child tables used to auto-fill warp count + total ends when a fabric
+      // is picked in the Warp Beam tab. Order by sno so we take the
+      // "primary" (sno=1) entry for each fabric.
+      sb.from('fabric_quality_ends').select('fabric_quality_id, ends_id, sno').order('sno'),
+      sb.from('fabric_quality_warp_count').select('fabric_quality_id, yarn_count_id, sno').order('sno'),
       sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_warp_yarn').select('id, jobwork_party_id, fabric_quality_id, ends_id, warp_count_id, given_date, total_kg, sizing_rate_per_kg, total_cost, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
-    const errObj = [p, ap, bs, q, c, ends, b, w, wb, wy].find((r) => r.error);
+    const errObj = [p, ap, bs, sp, q, c, ends, fqe, fqw, b, w, wb, wy].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
     } else {
+      const endsRows = (ends.data ?? []) as EndsOpt[];
+      const fqeRows  = (fqe.data ?? []) as Array<{ fabric_quality_id: number; ends_id: number | null; sno: number }>;
+      const fqwRows  = (fqw.data ?? []) as Array<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>;
+
+      // Build map: fabric_quality_id -> {warp_count_id, ends_id, total_ends}
+      // Take the first (lowest sno) entry from each child list as the
+      // "primary" spec for that fabric.
+      const endsCountById = new Map<number, number | null>(endsRows.map((e) => [e.id, e.ends_count]));
+      const defaults = new Map<number, FabricDefaults>();
+      for (const r of fqeRows) {
+        const cur = defaults.get(r.fabric_quality_id);
+        if (!cur || (cur.ends_id === null && r.ends_id !== null)) {
+          defaults.set(r.fabric_quality_id, {
+            warp_count_id: cur?.warp_count_id ?? null,
+            ends_id: r.ends_id,
+            total_ends: r.ends_id != null ? endsCountById.get(r.ends_id) ?? null : null,
+          });
+        }
+      }
+      for (const r of fqwRows) {
+        const cur = defaults.get(r.fabric_quality_id) ?? { warp_count_id: null, ends_id: null, total_ends: null };
+        if (cur.warp_count_id === null) {
+          defaults.set(r.fabric_quality_id, { ...cur, warp_count_id: r.yarn_count_id });
+        }
+      }
+
       setParties((p.data ?? []) as PartyOpt[]);
       setAllParties((ap.data ?? []) as PartyOpt[]);
       setBobbinSuppliers((bs.data ?? []) as PartyOpt[]);
+      setSizingParties((sp.data ?? []) as PartyOpt[]);
       setQualities((q.data ?? []) as QualityOpt[]);
       setCounts((c.data ?? []) as CountOpt[]);
-      setEndsOptions((ends.data ?? []) as EndsOpt[]);
+      setEndsOptions(endsRows);
+      setFabricDefaults(defaults);
       setBobbins((b.data ?? []) as BobbinRow[]);
       setWarpBeams((w.data ?? []) as WarpBeamRow[]);
       setWeftBags((wb.data ?? []) as WeftBagRow[]);
@@ -169,8 +208,9 @@ export default function JobworkPage(): React.ReactElement {
         <BobbinTab rows={bobbins} partyById={partyById} bobbinSuppliers={bobbinSuppliers} onChanged={load} />
       ) : tab === 'warp_beam' ? (
         <WarpBeamTab
-          rows={warpBeams} parties={parties} qualities={qualities} counts={counts} allParties={allParties}
-          partyById={partyById} qualityById={qualityById} countById={countById} allPartyById={allPartyById}
+          rows={warpBeams} parties={parties} qualities={qualities} counts={counts}
+          sizingParties={sizingParties} fabricDefaults={fabricDefaults}
+          partyById={partyById} qualityById={qualityById} countById={countById}
           onChanged={load}
         />
       ) : tab === 'weft_bag' ? (
@@ -349,22 +389,45 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
 }
 
 /* ===== Warp Beam tab ===== */
-function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, qualityById, countById, allPartyById, onChanged }: {
-  rows: WarpBeamRow[]; parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[]; allParties: PartyOpt[];
+function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, onChanged }: {
+  rows: WarpBeamRow[]; parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[];
+  sizingParties: PartyOpt[]; fabricDefaults: Map<number, FabricDefaults>;
   partyById: Map<number, PartyOpt>; qualityById: Map<number, QualityOpt>; countById: Map<number, CountOpt>;
-  allPartyById: Map<number, PartyOpt>; onChanged: () => void;
+  onChanged: () => void;
 }) {
   const supabase = createClient();
   const [form, setForm] = useState({
     given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
-    total_ends: '', tape_length_m: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
+    total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WarpBeamRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
-  void allPartyById;
+
+  // When the user picks a Fabric Quality, auto-fill warp count + total ends
+  // from the fabric_quality_warp_count / fabric_quality_ends child tables
+  // (we keep only the primary sno=1 entry per fabric in fabricDefaults).
+  // The operator can still override either value before saving.
+  function onFabricChange(idStr: string): void {
+    if (idStr === '') {
+      setForm((f) => ({ ...f, fabric_quality_id: '' }));
+      return;
+    }
+    const fid = Number(idStr);
+    const defaults = fabricDefaults.get(fid);
+    setForm((f) => ({
+      ...f,
+      fabric_quality_id: idStr,
+      warp_count_id: defaults && defaults.warp_count_id !== null
+        ? String(defaults.warp_count_id)
+        : f.warp_count_id,
+      total_ends: defaults && defaults.total_ends !== null
+        ? String(defaults.total_ends)
+        : f.total_ends,
+    }));
+  }
 
   async function add() {
     setErr(null);
@@ -378,7 +441,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
       warp_count_id: form.warp_count_id === '' ? null : Number(form.warp_count_id),
       given_date: form.given_date,
       total_ends: form.total_ends === '' ? null : Number(form.total_ends),
-      tape_length_m: form.tape_length_m === '' ? null : Number(form.tape_length_m),
       beam_count: form.beam_count === '' ? 1 : Number(form.beam_count),
       total_metres: form.total_metres === '' ? null : Number(form.total_metres),
       reference_no: form.reference_no.trim() || null,
@@ -390,7 +452,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
     if (error) { setErr(error.message); return; }
     setForm({
       given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
-      total_ends: '', tape_length_m: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
+      total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
     });
     onChanged();
   }
@@ -414,7 +476,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
       warp_count_id: editForm.warp_count_id,
       given_date: editForm.given_date,
       total_ends: editForm.total_ends,
-      tape_length_m: editForm.tape_length_m,
       beam_count: editForm.beam_count,
       total_metres: editForm.total_metres,
       reference_no: editForm.reference_no,
@@ -434,7 +495,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
       warp_count_id: parent.warp_count_id,
       given_date: data.given_date,
       total_ends: parent.total_ends,
-      tape_length_m: parent.tape_length_m,
       beam_count: Number(data.qty.beam_count ?? parent.beam_count) || 1,
       total_metres: data.qty.total_metres === '' ? null : Number(data.qty.total_metres),
       reference_no: `RESTOCK-${parent.id}`,
@@ -460,25 +520,29 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
           <div><label className="label text-xs">Fabric quality</label>
-            <select className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}>
+            <select className="input" value={form.fabric_quality_id} onChange={(e) => onFabricChange(e.target.value)}>
               <option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select></div>
-          <div><label className="label text-xs">Warp count</label>
+          <div><label className="label text-xs">Warp count <span className="text-ink-mute">(auto)</span></label>
             <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
               <option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
             </select></div>
           <div><label className="label text-xs">No. of beams</label>
             <input type="number" min={1} className="input num" value={form.beam_count} onChange={(e) => setForm({ ...form, beam_count: e.target.value })} /></div>
-          <div><label className="label text-xs">Total ends</label>
+          <div><label className="label text-xs">Total ends <span className="text-ink-mute">(auto)</span></label>
             <input type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
-          <div><label className="label text-xs">Tape length (m)</label>
-            <input type="number" step={0.5} className="input num" value={form.tape_length_m} onChange={(e) => setForm({ ...form, tape_length_m: e.target.value })} /></div>
           <div><label className="label text-xs">Total metres</label>
             <input type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
-          <div><label className="label text-xs">Supplier party</label>
+          <div><label className="label text-xs">Sizing party</label>
             <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
-              <option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select></div>
+              <option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            </select>
+            {sizingParties.length === 0 && (
+              <p className="text-[10px] text-ink-mute mt-0.5">
+                No active <span className="font-semibold">Sizing Party</span> set up yet.
+              </p>
+            )}
+          </div>
           <div><label className="label text-xs">Reference / DC no</label>
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div className="md:col-span-2"><label className="label text-xs">Notes</label>
@@ -501,7 +565,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
               <th className="text-left px-3 py-3">Quality</th>
               <th className="text-left px-3 py-3">Warp count</th>
               <th className="text-right px-3 py-3">Ends</th>
-              <th className="text-right px-3 py-3">Tape (m)</th>
               <th className="text-right px-3 py-3">Beams</th>
               <th className="text-right px-3 py-3">Metres</th>
               <th className="text-left px-3 py-3">DC #</th>
@@ -510,7 +573,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-8 text-center text-ink-soft">No warp beams issued yet.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-8 text-center text-ink-soft">No warp beams issued yet.</td></tr>
             ) : rows.map((r) => {
               const isEditing = editingId === r.id;
               const ef = editForm ?? r;
@@ -524,7 +587,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.warp_count_id ?? ''} onChange={(e) => setEditForm({ ...ef, warp_count_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></td>
                         <td className="px-2 py-2"><input type="number" className="input num h-8 text-xs w-20" value={ef.total_ends ?? ''} onChange={(e) => setEditForm({ ...ef, total_ends: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-                        <td className="px-2 py-2"><input type="number" step={0.5} className="input num h-8 text-xs w-16" value={ef.tape_length_m ?? ''} onChange={(e) => setEditForm({ ...ef, tape_length_m: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                         <td className="px-2 py-2"><input type="number" min={1} className="input num h-8 text-xs w-16" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></td>
                         <td className="px-2 py-2"><input type="number" step={0.01} className="input num h-8 text-xs w-20" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                         <td className="px-2 py-2"><input className="input h-8 text-xs w-24" value={ef.reference_no ?? ''} onChange={(e) => setEditForm({ ...ef, reference_no: e.target.value || null })} /></td>
@@ -540,7 +602,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
                         <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
                         <td className="px-3 py-2">{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</td>
                         <td className="px-3 py-2 text-right num">{r.total_ends ?? '-'}</td>
-                        <td className="px-3 py-2 text-right num">{r.tape_length_m ?? '-'}</td>
                         <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
                         <td className="px-3 py-2 text-right num">{r.total_metres ?? '-'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '-'}</td>
@@ -553,8 +614,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, allParties, partyById, 
                     )}
                   </tr>
                   {restockId === r.id && !isEditing && (
-                    <tr><td colSpan={10} className="p-0">
-                      <RestockForm parties={allParties}
+                    <tr><td colSpan={9} className="p-0">
+                      <RestockForm parties={sizingParties}
                         qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
                         onCancel={() => setRestockId(null)}
                         onSave={(data) => restock(r, data)} />
