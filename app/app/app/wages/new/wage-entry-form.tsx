@@ -117,6 +117,15 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   const [periodStart, setPeriodStart] = useState<string>(initial?.period_start ?? currentWeekMondayISO());
   const [periodEnd, setPeriodEnd] = useState<string>(initial?.period_end ?? currentWeekSundayISO());
   const [kind, setKind] = useState<Kind>(initial?.kind ?? 'settlement');
+  // For "Weekly settlement" kind only: the operator picks which Mon-Sun
+  // week the payment is being applied to. Stays independent of pay_date so
+  // you can record a payment made *today* against last week (or any other
+  // week). On edit we hydrate it from the row's period_start.
+  const [settlementWeekMonday, setSettlementWeekMonday] = useState<string>(
+    initial?.kind === 'settlement' && initial.period_start
+      ? initial.period_start
+      : currentWeekMondayISO(),
+  );
   const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
   const [notes, setNotes] = useState<string>(initial?.notes ?? '');
 
@@ -184,38 +193,46 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWeekly, kind, selected]);
 
-  // The period is ALWAYS derived from the Pay date — both date pickers are
-  // disabled. Mon = start of the ISO week containing the Pay date, Sun = end.
-  // Applies to every kind (same_day / advance / settlement / adjustment) and
-  // every basis (metres / loom_shifts / weekly), so the attendance and
-  // production lookup always covers the full week the wage belongs to.
+  // Period is derived from either the slider (when kind = settlement) or
+  // the Pay date (every other kind). Both date pickers stay disabled — the
+  // operator can only move the period via the slider or pay-date input.
+  //
+  // For "Weekly settlement" specifically: Pay date is the *actual* day the
+  // money changes hands and is independent of the chosen week. So a payment
+  // made today (Wed) for last week's wages records pay_date = today but
+  // period = last Mon-Sun. The wage will only appear in last week's summary.
   useEffect(() => {
-    setPeriodStart(weekMondayFor(payDate));
-    setPeriodEnd(weekSundayFor(payDate));
-  }, [payDate]);
+    if (kind === 'settlement') {
+      setPeriodStart(settlementWeekMonday);
+      setPeriodEnd(weekSundayFor(settlementWeekMonday));
+    } else {
+      setPeriodStart(weekMondayFor(payDate));
+      setPeriodEnd(weekSundayFor(payDate));
+    }
+  }, [kind, payDate, settlementWeekMonday]);
 
   // -------- Week slider (visible only on Weekly settlement) --------
-  // Lets the operator scrub the Pay date in 1-week jumps using a range
-  // input + prev / next chevrons. Slider value is "weeks from today's
-  // ISO week" (0 = this week, -1 = last week, +1 = next week ...).
+  // Scrubs the selected settlement week in 1-week jumps. Pay date stays
+  // independent — it records *when* the payment was made, not which week
+  // it applies to. Slider value is "weeks from today's ISO week"
+  // (0 = this week, -1 = last week, +1 = next week ...).
   const todayMondayISO = useMemo<string>(() => weekMondayFor(todayISO()), []);
-  const currentMondayISO = useMemo<string>(() => weekMondayFor(payDate), [payDate]);
   const weekOffset = useMemo<number>(() => {
-    const a = Date.parse(currentMondayISO + 'T00:00:00Z');
+    const a = Date.parse(settlementWeekMonday + 'T00:00:00Z');
     const b = Date.parse(todayMondayISO + 'T00:00:00Z');
     if (Number.isNaN(a) || Number.isNaN(b)) return 0;
     return Math.round((a - b) / (7 * 86_400_000));
-  }, [currentMondayISO, todayMondayISO]);
+  }, [settlementWeekMonday, todayMondayISO]);
 
-  function shiftPayDateByDays(deltaDays: number): void {
-    const [y, m, d] = payDate.split('-').map(Number) as [number, number, number];
+  function shiftSettlementWeekByDays(deltaDays: number): void {
+    const [y, m, d] = settlementWeekMonday.split('-').map(Number) as [number, number, number];
     const dt = new Date(Date.UTC(y, m - 1, d));
     dt.setUTCDate(dt.getUTCDate() + deltaDays);
-    setPayDate(dt.toISOString().slice(0, 10));
+    setSettlementWeekMonday(dt.toISOString().slice(0, 10));
   }
 
   function setWeekOffsetTo(target: number): void {
-    shiftPayDateByDays((target - weekOffset) * 7);
+    shiftSettlementWeekByDays((target - weekOffset) * 7);
   }
 
   function fmtShortDate(dateISO: string): string {
@@ -569,7 +586,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => shiftPayDateByDays(-7)}
+              onClick={() => shiftSettlementWeekByDays(-7)}
               className="h-8 w-8 rounded border border-line bg-white text-ink-soft hover:bg-cloud font-bold"
               title="Previous week"
               aria-label="Previous week"
@@ -588,7 +605,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             />
             <button
               type="button"
-              onClick={() => shiftPayDateByDays(7)}
+              onClick={() => shiftSettlementWeekByDays(7)}
               className="h-8 w-8 rounded border border-line bg-white text-ink-soft hover:bg-cloud font-bold"
               title="Next week"
               aria-label="Next week"
@@ -601,11 +618,13 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
               className="h-8 px-2 rounded border border-line bg-white text-ink-soft hover:bg-cloud text-xs font-semibold"
               title="Jump to current week"
             >
-              Today
+              This week
             </button>
           </div>
           <p className="text-[10px] text-ink-mute">
-            Slide to pick a week. Pay date and Period auto-update to the Mon–Sun range you choose.
+            Slide to pick which week this payment covers. <strong>Pay date</strong> records when
+            you actually paid — it stays independent. The wage will show up in the selected
+            week&apos;s summary only.
           </p>
         </div>
       )}
@@ -648,7 +667,9 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         </div>
       </div>
       <p className="text-[11px] text-ink-mute -mt-2">
-        Period auto-fills to the ISO week (Mon–Sun) containing the Pay date. Move the Pay date to slide the window.
+        {kind === 'settlement'
+          ? 'Pay date = actual payment date. Period (Mon–Sun) follows the Week selector above, so the wage lands in that week\u2019s summary regardless of when you paid.'
+          : 'Period auto-fills to the ISO week (Mon–Sun) containing the Pay date. Move the Pay date to slide the window.'}
       </p>
 
       <div>
