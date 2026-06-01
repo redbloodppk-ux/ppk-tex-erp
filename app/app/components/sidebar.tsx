@@ -38,8 +38,9 @@ const NAV: NavItem[] = [
   { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'overview',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Sales
-  { href: '/app/customers',     label: 'Customers',          icon: Users,           group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
-  { href: '/app/costing',       label: 'Fabric Costing',     icon: Calculator,      group: 'sales',      roles: ['owner','mill_manager','sales_manager','auditor'] },
+  { href: '/app/customers',       label: 'Customers',        icon: Users,           group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
+  { href: '/app/jobwork-parties', label: 'Jobwork Parties',  icon: Users,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
+  { href: '/app/costing',         label: 'Fabric Costing',   icon: Calculator,      group: 'sales',      roles: ['owner','mill_manager','sales_manager','auditor'] },
   { href: '/app/orders',        label: 'Sales Orders',       icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',      label: 'Invoices',           icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
   { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },

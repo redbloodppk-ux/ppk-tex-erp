@@ -36,11 +36,19 @@ interface Bobbin {
   vendor_id: number | null;
   purchase_date: string | null;
   invoice_no: string | null;
+  production_mode: 'inhouse' | 'jobwork' | null;
+  jobwork_party_id: number | null;
   status: RecordStatus;
   notes: string | null;
 }
 
 interface MillOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface JobworkPartyOption {
   id: number;
   code: string;
   name: string;
@@ -57,6 +65,8 @@ interface FormState {
   invoice_no: string;
   is_lurex: boolean;
   notes: string;
+  production_mode: 'inhouse' | 'jobwork';
+  jobwork_party_id: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -70,6 +80,8 @@ const EMPTY_FORM: FormState = {
   invoice_no: '',
   is_lurex: false,
   notes: '',
+  production_mode: 'inhouse',
+  jobwork_party_id: '',
 };
 
 function toNumOrNull(v: string): number | null {
@@ -106,6 +118,7 @@ export default function BobbinPage() {
 
   const [rows, setRows] = useState<Bobbin[]>([]);
   const [mills, setMills] = useState<MillOption[]>([]);
+  const [jobworkParties, setJobworkParties] = useState<JobworkPartyOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -117,11 +130,11 @@ export default function BobbinPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [bobbinRes, millRes] = await Promise.all([
+    const [bobbinRes, millRes, jwpRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from('bobbin')
-        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, purchase_date, invoice_no, status, notes')
+        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, purchase_date, invoice_no, production_mode, jobwork_party_id, status, notes')
         .neq('status', 'archived')
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
@@ -131,14 +144,23 @@ export default function BobbinPage() {
         .select('id, code, name')
         .neq('status', 'archived')
         .order('name'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
+        .from('jobwork_party')
+        .select('id, code, name')
+        .eq('status', 'active')
+        .order('name'),
     ]);
     if (bobbinRes.error) {
       setError(bobbinRes.error.message);
     } else if (millRes.error) {
       setError(millRes.error.message);
+    } else if (jwpRes.error) {
+      setError(jwpRes.error.message);
     } else {
       setRows((bobbinRes.data ?? []) as unknown as Bobbin[]);
       setMills((millRes.data ?? []) as unknown as MillOption[]);
+      setJobworkParties((jwpRes.data ?? []) as unknown as JobworkPartyOption[]);
       setError(null);
     }
     setLoading(false);
@@ -179,6 +201,8 @@ export default function BobbinPage() {
       invoice_no:      b.invoice_no ?? '',
       is_lurex:        b.is_lurex,
       notes:           b.notes ?? '',
+      production_mode: b.production_mode === 'jobwork' ? 'jobwork' : 'inhouse',
+      jobwork_party_id: b.jobwork_party_id === null ? '' : String(b.jobwork_party_id),
     });
     setFormOpen(true);
     setSavedMsg(null);
@@ -202,6 +226,10 @@ export default function BobbinPage() {
     if (qty === null || qty <= 0) { setError('Quantity is required.'); return; }
     if (form.purchase_date.trim() === '') { setError('Purchase date is required.'); return; }
     if (form.invoice_no.trim() === '')    { setError('Invoice number is required.'); return; }
+    if (form.production_mode === 'jobwork' && form.jobwork_party_id === '') {
+      setError('Pick the jobwork party for this purchase.');
+      return;
+    }
 
     const description = buildDescription(ends, metres);
 
@@ -218,6 +246,9 @@ export default function BobbinPage() {
       invoice_no: form.invoice_no.trim(),
       is_lurex: form.is_lurex,
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
+      production_mode: form.production_mode,
+      jobwork_party_id: form.production_mode === 'jobwork' && form.jobwork_party_id !== ''
+        ? Number(form.jobwork_party_id) : null,
       status: 'active' as const,
     };
 
@@ -432,6 +463,48 @@ export default function BobbinPage() {
                 <span className="text-xs text-ink-soft">Lurex bobbin</span>
               </label>
             </div>
+
+            <div>
+              <label className="label" htmlFor="b-mode">Production mode *</label>
+              <select
+                id="b-mode"
+                className="input w-full"
+                value={form.production_mode}
+                onChange={(e) => setForm((f) => ({
+                  ...f,
+                  production_mode: e.target.value === 'jobwork' ? 'jobwork' : 'inhouse',
+                  // Clear party when switching back to in-house so a stale
+                  // FK doesn't get re-saved on the next edit.
+                  jobwork_party_id: e.target.value === 'jobwork' ? f.jobwork_party_id : '',
+                }))}
+              >
+                <option value="inhouse">In-house</option>
+                <option value="jobwork">Job work</option>
+              </select>
+            </div>
+            {form.production_mode === 'jobwork' && (
+              <div className="md:col-span-3">
+                <label className="label" htmlFor="b-jwp">Jobwork party *</label>
+                <div className="flex items-stretch gap-1.5">
+                  <select
+                    id="b-jwp"
+                    className="input w-full"
+                    value={form.jobwork_party_id}
+                    onChange={(e) => setForm((f) => ({ ...f, jobwork_party_id: e.target.value }))}
+                  >
+                    <option value="">--- pick a party ---</option>
+                    {jobworkParties.map((p) => (
+                      <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
+                    ))}
+                  </select>
+                  <a href="/app/jobwork-parties" target="_blank" rel="noopener noreferrer"
+                    title="Add new jobwork party"
+                    className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0">
+                    +
+                  </a>
+                </div>
+              </div>
+            )}
 
             <div className="md:col-span-4">
               <label className="label" htmlFor="b-notes">Notes</label>
