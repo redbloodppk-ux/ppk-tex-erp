@@ -91,7 +91,10 @@ interface PerWorkerRow {
   wages_earned: number;
   /** Sum of wage_entry rows with kind='settlement' whose period == this week. */
   settlement: number;
-  wages_paid: number;   // settlement + same_day
+  /** Sum of wage_entry rows with kind='same_day' whose period == this week. */
+  same_day_paid: number;
+  /** Settlement + same_day combined (kept for Weaver Wages table). */
+  wages_paid: number;
   advances: number;
   adjustments: number;
   net_payable: number;  // wages_paid - advances + adjustments
@@ -241,10 +244,11 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const netCashOut = totalSettlement + totalAdvance + totalAdjustment + totalSameDay + totalExpenses;
 
   // Per-employee roll-ups across all kinds in the week.
-  const advancesByEmp = new Map<number, number>();
+  const advancesByEmp    = new Map<number, number>();
   const adjustmentsByEmp = new Map<number, number>();
-  const wagesPaidByEmp = new Map<number, number>();  // settlement + same_day combined
-  const settlementByEmp = new Map<number, number>(); // settlement-kind only
+  const wagesPaidByEmp   = new Map<number, number>();  // settlement + same_day combined
+  const settlementByEmp  = new Map<number, number>();  // settlement-kind only
+  const sameDayByEmp     = new Map<number, number>();  // same_day-kind only
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
     if (w.kind === 'advance') {
@@ -255,6 +259,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       settlementByEmp.set(w.employee_id, (settlementByEmp.get(w.employee_id) ?? 0) + a);
       wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'same_day') {
+      sameDayByEmp.set(w.employee_id, (sameDayByEmp.get(w.employee_id) ?? 0) + a);
       wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
     }
   }
@@ -325,8 +330,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
   function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
     return list.map((e) => {
-      const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
-      const settlement = settlementByEmp.get(e.id) ?? 0;
+      const wages_paid    = wagesPaidByEmp.get(e.id) ?? 0;
+      const settlement    = settlementByEmp.get(e.id) ?? 0;
+      const same_day_paid = sameDayByEmp.get(e.id) ?? 0;
       const adv = advancesByEmp.get(e.id) ?? 0;
       const adj = adjustmentsByEmp.get(e.id) ?? 0;
       return {
@@ -335,6 +341,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         full_name: e.full_name,
         wages_earned: wagesEarnedByEmp.get(e.id) ?? 0,
         settlement,
+        same_day_paid,
         wages_paid,
         advances: adv,
         adjustments: adj,
@@ -704,10 +711,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
             <tr>
               <th className="text-left px-4 py-3">Employee</th>
               <th className="text-right px-4 py-3">Settlement</th>
-              <th className="text-right px-4 py-3">Wages paid</th>
+              <th className="text-right px-4 py-3">Wages paid<br /><span className="text-[10px] normal-case text-ink-mute">same-day only</span></th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + advances + adjustments</span></th>
+              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + wages paid + advances + adjustments</span></th>
             </tr>
           </thead>
           <tbody>
@@ -718,10 +725,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                 </td>
                 <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
-                <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
+                <td className="px-4 py-3 text-right num">{formatRupee(p.same_day_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.settlement + p.advances + p.adjustments)}</td>
+                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.settlement + p.same_day_paid + p.advances + p.adjustments)}</td>
               </tr>
             )) : (
               <tr>
