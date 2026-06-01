@@ -35,6 +35,9 @@ export interface FQWeftLine {
 }
 export interface FQRateLine { sno: number; fabric_type: string; rate_per_meter: string; }
 
+interface BobbinOption { id: number; code: string; description: string; }
+interface FabricTypeOption { id: number; code: string; name: string; }
+
 interface CalcSnapshot {
   warpCount?: number; weftCount?: number; totalEnds?: number;
   picksPerInch?: number; loomWidthIn?: number; finishedWidthIn?: number;
@@ -46,6 +49,7 @@ interface CalcSnapshot {
   warpCountId?: string; weftCountId?: string; endsId?: string;
   code?: string; fabricType?: 'woven' | 'towel' | 'dupatta';
   productionMode?: 'inhouse' | 'job_work' | 'outsourcing';
+  useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
   hsn?: string; crimpPct?: number; gstPct?: number;
   notes?: string;
 }
@@ -79,6 +83,10 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [reedCount, setReedCount] = useState(72);
   const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
 
+  const [useBobbin, setUseBobbin] = useState(false);
+  const [bobbinMetres, setBobbinMetres] = useState(2000);
+  const [bobbinId, setBobbinId] = useState('');
+
   const [usePorvai, setUsePorvai] = useState(true);
   const [porvaiByDenier, setPorvaiByDenier] = useState(true);
   const [porvaiDenier, setPorvaiDenier] = useState(150);
@@ -102,12 +110,28 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [weftCountId, setWeftCountId] = useState('');
   const [endsId, setEndsId] = useState('');
   const [porvaiCountId, setPorvaiCountId] = useState('');
+  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
+  const [fabricTypes, setFabricTypes] = useState<FabricTypeOption[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState<string | null>(null);
   const didApplySnapshot = useRef<boolean>(false);
+
+  // Load Bobbin master + Fabric Type master once.
+  useEffect(() => {
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [bb, ft] = await Promise.all([
+        sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
+        sb.from('fabric_type_master').select('id, code, name').eq('active', true).order('name'),
+      ]);
+      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
+      setFabricTypes((ft.data ?? []) as unknown as FabricTypeOption[]);
+    })();
+  }, [supabase]);
 
   // On edit: load existing fabric_quality row + apply its calc_snapshot.
   useEffect(() => {
@@ -143,6 +167,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (s.finishedWidthIn   != null) setFinishedWidthIn(s.finishedWidthIn);
       if (s.reedCount         != null) setReedCount(s.reedCount);
       if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
+      if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
+      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
+      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
       if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
       if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
@@ -179,15 +206,19 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
     const gramsPerTowel = isTowel ? gramsPerM * towelLength : null;
     const endsCheck = reedCount * finishedWidthIn + 50;
 
+    const bobbinPcsPerM = useBobbin && bobbinMetres > 0 ? 1 / bobbinMetres : 0;
+
     return {
       warpMPerKg, warpKgPerM, weftMPerKg, weftKgPerM,
       gramsPerM, gramsPerSqM, gramsPerTowel,
       porvaiCount, porvaiMPerKg, porvaiKgPerM,
+      bobbinPcsPerM,
       endsCheck,
     };
   }, [
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
     finishedWidthIn, reedCount, tapeLengthIn,
+    useBobbin, bobbinMetres,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
     porvaiPick, selvedgeLengthIn,
     isTowel, towelLength,
@@ -221,10 +252,12 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       weft_kg_per_m: Number(r.weftKgPerM.toFixed(6)),
       porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
         ? Number(r.porvaiKgPerM.toFixed(6)) : null,
-      bobbin_pcs_per_m: null,
+      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
+        ? Number(r.bobbinPcsPerM.toFixed(6)) : null,
       calc_snapshot: {
         warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
         finishedWidthIn, reedCount, tapeLengthIn,
+        useBobbin, bobbinMetres, bobbinId,
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiCountId,
         isTowel, towelLength,
@@ -308,6 +341,15 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </div>
 
           <div className="border-t border-line/60 pt-3">
+            <Toggle label="Include bobbin / cone" checked={useBobbin} set={setUseBobbin} />
+            {useBobbin && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-line/60 pt-3">
             <Toggle label="Include porvai (selvedge)" checked={usePorvai} set={setUsePorvai} />
             {usePorvai && (
               <>
@@ -362,6 +404,12 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               <ResultRow label="Wgt / m (porvai)" value={(r.porvaiKgPerM * 1000).toFixed(2) + ' g'} small />
             </>
           )}
+          {useBobbin && r.bobbinPcsPerM > 0 && (
+            <>
+              <Divider />
+              <ResultRow label="Bobbin pcs / m" value={r.bobbinPcsPerM.toFixed(4)} small />
+            </>
+          )}
           {isTowel && r.gramsPerTowel !== null && (
             <>
               <Divider />
@@ -392,12 +440,22 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </div>
           <div>
             <label className="label">Fabric type *</label>
-            <select className="input w-full" value={fabricType}
-              onChange={(e) => setFabricType(e.target.value as 'woven' | 'towel' | 'dupatta')}>
-              <option value="woven">Woven</option>
-              <option value="towel">Towel</option>
-              <option value="dupatta">Dupatta</option>
-            </select>
+            <div className="flex items-stretch gap-1.5">
+              <select className="input w-full" value={fabricType}
+                onChange={(e) => setFabricType(e.target.value as 'woven' | 'towel' | 'dupatta')}>
+                {fabricTypes.length === 0 && (
+                  <>
+                    <option value="woven">Woven</option>
+                    <option value="towel">Towel</option>
+                    <option value="dupatta">Dupatta</option>
+                  </>
+                )}
+                {fabricTypes.map((t) => (
+                  <option key={t.id} value={t.name.toLowerCase()}>{t.name}</option>
+                ))}
+              </select>
+              <NewLink href="/app/settings/fabric-types" title="Add new fabric type" />
+            </div>
           </div>
           <div>
             <label className="label">Production mode *</label>
@@ -415,35 +473,60 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </div>
           <div>
             <label className="label">Warp Count</label>
-            <select className="input w-full" value={warpCountId}
-              onChange={(e) => setWarpCountId(e.target.value)}>
-              <option value="">--- pick ---</option>
-              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            <div className="flex items-stretch gap-1.5">
+              <select className="input w-full" value={warpCountId}
+                onChange={(e) => setWarpCountId(e.target.value)}>
+                <option value="">--- pick ---</option>
+                {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+              </select>
+              <NewLink href="/app/yarn-counts" title="Add new yarn count" />
+            </div>
           </div>
           <div>
             <label className="label">Weft Count</label>
-            <select className="input w-full" value={weftCountId}
-              onChange={(e) => setWeftCountId(e.target.value)}>
-              <option value="">--- pick ---</option>
-              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            <div className="flex items-stretch gap-1.5">
+              <select className="input w-full" value={weftCountId}
+                onChange={(e) => setWeftCountId(e.target.value)}>
+                <option value="">--- pick ---</option>
+                {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+              </select>
+              <NewLink href="/app/yarn-counts" title="Add new yarn count" />
+            </div>
           </div>
           <div>
             <label className="label">Ends spec</label>
-            <select className="input w-full" value={endsId}
-              onChange={(e) => setEndsId(e.target.value)}>
-              <option value="">--- use form value ---</option>
-              {props.endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
-            </select>
+            <div className="flex items-stretch gap-1.5">
+              <select className="input w-full" value={endsId}
+                onChange={(e) => setEndsId(e.target.value)}>
+                <option value="">--- use form value ---</option>
+                {props.endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
+              </select>
+              <NewLink href="/app/settings/ends-master" title="Add new ends spec" />
+            </div>
           </div>
+          {useBobbin && (
+            <div>
+              <label className="label">Bobbin</label>
+              <div className="flex items-stretch gap-1.5">
+                <select className="input w-full" value={bobbinId}
+                  onChange={(e) => setBobbinId(e.target.value)}>
+                  <option value="">--- none ---</option>
+                  {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+                </select>
+                <NewLink href="/app/bobbin" title="Add new bobbin" />
+              </div>
+            </div>
+          )}
           <div>
             <label className="label">Porvai yarn count</label>
-            <select className="input w-full" value={porvaiCountId}
-              onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
-              <option value="">--- none ---</option>
-              {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            <div className="flex items-stretch gap-1.5">
+              <select className="input w-full" value={porvaiCountId}
+                onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
+                <option value="">--- none ---</option>
+                {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
+              </select>
+              <NewLink href="/app/yarn-counts" title="Add new yarn count" />
+            </div>
           </div>
           <div>
             <label className="label">Crimp %</label>
@@ -485,6 +568,19 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
         </div>
       </div>
     </div>
+  );
+}
+
+// Tiny "+ New" link rendered next to each master dropdown. Opens the
+// relevant master's CRUD page in a new tab so the operator can add a
+// missing entry without losing the form they're filling in. After
+// adding, they refresh the Fabric Quality page to pick up the new row.
+function NewLink({ href, title }: { href: string; title: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" title={title}
+      className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0">
+      +
+    </a>
   );
 }
 
