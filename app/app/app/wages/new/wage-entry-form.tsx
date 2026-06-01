@@ -194,6 +194,37 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     setPeriodEnd(weekSundayFor(payDate));
   }, [payDate]);
 
+  // -------- Week slider (visible only on Weekly settlement) --------
+  // Lets the operator scrub the Pay date in 1-week jumps using a range
+  // input + prev / next chevrons. Slider value is "weeks from today's
+  // ISO week" (0 = this week, -1 = last week, +1 = next week ...).
+  const todayMondayISO = useMemo<string>(() => weekMondayFor(todayISO()), []);
+  const currentMondayISO = useMemo<string>(() => weekMondayFor(payDate), [payDate]);
+  const weekOffset = useMemo<number>(() => {
+    const a = Date.parse(currentMondayISO + 'T00:00:00Z');
+    const b = Date.parse(todayMondayISO + 'T00:00:00Z');
+    if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+    return Math.round((a - b) / (7 * 86_400_000));
+  }, [currentMondayISO, todayMondayISO]);
+
+  function shiftPayDateByDays(deltaDays: number): void {
+    const [y, m, d] = payDate.split('-').map(Number) as [number, number, number];
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + deltaDays);
+    setPayDate(dt.toISOString().slice(0, 10));
+  }
+
+  function setWeekOffsetTo(target: number): void {
+    shiftPayDateByDays((target - weekOffset) * 7);
+  }
+
+  function fmtShortDate(dateISO: string): string {
+    if (!dateISO) return '-';
+    const [y, m, d] = dateISO.split('-').map(Number) as [number, number, number];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return String(d).padStart(2, '0') + '-' + months[m - 1];
+  }
+
   // Fetch shifts worked + sheds active for the chosen employee in the
   // chosen period. Surfaced read-only above the Save button so the operator
   // sees which sheds/shifts the wage will allocate to.
@@ -513,6 +544,71 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           />
         </div>
       </div>
+
+      {kind === 'settlement' && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="label text-xs mb-0" htmlFor="weekSlider">Week selector</label>
+            <div className="text-xs font-semibold text-ink-soft">
+              <span className="text-indigo-700">
+                {fmtShortDate(periodStart)} – {fmtShortDate(periodEnd)}
+              </span>
+              {weekOffset === 0 && (
+                <span className="ml-2 text-emerald-700">(this week)</span>
+              )}
+              {weekOffset === -1 && (
+                <span className="ml-2 text-amber-700">(last week)</span>
+              )}
+              {weekOffset !== 0 && weekOffset !== -1 && (
+                <span className="ml-2 text-ink-mute">
+                  ({weekOffset > 0 ? '+' : ''}{weekOffset} wk)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => shiftPayDateByDays(-7)}
+              className="h-8 w-8 rounded border border-line bg-white text-ink-soft hover:bg-cloud font-bold"
+              title="Previous week"
+              aria-label="Previous week"
+            >
+              ‹
+            </button>
+            <input
+              id="weekSlider"
+              type="range"
+              min={-26}
+              max={4}
+              step={1}
+              value={weekOffset > 4 ? 4 : weekOffset < -26 ? -26 : weekOffset}
+              onChange={(e) => setWeekOffsetTo(Number(e.target.value))}
+              className="flex-1 accent-indigo-600"
+            />
+            <button
+              type="button"
+              onClick={() => shiftPayDateByDays(7)}
+              className="h-8 w-8 rounded border border-line bg-white text-ink-soft hover:bg-cloud font-bold"
+              title="Next week"
+              aria-label="Next week"
+            >
+              ›
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekOffsetTo(0)}
+              className="h-8 px-2 rounded border border-line bg-white text-ink-soft hover:bg-cloud text-xs font-semibold"
+              title="Jump to current week"
+            >
+              Today
+            </button>
+          </div>
+          <p className="text-[10px] text-ink-mute">
+            Slide to pick a week. Pay date and Period auto-update to the Mon–Sun range you choose.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <div>
