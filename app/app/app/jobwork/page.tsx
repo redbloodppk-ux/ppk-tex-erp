@@ -71,6 +71,7 @@ export default function JobworkPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('bobbin');
   const [parties, setParties] = useState<PartyOpt[]>([]);
   const [allParties, setAllParties] = useState<PartyOpt[]>([]);
+  const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOpt[]>([]);
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [counts, setCounts] = useState<CountOpt[]>([]);
   const [endsOptions, setEndsOptions] = useState<EndsOpt[]>([]);
@@ -85,23 +86,40 @@ export default function JobworkPage(): React.ReactElement {
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const [p, ap, q, c, ends, b, w, wb, wy] = await Promise.all([
+
+    // Resolve the Bobbin Supplier party_type id once so we can filter the
+    // bobbin restock dropdown to just those suppliers. If the type row
+    // doesn't exist yet the filter falls back to an empty list (user can
+    // create it in Settings -> Party Types).
+    const ptRes = await sb
+      .from('party_type_master')
+      .select('id')
+      .eq('name', 'Bobbin Supplier')
+      .maybeSingle();
+    const bobbinSupplierTypeId: number | null =
+      ptRes.data && typeof ptRes.data.id === 'number' ? ptRes.data.id : null;
+
+    const [p, ap, bs, q, c, ends, b, w, wb, wy] = await Promise.all([
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
+      bobbinSupplierTypeId === null
+        ? Promise.resolve({ data: [], error: null })
+        : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', bobbinSupplierTypeId).order('name'),
       sb.from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       sb.from('ends_master').select('id, code, name').eq('active', true).order('ends_count'),
-      sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
+      sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_warp_yarn').select('id, jobwork_party_id, fabric_quality_id, ends_id, warp_count_id, given_date, total_kg, sizing_rate_per_kg, total_cost, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
-    const errObj = [p, ap, q, c, ends, b, w, wb, wy].find((r) => r.error);
+    const errObj = [p, ap, bs, q, c, ends, b, w, wb, wy].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
     } else {
       setParties((p.data ?? []) as PartyOpt[]);
       setAllParties((ap.data ?? []) as PartyOpt[]);
+      setBobbinSuppliers((bs.data ?? []) as PartyOpt[]);
       setQualities((q.data ?? []) as QualityOpt[]);
       setCounts((c.data ?? []) as CountOpt[]);
       setEndsOptions((ends.data ?? []) as EndsOpt[]);
@@ -148,7 +166,7 @@ export default function JobworkPage(): React.ReactElement {
           <Loader2 className="w-4 h-4 animate-spin" /> Loading...
         </div>
       ) : tab === 'bobbin' ? (
-        <BobbinTab rows={bobbins} partyById={partyById} allParties={allParties} onChanged={load} />
+        <BobbinTab rows={bobbins} partyById={partyById} bobbinSuppliers={bobbinSuppliers} onChanged={load} />
       ) : tab === 'warp_beam' ? (
         <WarpBeamTab
           rows={warpBeams} parties={parties} qualities={qualities} counts={counts} allParties={allParties}
@@ -236,8 +254,8 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
 }
 
 /* ===== Bobbin tab ===== */
-function BobbinTab({ rows, partyById, allParties, onChanged }: {
-  rows: BobbinRow[]; partyById: Map<number, PartyOpt>; allParties: PartyOpt[]; onChanged: () => void;
+function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
+  rows: BobbinRow[]; partyById: Map<number, PartyOpt>; bobbinSuppliers: PartyOpt[]; onChanged: () => void;
 }) {
   const supabase = createClient();
   const [restockId, setRestockId] = useState<number | null>(null);
@@ -247,6 +265,7 @@ function BobbinTab({ rows, partyById, allParties, onChanged }: {
     const sb = supabase as any;
     const qty = Number(data.qty.qty ?? 0);
     if (qty <= 0) { window.alert('Quantity required'); return; }
+    const supplierPartyId = data.supplier_party_id === '' ? null : Number(data.supplier_party_id);
     const payload = {
       description: parent.description,
       ends_per_bobbin: parent.ends_per_bobbin,
@@ -254,13 +273,14 @@ function BobbinTab({ rows, partyById, allParties, onChanged }: {
       bobbin_price: parent.bobbin_price,
       gst_pct: parent.gst_pct,
       quantity: Math.trunc(qty),
-      vendor_id: data.supplier_party_id === '' ? null : null,
+      // New unified-party FK; legacy mill vendor_id stays null on restocks.
+      supplier_party_id: supplierPartyId,
       jobwork_party_id: parent.jobwork_party_id,
       production_mode: 'jobwork',
       purchase_date: data.given_date,
       invoice_no: `RESTOCK-${parent.code}`,
       is_lurex: parent.is_lurex,
-      notes: 'Restock of ' + parent.code + (data.supplier_party_id ? ' from party #' + data.supplier_party_id : ''),
+      notes: 'Restock of ' + parent.code + (supplierPartyId !== null ? ' from party #' + supplierPartyId : ''),
       status: 'active',
     };
     const { error } = await sb.from('bobbin').insert(payload);
@@ -313,7 +333,7 @@ function BobbinTab({ rows, partyById, allParties, onChanged }: {
                 </tr>
                 {restockId === r.id && (
                   <tr><td colSpan={8} className="p-0">
-                    <RestockForm parties={allParties}
+                    <RestockForm parties={bobbinSuppliers}
                       qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
                       onCancel={() => setRestockId(null)}
                       onSave={(data) => restock(r, data)} />
