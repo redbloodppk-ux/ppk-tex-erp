@@ -72,10 +72,21 @@ function buildCountSuffix(c: CountOption | undefined | null): string {
   return c.display_name;
 }
 
-function buildDisplayName(ends: number | null, c: CountOption | undefined | null): string {
-  if (ends == null || ends <= 0) return c == null ? '' : buildCountSuffix(c);
-  const suffix = buildCountSuffix(c);
-  return suffix === '' ? String(ends) : String(ends) + ' /' + suffix;
+function buildDisplayName(
+  ends: number | null,
+  c: CountOption | undefined | null,
+  notes?: string | null,
+): string {
+  let base: string;
+  if (ends == null || ends <= 0) {
+    base = c == null ? '' : buildCountSuffix(c);
+  } else {
+    const suffix = buildCountSuffix(c);
+    base = suffix === '' ? String(ends) : String(ends) + ' /' + suffix;
+  }
+  const n = (notes ?? '').trim();
+  if (n === '') return base;
+  return base === '' ? n : base + ' - ' + n;
 }
 
 export default function EndsMasterPage() {
@@ -131,8 +142,8 @@ export default function EndsMasterPage() {
   const namePreview = useMemo<string>(() => {
     const ec = toIntOrNull(neu.ends_count);
     const c = neu.count_id === '' ? null : countById.get(Number(neu.count_id));
-    return buildDisplayName(ec, c);
-  }, [neu.ends_count, neu.count_id, countById]);
+    return buildDisplayName(ec, c, neu.notes);
+  }, [neu.ends_count, neu.count_id, countById, neu.notes]);
 
   async function handleAdd() {
     setError(null);
@@ -145,7 +156,7 @@ export default function EndsMasterPage() {
     }
     const countId = neu.count_id === '' ? null : Number(neu.count_id);
     const count = countId === null ? null : countById.get(countId);
-    const name = buildDisplayName(ec, count);
+    const name = buildDisplayName(ec, count, neu.notes);
     if (name === '') {
       setError('Pick a yarn count, or enter an ends value.');
       return;
@@ -173,8 +184,8 @@ export default function EndsMasterPage() {
   }
 
   /**
-   * Apply the patch + recompute the display name if ends_count or
-   * count_id changed (so the persisted name stays in sync).
+   * Apply the patch + recompute the display name if ends_count,
+   * count_id, or notes changed (so the persisted name stays in sync).
    */
   async function updateRow(id: number, patch: Partial<EndsRow>) {
     setError(null);
@@ -186,12 +197,13 @@ export default function EndsMasterPage() {
 
     const nameRecalcNeeded =
       Object.prototype.hasOwnProperty.call(patch, 'ends_count') ||
-      Object.prototype.hasOwnProperty.call(patch, 'count_id');
+      Object.prototype.hasOwnProperty.call(patch, 'count_id') ||
+      Object.prototype.hasOwnProperty.call(patch, 'notes');
 
     let persistPatch: Partial<EndsRow> = patch;
     if (nameRecalcNeeded) {
       const c = merged.count_id === null ? null : countById.get(merged.count_id);
-      const newName = buildDisplayName(merged.ends_count, c);
+      const newName = buildDisplayName(merged.ends_count, c, merged.notes);
       persistPatch = { ...patch, name: newName };
       merged.name = newName;
     }
