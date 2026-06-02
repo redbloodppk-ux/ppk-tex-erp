@@ -632,10 +632,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           {rows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
-                <td colSpan={4} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
-                <td className="px-3 py-3 text-right num">
-                  {rows.reduce((s, r) => s + Number(r.total_ends ?? 0), 0).toLocaleString('en-IN')}
-                </td>
+                {/* "Total" label spans Date / Party / Quality / Warp count / Ends.
+                    Ends is intentionally NOT summed - each row's value is a
+                    spec (e.g. 2400 ends) and adding them across rows would be
+                    misleading. */}
+                <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {rows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
                 </td>
