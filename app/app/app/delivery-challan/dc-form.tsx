@@ -1,24 +1,30 @@
 'use client';
 /**
- * Shared form for /app/delivery-challan/new and /app/delivery-challan/[id].
+ * Delivery Challan form (shared by /new and /[id]).
  *
- * Flow:
- *   1. Operator picks production mode (in-house vs jobwork).
- *   2. Party dropdown narrows to either Customer-type parties (in-house)
- *      or Jobwork Party-type parties (jobwork).
- *   3. On party change, bill-to name/address/GSTIN/state snapshot autofill.
- *   4. Ship-to has a "same as bill to" checkbox; uncheck to pick a
- *      different party as ship-to (e.g. a separate shipping warehouse).
- *   5. Item rows: fabric quality dropdown auto-fills HSN; operator enters
- *      metres / pieces / bundles / rate. Amount = metres x rate.
- *   6. Header totals (metres, pieces, bundles, amount) are computed live
- *      and snapshotted on save so the Sales Orders page can show them
- *      without re-aggregating items.
+ * Hierarchical item model:
+ *   Item (fabric quality + HSN)
+ *     Bundle #1
+ *       Piece 1: 5.20 m
+ *       Piece 2: 6.10 m
+ *     Bundle #2
+ *       Piece 1: 5.50 m
+ *       ...
+ *
+ * The operator first says "how many bundles" - we render that many bundle
+ * cards. In each card they add piece-metre entries (one entry per piece).
+ *
+ * Item-level snapshots:
+ *   metres  = sum of every piece across every bundle
+ *   pieces  = total piece count across every bundle
+ *   bundles = number of bundles
+ *
+ * Header-level snapshots are sums across all items.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Plus, Trash2, Save } from 'lucide-react';
+import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
 
 export type ProductionMode = 'inhouse' | 'jobwork';
 
@@ -40,7 +46,15 @@ export interface QualityOpt {
   code: string | null;
   name: string;
   hsn: string | null;
-  rate_per_m: number | string | null;
+}
+
+/** Each piece is just a metres value (as a string for controlled input). */
+export type Piece = string;
+
+/** A bundle is an ordered list of pieces. */
+export interface Bundle {
+  sno: number;
+  pieces: Piece[];
 }
 
 export interface DcItem {
@@ -49,10 +63,7 @@ export interface DcItem {
   fabric_quality_id: string;
   description: string;
   hsn: string;
-  metres: string;
-  pieces: string;
-  bundles: string;
-  rate_per_m: string;
+  bundles: Bundle[];
 }
 
 export interface DcFormValues {
@@ -75,12 +86,6 @@ export interface DcFormValues {
   ship_to_state: string;
   ship_to_state_code: string;
   vehicle_no: string;
-  transport_mode: string;
-  lr_no: string;
-  lr_date: string;
-  driver_name: string;
-  driver_phone: string;
-  distance_km: string;
   notes: string;
   items: DcItem[];
 }
@@ -94,10 +99,15 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const EMPTY_ITEM: DcItem = {
-  sno: 1, fabric_quality_id: '', description: '', hsn: '',
-  metres: '', pieces: '', bundles: '', rate_per_m: '',
-};
+function emptyItem(sno: number): DcItem {
+  return {
+    sno,
+    fabric_quality_id: '',
+    description: '',
+    hsn: '',
+    bundles: [{ sno: 1, pieces: [''] }],
+  };
+}
 
 export const EMPTY_DC: DcFormValues = {
   dc_date: todayISO(),
@@ -108,10 +118,9 @@ export const EMPTY_DC: DcFormValues = {
   ship_to_party_id: '',
   bill_to_name: '', bill_to_address: '', bill_to_gstin: '', bill_to_state: '', bill_to_state_code: '',
   ship_to_name: '', ship_to_address: '', ship_to_gstin: '', ship_to_state: '', ship_to_state_code: '',
-  vehicle_no: '', transport_mode: '', lr_no: '', lr_date: '',
-  driver_name: '', driver_phone: '', distance_km: '',
+  vehicle_no: '',
   notes: '',
-  items: [{ ...EMPTY_ITEM }],
+  items: [emptyItem(1)],
 };
 
 function num(s: string): number {
@@ -121,14 +130,36 @@ function num(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Sum of piece metres across one bundle. */
+function bundleMetres(b: Bundle): number {
+  return b.pieces.reduce((s, p) => s + num(p), 0);
+}
+
+/** Item-level snapshots: metres = sum across bundles, pieces = total
+ *  pieces, bundles = bundle count. Empty piece strings are ignored. */
+function itemTotals(it: DcItem): { metres: number; pieces: number; bundles: number } {
+  let metres = 0;
+  let pieces = 0;
+  for (const b of it.bundles) {
+    for (const p of b.pieces) {
+      const v = num(p);
+      if (v > 0) {
+        metres += v;
+        pieces += 1;
+      }
+    }
+  }
+  return { metres, pieces, bundles: it.bundles.length };
+}
+
 export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
   const isEdit = initial?.id != null;
 
   const [form, setForm] = useState<DcFormValues>({ ...EMPTY_DC, ...(initial ?? {}) });
-  const [allParties, setAllParties]   = useState<PartyOpt[]>([]);
-  const [qualities,  setQualities]    = useState<QualityOpt[]>([]);
+  const [allParties, setAllParties]         = useState<PartyOpt[]>([]);
+  const [qualities,  setQualities]          = useState<QualityOpt[]>([]);
   const [customerTypeId, setCustomerTypeId] = useState<number | null>(null);
   const [jobworkTypeId,  setJobworkTypeId]  = useState<number | null>(null);
   const [busy,  setBusy]  = useState<boolean>(false);
@@ -142,7 +173,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const [ptRes, partyRes, fqRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
-        sb.from('fabric_quality').select('id, code, name, hsn, rate_per_m').eq('active', true).order('name'),
+        sb.from('fabric_quality').select('id, code, name, hsn').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
@@ -152,7 +183,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     })();
   }, [supabase]);
 
-  // ---- Derived: party dropdown filtered by production mode ----
+  // ---- Party dropdown filtered by mode ----
   const filteredParties = useMemo<PartyOpt[]>(() => {
     if (form.production_mode === 'jobwork') {
       return jobworkTypeId === null
@@ -166,7 +197,6 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
 
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
 
-  // ---- Auto-fill bill-to from selected party ----
   function pickParty(partyIdStr: string): void {
     setForm((f) => {
       const next = { ...f, party_id: partyIdStr };
@@ -182,7 +212,6 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     });
   }
 
-  // ---- Auto-fill ship-to from selected ship-to party (when not "same as") ----
   function pickShipToParty(partyIdStr: string): void {
     setForm((f) => {
       const next = { ...f, ship_to_party_id: partyIdStr };
@@ -198,7 +227,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     });
   }
 
-  // ---- Item row helpers ----
+  // ---- Item helpers ----
   function setItem(idx: number, patch: Partial<DcItem>): void {
     setForm((f) => ({
       ...f,
@@ -206,17 +235,12 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     }));
   }
   function addItem(): void {
-    setForm((f) => ({
-      ...f,
-      items: [...f.items, { ...EMPTY_ITEM, sno: f.items.length + 1 }],
-    }));
+    setForm((f) => ({ ...f, items: [...f.items, emptyItem(f.items.length + 1)] }));
   }
   function removeItem(idx: number): void {
     setForm((f) => ({
       ...f,
-      items: f.items
-        .filter((_, i) => i !== idx)
-        .map((it, i) => ({ ...it, sno: i + 1 })),
+      items: f.items.filter((_, i) => i !== idx).map((it, i) => ({ ...it, sno: i + 1 })),
     }));
   }
   function pickFabric(idx: number, fqIdStr: string): void {
@@ -225,24 +249,89 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       fabric_quality_id: fqIdStr,
       description: fq?.name ?? '',
       hsn: fq?.hsn ?? '',
-      rate_per_m: fq?.rate_per_m == null ? '' : String(fq.rate_per_m),
     });
   }
 
-  // ---- Live totals (snapshot saved on submit) ----
-  const totals = useMemo(() => {
-    let m = 0, p = 0, b = 0, amt = 0;
+  // ---- Bundle helpers ----
+  // When the operator types "Bundles = N" we either grow or shrink the
+  // bundle list to length N. New bundles start with one empty piece input.
+  function setBundleCount(itemIdx: number, count: number): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== itemIdx) return it;
+        const target = Math.max(0, Math.min(count, 200));
+        const cur = it.bundles;
+        let next: Bundle[];
+        if (target > cur.length) {
+          const grow: Bundle[] = [];
+          for (let k = cur.length; k < target; k++) {
+            grow.push({ sno: k + 1, pieces: [''] });
+          }
+          next = [...cur, ...grow];
+        } else if (target < cur.length) {
+          next = cur.slice(0, target);
+        } else {
+          next = cur;
+        }
+        return { ...it, bundles: next.map((b, k) => ({ ...b, sno: k + 1 })) };
+      }),
+    }));
+  }
+  function setPiece(itemIdx: number, bundleIdx: number, pieceIdx: number, value: string): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== itemIdx) return it;
+        return {
+          ...it,
+          bundles: it.bundles.map((b, j) => {
+            if (j !== bundleIdx) return b;
+            return { ...b, pieces: b.pieces.map((p, k) => (k === pieceIdx ? value : p)) };
+          }),
+        };
+      }),
+    }));
+  }
+  function addPiece(itemIdx: number, bundleIdx: number): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== itemIdx) return it;
+        return {
+          ...it,
+          bundles: it.bundles.map((b, j) => (j === bundleIdx ? { ...b, pieces: [...b.pieces, ''] } : b)),
+        };
+      }),
+    }));
+  }
+  function removePiece(itemIdx: number, bundleIdx: number, pieceIdx: number): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== itemIdx) return it;
+        return {
+          ...it,
+          bundles: it.bundles.map((b, j) => {
+            if (j !== bundleIdx) return b;
+            const next = b.pieces.filter((_, k) => k !== pieceIdx);
+            return { ...b, pieces: next.length === 0 ? [''] : next };
+          }),
+        };
+      }),
+    }));
+  }
+
+  // ---- DC-level totals snapshot ----
+  const headerTotals = useMemo(() => {
+    let metres = 0, pieces = 0, bundles = 0;
     for (const it of form.items) {
-      const metres = num(it.metres);
-      const pieces = num(it.pieces);
-      const bundles = num(it.bundles);
-      const rate = num(it.rate_per_m);
-      m   += metres;
-      p   += pieces;
-      b   += bundles;
-      amt += metres * rate;
+      const t = itemTotals(it);
+      metres  += t.metres;
+      pieces  += t.pieces;
+      bundles += t.bundles;
     }
-    return { metres: m, pieces: p, bundles: b, amount: amt };
+    return { metres, pieces, bundles };
   }, [form.items]);
 
   // ---- Save ----
@@ -250,17 +339,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     setError(null);
     if (form.party_id === '') { setError('Pick a party.'); return; }
     if (!form.ship_to_same && form.ship_to_party_id === '') {
-      setError('Pick a Ship-To party (or tick "Same as Bill-To").');
-      return;
+      setError('Pick a Ship-To party (or tick "Same as Bill-To").'); return;
     }
-    if (form.items.length === 0) { setError('Add at least one item.'); return; }
+    if (form.vehicle_no.trim() === '') { setError('Vehicle number is required.'); return; }
+    if (form.items.length === 0)       { setError('Add at least one item.'); return; }
 
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
     const headerPayload = {
-      // code is auto-generated by trigger on insert
       dc_date: form.dc_date,
       status: form.status,
       production_mode: form.production_mode,
@@ -278,17 +366,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       ship_to_gstin: form.ship_to_same ? form.bill_to_gstin : (form.ship_to_gstin || null),
       ship_to_state: form.ship_to_same ? form.bill_to_state : (form.ship_to_state || null),
       ship_to_state_code: form.ship_to_same ? form.bill_to_state_code : (form.ship_to_state_code || null),
-      vehicle_no: form.vehicle_no || null,
-      transport_mode: form.transport_mode || null,
-      lr_no: form.lr_no || null,
-      lr_date: form.lr_date || null,
-      driver_name: form.driver_name || null,
-      driver_phone: form.driver_phone || null,
-      distance_km: form.distance_km === '' ? null : Number(form.distance_km),
-      total_metres: totals.metres,
-      total_pieces: totals.pieces,
-      total_bundles: totals.bundles,
-      total_amount: totals.amount,
+      vehicle_no: form.vehicle_no.trim(),
+      total_metres: headerTotals.metres,
+      total_pieces: headerTotals.pieces,
+      total_bundles: headerTotals.bundles,
       notes: form.notes || null,
     };
 
@@ -297,7 +378,6 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const { error: err } = await sb.from('delivery_challan').update(headerPayload).eq('id', form.id);
       if (err) { setBusy(false); setError(err.message); return; }
       dcId = form.id;
-      // Replace items: delete old, insert new (simpler than diffing).
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
     } else {
       const { data, error: err } = await sb.from('delivery_challan').insert(headerPayload).select('id').single();
@@ -305,18 +385,23 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       dcId = data.id as number;
     }
 
-    const itemsPayload = form.items.map((it) => ({
-      dc_id: dcId,
-      sno: it.sno,
-      fabric_quality_id: it.fabric_quality_id === '' ? null : Number(it.fabric_quality_id),
-      description: it.description || null,
-      hsn: it.hsn || null,
-      metres: num(it.metres) || null,
-      pieces: num(it.pieces) || null,
-      bundles: num(it.bundles) || null,
-      rate_per_m: num(it.rate_per_m) || null,
-      amount: num(it.metres) * num(it.rate_per_m) || null,
-    }));
+    const itemsPayload = form.items.map((it) => {
+      const t = itemTotals(it);
+      return {
+        dc_id: dcId,
+        sno: it.sno,
+        fabric_quality_id: it.fabric_quality_id === '' ? null : Number(it.fabric_quality_id),
+        description: it.description || null,
+        hsn: it.hsn || null,
+        metres: t.metres || null,
+        pieces: t.pieces || null,
+        bundles: t.bundles || null,
+        bundles_detail: it.bundles.map((b) => ({
+          sno: b.sno,
+          pieces: b.pieces.map((p) => num(p)).filter((n) => n > 0),
+        })),
+      };
+    });
     if (itemsPayload.length > 0) {
       const { error: itemErr } = await sb.from('delivery_challan_item').insert(itemsPayload);
       if (itemErr) { setBusy(false); setError(itemErr.message); return; }
@@ -328,13 +413,11 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
 
   return (
     <form className="card p-5 space-y-5 max-w-5xl" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
-      {/* Header row: DC no, date, status */}
+      {/* Header */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
           <label className="label">DC No</label>
-          <div className="input bg-cloud/40 text-ink-mute">
-            {form.code ?? 'Auto (DC/26-27/NNNN)'}
-          </div>
+          <div className="input bg-cloud/40 text-ink-mute">{form.code ?? 'Auto (DC/26-27/NNNN)'}</div>
         </div>
         <div>
           <label className="label">DC Date *</label>
@@ -359,22 +442,28 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
                 (form.production_mode === 'inhouse'
                   ? 'border-transparent bg-indigo-600 text-white'
-                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
-              In-house
-            </button>
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>In-house</button>
             <button type="button"
               onClick={() => setForm({ ...form, production_mode: 'jobwork', party_id: '' })}
               className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
                 (form.production_mode === 'jobwork'
                   ? 'border-transparent bg-indigo-600 text-white'
-                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
-              Job-work
-            </button>
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Job-work</button>
           </div>
         </div>
       </div>
 
-      {/* Party picker */}
+      {/* Vehicle number — mandatory */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="label">Vehicle Number *</label>
+          <input className="input num uppercase" required placeholder="TN 38 AB 1234"
+            value={form.vehicle_no}
+            onChange={(e) => setForm({ ...form, vehicle_no: e.target.value.toUpperCase() })} />
+        </div>
+      </div>
+
+      {/* Party */}
       <div className="rounded-lg border border-line bg-cloud/20 p-4 space-y-3">
         <div>
           <label className="label">
@@ -387,16 +476,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
             ))}
           </select>
-          {filteredParties.length === 0 && form.party_id === '' && (
-            <p className="text-[11px] text-ink-mute mt-1">
-              No active parties tagged as <span className="font-semibold">
-                {form.production_mode === 'jobwork' ? 'Jobwork Party' : 'Customer'}
-              </span> yet. Tag a party in <a href="/app/parties" target="_blank" className="text-indigo-700 underline">Parties</a>.
-            </p>
-          )}
         </div>
-
-        {/* Bill-To snapshot */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="label text-xs">Bill-To Name</label>
@@ -426,7 +506,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         </div>
       </div>
 
-      {/* Ship-To picker */}
+      {/* Ship-To */}
       <div className="rounded-lg border border-line bg-cloud/20 p-4 space-y-3">
         <label className="inline-flex items-center gap-2">
           <input type="checkbox" checked={form.ship_to_same}
@@ -476,137 +556,133 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         )}
       </div>
 
-      {/* Item rows */}
+      {/* Items + bundles */}
       <div className="rounded-lg border border-line bg-paper">
         <div className="flex items-center justify-between p-3 border-b border-line/60">
           <h3 className="font-display font-bold text-sm">Items</h3>
           <button type="button" className="btn-ghost text-xs" onClick={addItem}>
-            <Plus className="w-3.5 h-3.5" /> Add row
+            <Plus className="w-3.5 h-3.5" /> Add item
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-              <tr>
-                <th className="text-left px-2 py-2 w-10">#</th>
-                <th className="text-left px-2 py-2">Fabric Quality</th>
-                <th className="text-left px-2 py-2">Description</th>
-                <th className="text-left px-2 py-2 w-20">HSN</th>
-                <th className="text-right px-2 py-2 w-24">Metres</th>
-                <th className="text-right px-2 py-2 w-20">Pcs</th>
-                <th className="text-right px-2 py-2 w-20">Bundles</th>
-                <th className="text-right px-2 py-2 w-24">Rate/m</th>
-                <th className="text-right px-2 py-2 w-28">Amount</th>
-                <th className="px-1 py-2 w-8" />
-              </tr>
-            </thead>
-            <tbody>
-              {form.items.map((it, idx) => (
-                <tr key={idx} className="border-t border-line/40">
-                  <td className="px-2 py-1.5 text-ink-mute">{it.sno}</td>
-                  <td className="px-2 py-1.5">
-                    <select className="input h-8 text-xs w-full"
+        <div className="p-3 space-y-4">
+          {form.items.map((it, itemIdx) => {
+            const tot = itemTotals(it);
+            return (
+              <div key={itemIdx} className="rounded-lg border border-line bg-cloud/10 p-3 space-y-3">
+                {/* Item header row */}
+                <div className="grid grid-cols-12 gap-2 items-start">
+                  <div className="col-span-12 md:col-span-1 text-xs text-ink-mute pt-2">Item #{it.sno}</div>
+                  <div className="col-span-12 md:col-span-4">
+                    <label className="label text-[10px]">Fabric Quality</label>
+                    <select className="input h-9 text-sm w-full"
                       value={it.fabric_quality_id}
-                      onChange={(e) => pickFabric(idx, e.target.value)}>
+                      onChange={(e) => pickFabric(itemIdx, e.target.value)}>
                       <option value="">--- pick ---</option>
                       {qualities.map((q) => (
                         <option key={q.id} value={q.id}>{q.name}</option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input className="input h-8 text-xs w-full" value={it.description}
-                      onChange={(e) => setItem(idx, { description: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input className="input h-8 text-xs num w-full" value={it.hsn}
-                      onChange={(e) => setItem(idx, { hsn: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" step={0.01} className="input h-8 text-xs num w-full text-right"
-                      value={it.metres} onChange={(e) => setItem(idx, { metres: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" className="input h-8 text-xs num w-full text-right"
-                      value={it.pieces} onChange={(e) => setItem(idx, { pieces: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" className="input h-8 text-xs num w-full text-right"
-                      value={it.bundles} onChange={(e) => setItem(idx, { bundles: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" step={0.01} className="input h-8 text-xs num w-full text-right"
-                      value={it.rate_per_m} onChange={(e) => setItem(idx, { rate_per_m: e.target.value })} />
-                  </td>
-                  <td className="px-2 py-1.5 text-right num text-xs">
-                    {(num(it.metres) * num(it.rate_per_m)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </td>
-                  <td className="px-1 py-1.5 text-center">
-                    <button type="button" className="text-rose-600 hover:text-rose-800"
-                      onClick={() => removeItem(idx)} disabled={form.items.length === 1}
-                      title={form.items.length === 1 ? 'At least one row is required' : 'Remove row'}>
-                      <Trash2 className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="col-span-8 md:col-span-4">
+                    <label className="label text-[10px]">Description</label>
+                    <input className="input h-9 text-sm" value={it.description}
+                      onChange={(e) => setItem(itemIdx, { description: e.target.value })} />
+                  </div>
+                  <div className="col-span-4 md:col-span-2">
+                    <label className="label text-[10px]">HSN</label>
+                    <input className="input h-9 text-sm num" value={it.hsn}
+                      onChange={(e) => setItem(itemIdx, { hsn: e.target.value })} />
+                  </div>
+                  <div className="col-span-12 md:col-span-1 flex justify-end md:justify-center pt-5">
+                    <button type="button"
+                      onClick={() => removeItem(itemIdx)}
+                      disabled={form.items.length === 1}
+                      className="p-1.5 rounded hover:bg-rose-50 text-rose-600 disabled:opacity-40"
+                      title={form.items.length === 1 ? 'At least one item is required' : 'Remove item'}>
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
-              <tr>
-                <td colSpan={4} className="px-2 py-2 text-right text-[11px] uppercase tracking-wide text-ink-soft">Total</td>
-                <td className="px-2 py-2 text-right num">{totals.metres.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m</td>
-                <td className="px-2 py-2 text-right num">{totals.pieces.toLocaleString('en-IN')}</td>
-                <td className="px-2 py-2 text-right num">{totals.bundles.toLocaleString('en-IN')}</td>
-                <td />
-                <td className="px-2 py-2 text-right num text-indigo-700">
-                  Rs {totals.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
+                  </div>
+                </div>
 
-      {/* Transport details */}
-      <div className="rounded-lg border border-line bg-cloud/20 p-4">
-        <h3 className="font-display font-bold text-sm mb-2">Transport</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <label className="label text-xs">Vehicle No</label>
-            <input className="input num uppercase" value={form.vehicle_no}
-              onChange={(e) => setForm({ ...form, vehicle_no: e.target.value.toUpperCase() })} />
-          </div>
-          <div>
-            <label className="label text-xs">Mode</label>
-            <input className="input" placeholder="Road / Rail / Air" value={form.transport_mode}
-              onChange={(e) => setForm({ ...form, transport_mode: e.target.value })} />
-          </div>
-          <div>
-            <label className="label text-xs">LR / RR No</label>
-            <input className="input" value={form.lr_no}
-              onChange={(e) => setForm({ ...form, lr_no: e.target.value })} />
-          </div>
-          <div>
-            <label className="label text-xs">LR Date</label>
-            <input type="date" className="input" value={form.lr_date}
-              onChange={(e) => setForm({ ...form, lr_date: e.target.value })} />
-          </div>
-          <div>
-            <label className="label text-xs">Driver Name</label>
-            <input className="input" value={form.driver_name}
-              onChange={(e) => setForm({ ...form, driver_name: e.target.value })} />
-          </div>
-          <div>
-            <label className="label text-xs">Driver Phone</label>
-            <input className="input num" value={form.driver_phone}
-              onChange={(e) => setForm({ ...form, driver_phone: e.target.value })} />
-          </div>
-          <div>
-            <label className="label text-xs">Distance (km)</label>
-            <input type="number" className="input num" value={form.distance_km}
-              onChange={(e) => setForm({ ...form, distance_km: e.target.value })} />
-          </div>
+                {/* Bundles count picker */}
+                <div className="flex flex-wrap items-end gap-3 border-t border-line/40 pt-3">
+                  <div>
+                    <label className="label text-[10px]">No. of bundles</label>
+                    <input type="number" min={0} max={200} step={1}
+                      className="input h-9 text-sm num w-28 text-right"
+                      value={it.bundles.length}
+                      onChange={(e) => setBundleCount(itemIdx, Number(e.target.value) || 0)} />
+                  </div>
+                  <p className="text-[11px] text-ink-mute pb-2">
+                    Type the bundle count, then enter each piece's metres inside each bundle below.
+                  </p>
+                </div>
+
+                {/* Per-bundle piece-entry cards */}
+                {it.bundles.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {it.bundles.map((b, bundleIdx) => {
+                      const bMetres = bundleMetres(b);
+                      const bPieces = b.pieces.filter((p) => num(p) > 0).length;
+                      return (
+                        <div key={bundleIdx} className="rounded-lg border border-line bg-white p-2.5">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-semibold text-ink-soft">Bundle #{b.sno}</span>
+                            <span className="text-[10px] text-ink-mute">
+                              {bPieces} pcs / {bMetres.toFixed(2)} m
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {b.pieces.map((p, pieceIdx) => (
+                              <div key={pieceIdx} className="flex items-center gap-1">
+                                <span className="text-[10px] text-ink-mute w-5 text-right">{pieceIdx + 1}.</span>
+                                <input
+                                  type="number" step={0.01} min={0}
+                                  placeholder="metres"
+                                  className="input h-8 text-xs num flex-1 text-right"
+                                  value={p}
+                                  onChange={(e) => setPiece(itemIdx, bundleIdx, pieceIdx, e.target.value)}
+                                />
+                                <button type="button"
+                                  onClick={() => removePiece(itemIdx, bundleIdx, pieceIdx)}
+                                  disabled={b.pieces.length === 1}
+                                  className="text-rose-500 hover:text-rose-700 p-1 disabled:opacity-30"
+                                  title="Remove piece">
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button type="button"
+                            onClick={() => addPiece(itemIdx, bundleIdx)}
+                            className="mt-1.5 w-full text-[11px] text-indigo-700 hover:bg-indigo-50 py-1 rounded border border-dashed border-line">
+                            + Add piece
+                          </button>
+                          <div className="mt-1.5 pt-1.5 border-t border-line/60 text-right text-[11px] font-semibold text-indigo-700">
+                            Total: {bMetres.toFixed(2)} m
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Item totals (auto-snapshot) */}
+                <div className="flex flex-wrap justify-end gap-4 border-t border-line/40 pt-2 text-xs">
+                  <div>Total Metres: <span className="num font-bold text-indigo-700">{tot.metres.toFixed(2)} m</span></div>
+                  <div>No. of Pcs: <span className="num font-bold">{tot.pieces}</span></div>
+                  <div>No. of Bundles: <span className="num font-bold">{tot.bundles}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* DC-level totals */}
+        <div className="border-t-2 border-line bg-cloud/40 px-3 py-3 flex flex-wrap justify-end gap-6 text-sm font-semibold">
+          <div>DC Total Metres: <span className="num text-indigo-700">{headerTotals.metres.toFixed(2)} m</span></div>
+          <div>DC Total Pcs: <span className="num">{headerTotals.pieces}</span></div>
+          <div>DC Total Bundles: <span className="num">{headerTotals.bundles}</span></div>
         </div>
       </div>
 
@@ -621,9 +697,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       )}
 
       <div className="flex items-center gap-2 justify-end">
-        <button type="button" className="btn-ghost" onClick={() => router.back()} disabled={busy}>
-          Cancel
-        </button>
+        <button type="button" className="btn-ghost" onClick={() => router.back()} disabled={busy}>Cancel</button>
         <button type="submit" className="btn-primary" disabled={busy}>
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {isEdit ? 'Save Changes' : 'Create DC'}

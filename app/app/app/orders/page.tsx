@@ -17,7 +17,6 @@ interface PendingDc {
   total_metres: number | string | null;
   total_pieces: number | null;
   total_bundles: number | null;
-  total_amount: number | string | null;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
 }
 
@@ -34,7 +33,7 @@ export default async function OrdersPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: pendingDcs } = await (supabase as any)
     .from('delivery_challan')
-    .select('id, code, dc_date, production_mode, bill_to_name, total_metres, total_pieces, total_bundles, total_amount, status')
+    .select('id, code, dc_date, production_mode, bill_to_name, total_metres, total_pieces, total_bundles, status')
     .in('status', ['draft', 'confirmed'])
     .is('invoice_id', null)
     .order('dc_date', { ascending: false })
@@ -79,7 +78,6 @@ export default async function OrdersPage() {
                 <th className="text-right px-4 py-2.5">Metres</th>
                 <th className="text-right px-4 py-2.5">Pcs</th>
                 <th className="text-right px-4 py-2.5">Bundles</th>
-                <th className="text-right px-4 py-2.5">Amount</th>
                 <th className="text-left px-4 py-2.5">Status</th>
                 <th className="text-right px-4 py-2.5" />
               </tr>
@@ -96,7 +94,6 @@ export default async function OrdersPage() {
                   <td className="px-4 py-2 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                   <td className="px-4 py-2 text-right num">{d.total_pieces ?? 0}</td>
                   <td className="px-4 py-2 text-right num">{d.total_bundles ?? 0}</td>
-                  <td className="px-4 py-2 text-right num font-semibold text-emerald-700">{formatRupee(d.total_amount, { compact: true })}</td>
                   <td className="px-4 py-2">
                     <span className={'pill text-xs uppercase tracking-wide ' +
                       (d.status === 'confirmed'

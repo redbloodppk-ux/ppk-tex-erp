@@ -1,7 +1,13 @@
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { DeliveryChallanForm, EMPTY_DC, type DcFormValues, type DcItem } from '../dc-form';
+import {
+  DeliveryChallanForm,
+  EMPTY_DC,
+  type DcFormValues,
+  type DcItem,
+  type Bundle,
+} from '../dc-form';
 
 export const metadata = { title: 'Edit Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -26,13 +32,12 @@ interface DcRow {
   ship_to_state: string | null;
   ship_to_state_code: string | null;
   vehicle_no: string | null;
-  transport_mode: string | null;
-  lr_no: string | null;
-  lr_date: string | null;
-  driver_name: string | null;
-  driver_phone: string | null;
-  distance_km: number | string | null;
   notes: string | null;
+}
+
+interface BundleDetailJson {
+  sno?: number;
+  pieces?: Array<number | string>;
 }
 
 interface DcItemRow {
@@ -44,7 +49,38 @@ interface DcItemRow {
   metres: number | string | null;
   pieces: number | null;
   bundles: number | null;
-  rate_per_m: number | string | null;
+  bundles_detail: BundleDetailJson[] | null;
+}
+
+/**
+ * Convert the JSON stored in `bundles_detail` back into the controlled-form
+ * shape the form uses (string piece values, sequential sno).
+ *
+ * Fallback: if the row pre-dates migration 083 (bundles_detail is null), we
+ * synthesise N bundles from the legacy `bundles` count and put one empty
+ * piece slot in each so the operator can re-enter the breakdown.
+ */
+function hydrateBundles(row: DcItemRow): Bundle[] {
+  if (Array.isArray(row.bundles_detail) && row.bundles_detail.length > 0) {
+    return row.bundles_detail.map((b, idx): Bundle => {
+      const rawPieces = Array.isArray(b?.pieces) ? b.pieces : [];
+      const pieces = rawPieces
+        .map((p) => (p == null ? '' : String(p)))
+        .filter((p) => p.trim() !== '');
+      return {
+        sno: typeof b?.sno === 'number' ? b.sno : idx + 1,
+        pieces: pieces.length > 0 ? pieces : [''],
+      };
+    });
+  }
+
+  // Legacy fallback: synthesise empty bundles so the count survives the edit.
+  const count = Math.max(1, Number(row.bundles ?? 0) || 1);
+  const out: Bundle[] = [];
+  for (let i = 0; i < count; i += 1) {
+    out.push({ sno: i + 1, pieces: [''] });
+  }
+  return out;
 }
 
 export default async function EditDcPage({
@@ -61,11 +97,11 @@ export default async function EditDcPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, transport_mode, lr_no, lr_date, driver_name, driver_phone, distance_km, notes')
+      .select('id, code, dc_date, status, production_mode, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, rate_per_m')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail')
       .eq('dc_id', numericId)
       .order('sno'),
   ]);
@@ -75,16 +111,13 @@ export default async function EditDcPage({
 
   const itemRows = (itemsRes.data ?? []) as DcItemRow[];
   const items: DcItem[] = itemRows.length > 0
-    ? itemRows.map((r) => ({
+    ? itemRows.map((r): DcItem => ({
         id: r.id,
         sno: r.sno,
         fabric_quality_id: r.fabric_quality_id == null ? '' : String(r.fabric_quality_id),
         description: r.description ?? '',
         hsn: r.hsn ?? '',
-        metres: r.metres == null ? '' : String(r.metres),
-        pieces: r.pieces == null ? '' : String(r.pieces),
-        bundles: r.bundles == null ? '' : String(r.bundles),
-        rate_per_m: r.rate_per_m == null ? '' : String(r.rate_per_m),
+        bundles: hydrateBundles(r),
       }))
     : EMPTY_DC.items;
 
@@ -107,14 +140,8 @@ export default async function EditDcPage({
     ship_to_gstin:   dc.ship_to_gstin ?? '',
     ship_to_state:   dc.ship_to_state ?? '',
     ship_to_state_code: dc.ship_to_state_code ?? '',
-    vehicle_no:     dc.vehicle_no ?? '',
-    transport_mode: dc.transport_mode ?? '',
-    lr_no:          dc.lr_no ?? '',
-    lr_date:        dc.lr_date ?? '',
-    driver_name:    dc.driver_name ?? '',
-    driver_phone:   dc.driver_phone ?? '',
-    distance_km:    dc.distance_km == null ? '' : String(dc.distance_km),
-    notes:          dc.notes ?? '',
+    vehicle_no:      dc.vehicle_no ?? '',
+    notes:           dc.notes ?? '',
     items,
   };
 

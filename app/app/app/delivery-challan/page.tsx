@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { formatRupee } from '@/lib/utils';
 import { Plus, Pencil } from 'lucide-react';
 
 export const metadata = { title: 'Delivery Challan' };
@@ -18,7 +17,6 @@ interface DcRow {
   total_metres: number | string | null;
   total_pieces: number | null;
   total_bundles: number | null;
-  total_amount: number | string | null;
   sales_order_id: number | null;
   invoice_id: number | null;
 }
@@ -47,7 +45,7 @@ export default async function DeliveryChallanListPage() {
   const sb = supabase as any;
   const { data, error } = await sb
     .from('delivery_challan')
-    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, total_amount, sales_order_id, invoice_id')
+    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id')
     .order('dc_date', { ascending: false })
     .order('id', { ascending: false });
 
@@ -80,7 +78,6 @@ export default async function DeliveryChallanListPage() {
               <th className="text-right px-3 py-3">Metres</th>
               <th className="text-right px-3 py-3">Pcs</th>
               <th className="text-right px-3 py-3">Bundles</th>
-              <th className="text-right px-3 py-3">Amount</th>
               <th className="text-left px-3 py-3">Status</th>
               <th className="text-right px-3 py-3" />
             </tr>
@@ -88,7 +85,7 @@ export default async function DeliveryChallanListPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
+                <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
                   No delivery challans yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link>
                 </td>
               </tr>
@@ -105,7 +102,6 @@ export default async function DeliveryChallanListPage() {
                   <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                   <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
                   <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
-                  <td className="px-3 py-2 text-right num text-emerald-700 font-semibold">{formatRupee(r.total_amount, { compact: true })}</td>
                   <td className="px-3 py-2">
                     <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
                   </td>
