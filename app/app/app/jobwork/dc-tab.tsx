@@ -12,7 +12,7 @@
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Pencil, Printer, Receipt } from 'lucide-react';
+import { Loader2, Pencil, Printer, Receipt, PackageCheck } from 'lucide-react';
 
 interface PartyOpt { id: number; code: string; name: string }
 interface QualityOpt { id: number; code: string | null; name: string }
@@ -28,6 +28,7 @@ interface DcRow {
   total_pieces: number | null;
   total_bundles: number | null;
   invoice_id: number | null;
+  fabric_receipt_id: number | null;
   vehicle_no: string | null;
 }
 
@@ -98,7 +99,7 @@ export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactEleme
 
       const [hdrRes, itemRes, partyRes] = await Promise.all([
         sb.from('delivery_challan')
-          .select('id, code, dc_date, status, party_id, bill_to_name, total_metres, total_pieces, total_bundles, invoice_id, vehicle_no')
+          .select('id, code, dc_date, status, party_id, bill_to_name, total_metres, total_pieces, total_bundles, invoice_id, fabric_receipt_id, vehicle_no')
           .eq('production_mode', 'jobwork')
           .order('dc_date', { ascending: false })
           .order('id', { ascending: false }),
@@ -297,6 +298,23 @@ export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactEleme
                       <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {r.status === 'confirmed' && r.fabric_receipt_id === null && (
+                        <Link
+                          href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
+                          className="p-1 rounded hover:bg-teal-50 text-teal-700 inline-flex mr-1"
+                          title="Receive fabric from this DC"
+                        >
+                          <PackageCheck className="w-4 h-4" />
+                        </Link>
+                      )}
+                      {r.fabric_receipt_id !== null && (
+                        <span
+                          className="p-1 rounded text-emerald-700 inline-flex mr-1"
+                          title="Fabric already received against this DC"
+                        >
+                          <PackageCheck className="w-4 h-4" />
+                        </span>
+                      )}
                       <Link
                         href={`/app/delivery-challan/${r.id}/print`}
                         target="_blank"
