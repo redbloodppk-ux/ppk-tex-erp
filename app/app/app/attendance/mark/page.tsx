@@ -353,13 +353,13 @@ export default function AttendanceMarkPage() {
   // current worker from picking the same shed. The rule is role-aware:
   //
   //   - Weaver  (selfRole = 'weaver') -> blocked only by OTHER WEAVERS.
-  //     One weaver per shed/shift is enforced. Winders may also be in
-  //     that shed (they cover the weaver's loom), so winder picks are
-  //     NOT counted as taken for a weaver.
+  //     One weaver per shed/shift is enforced. Winders / fitters may also
+  //     be in that shed (they cover the weaver's loom or service it), so
+  //     winder / fitter picks are NOT counted as taken for a weaver.
   //
-  //   - Winder  (selfRole = 'winder') -> nothing is taken. A winder may
-  //     cover any shed (including sheds with a weaver already there)
-  //     and may cover multiple sheds in the same shift.
+  //   - Winder / Fitter -> nothing is taken. Both roles cover multiple
+  //     sheds in the same shift and freely share with each other and with
+  //     weavers.
   //
   //   - Other roles -> fall back to weaver-style exclusion against other
   //     weavers, in case a future role gets a single-shed picker.
@@ -369,10 +369,10 @@ export default function AttendanceMarkPage() {
   const shedsTakenByOthers = useCallback(
     (selfId: number, selfRole: string): Set<string> => {
       const taken = new Set<string>();
-      // Winders can share any shed — nobody blocks them.
-      if (selfRole === 'winder') return taken;
+      // Winders and fitters can share any shed — nobody blocks them.
+      if (selfRole === 'winder' || selfRole === 'fitter') return taken;
       // For weavers (and other single-shed roles), only OTHER WEAVERS
-      // block. Winder picks never block.
+      // block. Winder / fitter picks never block.
       for (const e of employees) {
         if (e.id === selfId) continue;
         if (e.role.toLowerCase() !== 'weaver') continue;
@@ -475,11 +475,12 @@ export default function AttendanceMarkPage() {
       const role = emp.role.toLowerCase();
       const isWeaver = role === 'weaver';
       const isWinder = role === 'winder';
+      const isFitter = role === 'fitter';
       // Save shed picks for every status (present, absent, none, ...) so
       // the running-shed report can detect which shed lost coverage.
       // `worked` still gates time fields above but no longer gates sheds.
       void worked;
-      const sheds = (isWeaver || isWinder) ? (shedsByEmp[emp.id] ?? []) : [];
+      const sheds = (isWeaver || isWinder || isFitter) ? (shedsByEmp[emp.id] ?? []) : [];
       const firstShed = sheds[0] ?? null;
       return {
         employee_id: String(emp.id),
@@ -567,11 +568,12 @@ export default function AttendanceMarkPage() {
         const role = emp.role.toLowerCase();
         const isWeaver = role === 'weaver';
         const isWinder = role === 'winder';
+      const isFitter = role === 'fitter';
         // Save the shed picks for every status (present, absent, none, ...)
         // so the running-shed report and winder weaver-absent deduction can
         // attribute the lost coverage. The `worked` gate previously dropped
         // sheds on absent/none — leaving shed_no NULL in the DB.
-        const sheds = (isWeaver || isWinder) ? (shedsByEmp[emp.id] ?? []) : [];
+        const sheds = (isWeaver || isWinder || isFitter) ? (shedsByEmp[emp.id] ?? []) : [];
         const firstShed = sheds[0] ?? null;
         return {
           attendance_day_id: dayId,
@@ -809,17 +811,21 @@ export default function AttendanceMarkPage() {
                     const empRole = emp.role.toLowerCase();
                     const isWeaver = empRole === 'weaver';
                     const isWinder = empRole === 'winder';
+                    const isFitter = empRole === 'fitter';
                     // Shed picker is now visible for ALL statuses (including
                     // absent / none) so the supervisor can flag which shed
                     // lost coverage. Only required (i.e. error-flagged) when
                     // the employee actually worked.
                     const showShed = isWeaver;
-                    const showWinderSheds = isWinder;
+                    // Fitter uses the same multi-shed pill picker as winder
+                    // (both cover several sheds in a shift and share with
+                    // each other - they don't block each other's picks).
+                    const showWinderSheds = isWinder || isFitter;
                     const winderShedsPicked = shedsByEmp[emp.id] ?? [];
                     const empWorked = WORKED_STATUSES.has(empStatus);
                     const shedMissing = showShed && empWorked && !shedByEmp[emp.id];
                     const winderShedMissing = showWinderSheds && empWorked && winderShedsPicked.length === 0;
-                    const takenForEmp = (isWeaver || isWinder) ? shedsTakenByOthers(emp.id, empRole) : new Set<string>();
+                    const takenForEmp = (isWeaver || isWinder || isFitter) ? shedsTakenByOthers(emp.id, empRole) : new Set<string>();
                     return (
                       <tr key={emp.id} className="border-b border-line/60">
                         <td className="py-2 pr-3">
