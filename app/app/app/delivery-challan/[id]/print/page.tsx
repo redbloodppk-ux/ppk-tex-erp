@@ -42,6 +42,7 @@ interface DcHeader {
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
+  entry_mode: 'detailed' | 'summary' | null;
   bill_to_name: string | null;
   bill_to_address: string | null;
   bill_to_gstin: string | null;
@@ -150,7 +151,7 @@ export default async function DcPrintPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
+      .select('id, code, dc_date, status, production_mode, entry_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -356,7 +357,15 @@ export default async function DcPrintPage({
               if (v > 0) { itemMetres += v; itemPieces += 1; }
             }
           }
-          const itemBundles = bundles.length;
+          let itemBundles = bundles.length;
+
+          // Summary-mode rows have no bundles_detail to roll up - take the
+          // totals straight off the row instead.
+          if (dc.entry_mode === 'summary') {
+            itemMetres  = num(item.metres);
+            itemPieces  = item.pieces  ?? 0;
+            itemBundles = item.bundles ?? 0;
+          }
 
           return (
             <div className="dc-item" key={item.id}>
@@ -365,7 +374,11 @@ export default async function DcPrintPage({
                 <div className="agent">HSN : {item.hsn || fq?.hsn || '-'}</div>
               </div>
 
-              {bundleRows.length === 0 ? (
+              {dc.entry_mode === 'summary' ? (
+                <div style={{ padding: '8px 10px', fontSize: 11, color: '#555', fontStyle: 'italic', background: '#fafafa', borderBottom: '0.5px solid #000' }}>
+                  Summary entry &mdash; bundle-wise piece breakdown not captured for this DC.
+                </div>
+              ) : bundleRows.length === 0 ? (
                 <div style={{ padding: 12, textAlign: 'center', color: '#888', fontSize: 11 }}>
                   No bundle breakdown captured.
                 </div>

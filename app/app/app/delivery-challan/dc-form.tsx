@@ -64,7 +64,15 @@ export interface DcItem {
   description: string;
   hsn: string;
   bundles: Bundle[];
+  // Summary-mode totals: operator types these directly when the DC entry
+  // mode is 'summary'. They are ignored in 'detailed' mode where the totals
+  // get rolled up from bundles[].pieces[].
+  summary_metres: string;
+  summary_pieces: string;
+  summary_bundles: string;
 }
+
+export type DcEntryMode = 'detailed' | 'summary';
 
 export interface DcFormValues {
   id?: number;
@@ -72,6 +80,11 @@ export interface DcFormValues {
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: ProductionMode;
+  /**
+   * detailed - hierarchical bundle/piece grid (default)
+   * summary  - flat totals only per fabric quality
+   */
+  entry_mode: DcEntryMode;
   party_id: string;
   ship_to_same: boolean;
   ship_to_party_id: string;
@@ -106,6 +119,9 @@ function emptyItem(sno: number): DcItem {
     description: '',
     hsn: '',
     bundles: [{ sno: 1, pieces: [''] }],
+    summary_metres: '',
+    summary_pieces: '',
+    summary_bundles: '',
   };
 }
 
@@ -113,6 +129,7 @@ export const EMPTY_DC: DcFormValues = {
   dc_date: todayISO(),
   status: 'draft',
   production_mode: 'inhouse',
+  entry_mode: 'detailed',
   party_id: '',
   ship_to_same: true,
   ship_to_party_id: '',
@@ -137,7 +154,14 @@ function bundleMetres(b: Bundle): number {
 
 /** Item-level snapshots: metres = sum across bundles, pieces = total
  *  pieces, bundles = bundle count. Empty piece strings are ignored. */
-function itemTotals(it: DcItem): { metres: number; pieces: number; bundles: number } {
+function itemTotals(it: DcItem, mode: DcEntryMode = 'detailed'): { metres: number; pieces: number; bundles: number } {
+  if (mode === 'summary') {
+    return {
+      metres:  num(it.summary_metres),
+      pieces:  Math.round(num(it.summary_pieces)),
+      bundles: Math.round(num(it.summary_bundles)),
+    };
+  }
   let metres = 0;
   let pieces = 0;
   for (const b of it.bundles) {
@@ -326,13 +350,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const headerTotals = useMemo(() => {
     let metres = 0, pieces = 0, bundles = 0;
     for (const it of form.items) {
-      const t = itemTotals(it);
+      const t = itemTotals(it, form.entry_mode);
       metres  += t.metres;
       pieces  += t.pieces;
       bundles += t.bundles;
     }
     return { metres, pieces, bundles };
-  }, [form.items]);
+  }, [form.items, form.entry_mode]);
 
   // ---- Save ----
   async function handleSave(): Promise<void> {
@@ -352,6 +376,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       dc_date: form.dc_date,
       status: form.status,
       production_mode: form.production_mode,
+      entry_mode: form.entry_mode,
       party_id: Number(form.party_id),
       ship_to_same: form.ship_to_same,
       ship_to_party_id: form.ship_to_same ? null
@@ -387,13 +412,28 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       dcId = form.id;
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
     } else {
-      const { data, error: err } = await sb.from('delivery_challan').insert(headerPayload).select('id').single();
+      // On create, jobwork DCs may set a custom code (e.g. to match a
+      // paper book number). In-house DCs always use the auto-generated
+      // DC/26-27/NNNN. When code is left blank the autogen trigger fires.
+      const createPayload = form.production_mode === 'jobwork' && (form.code ?? '').trim() !== ''
+        ? { ...headerPayload, code: (form.code ?? '').trim() }
+        : headerPayload;
+      const { data, error: err } = await sb.from('delivery_challan').insert(createPayload).select('id').single();
       if (err || !data?.id) { setBusy(false); setError(err?.message ?? 'Insert failed'); return; }
       dcId = data.id as number;
     }
 
     const itemsPayload = form.items.map((it) => {
-      const t = itemTotals(it);
+      const t = itemTotals(it, form.entry_mode);
+      // Summary mode stores an empty bundles_detail array - the print
+      // template uses that as the signal to skip the bundle grid and
+      // just show the totals row.
+      const bundles_detail = form.entry_mode === 'summary'
+        ? []
+        : it.bundles.map((b) => ({
+            sno: b.sno,
+            pieces: b.pieces.map((p) => num(p)).filter((n) => n > 0),
+          }));
       return {
         dc_id: dcId,
         sno: it.sno,
@@ -403,10 +443,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         metres: t.metres || null,
         pieces: t.pieces || null,
         bundles: t.bundles || null,
-        bundles_detail: it.bundles.map((b) => ({
-          sno: b.sno,
-          pieces: b.pieces.map((p) => num(p)).filter((n) => n > 0),
-        })),
+        bundles_detail,
       };
     });
     if (itemsPayload.length > 0) {
@@ -423,19 +460,40 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       {/* Header */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
-          <label className="label">DC No {isEdit && <span className="text-[10px] text-ink-mute font-normal">(editable)</span>}</label>
-          {isEdit ? (
-            <input
-              type="text"
-              className="input font-mono text-xs"
-              value={form.code ?? ''}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              placeholder="DC/26-27/0001"
-              required
-            />
-          ) : (
-            <div className="input bg-cloud/40 text-ink-mute">Auto (assigned on save)</div>
-          )}
+          {/*
+            DC No is editable on:
+              - any edit screen (fix typos / re-align series)
+              - jobwork CREATE (so the operator can type a custom code
+                that matches their paper book number)
+            In-house CREATE stays locked - that's where strict sequential
+            numbering matters most.
+          */}
+          {(() => {
+            const editable = isEdit || form.production_mode === 'jobwork';
+            const hint = isEdit
+              ? '(editable)'
+              : (form.production_mode === 'jobwork' ? '(optional - leave blank for auto)' : '');
+            const placeholder = form.production_mode === 'jobwork' ? 'JDC/26-27/0001' : 'DC/26-27/0001';
+            return (
+              <>
+                <label className="label">
+                  DC No {hint !== '' && <span className="text-[10px] text-ink-mute font-normal">{hint}</span>}
+                </label>
+                {editable ? (
+                  <input
+                    type="text"
+                    className="input font-mono text-xs"
+                    value={form.code ?? ''}
+                    onChange={(e) => setForm({ ...form, code: e.target.value })}
+                    placeholder={placeholder}
+                    required={isEdit}
+                  />
+                ) : (
+                  <div className="input bg-cloud/40 text-ink-mute">Auto (assigned on save)</div>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div>
           <label className="label">DC Date *</label>
@@ -468,6 +526,37 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Job-work</button>
           </div>
+        </div>
+      </div>
+
+      {/* Entry mode toggle — controls whether items are captured as a
+          full bundle/piece grid or as flat totals per quality. */}
+      <div>
+        <label className="label">
+          Item Entry Mode
+          <span className="text-[10px] text-ink-mute font-normal ml-2">
+            {form.entry_mode === 'detailed'
+              ? 'Capture every bundle and piece (default).'
+              : 'Type total metres / pieces / bundles per fabric quality only.'}
+          </span>
+        </label>
+        <div className="flex gap-1.5 max-w-md">
+          <button type="button"
+            onClick={() => setForm({ ...form, entry_mode: 'detailed' })}
+            className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+              (form.entry_mode === 'detailed'
+                ? 'border-transparent bg-indigo-600 text-white'
+                : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
+            Detailed (bundle / piece)
+          </button>
+          <button type="button"
+            onClick={() => setForm({ ...form, entry_mode: 'summary' })}
+            className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+              (form.entry_mode === 'summary'
+                ? 'border-transparent bg-indigo-600 text-white'
+                : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
+            Summary (totals only)
+          </button>
         </div>
       </div>
 
@@ -584,7 +673,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         </div>
         <div className="p-3 space-y-4">
           {form.items.map((it, itemIdx) => {
-            const tot = itemTotals(it);
+            const tot = itemTotals(it, form.entry_mode);
             return (
               <div key={itemIdx} className="rounded-lg border border-line bg-cloud/10 p-3 space-y-3">
                 {/* Item header row */}
@@ -622,6 +711,46 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                   </div>
                 </div>
 
+                {/* Summary mode: just three flat input fields per item.
+                    Detailed mode (default) shows the bundle grid below. */}
+                {form.entry_mode === 'summary' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-line/40 pt-3">
+                    <div>
+                      <label className="label text-[10px]">Total metres</label>
+                      <input type="number" step={0.01} min={0}
+                        className="input h-9 text-sm num text-right"
+                        placeholder="0.00"
+                        value={it.summary_metres}
+                        onChange={(e) => setForm({
+                          ...form,
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_metres: e.target.value } : x),
+                        })} />
+                    </div>
+                    <div>
+                      <label className="label text-[10px]">Total pieces</label>
+                      <input type="number" step={1} min={0}
+                        className="input h-9 text-sm num text-right"
+                        placeholder="0"
+                        value={it.summary_pieces}
+                        onChange={(e) => setForm({
+                          ...form,
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_pieces: e.target.value } : x),
+                        })} />
+                    </div>
+                    <div>
+                      <label className="label text-[10px]">Total bundles</label>
+                      <input type="number" step={1} min={0}
+                        className="input h-9 text-sm num text-right"
+                        placeholder="0"
+                        value={it.summary_bundles}
+                        onChange={(e) => setForm({
+                          ...form,
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_bundles: e.target.value } : x),
+                        })} />
+                    </div>
+                  </div>
+                ) : (
+                <>
                 {/* Bundles count picker */}
                 <div className="flex flex-wrap items-end gap-3 border-t border-line/40 pt-3">
                   <div>
@@ -683,6 +812,8 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                       );
                     })}
                   </div>
+                )}
+                </>
                 )}
 
                 {/* Item totals (auto-snapshot) */}

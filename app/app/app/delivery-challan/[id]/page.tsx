@@ -20,6 +20,7 @@ interface DcRow {
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
+  entry_mode: 'detailed' | 'summary';
   party_id: number | null;
   ship_to_same: boolean;
   ship_to_party_id: number | null;
@@ -99,7 +100,7 @@ export default async function EditDcPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
+      .select('id, code, dc_date, status, production_mode, entry_mode, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -120,6 +121,11 @@ export default async function EditDcPage({
         description: r.description ?? '',
         hsn: r.hsn ?? '',
         bundles: hydrateBundles(r),
+        // Re-hydrate summary-mode inputs from the persisted totals so the
+        // form shows the numbers the operator originally typed.
+        summary_metres:  r.metres  == null ? '' : String(r.metres),
+        summary_pieces:  r.pieces  == null ? '' : String(r.pieces),
+        summary_bundles: r.bundles == null ? '' : String(r.bundles),
       }))
     : EMPTY_DC.items;
 
@@ -129,6 +135,7 @@ export default async function EditDcPage({
     dc_date: dc.dc_date,
     status: dc.status,
     production_mode: dc.production_mode,
+    entry_mode: dc.entry_mode ?? 'detailed',
     party_id: dc.party_id != null ? String(dc.party_id) : '',
     ship_to_same: dc.ship_to_same,
     ship_to_party_id: dc.ship_to_party_id != null ? String(dc.ship_to_party_id) : '',
