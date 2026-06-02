@@ -399,6 +399,18 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WarpBeamRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
+  // Table filters (empty string = "All ...").
+  const [filterQualityId, setFilterQualityId] = useState<string>('');
+  const [filterPartyId, setFilterPartyId] = useState<string>('');
+
+  // Rows after applying the on-screen filters. We keep `rows` (the full
+  // list) for the table body filter check and the footer's totals so the
+  // totals always reflect what's currently visible.
+  const filteredRows = rows.filter((r) => {
+    if (filterQualityId !== '' && String(r.fabric_quality_id ?? '') !== filterQualityId) return false;
+    if (filterPartyId   !== '' && String(r.jobwork_party_id)         !== filterPartyId)   return false;
+    return true;
+  });
 
   // When the user picks a Fabric Quality, auto-fill warp count + total ends
   // from the fabric_quality_warp_count / fabric_quality_ends child tables
@@ -551,6 +563,49 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         </div>
       </div>
 
+      {/* Filter bar — narrows the table + footer totals down to a single
+          fabric quality and / or jobwork party. Empty selection = All. */}
+      <div className="card p-3 mb-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label text-[10px]">Filter by quality</label>
+          <select
+            className="input h-9 w-56"
+            value={filterQualityId}
+            onChange={(e) => setFilterQualityId(e.target.value)}
+          >
+            <option value="">All qualities</option>
+            {qualities.map((q) => (
+              <option key={q.id} value={String(q.id)}>{q.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label text-[10px]">Filter by party</label>
+          <select
+            className="input h-9 w-56"
+            value={filterPartyId}
+            onChange={(e) => setFilterPartyId(e.target.value)}
+          >
+            <option value="">All parties</option>
+            {parties.map((p) => (
+              <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
+            ))}
+          </select>
+        </div>
+        {(filterQualityId !== '' || filterPartyId !== '') && (
+          <button
+            type="button"
+            onClick={() => { setFilterQualityId(''); setFilterPartyId(''); }}
+            className="text-xs text-ink-mute underline hover:text-ink h-9"
+          >
+            Clear filters
+          </button>
+        )}
+        <div className="ml-auto text-xs text-ink-soft">
+          Showing <span className="font-semibold text-ink">{filteredRows.length}</span> of {rows.length} rows
+        </div>
+      </div>
+
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
@@ -568,9 +623,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-8 text-center text-ink-soft">No warp beams issued yet.</td></tr>
-            ) : rows.map((r) => {
+            {filteredRows.length === 0 ? (
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-ink-soft">
+                {rows.length === 0 ? 'No warp beams issued yet.' : 'No warp beams match the current filters.'}
+              </td></tr>
+            ) : filteredRows.map((r) => {
               const isEditing = editingId === r.id;
               const ef = editForm ?? r;
               return (
@@ -629,19 +686,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               );
             })}
           </tbody>
-          {rows.length > 0 && (
+          {filteredRows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
-                {/* "Total" label spans Date / Party / Quality / Warp count / Ends.
-                    Ends is intentionally NOT summed - each row's value is a
-                    spec (e.g. 2400 ends) and adding them across rows would be
-                    misleading. */}
+                {/* Totals reflect the CURRENT filter, not the full table. */}
                 <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
-                  {rows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
+                  {filteredRows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-indigo-700">
-                  {rows.reduce((s, r) => s + Number(r.total_metres ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                  {filteredRows.reduce((s, r) => s + Number(r.total_metres ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
                 <td colSpan={3} />
               </tr>
