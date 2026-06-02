@@ -45,6 +45,9 @@ interface Loom {
   loom_type: string;
   status: string;
   shed_no: number | null;
+  /** Migration 079: date the loom went non-running. Shift log entries on
+   *  or after this date lock the loom; entries before stay editable. */
+  idle_since: string | null;
 }
 
 interface WeaverOption {
@@ -68,15 +71,30 @@ interface LoomRow {
   loom_type: string;
   /** Loom status from Mill Setup (running / idle / maintenance / breakdown). */
   status: string;
+  /** Date the loom went non-running. NULL when currently running. */
+  idle_since: string | null;
   /** Aligned with the shed's weavers array. metres[i] = metres for slot i. */
   metres: string[];
   /** Free-form +/- correction. Empty string = 0. */
   adjustment: string;
 }
 
-/** Looms that aren't actively weaving don't accept metres/adjustments. */
-function isRunning(status: string): boolean {
-  return status === 'running';
+/**
+ * Whether a loom is editable on a given log date. A loom is editable when:
+ *   - status is 'running' (always editable), OR
+ *   - it's non-running but its idle_since is AFTER the log date (so on the
+ *     log date the loom was still running historically).
+ *
+ * `idle_since` is the cutover - on/after that date the loom is locked.
+ */
+function isLoomEditableOn(
+  row: { status: string; idle_since: string | null },
+  logDate: string,
+): boolean {
+  if (row.status === 'running') return true;
+  if (!row.idle_since) return false;
+  // logDate < idle_since => the loom was still running on that date.
+  return logDate < row.idle_since;
 }
 
 function statusPill(status: string): { label: string; cls: string } {
@@ -108,6 +126,7 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_code: l.loom_code,
       loom_type: l.loom_type,
       status: l.status,
+      idle_since: l.idle_since,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
       adjustment: '',
     })),
@@ -165,7 +184,7 @@ export default function ShiftLogPage(): React.ReactElement {
         await Promise.all([
           supabase
             .from('loom')
-            .select('id, loom_code, loom_type, status, shed_no')
+            .select('id, loom_code, loom_type, status, shed_no, idle_since')
             .order('loom_code'),
           // role + status casts via any because employee role/status types lag.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -321,6 +340,7 @@ export default function ShiftLogPage(): React.ReactElement {
           loom_code: l.loom_code,
           loom_type: l.loom_type,
           status: l.status,
+          idle_since: l.idle_since,
           metres,
           adjustment: adj !== 0 ? String(adj) : '',
         };
@@ -460,9 +480,11 @@ export default function ShiftLogPage(): React.ReactElement {
 
       // Build child rows + adjustments for this shed.
       for (const r of s.loomRows) {
-        // Non-running looms are read-only — skip them entirely (don't save,
-        // don't delete any historical rows for them either).
-        if (!isRunning(r.status)) continue;
+        // Non-running looms are read-only on this date — skip them
+        // entirely (don't save, don't delete any historical rows for
+        // them either). idle_since acts as the cut-over: dates BEFORE
+        // idle_since are still editable for that loom.
+        if (!isLoomEditableOn(r, logDate)) continue;
 
         // Validate adjustment is numeric (signed) or blank.
         const adj = parseAdjustment(r.adjustment);
@@ -520,12 +542,12 @@ export default function ShiftLogPage(): React.ReactElement {
     }
 
     const keepLoomIds = new Set(parentsToSave.map((p) => p.loom_id));
-    // Non-running looms are skipped on save; any historical rows for them
-    // must NOT be deleted by this save round.
+    // Non-running looms (on this log_date) are skipped on save; any
+    // historical rows for them must NOT be deleted by this save round.
     const runningLoomIds = new Set<number>();
     for (const s of sheds) {
       for (const r of s.loomRows) {
-        if (isRunning(r.status)) runningLoomIds.add(r.loom_id);
+        if (isLoomEditableOn(r, logDate)) runningLoomIds.add(r.loom_id);
       }
     }
     const toDeleteParentIds = (existing ?? [])
@@ -828,7 +850,9 @@ function ShedCard({
           </thead>
           <tbody>
             {shed.loomRows.map((r) => {
-              const running = isRunning(r.status);
+              // Editable when status='running' OR the log date is before
+              // the loom's idle_since cutover.
+              const running = isLoomEditableOn(r, logDate);
               const total = running ? loomTotal(r) : 0;
               const pill = statusPill(r.status);
               const lockedColspan = shed.weavers.length + 1; // weaver slots + adjustment
@@ -873,9 +897,16 @@ function ShedCard({
                     >
                       <span
                         className={`pill ${pill.cls} text-xs uppercase tracking-wide`}
-                        title="Set the loom status back to running in Settings → Looms to log production."
+                        title={
+                          r.idle_since
+                            ? `Locked from ${r.idle_since}. Pick an earlier date or set status back to running in Settings → Looms.`
+                            : 'Set the loom status back to running in Settings → Looms to log production.'
+                        }
                       >
                         {pill.label}
+                        {r.idle_since && (
+                          <span className="ml-1 text-[10px] opacity-70">since {r.idle_since}</span>
+                        )}
                       </span>
                     </td>
                   )}

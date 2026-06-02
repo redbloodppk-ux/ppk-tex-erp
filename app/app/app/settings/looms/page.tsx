@@ -37,6 +37,18 @@ interface Loom {
   shed_no: number | null;
   default_rate_per_m: number | null;
   fabric_quality_id: number | null;
+  // Migration 079: date the loom became non-running. Shift log entries
+  // dated on or after this are locked; entries before stay editable.
+  // NULL when status = 'running'.
+  idle_since: string | null;
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 interface FabricQuality {
@@ -84,7 +96,7 @@ export default function LoomsPage() {
     const loomsP = (supabase as any)
       .from('loom')
       .select(
-        'id, loom_code, loom_type, width_in, status, shed_no, default_rate_per_m, fabric_quality_id',
+        'id, loom_code, loom_type, width_in, status, shed_no, default_rate_per_m, fabric_quality_id, idle_since',
       )
       .order('loom_code');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,6 +184,26 @@ export default function LoomsPage() {
     if (Object.prototype.hasOwnProperty.call(patch, 'fabric_quality_id')) {
       const qid = patch.fabric_quality_id;
       effective.width_in = qid != null ? qualityById.get(qid)?.width_in ?? null : null;
+    }
+
+    // When the status flips between running and non-running we auto-sync
+    // idle_since so the operator doesn't have to remember to also touch
+    // the date. Going non-running -> default the date to today (operator
+    // can still override). Going back to running -> clear the date.
+    if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+      const prev = looms.find((l) => l.id === id);
+      const oldStatus = prev?.status ?? 'running';
+      const newStatus = patch.status ?? oldStatus;
+      const wasRunning = oldStatus === 'running';
+      const nowRunning = newStatus === 'running';
+      if (wasRunning && !nowRunning) {
+        // Only default if the operator didn't already pass an idle_since.
+        if (!Object.prototype.hasOwnProperty.call(patch, 'idle_since')) {
+          effective.idle_since = prev?.idle_since ?? todayISO();
+        }
+      } else if (!wasRunning && nowRunning) {
+        effective.idle_since = null;
+      }
     }
 
     setLooms((prev) => prev.map((l) => (l.id === id ? { ...l, ...effective } : l)));
@@ -389,6 +421,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
             <th className="py-2 pr-3">Type</th>
             <th className="py-2 pr-3">Fabric quality</th>
             <th className="py-2 pr-3">Status</th>
+            <th className="py-2 pr-3">Idle since</th>
             <th className="py-2 pr-3">Shed</th>
             <th className="py-2 pr-3">Default /m</th>
             <th className="py-2 pr-3" />
@@ -436,6 +469,23 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
+              </td>
+              <td className="py-2 pr-3">
+                {l.status === 'running' ? (
+                  <span className="text-ink-mute text-xs">—</span>
+                ) : (
+                  <input
+                    type="date"
+                    className="input w-40 text-xs"
+                    value={l.idle_since ?? ''}
+                    onChange={(e) =>
+                      onUpdate(l.id, {
+                        idle_since: e.target.value === '' ? null : e.target.value,
+                      })
+                    }
+                    title="Shift log entries dated on or after this are locked for this loom."
+                  />
+                )}
               </td>
               <td className="py-2 pr-3">
                 <select
