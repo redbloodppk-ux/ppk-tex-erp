@@ -298,7 +298,13 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     });
   }
   const loomShiftRows = buildWorkerRows(loomShiftEmps);
-  const metreRows = buildWorkerRows(metreEmps);
+  // For Weaver Wages (metre-basis) the Net payable is intentionally
+  // wages_earned - advances (no adjustments folded in). Adjustments are
+  // still surfaced on the row but are not paid through this column.
+  const metreRows = buildWorkerRows(metreEmps).map((r): PerWorkerRow => ({
+    ...r,
+    net_payable: r.wages_earned - r.advances,
+  }));
 
   // Attendance-based pro-ration: fitter & winder.
   const fitterIds = weeklyEmps

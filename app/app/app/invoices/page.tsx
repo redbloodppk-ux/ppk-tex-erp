@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer } from 'lucide-react';
+import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { DeleteInvoiceButton } from './delete-invoice-button';
 
 export const metadata = { title: 'Invoices' };
 
@@ -149,6 +150,7 @@ export default async function InvoicesPage({
                 <th className="text-right px-4 py-3">Total</th>
                 <th className="text-right px-4 py-3 hidden md:table-cell">Balance</th>
                 <th className="text-left  px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -186,11 +188,25 @@ export default async function InvoicesPage({
                         {inv.status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link
+                        href={`/app/invoices/${inv.id}`}
+                        className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex mr-1"
+                        title="Edit invoice"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Link>
+                      <DeleteInvoiceButton
+                        invoiceId={inv.id}
+                        invoiceNo={inv.invoice_no}
+                        variant="icon"
+                      />
+                    </td>
                   </tr>
                 );
               }) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
                     No invoices in this view yet.{' '}
                     <Link
                       href={activeTab === 'jobwork_invoice'

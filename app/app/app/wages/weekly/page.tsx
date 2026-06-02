@@ -97,7 +97,15 @@ interface PerWorkerRow {
   wages_paid: number;
   advances: number;
   adjustments: number;
-  net_payable: number;  // wages_paid - advances + adjustments
+  /**
+   * Weaver Wages Net payable = wages_earned - advances.
+   *
+   * Adjustments are shown in their own column for visibility (fines /
+   * bonuses / corrections) but are intentionally NOT folded into Net
+   * payable - the metre-basis weaver is paid strictly against what
+   * they've earned this week minus any advances drawn against it.
+   */
+  net_payable: number;
 }
 
 /** Format a local Date as YYYY-MM-DD without UTC conversion. */
@@ -330,6 +338,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
   function buildWorkerRows(list: EmployeeRow[]): PerWorkerRow[] {
     return list.map((e) => {
+      const wages_earned  = wagesEarnedByEmp.get(e.id) ?? 0;
       const wages_paid    = wagesPaidByEmp.get(e.id) ?? 0;
       const settlement    = settlementByEmp.get(e.id) ?? 0;
       const same_day_paid = sameDayByEmp.get(e.id) ?? 0;
@@ -339,18 +348,24 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         employee_id: e.id,
         code: e.code,
         full_name: e.full_name,
-        wages_earned: wagesEarnedByEmp.get(e.id) ?? 0,
+        wages_earned,
         settlement,
         same_day_paid,
         wages_paid,
         advances: adv,
         adjustments: adj,
+        // Default formula (kept for loom-shift basis). For metre-basis
+        // weavers we override below so Net payable = wages earned -
+        // advances, matching the Weaver Wages section's intent.
         net_payable: wages_paid - adv + adj,
       };
     });
   }
   const loomShiftRows = buildWorkerRows(loomShiftEmps);
-  const metreRows = buildWorkerRows(metreEmps);
+  const metreRows = buildWorkerRows(metreEmps).map((r): PerWorkerRow => ({
+    ...r,
+    net_payable: r.wages_earned - r.advances,
+  }));
 
   // Attendance-based pro-ration:
   //   * Both FITTER and WINDER are paid against the sheds they cover. The
@@ -752,7 +767,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net payable</th>
+              <th className="text-right px-4 py-3">Net payable<br /><span className="text-[10px] normal-case text-ink-mute">wages earned &minus; advances</span></th>
             </tr>
           </thead>
           <tbody>
