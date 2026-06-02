@@ -27,6 +27,7 @@ interface FQRow {
   gst_pct: number | string | null;
   weight_gsm: number | string | null;
   rate_per_m: number | string | null;
+  pick_cost_per_m: number | string | null;
   active: boolean;
   notes: string | null;
 }
@@ -78,6 +79,7 @@ export default async function EditFabricQualityPage({
     gst_pct:           s(fq.gst_pct),
     weight_gsm:        s(fq.weight_gsm),
     rate_per_m:        s(fq.rate_per_m),
+    pick_cost_per_m:   s(fq.pick_cost_per_m),
     active:            fq.active,
     status:            fq.active ? 'active' : 'inactive',
     notes:             fq.notes ?? '',
