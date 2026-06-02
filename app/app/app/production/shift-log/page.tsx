@@ -721,6 +721,7 @@ export default function ShiftLogPage(): React.ReactElement {
           <ShedCard
             shed={activeShedState}
             weaverOptions={weaverOptions}
+            logDate={logDate}
             onWeaverChange={(slot, v) => updateShedWeaver(activeShed, slot, v)}
             onMetresChange={(loomId, slot, v) =>
               updateLoomMetres(activeShed, loomId, slot, v)
@@ -759,6 +760,9 @@ export default function ShiftLogPage(): React.ReactElement {
 interface ShedCardProps {
   shed: ShedState;
   weaverOptions: WeaverOption[];
+  /** Current shift log date (YYYY-MM-DD); used to decide if each loom row
+   *  is editable given its idle_since cutover. */
+  logDate: string;
   onWeaverChange: (slotIdx: number, employee_id: string) => void;
   onMetresChange: (loomId: number, slotIdx: number, value: string) => void;
   onAdjustmentChange: (loomId: number, value: string) => void;
@@ -769,6 +773,7 @@ interface ShedCardProps {
 function ShedCard({
   shed,
   weaverOptions,
+  logDate,
   onWeaverChange,
   onMetresChange,
   onAdjustmentChange,
