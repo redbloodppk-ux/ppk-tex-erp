@@ -233,7 +233,7 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
   const [qty, setQty] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   return (
-    <div className="p-3 bg-indigo-50/40 border-y border-indigo-200 grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
+    <div className="p-3 bg-indigo-50/40 border-y border-indigo-200 grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
       <div className="min-w-0">
         <label className="label text-[10px]">Received date *</label>
         <input type="date" className="input h-8 text-sm w-full" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -245,14 +245,18 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
             value={qty[f.key] ?? ''} onChange={(e) => setQty({ ...qty, [f.key]: e.target.value })} />
         </div>
       ))}
-      <div className="min-w-0">
+      {/* Supplier party spans 2 grid cols so long names like "ABC SIZING
+          TEXTILES PRIVATE LIMITED" stay readable. */}
+      <div className="min-w-0 md:col-span-2">
         <label className="label text-[10px]">Supplier party</label>
-        <select className="input h-8 text-sm w-full" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
+        <select className="input h-8 text-sm w-full" value={supplier} onChange={(e) => setSupplier(e.target.value)} title={parties.find((p) => String(p.id) === supplier)?.name}>
           <option value="">--- none ---</option>
-          {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {parties.map((p) => (
+            <option key={p.id} value={p.id} title={p.name}>{p.name}</option>
+          ))}
         </select>
       </div>
-      <div className="flex gap-1.5 justify-end min-w-0">
+      <div className="flex gap-1.5 justify-end min-w-0 md:col-span-2">
         <button type="button" onClick={onCancel} className="btn-ghost h-8 text-xs">Cancel</button>
         <button type="button" disabled={busy} onClick={async () => {
           setBusy(true);
