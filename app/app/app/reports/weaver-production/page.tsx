@@ -112,19 +112,25 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
     type WeaverEntry = { shift_log_id: number; employee_id: number; metres_woven: number | string | null };
     const weaverEntries = (weaverRaw ?? []) as WeaverEntry[];
 
-    // Step 3: Metre-basis employees.
+    // Step 3: Look up every employee that appears in the shift logs.
+    //
+    // We deliberately do NOT filter by wage_alloc_basis = 'metres' here.
+    // A weaver who logs metres on a loom is a weaver on the report, no
+    // matter how their wages are calculated (weekly, daily, metres, etc.).
+    // Filtering earlier was hiding weeks where a fill-in or weekly-basis
+    // person ran a loom, and silently dropped their production from the
+    // pivot.
     const empIds = Array.from(new Set(weaverEntries.map((w) => w.employee_id)));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: empRaw } = empIds.length ? await (supabase as any)
       .from('employee')
-      .select('id, full_name, code, wage_alloc_basis')
+      .select('id, full_name, code')
       .in('id', empIds)
-      .eq('wage_alloc_basis', 'metres')
       : { data: [] };
-    const metreEmpIds = new Set<number>();
+    const knownEmpIds = new Set<number>();
     const empInfo = new Map<number, { full_name: string; code: string }>();
-    for (const e of (empRaw ?? []) as Array<{ id: number; full_name: string; code: string; wage_alloc_basis: string }>) {
-      metreEmpIds.add(e.id);
+    for (const e of (empRaw ?? []) as Array<{ id: number; full_name: string; code: string }>) {
+      knownEmpIds.add(e.id);
       empInfo.set(e.id, { full_name: e.full_name, code: e.code });
     }
 
@@ -144,20 +150,23 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
     // Step 5: Aggregate metres per (employee, quality).
     const grouped = new Map<string, { employee_id: number; full_name: string; code: string; quality_code: string; quality_name: string; total: number }>();
     for (const w of weaverEntries) {
-      if (!metreEmpIds.has(w.employee_id)) continue;
       const loomId = loomByShift.get(w.shift_log_id);
       if (loomId == null) continue;
       const fq = qualityByLoom.get(loomId) ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' };
       const key = `${w.employee_id}|${fq.code}`;
       const m = Number(w.metres_woven ?? 0);
       if (m <= 0) continue;
+      // Use the real name when we have it; fall back to the employee code
+      // or the bare id so production is never silently dropped from the
+      // report just because the employee record is missing.
       const emp = empInfo.get(w.employee_id);
-      if (!emp) continue;
+      const full_name = emp?.full_name ?? `Emp ${w.employee_id}`;
+      const code = emp?.code ?? '';
       const existing = grouped.get(key);
       if (existing) {
         existing.total += m;
       } else {
-        grouped.set(key, { employee_id: w.employee_id, full_name: emp.full_name, code: emp.code, quality_code: fq.code, quality_name: fq.name, total: m });
+        grouped.set(key, { employee_id: w.employee_id, full_name, code, quality_code: fq.code, quality_name: fq.name, total: m });
       }
     }
     for (const r of grouped.values()) {

@@ -427,9 +427,26 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
       };
     });
 
-  // Weaver name lookup for top-performers card
+  // Weaver name lookup for top-performers card. We seed the map from the
+  // dropdown options (metre-basis employees), but the shift log can hold
+  // entries from anyone — including weekly/daily-basis fill-ins and people
+  // whose wage_alloc_basis was changed after the log was written. So we
+  // also fetch the missing IDs directly by id, with no basis filter, to
+  // make sure every weaver gets their real name on the report instead of
+  // falling back to "Emp <id>".
   const weaverNameById = new Map<number, EmployeeMeta>();
   for (const w of allWeavers) weaverNameById.set(w.id, w);
+
+  const missingIds = Array.from(byWeaver.keys()).filter((id) => !weaverNameById.has(id));
+  if (missingIds.length > 0) {
+    const { data: extraEmps } = await sb
+      .from('employee')
+      .select('id, code, full_name')
+      .in('id', missingIds);
+    for (const e of (extraEmps ?? []) as EmployeeMeta[]) {
+      weaverNameById.set(e.id, e);
+    }
+  }
 
   // Top weavers (descending metres)
   const topWeavers = Array.from(byWeaver.entries())
