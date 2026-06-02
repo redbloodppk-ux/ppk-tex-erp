@@ -18,6 +18,7 @@ interface PartyRow {
   billing_address: string | null;
   city: string | null;
   state: string | null;
+  state_code: string | null;
   pincode: string | null;
   credit_limit: number | string | null;
   payment_terms_days: number | null;
@@ -39,7 +40,7 @@ export default async function EditPartyPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('party')
-    .select('id, code, party_type_id, name, gstin, contact_person, phone, email, billing_address, city, state, pincode, credit_limit, payment_terms_days, is_vip, status, notes')
+    .select('id, code, party_type_id, name, gstin, contact_person, phone, email, billing_address, city, state, state_code, pincode, credit_limit, payment_terms_days, is_vip, status, notes')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -56,6 +57,7 @@ export default async function EditPartyPage({
     billing_address: c.billing_address ?? '',
     city: c.city ?? '',
     state: c.state ?? 'Tamil Nadu',
+    state_code: c.state_code ?? '',
     pincode: c.pincode ?? '',
     credit_limit: Number(c.credit_limit ?? 0) || 0,
     payment_terms_days: c.payment_terms_days ?? 30,

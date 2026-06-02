@@ -23,6 +23,7 @@ export interface MillFormValues {
   address: string;
   city: string;
   state: string;
+  state_code: string;
   is_preferred: boolean;
   notes: string;
   status: 'active' | 'inactive' | 'archived';
@@ -46,6 +47,7 @@ const EMPTY: MillFormValues = {
   address: '',
   city: '',
   state: 'Tamil Nadu',
+  state_code: '33',
   is_preferred: false,
   notes: '',
   status: 'active',
@@ -66,21 +68,24 @@ export function MillForm({ millId, initial, code }: MillFormProps) {
   const addressRef = useRef<HTMLTextAreaElement>(null);
   const cityRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef<HTMLInputElement>(null);
+  const stateCodeRef = useRef<HTMLInputElement>(null);
 
   function applyGst(d: GstinData) {
-    if (nameRef.current && nameRef.current.value === '') {
-      nameRef.current.value = d.trade_name || d.legal_name;
-    }
+    // Clicking Verify is an explicit "fill from GST portal" action, so we
+    // overwrite the on-screen fields with the canonical values from the
+    // lookup - including over anything the operator may have typed.
+    const name = d.trade_name || d.legal_name;
+    if (nameRef.current && name) nameRef.current.value = name;
+
     const a = d.address;
     if (a) {
-      if (addressRef.current && addressRef.current.value === '') {
+      if (addressRef.current) {
         const line = [a.building, a.street, a.locality].filter(Boolean).join(', ');
         if (line) addressRef.current.value = line;
       }
-      if (cityRef.current && cityRef.current.value === '' && a.city) {
-        cityRef.current.value = a.city;
-      }
+      if (cityRef.current && a.city) cityRef.current.value = a.city;
       if (stateRef.current && a.state) stateRef.current.value = a.state;
+      if (stateCodeRef.current && a.state_code) stateCodeRef.current.value = a.state_code;
     }
   }
 
@@ -107,6 +112,7 @@ export function MillForm({ millId, initial, code }: MillFormProps) {
       address: String(fd.get('address') ?? '').trim() || null,
       city: String(fd.get('city') ?? '').trim() || null,
       state: String(fd.get('state') ?? 'Tamil Nadu').trim() || null,
+      state_code: String(fd.get('state_code') ?? '').trim() || null,
       is_preferred: isPreferred,
       notes: String(fd.get('notes') ?? '').trim() || null,
       status: String(fd.get('status') ?? 'active') as 'active' | 'inactive' | 'archived',
@@ -240,9 +246,15 @@ export function MillForm({ millId, initial, code }: MillFormProps) {
           placeholder="Door / street / locality"
           defaultValue={values.address}
         />
-        <div className="grid grid-cols-2 gap-2">
-          <input ref={cityRef} name="city" className="input" placeholder="City" defaultValue={values.city} />
-          <input ref={stateRef} name="state" className="input" defaultValue={values.state} />
+        <div className="grid grid-cols-3 gap-2">
+          <input ref={cityRef} name="city" className="input" placeholder="City"
+            defaultValue={values.city} />
+          <input ref={stateRef} name="state" className="input" placeholder="State"
+            defaultValue={values.state} />
+          <input ref={stateCodeRef} name="state_code" className="input num"
+            placeholder="State code (e.g. 33)" maxLength={2}
+            defaultValue={values.state_code}
+            title="GST state code - first 2 digits of GSTIN. Auto-fills on Verify." />
         </div>
       </div>
 

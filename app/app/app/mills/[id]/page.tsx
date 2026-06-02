@@ -24,6 +24,7 @@ interface MillRow {
   address: string | null;
   city: string | null;
   state: string | null;
+  state_code: string | null;
   is_preferred: boolean;
   notes: string | null;
   status: 'active' | 'inactive' | 'archived';
@@ -42,7 +43,7 @@ export default async function EditMillPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('mill')
-    .select('id, code, name, gstin, contact_person, phone, email, address, city, state, is_preferred, notes, status')
+    .select('id, code, name, gstin, contact_person, phone, email, address, city, state, state_code, is_preferred, notes, status')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -58,6 +59,7 @@ export default async function EditMillPage({
     address: m.address ?? '',
     city: m.city ?? '',
     state: m.state ?? 'Tamil Nadu',
+    state_code: m.state_code ?? '',
     is_preferred: m.is_preferred,
     notes: m.notes ?? '',
     status: m.status,

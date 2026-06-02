@@ -65,17 +65,23 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
   function patch(p: Partial<LedgerFormValues>) { setForm((f) => ({ ...f, ...p })); }
 
   function applyGst(d: GstinData) {
-    if (form.name.trim() === '') patch({ name: d.trade_name || d.legal_name });
+    // Clicking Verify is an explicit "fill from GST portal" action, so
+    // overwrite the on-screen fields with the canonical values - including
+    // over anything the operator may have typed.
+    const next: Partial<LedgerFormValues> = {};
+    const name = d.trade_name || d.legal_name;
+    if (name) next.name = name;
     const a = d.address;
     if (a) {
-      if (form.address1.trim() === '' && a.building) patch({ address1: a.building });
-      if (form.address2.trim() === '' && a.street)   patch({ address2: a.street });
-      if (form.address3.trim() === '' && a.locality) patch({ address3: a.locality });
-      if (form.address4.trim() === '' && (a.city || a.pincode)) {
-        patch({ address4: [a.city, a.pincode].filter(Boolean).join(' - ') });
+      if (a.building) next.address1 = a.building;
+      if (a.street)   next.address2 = a.street;
+      if (a.locality) next.address3 = a.locality;
+      if (a.city || a.pincode) {
+        next.address4 = [a.city, a.pincode].filter(Boolean).join(' - ');
       }
-      if (form.area.trim() === '' && a.city) patch({ area: a.city });
+      if (a.city) next.area = a.city;
     }
+    if (Object.keys(next).length > 0) patch(next);
   }
 
   async function handleSave() {

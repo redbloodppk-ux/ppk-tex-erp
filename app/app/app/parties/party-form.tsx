@@ -23,6 +23,7 @@ export interface PartyFormValues {
   billing_address: string;
   city: string;
   state: string;
+  state_code: string;
   pincode: string;
   credit_limit: number;
   payment_terms_days: number;
@@ -47,6 +48,7 @@ const EMPTY: PartyFormValues = {
   billing_address: '',
   city: '',
   state: 'Tamil Nadu',
+  state_code: '33',
   pincode: '',
   credit_limit: 0,
   payment_terms_days: 30,
@@ -70,6 +72,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   const billingRef = useRef<HTMLTextAreaElement>(null);
   const cityRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef<HTMLInputElement>(null);
+  const stateCodeRef = useRef<HTMLInputElement>(null);
   const pincodeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -83,22 +86,22 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   }, [supabase]);
 
   function applyGst(d: GstinData) {
-    if (nameRef.current && nameRef.current.value === '') {
-      nameRef.current.value = d.trade_name || d.legal_name;
-    }
+    // Clicking Verify is an explicit "fill from GST portal" action, so we
+    // overwrite the on-screen fields with the canonical values returned by
+    // the lookup - including over anything the operator may have typed.
+    const name = d.trade_name || d.legal_name;
+    if (nameRef.current && name) nameRef.current.value = name;
+
     const a = d.address;
     if (a) {
-      if (billingRef.current && billingRef.current.value === '') {
+      if (billingRef.current) {
         const line = [a.building, a.street, a.locality].filter(Boolean).join(', ');
         if (line) billingRef.current.value = line;
       }
-      if (cityRef.current && cityRef.current.value === '' && a.city) {
-        cityRef.current.value = a.city;
-      }
+      if (cityRef.current && a.city) cityRef.current.value = a.city;
       if (stateRef.current && a.state) stateRef.current.value = a.state;
-      if (pincodeRef.current && pincodeRef.current.value === '' && a.pincode) {
-        pincodeRef.current.value = a.pincode;
-      }
+      if (stateCodeRef.current && a.state_code) stateCodeRef.current.value = a.state_code;
+      if (pincodeRef.current && a.pincode) pincodeRef.current.value = a.pincode;
     }
   }
 
@@ -122,6 +125,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       billing_address: String(fd.get('billing_address') ?? '').trim(),
       city: String(fd.get('city') ?? '').trim() || null,
       state: String(fd.get('state') ?? 'Tamil Nadu').trim() || null,
+      state_code: String(fd.get('state_code') ?? '').trim() || null,
       pincode: String(fd.get('pincode') ?? '').trim() || null,
       credit_limit: Number(fd.get('credit_limit') ?? 0) || 0,
       payment_terms_days: Number(fd.get('payment_terms_days') ?? 30) || 30,
@@ -243,12 +247,22 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
         <label className="label">Billing Address</label>
         <textarea ref={billingRef} name="billing_address" rows={2} className="input mb-2"
           placeholder="Door / street / locality" defaultValue={values.billing_address} />
-        <div className="grid grid-cols-3 gap-2">
-          <input ref={cityRef} name="city" className="input" placeholder="City" defaultValue={values.city} />
-          <input ref={stateRef} name="state" className="input" defaultValue={values.state} />
+        <div className="grid grid-cols-4 gap-2">
+          <input ref={cityRef} name="city" className="input" placeholder="City"
+            defaultValue={values.city} />
+          <input ref={stateRef} name="state" className="input" placeholder="State"
+            defaultValue={values.state} />
+          <input ref={stateCodeRef} name="state_code" className="input num"
+            placeholder="State code (e.g. 33)" maxLength={2}
+            defaultValue={values.state_code}
+            title="GST state code - first 2 digits of GSTIN. Auto-fills on Verify." />
           <input ref={pincodeRef} name="pincode" className="input num"
-            placeholder="641001" maxLength={6} defaultValue={values.pincode} />
+            placeholder="Pincode" maxLength={6} defaultValue={values.pincode} />
         </div>
+        <p className="text-[10px] text-ink-mute mt-1">
+          State code auto-fills when you Verify the GSTIN. It's the first 2 digits
+          (e.g. 33 = Tamil Nadu) and drives IGST vs CGST/SGST on invoices.
+        </p>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
