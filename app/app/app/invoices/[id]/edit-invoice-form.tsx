@@ -45,6 +45,32 @@ export interface EditInvoiceInitial {
   is_interstate: boolean;
 }
 
+/** Back-compute the payment-term length in days from the stored due date. */
+function daysBetweenISO(fromISO: string, toISO: string | null): string {
+  if (!toISO) return '';
+  const a = new Date(fromISO + 'T00:00:00').getTime();
+  const b = new Date(toISO   + 'T00:00:00').getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return '';
+  return String(Math.round((b - a) / 86400000));
+}
+
+/** Add N days to an ISO date and return the new ISO date (local time). */
+function addDaysISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  dt.setDate(dt.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return '-';
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + String(d.getFullYear()).slice(-2);
+}
+
 interface EditInvoiceFormProps {
   invoiceId: number;
   invoiceNo: string;
@@ -70,9 +96,15 @@ export function EditInvoiceForm({
 
   const [invoiceNo, setInvoiceNo]     = useState<string>(initial.invoice_no);
   const [invoiceDate, setInvoiceDate] = useState<string>(initial.invoice_date);
-  const [dueDate, setDueDate]         = useState<string>(initial.due_date ?? '');
+  const [dueDays, setDueDays]         = useState<string>(daysBetweenISO(initial.invoice_date, initial.due_date));
   const [status, setStatus]           = useState<Status>(initial.status);
   const [notes, setNotes]             = useState<string>(initial.notes);
+
+  // Resolved due date = invoice_date + due_days, recomputed live so the
+  // operator can see what gets saved.
+  const dueDate: string = dueDays.trim() === ''
+    ? ''
+    : addDaysISO(invoiceDate, Number(dueDays) || 0);
 
   // GST block (all values stored as strings to keep the inputs controlled)
   const [taxable, setTaxable]         = useState<string>(String(initial.taxable_value ?? 0));
@@ -208,12 +240,22 @@ export function EditInvoiceForm({
             />
           </div>
           <div>
-            <label className="label">Due date</label>
+            <label className="label">
+              Due days
+              {dueDate !== '' && (
+                <span className="text-[10px] text-ink-mute font-normal ml-2">
+                  Due: {fmtDate(dueDate)}
+                </span>
+              )}
+            </label>
             <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="input"
+              type="number"
+              min={0}
+              step={1}
+              value={dueDays}
+              onChange={(e) => setDueDays(e.target.value)}
+              className="input num text-right"
+              placeholder="15"
             />
           </div>
           <div>

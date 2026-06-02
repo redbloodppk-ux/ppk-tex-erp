@@ -365,32 +365,13 @@ export default async function InvoicePrintPage({
           </tfoot>
         </table>
 
-        {/* ───── Linked DCs (jobwork bills) ───── */}
+        {/* ───── Linked DC numbers (just the codes, comma-separated) ───── */}
         {linkedDcs.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div className="inv-lab">Linked delivery challans</div>
-            <table className="items">
-              <thead>
-                <tr>
-                  <th style={{ width: '28%' }}>DC No</th>
-                  <th>Date</th>
-                  <th className="num">Metres</th>
-                  <th className="num">Pieces</th>
-                  <th className="num">Bundles</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linkedDcs.map((d) => (
-                  <tr key={d.code}>
-                    <td style={{ fontFamily: 'monospace' }}>{d.code}</td>
-                    <td>{fmtDate(d.dc_date)}</td>
-                    <td className="num">{fmtMoney(d.total_metres)}</td>
-                    <td className="num">{d.total_pieces ?? 0}</td>
-                    <td className="num">{d.total_bundles ?? 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ marginTop: 10, fontSize: 10, color: '#555' }}>
+            <span className="inv-lab" style={{ display: 'inline', marginRight: 6 }}>DC No:</span>
+            <span style={{ fontFamily: 'monospace', color: '#111', fontSize: 11 }}>
+              {linkedDcs.map((d) => d.code).join(',  ')}
+            </span>
           </div>
         )}
 
