@@ -57,6 +57,7 @@ export function GstinLookup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState(false);
+  const [mocked, setMocked] = useState(false);
 
   const isValid = GSTIN_REGEX.test(value);
 
@@ -68,6 +69,7 @@ export function GstinLookup({
     setBusy(true);
     setError(null);
     setResolved(false);
+    setMocked(false);
     try {
       // Route lives under /app/* so middleware enforces auth — only logged-in users
       // can burn GST lookup credits when we plug in a real provider.
@@ -79,6 +81,7 @@ export function GstinLookup({
       }
       onResolve(json.data as GstinData);
       setResolved(true);
+      setMocked(Boolean(json.mocked));
     } catch (e: any) {
       setError(e?.message ?? 'Network error');
     } finally {
@@ -143,7 +146,9 @@ export function GstinLookup({
       )}
       {resolved && !error && (
         <p className="mt-1 text-xs text-emerald-700">
-          Details fetched (mock data — real GST API not connected yet).
+          {mocked
+            ? 'Details fetched (mock data — set GST_API_KEY in Vercel to use the live GST portal).'
+            : 'Details fetched from live GST portal.'}
         </p>
       )}
     </div>

@@ -111,47 +111,132 @@ export type GstinData = {
   address?: GstinAddress;
 };
 
-async function fetchFromProvider(gstin: string): Promise<GstinData> {
-  // TODO(real-api): replace this body with a fetch() to AppyFlow / Sandbox / Surepass.
-  // Read API key from process.env.GST_API_KEY (server-only). Map provider's response
-  // shape onto GstinData. Cache successful lookups for 24h to avoid burning credits.
+// AppyFlow response shape we care about. Fields we don't use are omitted.
+// See https://appyflow.in/gst-verification-api for full schema.
+interface AppyFlowAddress {
+  bnm?: string;   // building name
+  bno?: string;   // building number
+  st?: string;    // street
+  loc?: string;   // locality
+  city?: string;
+  dst?: string;   // district
+  stcd?: string;  // state
+  pncd?: string;  // pincode
+}
+interface AppyFlowTaxpayer {
+  lgnm?: string;        // legal name
+  tradeNam?: string;    // trade name
+  sts?: string;         // status (Active / Cancelled / ...)
+  ctb?: string;         // constitution of business
+  dty?: string;         // dealer / taxpayer type
+  rgdt?: string;        // registration date (DD/MM/YYYY)
+  nba?: string[];       // nature of business activities
+  pradr?: { addr?: AppyFlowAddress };
+}
+interface AppyFlowResponse {
+  taxpayerInfo?: AppyFlowTaxpayer;
+  error?: boolean;
+  message?: string;
+}
 
-  // Simulate network latency so the loading UI is visible.
+/** Normalise AppyFlow's DD/MM/YYYY date to ISO YYYY-MM-DD. */
+function normaliseDate(s: string | undefined): string | undefined {
+  if (!s) return undefined;
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return s; // already in some other format, pass through
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function callAppyFlow(gstin: string, apiKey: string): Promise<GstinData | null> {
+  // 5s timeout so the operator isn't stuck waiting on a slow provider.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const url = `https://appyflow.in/api/verifyGST?gstNo=${encodeURIComponent(gstin)}&key_secret=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const json = (await res.json()) as AppyFlowResponse;
+    if (json?.error || !json?.taxpayerInfo) return null;
+
+    const t = json.taxpayerInfo;
+    const addr = t.pradr?.addr ?? {};
+    const stateCode = gstin.slice(0, 2);
+    const state = addr.stcd ?? STATE_BY_CODE[stateCode] ?? '';
+
+    return {
+      gstin,
+      legal_name: t.lgnm ?? '',
+      trade_name: t.tradeNam ?? null,
+      status: t.sts,
+      constitution: t.ctb,
+      taxpayer_type: t.dty,
+      registration_date: normaliseDate(t.rgdt),
+      nature_of_business: Array.isArray(t.nba) ? t.nba : undefined,
+      address: {
+        building: [addr.bno, addr.bnm].filter(Boolean).join(' ').trim() || undefined,
+        street: addr.st,
+        locality: addr.loc,
+        city: addr.city,
+        district: addr.dst,
+        state,
+        state_code: stateCode,
+        pincode: addr.pncd,
+      },
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchFromProvider(gstin: string): Promise<{ data: GstinData; mocked: boolean }> {
+  // Real provider path — only runs when GST_API_KEY is set (in Vercel env).
+  // Currently uses AppyFlow's verifyGST endpoint. Swap to Sandbox / Surepass
+  // / etc. by replacing callAppyFlow with their equivalent.
+  const apiKey = process.env.GST_API_KEY;
+  if (apiKey && apiKey.trim() !== '') {
+    const real = await callAppyFlow(gstin, apiKey);
+    if (real) return { data: real, mocked: false };
+    // fall through to mock on provider error so the form still works during outages
+  }
+
+  // Mock path — used in dev or when the real provider fails.
   await new Promise((r) => setTimeout(r, 600));
-
   const stateCode = gstin.slice(0, 2);
   const state = STATE_BY_CODE[stateCode] ?? '';
 
   const sample = SAMPLES[gstin];
   if (sample) {
     return {
-      gstin,
-      ...sample,
-      address: { ...sample.address, state, state_code: stateCode },
+      data: { gstin, ...sample, address: { ...sample.address, state, state_code: stateCode } },
+      mocked: true,
     };
   }
 
-  // Generic fallback — real API would return "GSTIN not found" if invalid, but for
-  // mock purposes we generate a plausible record so any valid-format GSTIN works.
   return {
-    gstin,
-    legal_name: `[Mock] Business linked to ${gstin}`,
-    trade_name: null,
-    status: 'Active',
-    constitution: 'Private Limited',
-    taxpayer_type: 'Regular',
-    registration_date: '2020-01-01',
-    nature_of_business: [],
-    address: {
-      building: '',
-      street: '',
-      locality: '',
-      city: stateCode === '33' ? 'Coimbatore' : '',
-      district: '',
-      state,
-      state_code: stateCode,
-      pincode: '',
+    data: {
+      gstin,
+      legal_name: `[Mock] Business linked to ${gstin}`,
+      trade_name: null,
+      status: 'Active',
+      constitution: 'Private Limited',
+      taxpayer_type: 'Regular',
+      registration_date: '2020-01-01',
+      nature_of_business: [],
+      address: {
+        building: '',
+        street: '',
+        locality: '',
+        city: stateCode === '33' ? 'Coimbatore' : '',
+        district: '',
+        state,
+        state_code: stateCode,
+        pincode: '',
+      },
     },
+    mocked: true,
   };
 }
 
@@ -174,8 +259,8 @@ export async function GET(
   }
 
   try {
-    const data = await fetchFromProvider(gstin);
-    return NextResponse.json({ ok: true, mocked: true, data });
+    const { data, mocked } = await fetchFromProvider(gstin);
+    return NextResponse.json({ ok: true, mocked, data });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? 'Lookup failed' },
