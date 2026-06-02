@@ -1,0 +1,293 @@
+'use client';
+/**
+ * Jobwork DC tab — read-only list of every delivery_challan where
+ * production_mode = 'jobwork'. Two filters at the top:
+ *
+ *   - Jobwork party  (uses the same party_id the DC was filed under)
+ *   - Fabric quality (any DC where at least one item uses that quality)
+ *
+ * From here the user can jump to view / print each DC, edit it, or open
+ * a new jobwork bill seeded with the picked DCs.
+ */
+import Link from 'next/link';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { Loader2, Pencil, Printer, Receipt } from 'lucide-react';
+
+interface PartyOpt { id: number; code: string; name: string }
+interface QualityOpt { id: number; code: string | null; name: string }
+
+interface DcRow {
+  id: number;
+  code: string;
+  dc_date: string;
+  status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
+  party_id: number | null;
+  bill_to_name: string | null;
+  total_metres: number | string | null;
+  total_pieces: number | null;
+  total_bundles: number | null;
+  invoice_id: number | null;
+  vehicle_no: string | null;
+}
+
+interface DcItemRow {
+  dc_id: number;
+  fabric_quality_id: number | null;
+}
+
+interface JobworkDcTabProps {
+  parties: ReadonlyArray<PartyOpt>;
+  qualities: ReadonlyArray<QualityOpt>;
+}
+
+function fmtDate(s: string | null): string {
+  if (!s) return '-';
+  const d = new Date(s + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return s;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + d.getFullYear();
+}
+
+function statusPill(s: DcRow['status']): { label: string; cls: string } {
+  switch (s) {
+    case 'draft':     return { label: 'Draft',     cls: 'bg-slate-100 text-slate-600' };
+    case 'confirmed': return { label: 'Confirmed', cls: 'bg-amber-50 text-amber-700' };
+    case 'invoiced':  return { label: 'Invoiced',  cls: 'bg-emerald-50 text-emerald-700' };
+    case 'cancelled': return { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700' };
+    default:          return { label: s,           cls: 'bg-slate-100 text-slate-600' };
+  }
+}
+
+export function JobworkDcTab({ parties, qualities }: JobworkDcTabProps): React.ReactElement {
+  const supabase = createClient();
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<DcRow[]>([]);
+  const [itemRows, setItemRows] = useState<DcItemRow[]>([]);
+
+  // Filters
+  const [partyFilter, setPartyFilter]   = useState<string>('');
+  const [qualityFilter, setQualityFilter] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [hdrRes, itemRes] = await Promise.all([
+        sb.from('delivery_challan')
+          .select('id, code, dc_date, status, party_id, bill_to_name, total_metres, total_pieces, total_bundles, invoice_id, vehicle_no')
+          .eq('production_mode', 'jobwork')
+          .order('dc_date', { ascending: false })
+          .order('id', { ascending: false }),
+        sb.from('delivery_challan_item')
+          .select('dc_id, fabric_quality_id'),
+      ]);
+      if (cancelled) return;
+      if (hdrRes.error) { setError(hdrRes.error.message); setLoading(false); return; }
+      setRows((hdrRes.data ?? []) as DcRow[]);
+      setItemRows((itemRes.data ?? []) as DcItemRow[]);
+      setLoading(false);
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
+  // Build a map of dc_id -> set of fabric_quality_ids it uses (for the
+  // quality filter).
+  const qualitiesByDc = useMemo<Map<number, Set<number>>>(() => {
+    const m = new Map<number, Set<number>>();
+    for (const r of itemRows) {
+      if (r.fabric_quality_id == null) continue;
+      let s = m.get(r.dc_id);
+      if (!s) { s = new Set<number>(); m.set(r.dc_id, s); }
+      s.add(r.fabric_quality_id);
+    }
+    return m;
+  }, [itemRows]);
+
+  const filtered = useMemo<DcRow[]>(() => {
+    const pId = partyFilter ? Number(partyFilter) : null;
+    const qId = qualityFilter ? Number(qualityFilter) : null;
+    return rows.filter((r) => {
+      if (pId != null && r.party_id !== pId) return false;
+      if (qId != null) {
+        const set = qualitiesByDc.get(r.id);
+        if (!set || !set.has(qId)) return false;
+      }
+      return true;
+    });
+  }, [rows, partyFilter, qualityFilter, qualitiesByDc]);
+
+  const total = filtered.reduce<{ m: number; p: number; b: number }>(
+    (acc, r) => ({
+      m: acc.m + Number(r.total_metres ?? 0),
+      p: acc.p + (r.total_pieces ?? 0),
+      b: acc.b + (r.total_bundles ?? 0),
+    }),
+    { m: 0, p: 0, b: 0 },
+  );
+
+  const partyById = useMemo<Map<number, PartyOpt>>(
+    () => new Map(parties.map((p) => [p.id, p])),
+    [parties],
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* ───── Filter bar ───── */}
+      <div className="card p-3 flex flex-wrap items-end gap-3">
+        <div className="flex flex-col">
+          <label htmlFor="dc-party" className="text-[10px] uppercase tracking-wide text-ink-mute">Jobwork party</label>
+          <select
+            id="dc-party"
+            value={partyFilter}
+            onChange={(e) => setPartyFilter(e.target.value)}
+            className="input py-1 text-xs min-w-[200px]"
+          >
+            <option value="">All parties</option>
+            {parties.map((p) => (
+              <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col">
+          <label htmlFor="dc-quality" className="text-[10px] uppercase tracking-wide text-ink-mute">Fabric quality</label>
+          <select
+            id="dc-quality"
+            value={qualityFilter}
+            onChange={(e) => setQualityFilter(e.target.value)}
+            className="input py-1 text-xs min-w-[200px]"
+          >
+            <option value="">All qualities</option>
+            {qualities.map((q) => (
+              <option key={q.id} value={q.id}>{q.code ?? q.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {(partyFilter !== '' || qualityFilter !== '') && (
+          <button
+            type="button"
+            onClick={() => { setPartyFilter(''); setQualityFilter(''); }}
+            className="text-xs text-ink-mute hover:text-ink underline"
+          >
+            Clear filters
+          </button>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <Link
+            href="/app/invoices/new/jobwork-bill"
+            className="btn-primary text-xs"
+          >
+            <Receipt className="w-3.5 h-3.5" /> New Jobwork Bill
+          </Link>
+          <Link
+            href="/app/delivery-challan/new"
+            className="btn-secondary text-xs"
+          >
+            New DC
+          </Link>
+        </div>
+      </div>
+
+      {/* ───── KPIs ───── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="card p-3">
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">DCs shown</div>
+          <div className="num text-xl font-bold">{filtered.length}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total metres</div>
+          <div className="num text-xl font-bold">{total.m.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total pieces</div>
+          <div className="num text-xl font-bold">{total.p}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total bundles</div>
+          <div className="num text-xl font-bold">{total.b}</div>
+        </div>
+      </div>
+
+      {/* ───── Table ───── */}
+      {error && <div className="card p-3 text-err text-sm">{error}</div>}
+      {loading ? (
+        <div className="card p-6 text-ink-mute text-sm flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading DCs...
+        </div>
+      ) : (
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left px-3 py-3">DC No</th>
+                <th className="text-left px-3 py-3">Date</th>
+                <th className="text-left px-3 py-3">Jobwork Party</th>
+                <th className="text-left px-3 py-3">Vehicle</th>
+                <th className="text-right px-3 py-3">Metres</th>
+                <th className="text-right px-3 py-3">Pcs</th>
+                <th className="text-right px-3 py-3">Bundles</th>
+                <th className="text-left px-3 py-3">Status</th>
+                <th className="text-right px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
+                    {rows.length === 0
+                      ? <>No jobwork DCs yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link></>
+                      : 'No jobwork DCs match the current filters.'}
+                  </td>
+                </tr>
+              ) : filtered.map((r) => {
+                const pill = statusPill(r.status);
+                const party = r.party_id != null ? partyById.get(r.party_id) : null;
+                return (
+                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <Link href={`/app/delivery-challan/${r.id}`} className="text-indigo hover:underline">{r.code}</Link>
+                    </td>
+                    <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
+                    <td className="px-3 py-2 font-medium">{party?.name ?? r.bill_to_name ?? '-'}</td>
+                    <td className="px-3 py-2 text-xs">{r.vehicle_no ?? '-'}</td>
+                    <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
+                    <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
+                    <td className="px-3 py-2">
+                      <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <Link
+                        href={`/app/delivery-challan/${r.id}/print`}
+                        target="_blank"
+                        className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex mr-1"
+                        title="View / Print / PDF"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </Link>
+                      <Link
+                        href={`/app/delivery-challan/${r.id}`}
+                        className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
+                        title="Edit DC"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

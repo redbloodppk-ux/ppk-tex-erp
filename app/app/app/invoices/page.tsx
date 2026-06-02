@@ -1,17 +1,18 @@
 import Link from 'next/link';
-import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
+import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 
 export const metadata = { title: 'Invoices' };
 
 const DOC_TABS = [
-  { key: 'all',           label: 'All',           icon: FileText        },
-  { key: 'tax_invoice',   label: 'Fabric Sales',  icon: FileText        },
-  { key: 'yarn_sale',     label: 'Yarn Sales',    icon: Coins           },
-  { key: 'general_sale',  label: 'General Sales', icon: Briefcase       },
-  { key: 'credit_note',   label: 'Sales Returns', icon: RotateCcw       },
-  { key: 'debit_note',    label: 'Purchase Returns', icon: ArrowDownLeft },
+  { key: 'all',              label: 'All',              icon: FileText        },
+  { key: 'tax_invoice',      label: 'Fabric Sales',     icon: FileText        },
+  { key: 'jobwork_invoice',  label: 'Jobwork Bills',    icon: Hammer          },
+  { key: 'yarn_sale',        label: 'Yarn Sales',       icon: Coins           },
+  { key: 'general_sale',     label: 'General Sales',    icon: Briefcase       },
+  { key: 'credit_note',      label: 'Sales Returns',    icon: RotateCcw       },
+  { key: 'debit_note',       label: 'Purchase Returns', icon: ArrowDownLeft   },
 ] as const;
 
 const STATUS_STYLE: Record<string, string> = {
@@ -24,19 +25,21 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 const DOC_LABEL: Record<string, string> = {
-  tax_invoice:  'Fabric',
-  yarn_sale:    'Yarn',
-  general_sale: 'General',
-  credit_note:  'Sales Return',
-  debit_note:   'Purchase Return',
+  tax_invoice:     'Fabric',
+  jobwork_invoice: 'Jobwork',
+  yarn_sale:       'Yarn',
+  general_sale:    'General',
+  credit_note:     'Sales Return',
+  debit_note:      'Purchase Return',
 };
 
 const DOC_PILL: Record<string, string> = {
-  tax_invoice:  'bg-indigo-50 text-indigo-700',
-  yarn_sale:    'bg-amber-50 text-amber-700',
-  general_sale: 'bg-slate-100 text-slate-700',
-  credit_note:  'bg-rose-50 text-rose-700',
-  debit_note:   'bg-violet-50 text-violet-700',
+  tax_invoice:     'bg-indigo-50 text-indigo-700',
+  jobwork_invoice: 'bg-teal-50 text-teal-700',
+  yarn_sale:       'bg-amber-50 text-amber-700',
+  general_sale:    'bg-slate-100 text-slate-700',
+  credit_note:     'bg-rose-50 text-rose-700',
+  debit_note:      'bg-violet-50 text-violet-700',
 };
 
 export default async function InvoicesPage({
@@ -48,13 +51,17 @@ export default async function InvoicesPage({
   const activeTab = sp.type ?? 'all';
   const supabase = await createClient();
 
-  let q = supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  let q = sb
     .from('invoice')
     .select(`
       id, invoice_no, doc_type, invoice_date, due_date,
       taxable_value, cgst_amount, sgst_amount, igst_amount, total, balance, status,
       customer:customer_id ( name ),
       vendor:ledger_id     ( name ),
+      jobwork_party:jobwork_party_id ( name ),
+      party_name,
       original_invoice_id
     `)
     .order('invoice_date', { ascending: false })
@@ -64,7 +71,7 @@ export default async function InvoicesPage({
   if (activeTab !== 'all') {
     // activeTab is a URL param (string). Cast to the enum so the typed
     // filter accepts it. Invalid values just return an empty list.
-    type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
+    type DocType = 'tax_invoice' | 'jobwork_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
     q = q.eq('doc_type', activeTab as DocType);
   }
 
@@ -85,9 +92,15 @@ export default async function InvoicesPage({
         title="Invoices"
         subtitle="Tax invoices, yarn sales, general sales, and returns — all in one place."
         actions={
-          <Link href={`/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`} className="btn-primary">
-            <Plus className="w-4 h-4" /> New Invoice
-          </Link>
+          activeTab === 'jobwork_invoice' ? (
+            <Link href="/app/invoices/new/jobwork-bill" className="btn-primary">
+              <Plus className="w-4 h-4" /> New Jobwork Bill
+            </Link>
+          ) : (
+            <Link href={`/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`} className="btn-primary">
+              <Plus className="w-4 h-4" /> New Invoice
+            </Link>
+          )
         }
       />
 
@@ -141,7 +154,11 @@ export default async function InvoicesPage({
             <tbody>
               {invoices?.length ? invoices.map((inv: any) => {
                 const gst = Number(inv.cgst_amount) + Number(inv.sgst_amount) + Number(inv.igst_amount);
-                const partyName = inv.customer?.name ?? inv.vendor?.name ?? '—';
+                const partyName = inv.customer?.name
+                  ?? inv.vendor?.name
+                  ?? inv.jobwork_party?.name
+                  ?? inv.party_name
+                  ?? '—';
                 return (
                   <tr key={inv.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-ink">
@@ -175,8 +192,12 @@ export default async function InvoicesPage({
                 <tr>
                   <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
                     No invoices in this view yet.{' '}
-                    <Link href={`/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`}
-                      className="text-indigo font-semibold">
+                    <Link
+                      href={activeTab === 'jobwork_invoice'
+                        ? '/app/invoices/new/jobwork-bill'
+                        : `/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`}
+                      className="text-indigo font-semibold"
+                    >
                       Create one →
                     </Link>
                   </td>

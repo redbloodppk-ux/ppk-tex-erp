@@ -15,7 +15,9 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw } from 'lucide-react';
 
-type Tab = 'bobbin' | 'warp_beam' | 'weft_bag' | 'status';
+import { JobworkDcTab } from './dc-tab';
+
+type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'status';
 
 interface PartyOpt { id: number; code: string; name: string; }
 interface QualityOpt { id: number; code: string | null; name: string; }
@@ -172,6 +174,7 @@ export default function JobworkPage(): React.ReactElement {
       />
 
       <div className="border-b border-line mb-4 flex gap-1 flex-wrap">
+        <TabButton active={tab === 'dc'}        onClick={() => setTab('dc')}>DC</TabButton>
         <TabButton active={tab === 'bobbin'}    onClick={() => setTab('bobbin')}>Bobbin given</TabButton>
         <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
@@ -183,6 +186,8 @@ export default function JobworkPage(): React.ReactElement {
         <div className="card p-6 text-ink-mute text-sm flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading...
         </div>
+      ) : tab === 'dc' ? (
+        <JobworkDcTab parties={parties} qualities={qualities} />
       ) : tab === 'bobbin' ? (
         <BobbinTab rows={bobbins} partyById={partyById} bobbinSuppliers={bobbinSuppliers} onChanged={load} />
       ) : tab === 'warp_beam' ? (
