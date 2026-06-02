@@ -84,7 +84,7 @@ export default async function InvoiceDetailPage({
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
-        customer:customer_id ( id, name, gstin, state, address ),
+        customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id     ( id, name ),
         jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address )
       `)
@@ -122,7 +122,7 @@ export default async function InvoiceDetailPage({
     ?? inv.jobwork_party?.state
     ?? inv.party_state
     ?? null;
-  const partyAddress = inv.customer?.address ?? inv.jobwork_party?.billing_address ?? null;
+  const partyAddress = inv.customer?.billing_address ?? inv.jobwork_party?.billing_address ?? null;
 
   return (
     <div>

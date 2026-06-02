@@ -91,7 +91,7 @@ interface InvoiceRow {
   party_state: string | null;
   place_of_supply: string | null;
   original_invoice_id: number | null;
-  customer: { id: number; name: string; gstin: string | null; state: string | null; address: string | null } | null;
+  customer: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   vendor: { id: number; name: string } | null;
   jobwork_party: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   original: { invoice_no: string; invoice_date: string } | null;
@@ -167,7 +167,7 @@ export default async function InvoicePrintPage({
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
         original_invoice_id,
-        customer:customer_id ( id, name, gstin, state, address ),
+        customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id ( id, name ),
         jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address ),
         original:original_invoice_id ( invoice_no, invoice_date )
@@ -202,7 +202,7 @@ export default async function InvoicePrintPage({
     ?? '';
   const partyGstin = inv.jobwork_party?.gstin ?? inv.customer?.gstin ?? inv.party_gstin ?? '';
   const partyState = inv.jobwork_party?.state ?? inv.customer?.state ?? inv.party_state ?? '';
-  const partyAddress = inv.jobwork_party?.billing_address ?? inv.customer?.address ?? '';
+  const partyAddress = inv.jobwork_party?.billing_address ?? inv.customer?.billing_address ?? '';
 
   const isInterstate = inv.is_interstate;
   const grand = num(inv.total);
