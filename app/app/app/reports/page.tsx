@@ -137,6 +137,13 @@ const REPORTS: ReportLink[] = [
       'Weekly metres woven per weaver broken down by fabric quality — pivot table with totals.',
     ready: true,
   },
+  {
+    href: '/app/reports/production',
+    title: 'Total Production',
+    description:
+      'Total metres woven from the shift log for any day, week, month or financial year. Filter by shed, weaver and quality; breaks down by date, shed, quality and weaver.',
+    ready: true,
+  },
 ];
 
 export default function ReportsIndex() {
