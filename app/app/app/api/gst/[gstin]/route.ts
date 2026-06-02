@@ -140,7 +140,7 @@ interface AppyFlowResponse {
   message?: string;
 }
 
-/** Normalise AppyFlow's DD/MM/YYYY date to ISO YYYY-MM-DD. */
+/** Normalise DD/MM/YYYY date to ISO YYYY-MM-DD (works for both providers). */
 function normaliseDate(s: string | undefined): string | undefined {
   if (!s) return undefined;
   const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -152,6 +152,144 @@ function normaliseDate(s: string | undefined): string | undefined {
 type ProviderResult =
   | { ok: true; data: GstinData }
   | { ok: false; error: string };
+
+// -----------------------------------------------------------------------
+//   Sandbox (Setu) — preferred provider
+// -----------------------------------------------------------------------
+// Sandbox uses the same upstream GSTN field names as AppyFlow inside their
+// `data` envelope, so we re-use AppyFlowAddress / AppyFlowTaxpayer for the
+// parsing. Only the auth flow + URL differ.
+//
+// Two env vars expected:
+//   SANDBOX_API_KEY    — x-api-key   (from dashboard)
+//   SANDBOX_API_SECRET — x-api-secret (from dashboard)
+//
+// Auth flow:
+//   1. POST /authenticate  with x-api-key + x-api-secret -> access_token
+//   2. GET  /gst/compliance/public/gstins/{gstin}
+//          with Authorization: <access_token> + x-api-key
+//
+// Docs: https://docs.sandbox.co.in/api/gst/compliance-search-public-taxpayer
+
+interface SandboxAuthResponse {
+  access_token?: string;
+  message?: string;
+  code?: number;
+}
+interface SandboxGstinResponse {
+  code?: number;
+  message?: string;
+  data?: {
+    gstin?: string;
+    lgnm?: string;
+    tradeNam?: string;
+    sts?: string;
+    ctb?: string;
+    dty?: string;
+    rgdt?: string;
+    nba?: string[];
+    pradr?: { addr?: AppyFlowAddress };
+  };
+}
+
+async function sandboxAuth(apiKey: string, apiSecret: string, signal: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  const res = await fetch('https://api.sandbox.co.in/authenticate', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'x-api-secret': apiSecret,
+      'x-api-version': '1.0',
+      'accept': 'application/json',
+    },
+    signal,
+  });
+  const raw = await res.text();
+  let json: SandboxAuthResponse | null = null;
+  try { json = raw ? (JSON.parse(raw) as SandboxAuthResponse) : null; } catch { /* not JSON */ }
+
+  // eslint-disable-next-line no-console
+  console.log('[gst] Sandbox auth status', res.status, 'body', raw.slice(0, 200));
+
+  if (!res.ok || !json?.access_token) {
+    const msg = json?.message ?? raw.slice(0, 200);
+    return { ok: false, error: `Sandbox auth HTTP ${res.status}: ${msg || 'no body'}` };
+  }
+  return { ok: true, token: json.access_token };
+}
+
+async function callSandbox(gstin: string, apiKey: string, apiSecret: string): Promise<ProviderResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    // Step 1 — exchange key+secret for a short-lived access token.
+    const auth = await sandboxAuth(apiKey, apiSecret, controller.signal);
+    if (!auth.ok) return { ok: false, error: auth.error };
+
+    // Step 2 — actual GSTIN lookup.
+    const url = `https://api.sandbox.co.in/gst/compliance/public/gstins/${encodeURIComponent(gstin)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': auth.token,
+        'x-api-key': apiKey,
+        'x-api-version': '1.0',
+        'accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    const raw = await res.text();
+    let json: SandboxGstinResponse | null = null;
+    try { json = raw ? (JSON.parse(raw) as SandboxGstinResponse) : null; } catch { /* not JSON */ }
+
+    // eslint-disable-next-line no-console
+    console.log('[gst] Sandbox lookup', gstin, 'status', res.status, 'body', raw.slice(0, 600));
+
+    if (!res.ok) {
+      const msg = json?.message ?? raw.slice(0, 200);
+      return { ok: false, error: `Sandbox lookup HTTP ${res.status}: ${msg || 'no body'}` };
+    }
+    const d = json?.data;
+    if (!d) {
+      return { ok: false, error: json?.message ?? 'Sandbox returned no data for this GSTIN.' };
+    }
+    if (d.gstin && d.gstin.toUpperCase() !== gstin) {
+      return { ok: false, error: `Sandbox returned a different GSTIN (${d.gstin}) than requested (${gstin}).` };
+    }
+
+    const addr = d.pradr?.addr ?? {};
+    const stateCode = gstin.slice(0, 2);
+    const state = addr.stcd ?? STATE_BY_CODE[stateCode] ?? '';
+
+    return {
+      ok: true,
+      data: {
+        gstin,
+        legal_name: d.lgnm ?? '',
+        trade_name: d.tradeNam ?? null,
+        status: d.sts,
+        constitution: d.ctb,
+        taxpayer_type: d.dty,
+        registration_date: normaliseDate(d.rgdt),
+        nature_of_business: Array.isArray(d.nba) ? d.nba : undefined,
+        address: {
+          building: [addr.bno, addr.bnm].filter(Boolean).join(' ').trim() || undefined,
+          street: addr.st,
+          locality: addr.loc,
+          city: addr.city,
+          district: addr.dst,
+          state,
+          state_code: stateCode,
+          pincode: addr.pncd,
+        },
+      },
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `Sandbox request failed: ${msg}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function callAppyFlow(gstin: string, apiKey: string): Promise<ProviderResult> {
   // 8s timeout so the operator isn't stuck waiting on a slow provider.
@@ -243,11 +381,24 @@ async function callAppyFlow(gstin: string, apiKey: string): Promise<ProviderResu
 async function fetchFromProvider(
   gstin: string,
 ): Promise<{ data?: GstinData; mocked: boolean; error?: string }> {
-  // Real provider path — only runs when GST_API_KEY is set (in Vercel env).
-  // When set, we DO NOT fall back to mock on failure: surface the real
-  // error so the operator can fix the key / quota / etc.
-  const apiKey = process.env.GST_API_KEY;
-  if (apiKey && apiKey.trim() !== '') {
+  // Provider priority:
+  //   1. Sandbox (SANDBOX_API_KEY + SANDBOX_API_SECRET) — preferred.
+  //   2. AppyFlow (GST_API_KEY)                          — fallback.
+  //   3. Mock (no env vars set)                          — dev only.
+  //
+  // When a real provider is configured we DO NOT silently fall back to
+  // mock or the other provider: surface the real error so the operator
+  // knows whether their key is invalid / quota exhausted / etc.
+  const sbKey    = process.env.SANDBOX_API_KEY?.trim();
+  const sbSecret = process.env.SANDBOX_API_SECRET?.trim();
+  if (sbKey && sbSecret) {
+    const real = await callSandbox(gstin, sbKey, sbSecret);
+    if (real.ok) return { data: real.data, mocked: false };
+    return { error: real.error, mocked: false };
+  }
+
+  const apiKey = process.env.GST_API_KEY?.trim();
+  if (apiKey) {
     const real = await callAppyFlow(gstin, apiKey);
     if (real.ok) return { data: real.data, mocked: false };
     return { error: real.error, mocked: false };
