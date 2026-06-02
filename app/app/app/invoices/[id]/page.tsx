@@ -9,7 +9,7 @@
  */
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { EditInvoiceForm } from './edit-invoice-form';
@@ -138,6 +138,14 @@ export default async function InvoiceDetailPage({
               className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
             >
               <ArrowLeft className="w-3.5 h-3.5" /> Back
+            </Link>
+            <Link
+              href={`/app/invoices/${inv.id}/print`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+              title="View / Print / Download PDF"
+            >
+              <Printer className="w-3.5 h-3.5" /> View / Print / PDF
             </Link>
             <DeleteInvoiceButton
               invoiceId={inv.id}

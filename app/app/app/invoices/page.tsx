@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer, Pencil } from 'lucide-react';
+import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer, Pencil, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { DeleteInvoiceButton } from './delete-invoice-button';
@@ -189,6 +189,14 @@ export default async function InvoicesPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link
+                        href={`/app/invoices/${inv.id}/print`}
+                        target="_blank"
+                        className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex mr-1"
+                        title="View / Print / PDF"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </Link>
                       <Link
                         href={`/app/invoices/${inv.id}`}
                         className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex mr-1"
