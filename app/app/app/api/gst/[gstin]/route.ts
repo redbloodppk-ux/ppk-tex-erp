@@ -124,6 +124,7 @@ interface AppyFlowAddress {
   pncd?: string;  // pincode
 }
 interface AppyFlowTaxpayer {
+  gstin?: string;       // GSTIN that was actually resolved
   lgnm?: string;        // legal name
   tradeNam?: string;    // trade name
   sts?: string;         // status (Active / Cancelled / ...)
@@ -166,6 +167,12 @@ async function callAppyFlow(gstin: string, apiKey: string): Promise<ProviderResu
     let json: AppyFlowResponse | null = null;
     try { json = raw ? (JSON.parse(raw) as AppyFlowResponse) : null; } catch { /* not JSON */ }
 
+    // Server-side log so the raw response is visible in Vercel function
+    // logs. Helps diagnose situations where AppyFlow returns a 200 with a
+    // demo / placeholder record instead of the queried business's data.
+    // eslint-disable-next-line no-console
+    console.log('[gst] AppyFlow', gstin, 'status', res.status, 'body', raw.slice(0, 600));
+
     if (!res.ok) {
       const snippet = (json?.message ?? raw ?? '').slice(0, 200);
       return { ok: false, error: `AppyFlow HTTP ${res.status}: ${snippet || 'no body'}` };
@@ -180,6 +187,24 @@ async function callAppyFlow(gstin: string, apiKey: string): Promise<ProviderResu
     }
 
     const t = json.taxpayerInfo;
+
+    // Guard against AppyFlow returning a placeholder / sample record
+    // ("AppyFlow Technologies" etc) when the key is invalid or the
+    // trial quota is exhausted. If the GSTIN that came back doesn't
+    // match what we asked for, treat as an error and force the operator
+    // to renew their plan instead of accepting fake data.
+    if (t.gstin && t.gstin.toUpperCase() !== gstin) {
+      return {
+        ok: false,
+        error: `AppyFlow returned a different GSTIN (${t.gstin}) than requested (${gstin}). This usually means the API key is invalid or the free-trial quota is exhausted.`,
+      };
+    }
+    if (!t.gstin && /appyflow/i.test(t.lgnm ?? '')) {
+      return {
+        ok: false,
+        error: 'AppyFlow returned its own placeholder record. The API key is likely invalid or the free-trial quota is exhausted - check the AppyFlow dashboard.',
+      };
+    }
     const addr = t.pradr?.addr ?? {};
     const stateCode = gstin.slice(0, 2);
     const state = addr.stcd ?? STATE_BY_CODE[stateCode] ?? '';
