@@ -315,7 +315,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       sgst_amount: totals.sgst,
       igst_amount: totals.igst,
       round_off: 0,
-      status: 'draft',
+      // Jobwork bills are saved already-issued - you only create one when
+      // you mean to hand it to the customer. Status can still be edited
+      // later (cancelled, paid, etc.) from the invoice detail page.
+      status: 'issued',
       notes: notes || null,
     };
 

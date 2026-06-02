@@ -375,7 +375,14 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
 
     let dcId: number;
     if (isEdit && form.id != null) {
-      const { error: err } = await sb.from('delivery_challan').update(headerPayload).eq('id', form.id);
+      // On edit only, allow overriding the auto-generated DC code so the
+      // user can correct a typo or re-align to a different series. On
+      // create we always let fn_autogen_code assign it.
+      const editPayload = {
+        ...headerPayload,
+        code: (form.code ?? '').trim() || null,
+      };
+      const { error: err } = await sb.from('delivery_challan').update(editPayload).eq('id', form.id);
       if (err) { setBusy(false); setError(err.message); return; }
       dcId = form.id;
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
@@ -416,8 +423,19 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       {/* Header */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
-          <label className="label">DC No</label>
-          <div className="input bg-cloud/40 text-ink-mute">{form.code ?? 'Auto (DC/26-27/NNNN)'}</div>
+          <label className="label">DC No {isEdit && <span className="text-[10px] text-ink-mute font-normal">(editable)</span>}</label>
+          {isEdit ? (
+            <input
+              type="text"
+              className="input font-mono text-xs"
+              value={form.code ?? ''}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+              placeholder="DC/26-27/0001"
+              required
+            />
+          ) : (
+            <div className="input bg-cloud/40 text-ink-mute">Auto (assigned on save)</div>
+          )}
         </div>
         <div>
           <label className="label">DC Date *</label>

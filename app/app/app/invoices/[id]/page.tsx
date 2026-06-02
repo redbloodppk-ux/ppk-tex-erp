@@ -13,6 +13,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { EditInvoiceForm } from './edit-invoice-form';
+import { EwaybillCard } from './ewaybill-card';
 import { DeleteInvoiceButton } from '../delete-invoice-button';
 
 export const dynamic = 'force-dynamic';
@@ -82,9 +83,10 @@ export default async function InvoiceDetailPage({
         subtotal, gst_amount, total, amount_paid, balance,
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
+        ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
         customer:customer_id ( id, name, gstin, state, address ),
         vendor:ledger_id     ( id, name ),
-        jobwork_party:jobwork_party_id ( id, name, gstin, state, address )
+        jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address )
       `)
       .eq('id', numericId)
       .maybeSingle(),
@@ -120,7 +122,7 @@ export default async function InvoiceDetailPage({
     ?? inv.jobwork_party?.state
     ?? inv.party_state
     ?? null;
-  const partyAddress = inv.customer?.address ?? inv.jobwork_party?.address ?? null;
+  const partyAddress = inv.customer?.address ?? inv.jobwork_party?.billing_address ?? null;
 
   return (
     <div>
@@ -161,11 +163,23 @@ export default async function InvoiceDetailPage({
         invoiceId={inv.id}
         invoiceNo={inv.invoice_no}
         initial={{
+          invoice_no: inv.invoice_no,
           invoice_date: inv.invoice_date,
           due_date: inv.due_date,
           status: inv.status,
           notes: inv.notes ?? '',
         }}
+      />
+
+      {/* ───── E-waybill capture ───── */}
+      <EwaybillCard
+        invoiceId={inv.id}
+        invoiceNo={inv.invoice_no}
+        invoiceTotal={Number(inv.total ?? 0)}
+        ewaybillNo={inv.ewaybill_no ?? null}
+        ewaybillDate={inv.ewaybill_date ?? null}
+        ewaybillValidTill={inv.ewaybill_valid_till ?? null}
+        ewaybillNotes={inv.ewaybill_notes ?? null}
       />
 
       {/* ───── Party block (read-only) ───── */}
