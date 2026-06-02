@@ -217,40 +217,71 @@ async function sandboxAuth(apiKey: string, apiSecret: string, signal: AbortSigna
   return { ok: true, token: json.access_token };
 }
 
+async function tryLookup(
+  url: string,
+  apiKey: string,
+  token: string,
+  apiVersion: string,
+  signal: AbortSignal,
+): Promise<{ status: number; raw: string; json: SandboxGstinResponse | null }> {
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': token,
+      'x-api-key': apiKey,
+      'x-api-version': apiVersion,
+      'accept': 'application/json',
+    },
+    signal,
+  });
+  const raw = await res.text();
+  let json: SandboxGstinResponse | null = null;
+  try { json = raw ? (JSON.parse(raw) as SandboxGstinResponse) : null; } catch { /* not JSON */ }
+  return { status: res.status, raw, json };
+}
+
 async function callSandbox(gstin: string, apiKey: string, apiSecret: string): Promise<ProviderResult> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), 12_000);
   try {
     // Step 1 — exchange key+secret for a short-lived access token.
     const auth = await sandboxAuth(apiKey, apiSecret, controller.signal);
     if (!auth.ok) return { ok: false, error: auth.error };
 
-    // Step 2 — actual GSTIN lookup.
-    const url = `https://api.sandbox.co.in/gst/compliance/public/gstins/${encodeURIComponent(gstin)}`;
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': auth.token,
-        'x-api-key': apiKey,
-        'x-api-version': '1.0',
-        'accept': 'application/json',
-      },
-      signal: controller.signal,
-    });
-    const raw = await res.text();
-    let json: SandboxGstinResponse | null = null;
-    try { json = raw ? (JSON.parse(raw) as SandboxGstinResponse) : null; } catch { /* not JSON */ }
+    // Step 2 — try known Sandbox GST search endpoint variants. Sandbox has
+    // shipped multiple URL shapes over the years; we walk through them in
+    // priority order and stop at the first non-404. This makes the route
+    // resilient to URL renames in their docs.
+    const variants: Array<{ url: string; version: string }> = [
+      { url: `https://api.sandbox.co.in/gst/compliance/public/gstin/${encodeURIComponent(gstin)}/search`, version: '1.0' },
+      { url: `https://api.sandbox.co.in/gst/compliance/public/gstin/${encodeURIComponent(gstin)}`,         version: '1.0' },
+      { url: `https://api.sandbox.co.in/gst/compliance/public/gstins/${encodeURIComponent(gstin)}`,        version: '1.0' },
+      { url: `https://api.sandbox.co.in/gsp/public/gstin/${encodeURIComponent(gstin)}/search`,             version: '2.0' },
+      { url: `https://api.sandbox.co.in/gst/compliance/public/search?gstin=${encodeURIComponent(gstin)}`,  version: '1.0' },
+    ];
 
-    // eslint-disable-next-line no-console
-    console.log('[gst] Sandbox lookup', gstin, 'status', res.status, 'body', raw.slice(0, 600));
-
-    if (!res.ok) {
-      const msg = json?.message ?? raw.slice(0, 200);
-      return { ok: false, error: `Sandbox lookup HTTP ${res.status}: ${msg || 'no body'}` };
+    let last: { status: number; raw: string; json: SandboxGstinResponse | null; url: string; version: string } | null = null;
+    for (const v of variants) {
+      const r = await tryLookup(v.url, apiKey, auth.token, v.version, controller.signal);
+      // eslint-disable-next-line no-console
+      console.log('[gst] Sandbox lookup', gstin, 'try', v.url, 'v', v.version, 'status', r.status, 'body', r.raw.slice(0, 300));
+      last = { ...r, url: v.url, version: v.version };
+      // If we got anything other than 404, stop walking variants - that
+      // endpoint exists and the error (if any) is meaningful.
+      if (r.status !== 404) break;
     }
-    const d = json?.data;
+
+    if (!last) {
+      return { ok: false, error: 'Sandbox lookup failed (no response).' };
+    }
+
+    if (!(last.status >= 200 && last.status < 300)) {
+      const msg = last.json?.message ?? last.raw.slice(0, 200);
+      return { ok: false, error: `Sandbox lookup HTTP ${last.status} at ${last.url}: ${msg || 'no body'}` };
+    }
+    const d = last.json?.data;
     if (!d) {
-      return { ok: false, error: json?.message ?? 'Sandbox returned no data for this GSTIN.' };
+      return { ok: false, error: last.json?.message ?? 'Sandbox returned no data for this GSTIN.' };
     }
     if (d.gstin && d.gstin.toUpperCase() !== gstin) {
       return { ok: false, error: `Sandbox returned a different GSTIN (${d.gstin}) than requested (${gstin}).` };
