@@ -9,10 +9,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
-import type { Database } from '@/lib/database.types';
 import { Loader2, Trash2, Archive } from 'lucide-react';
-
-type CustomerInsert = Database['public']['Tables']['customer']['Insert'];
 
 export interface CustomerFormValues {
   name: string;
@@ -136,8 +133,11 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
       setSavedMsg('Saved.');
       router.refresh();
     } else {
-      // code omitted for create — trg_customer_autogen_code fills it
-      const { error: err } = await supabase.from('customer').insert(payload as CustomerInsert);
+      // code omitted for create — trg_customer_autogen_code fills it.
+      // Cast supabase via any because the generated types lag the latest
+      // migrations (state_code was added in 080).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: err } = await (supabase as any).from('customer').insert(payload);
       setBusy(false);
       if (err) {
         setError(err.message);

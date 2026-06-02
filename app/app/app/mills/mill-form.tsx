@@ -9,10 +9,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
-import type { Database } from '@/lib/database.types';
 import { Loader2, Trash2, Archive } from 'lucide-react';
-
-type MillInsert = Database['public']['Tables']['mill']['Insert'];
 
 export interface MillFormValues {
   name: string;
@@ -132,10 +129,12 @@ export function MillForm({ millId, initial, code }: MillFormProps) {
       setSavedMsg('Saved.');
       router.refresh();
     } else {
+      // state_code (migration 080) isn't in the generated MillInsert type
+      // yet, so drop the cast and rely on the any-cast on supabase.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any)
         .from('mill')
-        .insert(payload as MillInsert);
+        .insert(payload);
       setBusy(false);
       if (err) {
         setError(err.message);
