@@ -10,6 +10,7 @@ import {
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   Building2,
 } from 'lucide-react';
+import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -158,11 +159,9 @@ function Brand({ onClick }: { onClick?: () => void }) {
       className="px-5 py-5 border-b border-line/60 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
       title="Go to dashboard"
     >
-      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo to-violet flex items-center justify-center text-white font-bold text-sm">
-        PT
-      </div>
+      <BrandLogo variant="mark" height={36} />
       <div>
-        <div className="font-display font-extrabold text-ink leading-tight text-sm">PPK TEX</div>
+        <div className="font-display font-extrabold text-ink leading-tight text-sm tracking-wider">PPK TEX</div>
         <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
       </div>
     </Link>
@@ -224,11 +223,9 @@ export function Sidebar({
               className="flex-1 px-5 py-5 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
               title="Go to dashboard"
             >
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo to-violet flex items-center justify-center text-white font-bold text-sm">
-                PT
-              </div>
+              <BrandLogo variant="mark" height={36} />
               <div className="flex-1">
-                <div className="font-display font-extrabold text-ink leading-tight text-sm">PPK TEX</div>
+                <div className="font-display font-extrabold text-ink leading-tight text-sm tracking-wider">PPK TEX</div>
                 <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
               </div>
             </Link>

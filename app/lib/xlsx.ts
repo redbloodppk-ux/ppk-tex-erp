@@ -250,20 +250,32 @@ function sanitiseSheetName(raw: string): string {
   return (raw || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31);
 }
 
+/**
+ * Brand line stamped at the top of every exported sheet. Single source of
+ * truth — change this once and every report, attendance file, wages export,
+ * snapshot, etc. picks it up.
+ */
+const BRAND_LINE = 'PPK TEX';
+
 /** Render a single sheet's worksheet XML body. */
 function renderSheetXml(spec: SheetSpec): string {
   const columns = spec.columns;
   const rows = spec.rows;
   const hasTitle = typeof spec.title === 'string' && spec.title.trim().length > 0;
   const hasTotals = columns.some((c) => c.total === true);
-  const headerRowNum = hasTitle ? 2 : 1;
+  // Row layout: 1 = brand, 2 = optional sheet title, then header, then data.
+  const titleRowNum = hasTitle ? 2 : 0;
+  const headerRowNum = hasTitle ? 3 : 2;
   const firstDataRowNum = headerRowNum + 1;
 
   const xmlRows: string[] = [];
 
+  // Row 1 — branded company line, always present.
+  xmlRows.push('<row r="1">' + textCell('A1', 12, BRAND_LINE) + '</row>');
+
   if (hasTitle) {
     xmlRows.push(
-      '<row r="1">' + textCell('A1', 12, spec.title as string) + '</row>',
+      '<row r="' + titleRowNum + '">' + textCell('A' + titleRowNum, 8, spec.title as string) + '</row>',
     );
   }
 

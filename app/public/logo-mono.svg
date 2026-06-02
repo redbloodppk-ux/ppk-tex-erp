@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 110" role="img" aria-label="PPK TEX">
+  <rect x="6" y="6" width="98" height="98" rx="10" fill="#000000"/>
+  <path d="M 28 30 L 28 84 M 28 30 L 52 30 Q 70 30 70 44 Q 70 58 52 58 L 28 58" stroke="#ffffff" stroke-width="9" fill="none" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M 42 44 L 84 44 M 64 44 L 64 86" stroke="#ffffff" stroke-width="9" fill="none" stroke-linecap="square" opacity="0.55"/>
+  <text x="118" y="60" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-weight="700" fill="#000000" letter-spacing="3">PPK TEX</text>
+  <text x="118" y="80" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#000000" letter-spacing="4">EST 1988 &#183; ERODE</text>
+</svg>
