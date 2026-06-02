@@ -182,7 +182,10 @@ export default function ShiftLogPage(): React.ReactElement {
     (async () => {
       const [{ data: loomData, error: loomErr }, { data: empData }, { data: cfgData }] =
         await Promise.all([
-          supabase
+          // idle_since added in migration 079 - generated Supabase types lag,
+          // cast through any so tsc accepts the select.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase as any)
             .from('loom')
             .select('id, loom_code, loom_type, status, shed_no, idle_since')
             .order('loom_code'),
@@ -206,7 +209,7 @@ export default function ShiftLogPage(): React.ReactElement {
         setLoading(false);
         return;
       }
-      setLooms((loomData ?? []) as Loom[]);
+      setLooms((loomData ?? []) as unknown as Loom[]);
       setWeaverOptions((empData ?? []) as WeaverOption[]);
 
       const v = (cfgData as { value: { enabled?: boolean } | null } | null)?.value;
