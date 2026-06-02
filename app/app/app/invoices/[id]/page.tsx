@@ -168,6 +168,13 @@ export default async function InvoiceDetailPage({
           due_date: inv.due_date,
           status: inv.status,
           notes: inv.notes ?? '',
+          taxable_value: Number(inv.taxable_value ?? 0),
+          cgst_amount:   Number(inv.cgst_amount ?? 0),
+          sgst_amount:   Number(inv.sgst_amount ?? 0),
+          igst_amount:   Number(inv.igst_amount ?? 0),
+          round_off:     Number(inv.round_off ?? 0),
+          total:         Number(inv.total ?? 0),
+          is_interstate: Boolean(inv.is_interstate),
         }}
       />
 
