@@ -359,6 +359,23 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
               </React.Fragment>
             ))}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+              <tr>
+                <td colSpan={3} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td className="px-3 py-3 text-right num" />
+                <td className="px-3 py-3 text-right num text-ink-mute text-[11px]">
+                  bobbin metres
+                </td>
+                <td className="px-3 py-3 text-right num font-bold">
+                  {rows.reduce((s, r) => s + Number(r.quantity ?? 0), 0).toLocaleString('en-IN')} pcs
+                </td>
+                <td colSpan={2} className="px-3 py-3 text-right num font-bold text-indigo-700">
+                  {rows.reduce((s, r) => s + Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
@@ -612,6 +629,23 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               );
             })}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+              <tr>
+                <td colSpan={4} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td className="px-3 py-3 text-right num">
+                  {rows.reduce((s, r) => s + Number(r.total_ends ?? 0), 0).toLocaleString('en-IN')}
+                </td>
+                <td className="px-3 py-3 text-right num font-bold">
+                  {rows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
+                </td>
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">
+                  {rows.reduce((s, r) => s + Number(r.total_metres ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                </td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
@@ -784,6 +818,20 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
               );
             })}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+              <tr>
+                <td colSpan={3} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td className="px-3 py-3 text-right num font-bold">
+                  {rows.reduce((s, r) => s + Number(r.bag_count ?? 0), 0).toLocaleString('en-IN')} bags
+                </td>
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">
+                  {rows.reduce((s, r) => s + Number(r.total_kg ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
