@@ -25,6 +25,8 @@ export interface FabricQualityHeader {
   output_unit: string; output_value: string;
   crimp_pct: string; gst_pct: string;
   weight_gsm: string; rate_per_m: string;
+  // Migration 078: cost of pick yarn allocated per metre of fabric (Rs/m).
+  pick_cost_per_m: string;
   active: boolean; status: string; notes: string;
 }
 export interface FQEndsLine { sno: number; ends_id: number | null; }
@@ -109,6 +111,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [hsn, setHsn] = useState('');
   const [crimpPct, setCrimpPct] = useState(0);
   const [gstPct, setGstPct] = useState(5);
+  // Migration 078: cost of pick yarn allocated per metre of fabric. Manually
+  // entered. Empty string = NULL in DB.
+  const [pickCostPerM, setPickCostPerM] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [warpCountId, setWarpCountId] = useState('');
   const [weftCountId, setWeftCountId] = useState('');
@@ -145,7 +150,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const sb = supabase as any;
       const { data } = await sb
         .from('fabric_quality')
-        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, notes, calc_snapshot')
+        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, pick_cost_per_m, notes, calc_snapshot')
         .eq('id', props.fabricQualityId)
         .single();
       if (!data) return;
@@ -160,6 +165,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       setHsn(data.hsn ?? '');
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
       if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
+      setPickCostPerM(data.pick_cost_per_m == null ? '' : String(data.pick_cost_per_m));
       setNotes(data.notes ?? '');
 
       const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
@@ -249,6 +255,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       meter_per_pc: isTowel ? towelLength : null,
       crimp_pct: crimpPct,
       gst_pct: gstPct,
+      pick_cost_per_m: pickCostPerM.trim() === '' ? null : Number(pickCostPerM),
       weight_gsm: Number(r.gramsPerSqM.toFixed(2)),
       active: true,
       notes: notes.trim() || null,
@@ -544,6 +551,18 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
             <label className="label">GST %</label>
             <input type="number" className="input num w-full" step={0.5}
               value={gstPct} onChange={(e) => setGstPct(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">Pick cost / m (Rs)</label>
+            <input
+              type="number" className="input num w-full" step={0.01} min={0}
+              placeholder="e.g. 12.50"
+              value={pickCostPerM}
+              onChange={(e) => setPickCostPerM(e.target.value)}
+            />
+            <p className="text-[10px] text-ink-mute mt-0.5">
+              Pick yarn cost allocated per metre of fabric.
+            </p>
           </div>
           <div className="md:col-span-2">
             <label className="label">Notes</label>

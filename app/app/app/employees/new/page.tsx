@@ -47,6 +47,7 @@ export default async function NewEmployeePage() {
     wage_alloc_basis: 'weekly',
     weekly_salary: '',
     home_shed_no: '',
+    default_sheds: [],
   };
 
   return (

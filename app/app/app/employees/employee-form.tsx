@@ -34,6 +34,11 @@ export interface EmployeeFormValues {
   // Migration 039: a weaver's home shed. Falls back into the winder
   // weaver-absent count when an absent attendance row has no shed_no.
   home_shed_no: string;
+  // Migration 077: default sheds the employee covers. The Attendance
+  // Marking page pre-fills the shed picker from this on a fresh shift.
+  // Useful mainly for fitters and winders who consistently cover the
+  // same sheds. Stored on the row as a Postgres text[] column.
+  default_sheds: string[];
 }
 
 interface Props {
@@ -47,6 +52,9 @@ const ROLE_OPTIONS = [
 ] as const;
 const SHIFT_OPTIONS = ['morning', 'night', 'either'] as const;
 const STATUS_OPTIONS = ['active', 'inactive', 'resigned'] as const;
+// All four sheds available for shed-picker pills. Keep in sync with the
+// Attendance Marking page's SHEDS constant.
+const SHED_OPTIONS = ['1', '2', '3', '4'] as const;
 
 export function EmployeeForm({ initial, employeeId }: Props) {
   const router = useRouter();
@@ -100,6 +108,7 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       wage_alloc_basis:    values.wage_alloc_basis,
       weekly_salary:       weeklySalary,
       home_shed_no:        values.home_shed_no.trim() || null,
+      default_sheds:       values.default_sheds,
     };
 
     // weekly_salary added in migration 037 — supabase-js types lag, cast through any.
@@ -228,6 +237,49 @@ export function EmployeeForm({ initial, employeeId }: Props) {
         <p className="text-[11px] text-ink-mute mt-1">
           Used to attribute a weaver&apos;s absence to a shed when the daily mark
           skipped the shed pick. Optional for non-weaver roles.
+        </p>
+      </div>
+
+      <div>
+        <label className="label">Default sheds covered (fitters / winders)</label>
+        <div className="flex flex-wrap items-center gap-2">
+          {SHED_OPTIONS.map((s) => {
+            const active = values.default_sheds.includes(s);
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  const next = active
+                    ? values.default_sheds.filter((x) => x !== s)
+                    : [...values.default_sheds, s].sort();
+                  set('default_sheds', next);
+                }}
+                className={
+                  'min-h-[36px] rounded-full border px-3 text-xs font-semibold transition ' +
+                  (active
+                    ? 'border-transparent bg-indigo-600 text-white'
+                    : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+                }
+              >
+                Shed {s}
+              </button>
+            );
+          })}
+          {values.default_sheds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => set('default_sheds', [])}
+              className="text-[11px] text-ink-mute underline hover:text-ink"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-ink-mute mt-1">
+          Pre-fills the shed picker on Attendance Marking. Mainly used for
+          fitters and winders who cover the same sheds every shift. Leave
+          empty if the employee doesn&apos;t have a fixed coverage.
         </p>
       </div>
 

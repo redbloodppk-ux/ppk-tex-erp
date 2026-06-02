@@ -45,6 +45,9 @@ interface Employee {
   default_shift: 'morning' | 'night' | 'either' | null;
   // Added in migration 030. Defaults to true so existing rows keep behaviour.
   attendance_required: boolean;
+  // Migration 077: default sheds this employee covers. Pre-fills the shed
+  // picker on a fresh shift when there's no attendance_entry yet.
+  default_sheds: string[];
 }
 
 // CORR-A7 / shop-floor feedback:
@@ -175,9 +178,10 @@ export default function AttendanceMarkPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data, error: err } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error: err } = await (supabase as any)
         .from('employee')
-        .select('id, code, full_name, role, default_shift, attendance_required')
+        .select('id, code, full_name, role, default_shift, attendance_required, default_sheds')
         .eq('status', 'active')
         .order('full_name');
       if (!active) return;
@@ -186,7 +190,15 @@ export default function AttendanceMarkPage() {
         setLoading(false);
         return;
       }
-      const all = (data ?? []) as unknown as Employee[];
+      // Normalise default_sheds to a string[] (Postgres returns null for
+      // legacy rows missing the column; we want an empty list everywhere).
+      type RawEmp = Omit<Employee, 'default_sheds'> & { default_sheds: unknown };
+      const all = ((data ?? []) as RawEmp[]).map((e): Employee => ({
+        ...e,
+        default_sheds: Array.isArray(e.default_sheds)
+          ? e.default_sheds.filter((s): s is string => typeof s === 'string')
+          : [],
+      }));
       // attendance_required defaults to true; only hide ones explicitly false.
       setEmployees(all.filter((e) => e.attendance_required !== false));
     })();
@@ -315,8 +327,20 @@ export default function AttendanceMarkPage() {
       }
       nextIn[emp.id] = inMap.get(emp.id) ?? null;
       nextOut[emp.id] = outMap.get(emp.id) ?? null;
-      nextShed[emp.id] = shedMap.get(emp.id) ?? null;
-      nextSheds[emp.id] = shedsMap.get(emp.id) ?? [];
+      // No saved attendance entry for this employee on this shift?
+      // Fall back to the employee's default_sheds so the supervisor
+      // doesn't have to re-tick the same coverage every shift.
+      const savedSheds = shedsMap.get(emp.id);
+      if (savedSheds !== undefined) {
+        nextShed[emp.id] = shedMap.get(emp.id) ?? null;
+        nextSheds[emp.id] = savedSheds;
+      } else if (emp.default_sheds.length > 0) {
+        nextSheds[emp.id] = [...emp.default_sheds];
+        nextShed[emp.id] = emp.default_sheds[0] ?? null;
+      } else {
+        nextShed[emp.id] = shedMap.get(emp.id) ?? null;
+        nextSheds[emp.id] = [];
+      }
     }
     setStatusByEmp(nextStatus);
     setInTimeByEmp(nextIn);
