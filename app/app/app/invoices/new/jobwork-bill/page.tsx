@@ -17,10 +17,10 @@ interface PartyRow {
   code: string;
   name: string;
   gstin: string | null;
-  address: string | null;
+  billing_address: string | null;
   state: string | null;
   state_code: string | null;
-  party_type_ids: number[] | null;
+  party_type_ids: number[] | string[] | null;
 }
 
 export default async function NewJobworkBillPage(): Promise<React.ReactElement> {
@@ -37,23 +37,25 @@ export default async function NewJobworkBillPage(): Promise<React.ReactElement> 
     .maybeSingle();
   const jobworkTypeId: number | null = ptRows?.id ?? null;
 
-  let parties: PartyRow[] = [];
+  // Fetch every active party - cheap on a textile-mill scale (max few
+  // hundred rows). Then filter in JS by party_type_ids OR the legacy
+  // singular party_type_id. This dodges the PostgREST array-contains
+  // edge case and is also resilient if some old rows still only have
+  // the singular column populated.
+  const { data: partyData } = await sb
+    .from('party')
+    .select('id, code, name, gstin, billing_address, state, state_code, party_type_ids, party_type_id')
+    .eq('status', 'active')
+    .order('name');
+  const allActiveParties = (partyData ?? []) as Array<PartyRow & { party_type_id: number | null }>;
+
+  let parties: PartyRow[] = allActiveParties;
   if (jobworkTypeId != null) {
-    const { data } = await sb
-      .from('party')
-      .select('id, code, name, gstin, address, state, state_code, party_type_ids')
-      .eq('status', 'active')
-      .contains('party_type_ids', [jobworkTypeId])
-      .order('name');
-    parties = (data ?? []) as PartyRow[];
-  } else {
-    // Fallback: party_type_master not seeded yet, show every active party.
-    const { data } = await sb
-      .from('party')
-      .select('id, code, name, gstin, address, state, state_code, party_type_ids')
-      .eq('status', 'active')
-      .order('name');
-    parties = (data ?? []) as PartyRow[];
+    parties = allActiveParties.filter((p) => {
+      const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
+      const single = p.party_type_id != null ? Number(p.party_type_id) : null;
+      return ids.includes(jobworkTypeId) || single === jobworkTypeId;
+    });
   }
 
   return (

@@ -37,7 +37,14 @@ interface DcItemRow {
 }
 
 interface JobworkDcTabProps {
-  parties: ReadonlyArray<PartyOpt>;
+  /**
+   * Ignored - kept for backwards compat with the parent jobwork page.
+   * The parent passes parties from the legacy `jobwork_party` table, but
+   * delivery_challan.party_id references the unified `party` master, so
+   * the DC tab fetches its own jobwork-party list internally to avoid
+   * id-space mismatch.
+   */
+  parties?: ReadonlyArray<PartyOpt>;
   qualities: ReadonlyArray<QualityOpt>;
 }
 
@@ -59,12 +66,13 @@ function statusPill(s: DcRow['status']): { label: string; cls: string } {
   }
 }
 
-export function JobworkDcTab({ parties, qualities }: JobworkDcTabProps): React.ReactElement {
+export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactElement {
   const supabase = createClient();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<DcRow[]>([]);
   const [itemRows, setItemRows] = useState<DcItemRow[]>([]);
+  const [parties, setParties] = useState<PartyOpt[]>([]);
 
   // Filters
   const [partyFilter, setPartyFilter]   = useState<string>('');
@@ -77,7 +85,18 @@ export function JobworkDcTab({ parties, qualities }: JobworkDcTabProps): React.R
       setError(null);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [hdrRes, itemRes] = await Promise.all([
+
+      // Resolve the Jobwork Party type id so we can scope the dropdown to
+      // jobwork parties only (delivery_challan.party_id references the
+      // unified party master).
+      const ptRes = await sb
+        .from('party_type_master')
+        .select('id')
+        .eq('name', 'Jobwork Party')
+        .maybeSingle();
+      const jobworkTypeId: number | null = ptRes.data?.id ?? null;
+
+      const [hdrRes, itemRes, partyRes] = await Promise.all([
         sb.from('delivery_challan')
           .select('id, code, dc_date, status, party_id, bill_to_name, total_metres, total_pieces, total_bundles, invoice_id, vehicle_no')
           .eq('production_mode', 'jobwork')
@@ -85,11 +104,24 @@ export function JobworkDcTab({ parties, qualities }: JobworkDcTabProps): React.R
           .order('id', { ascending: false }),
         sb.from('delivery_challan_item')
           .select('dc_id, fabric_quality_id'),
+        sb.from('party')
+          .select('id, code, name, party_type_ids, party_type_id')
+          .eq('status', 'active')
+          .order('name'),
       ]);
       if (cancelled) return;
       if (hdrRes.error) { setError(hdrRes.error.message); setLoading(false); return; }
       setRows((hdrRes.data ?? []) as DcRow[]);
       setItemRows((itemRes.data ?? []) as DcItemRow[]);
+
+      const allActive = (partyRes.data ?? []) as Array<PartyOpt & { party_type_ids: Array<number | string> | null; party_type_id: number | null }>;
+      const jobworkParties: PartyOpt[] = jobworkTypeId == null
+        ? allActive
+        : allActive.filter((p) => {
+            const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
+            return ids.includes(jobworkTypeId) || Number(p.party_type_id) === jobworkTypeId;
+          });
+      setParties(jobworkParties.map((p) => ({ id: p.id, code: p.code, name: p.name })));
       setLoading(false);
     };
     void load();

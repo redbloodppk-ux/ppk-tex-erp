@@ -32,7 +32,7 @@ export interface PartyOpt {
   code: string;
   name: string;
   gstin: string | null;
-  address: string | null;
+  billing_address: string | null;
   state: string | null;
   state_code: string | null;
 }
@@ -429,7 +429,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         {party !== null && (
           <div className="text-xs text-ink-soft space-y-0.5">
             {party.gstin && <div><b>GSTIN:</b> {party.gstin}</div>}
-            {party.address && <div><b>Address:</b> {party.address}</div>}
+            {party.billing_address && <div><b>Address:</b> {party.billing_address}</div>}
             {party.state && <div><b>State:</b> {party.state} ({party.state_code ?? '-'}) &nbsp; {isInterstate ? <span className="pill bg-amber-50 text-amber-700">Interstate (IGST)</span> : <span className="pill bg-emerald-50 text-emerald-700">Intrastate (CGST+SGST)</span>}</div>}
           </div>
         )}
