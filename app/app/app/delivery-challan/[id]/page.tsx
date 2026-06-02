@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import { Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import {
@@ -153,6 +155,16 @@ export default async function EditDcPage({
           { label: 'Delivery Challan', href: '/app/delivery-challan' },
           { label: dc.code },
         ]}
+        actions={
+          <Link
+            href={`/app/delivery-challan/${dc.id}/print`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+            title="View / Print / Download PDF"
+          >
+            <Printer className="w-3.5 h-3.5" /> View / Print / PDF
+          </Link>
+        }
       />
       <DeliveryChallanForm initial={initial} />
     </div>

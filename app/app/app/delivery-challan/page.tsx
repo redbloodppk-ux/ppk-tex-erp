@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, Pencil, Printer } from 'lucide-react';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -105,7 +105,15 @@ export default async function DeliveryChallanListPage() {
                   <td className="px-3 py-2">
                     <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <Link
+                      href={`/app/delivery-challan/${r.id}/print`}
+                      target="_blank"
+                      className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex mr-1"
+                      title="View / Print / PDF"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </Link>
                     <Link href={`/app/delivery-challan/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="Edit DC">
                       <Pencil className="w-4 h-4" />
                     </Link>

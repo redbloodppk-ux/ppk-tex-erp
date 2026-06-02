@@ -42,6 +42,14 @@ export function AppShell({
     }
   }, [mobileOpen]);
 
+  // Print routes (e.g. /app/delivery-challan/123/print) render their own
+  // standalone A4 layout — bypass the sidebar / topbar chrome entirely so
+  // the printed page is just the document. Auth + role checks in the
+  // parent layout still apply.
+  if (pathname.endsWith('/print') || pathname.includes('/print/')) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="min-h-screen flex bg-haze">
       <Sidebar

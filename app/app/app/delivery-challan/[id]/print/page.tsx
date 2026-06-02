@@ -1,0 +1,475 @@
+/**
+ * Delivery Challan — A4 print view.
+ *
+ * This is the page the customer takes home with the goods. The layout is
+ * a faithful rebuild of the legacy PPK TEX DC format (see SRI VISHNU TEX
+ * DC038 page 1), with the bundle grid as the heart of the page: bundles
+ * run across as columns (1..N), each piece's metres stacks down inside
+ * its bundle column, and the column foot shows the bundle total.
+ *
+ * Three top toolbar buttons let the user Print, save as PDF, or jump
+ * back to the edit screen. The toolbar is hidden when the page actually
+ * prints (see @media print rule below).
+ *
+ * No app shell (sidebar / header) is rendered here so the printed page
+ * is just the document. The root layout opts this route out of the chrome
+ * via the .print-shell class on the body.
+ */
+import { notFound } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { BrandLogo } from '@/app/components/brand-logo';
+import { PrintActions } from './print-actions';
+import { COMPANY } from './company';
+
+export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<{ title: string }> {
+  const { id } = await params;
+  return { title: `DC ${id} — Print` };
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Data types
+// ────────────────────────────────────────────────────────────────────────
+
+interface DcHeader {
+  id: number;
+  code: string;
+  dc_date: string;
+  status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
+  production_mode: 'inhouse' | 'jobwork';
+  bill_to_name: string | null;
+  bill_to_address: string | null;
+  bill_to_gstin: string | null;
+  bill_to_state: string | null;
+  bill_to_state_code: string | null;
+  ship_to_same: boolean;
+  ship_to_name: string | null;
+  ship_to_address: string | null;
+  ship_to_gstin: string | null;
+  ship_to_state: string | null;
+  ship_to_state_code: string | null;
+  vehicle_no: string | null;
+  notes: string | null;
+  total_metres: number | string | null;
+  total_pieces: number | null;
+  total_bundles: number | null;
+}
+
+interface BundleJson { sno?: number; pieces?: Array<number | string> }
+
+interface DcItemRow {
+  id: number;
+  sno: number;
+  fabric_quality_id: number | null;
+  description: string | null;
+  hsn: string | null;
+  metres: number | string | null;
+  pieces: number | null;
+  bundles: number | null;
+  bundles_detail: BundleJson[] | null;
+}
+
+interface FabricQualityMeta {
+  id: number;
+  code: string;
+  name: string;
+  hsn: string | null;
+  reed: number | string | null;
+  pick_per_inch: number | string | null;
+  width_in: number | string | null;
+  weight_gsm: number | string | null;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────────
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDc(iso: string | null): string {
+  if (!iso) return '-';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return `${String(d).padStart(2, '0')}/${MONTHS[m - 1] ?? '???'}/${String(y).slice(-2)}`;
+}
+
+function num(v: unknown): number {
+  if (v == null || v === '') return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmtMetres(v: number): string {
+  return v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPiece(v: number): string {
+  return v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Chunk an array of bundles into rows of N for the printed grid. */
+function chunk<T>(arr: ReadonlyArray<T>, size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** Returns a 0-based piece count = the maximum pieces across all bundles
+ *  in this item. Used to decide how many "Pc" rows to render. */
+function maxPiecesInItem(bundles: BundleJson[]): number {
+  let m = 0;
+  for (const b of bundles) {
+    const len = Array.isArray(b.pieces) ? b.pieces.length : 0;
+    if (len > m) m = len;
+  }
+  return m;
+}
+
+const BUNDLES_PER_ROW = 7;
+
+// ────────────────────────────────────────────────────────────────────────
+// Page
+// ────────────────────────────────────────────────────────────────────────
+
+export default async function DcPrintPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) notFound();
+
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  const [hdrRes, itemsRes] = await Promise.all([
+    sb.from('delivery_challan')
+      .select('id, code, dc_date, status, production_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
+      .eq('id', numericId)
+      .maybeSingle(),
+    sb.from('delivery_challan_item')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail')
+      .eq('dc_id', numericId)
+      .order('sno'),
+  ]);
+
+  const dc = hdrRes.data as DcHeader | null;
+  if (!dc) notFound();
+
+  const itemRows = (itemsRes.data ?? []) as DcItemRow[];
+
+  // Pull fabric_quality details for the per-item summary box.
+  const qualityIds = Array.from(new Set(
+    itemRows.map((r) => r.fabric_quality_id).filter((x): x is number => x != null),
+  ));
+  let qualityById = new Map<number, FabricQualityMeta>();
+  if (qualityIds.length > 0) {
+    const qRes = await sb
+      .from('fabric_quality')
+      .select('id, code, name, hsn, reed, pick_per_inch, width_in, weight_gsm')
+      .in('id', qualityIds);
+    qualityById = new Map<number, FabricQualityMeta>(
+      ((qRes.data ?? []) as FabricQualityMeta[]).map((q) => [q.id, q]),
+    );
+  }
+
+  // Resolve ship-to display.
+  const shipToName    = dc.ship_to_same ? (dc.bill_to_name ?? '')    : (dc.ship_to_name ?? '');
+  const shipToAddress = dc.ship_to_same ? (dc.bill_to_address ?? '') : (dc.ship_to_address ?? '');
+  const shipToGstin   = dc.ship_to_same ? (dc.bill_to_gstin ?? '')   : (dc.ship_to_gstin ?? '');
+  const shipToState   = dc.ship_to_same ? (dc.bill_to_state ?? '')   : (dc.ship_to_state ?? '');
+  const shipToCode    = dc.ship_to_same ? (dc.bill_to_state_code ?? '') : (dc.ship_to_state_code ?? '');
+
+  return (
+    <>
+      {/*
+        Page-level styles. Keep them inline so the print route is fully
+        self-contained — no dependency on whether the global layout is
+        loaded or whether tailwind purges these classes.
+      */}
+      <style>{`
+        @page { size: A4; margin: 10mm; }
+        @media print {
+          .no-print { display: none !important; }
+          html, body { background: #fff !important; }
+          .dc-sheet { box-shadow: none !important; border: none !important; }
+        }
+        body { background: #f3f4f6; }
+        .dc-sheet {
+          width: 210mm;
+          min-height: 297mm;
+          margin: 16px auto;
+          background: #fff;
+          color: #111;
+          padding: 10mm 12mm;
+          box-sizing: border-box;
+          font-family: 'Calibri', Arial, sans-serif;
+          font-size: 11px;
+          line-height: 1.3;
+          border: 1px solid #d4d4d4;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        }
+        .dc-title { text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+        .dc-orig { text-align: right; font-size: 10px; font-weight: 600; margin: 4px 0; color: #444; }
+        .dc-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border: 1px solid #000; }
+        .dc-meta > div { border-right: 0.5px solid #000; padding: 5px 8px; }
+        .dc-meta > div:last-child { border-right: none; }
+        .dc-meta .lbl { font-size: 9px; color: #555; letter-spacing: 0.5px; }
+        .dc-meta .val { font-size: 12px; font-weight: 700; }
+        .dc-secbar { background: #f0f0f0; font-weight: 700; font-size: 12px; padding: 4px 8px; border: 1px solid #000; border-top: none; letter-spacing: 0.5px; }
+        .dc-deliv { border: 1px solid #000; border-top: none; padding: 6px 10px; display: flex; justify-content: space-between; align-items: flex-start; font-size: 11px; }
+        .dc-deliv .for { font-weight: 700; font-size: 13px; }
+        .dc-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
+        .dc-billship > div { padding: 7px 10px; }
+        .dc-billship > div + div { border-left: 0.5px solid #000; }
+        .dc-billship .tag { display: inline-block; background: #000; color: #fff; font-size: 10px; padding: 2px 10px; letter-spacing: 1.5px; margin-bottom: 4px; font-weight: 700; }
+        .dc-billship .gst { font-size: 10px; font-weight: 600; margin-bottom: 2px; }
+        .dc-billship .party { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+        .dc-billship .addr { font-size: 10.5px; color: #222; }
+        .dc-billship .ps { font-size: 10px; color: #555; margin-top: 4px; letter-spacing: 0.3px; }
+        .dc-item { border: 1px solid #000; border-top: none; }
+        .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 5px 10px; font-size: 12px; font-weight: 700; background: #fafafa; border-bottom: 0.5px solid #000; }
+        .dc-item .qline .agent { text-align: right; }
+        .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 3px 4px; text-align: right; height: 18px; }
+        .dc-item table.bundles th { background: #f0f0f0; font-weight: 700; text-align: center; }
+        .dc-item table.bundles td.empty { color: #ccc; }
+        .dc-item table.bundles td.lbl, .dc-item table.bundles th.lbl { text-align: left; background: #fafafa; font-weight: 600; }
+        .dc-item table.bundles tr.total td { background: #f4f4f4; font-weight: 700; border-top: 1.2px solid #000; }
+        .dc-item .summary { display: grid; grid-template-columns: 1fr 1fr; border-top: 0.5px solid #000; }
+        .dc-item .summary > div { padding: 6px 10px; }
+        .dc-item .summary > div + div { border-left: 0.5px solid #000; }
+        .dc-item .summary table { width: 100%; font-size: 11px; }
+        .dc-item .summary td { padding: 3px 0; }
+        .dc-item .summary td.l { color: #444; font-weight: 600; }
+        .dc-item .summary td.v { text-align: right; font-weight: 700; }
+        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 5px 10px; font-size: 11px; }
+        .dc-foot { border: 1px solid #000; border-top: none; display: grid; grid-template-columns: 1fr 1fr; min-height: 80px; }
+        .dc-foot > div { padding: 7px 10px; font-size: 10.5px; }
+        .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
+        .dc-foot .sig { font-weight: 700; margin-bottom: 28px; }
+        .dc-foot .auth { font-weight: 700; letter-spacing: 0.5px; }
+        .dc-foot .seal { color: #555; font-weight: 600; letter-spacing: 0.5px; margin-top: 4px; text-align: center; }
+        .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 10px; font-weight: 600; line-height: 1.5; }
+        .dc-addrfoot .small { font-weight: 400; font-size: 9.5px; }
+        .dc-watermark { position: relative; }
+        .dc-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 90px; color: rgba(220, 38, 38, 0.12); font-weight: 900; letter-spacing: 12px; pointer-events: none; transform: rotate(-30deg); }
+        .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 80px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
+      `}</style>
+
+      <PrintActions dcId={dc.id} dcCode={dc.code} />
+
+      <div
+        className={'dc-sheet dc-watermark ' +
+          (dc.status === 'draft' ? 'dc-status-draft' : dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
+      >
+        {/* ───── Header band: logo on the left, "DELIVERY CHELLAN" centre ───── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <BrandLogo variant="mark" height={56} />
+          <div style={{ flex: 1 }}>
+            <div className="dc-title">{COMPANY.name} &nbsp; DELIVERY CHELLAN</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: '#555', marginTop: 2 }}>
+              {COMPANY.address}
+            </div>
+          </div>
+        </div>
+
+        <div className="dc-orig">{dc.status === 'invoiced' ? 'ORIGINAL COPY' : 'ORIGINAL COPY'}</div>
+
+        {/* ───── Meta strip ───── */}
+        <div className="dc-meta">
+          <div><div className="lbl">CHELLAN DATE</div><div className="val">{fmtDc(dc.dc_date)}</div></div>
+          <div><div className="lbl">CHELLAN #</div><div className="val">{dc.code}</div></div>
+          <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
+          <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
+        </div>
+
+        {/* ───── Delivery Details section ───── */}
+        <div className="dc-secbar">DELIVERY DETAILS :</div>
+        <div className="dc-deliv">
+          <div style={{ fontSize: 11, color: '#555' }}>
+            Mode: <span style={{ fontWeight: 700, color: '#111', textTransform: 'capitalize' }}>{dc.production_mode}</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="for">FOR, {COMPANY.name}</div>
+            <div>STATE CODE : {COMPANY.stateCode}</div>
+          </div>
+        </div>
+
+        {/* ───── Bill To / Ship To ───── */}
+        <div className="dc-billship">
+          <div>
+            <div className="tag">BILL TO</div>
+            <div className="gst">GSTIN : {dc.bill_to_gstin || '-'}</div>
+            <div className="party">{dc.bill_to_name || '-'}</div>
+            <div className="addr">{(dc.bill_to_address || '').split('\n').map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}</div>
+            <div className="ps">
+              PLACE OF SUPPLY : {dc.bill_to_state || '-'} &nbsp;&middot;&nbsp; STATE CODE : {dc.bill_to_state_code || '-'}
+            </div>
+          </div>
+          <div>
+            <div className="tag">SHIP TO</div>
+            <div className="gst">GSTIN : {shipToGstin || '-'}</div>
+            <div className="party">{shipToName || '-'}</div>
+            <div className="addr">{(shipToAddress || '').split('\n').map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}</div>
+            <div className="ps">
+              PLACE OF SUPPLY : {shipToState || '-'} &nbsp;&middot;&nbsp; STATE CODE : {shipToCode || '-'}
+            </div>
+          </div>
+        </div>
+
+        {/* ───── Items: each item gets its own quality + bundle grid + summary ───── */}
+        {itemRows.length === 0 ? (
+          <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
+            No items on this DC.
+          </div>
+        ) : itemRows.map((item) => {
+          const fq = item.fabric_quality_id != null ? qualityById.get(item.fabric_quality_id) : null;
+          const qualityLabel = fq
+            ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}`
+            : (item.description || '-');
+          const reedXpick = fq?.reed && fq?.pick_per_inch
+            ? `${Number(fq.reed)} \u00d7 ${Number(fq.pick_per_inch)}`
+            : '-';
+          const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
+          const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
+
+          const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
+          const bundleRows = chunk(bundles, BUNDLES_PER_ROW);
+          const maxPieces = Math.max(1, maxPiecesInItem(bundles));
+
+          let itemMetres = 0;
+          let itemPieces = 0;
+          for (const b of bundles) {
+            for (const p of (b.pieces ?? [])) {
+              const v = num(p);
+              if (v > 0) { itemMetres += v; itemPieces += 1; }
+            }
+          }
+          const itemBundles = bundles.length;
+
+          return (
+            <div className="dc-item" key={item.id}>
+              <div className="qline">
+                <div>QUALITY : {qualityLabel}</div>
+                <div className="agent">HSN : {item.hsn || fq?.hsn || '-'}</div>
+              </div>
+
+              {bundleRows.length === 0 ? (
+                <div style={{ padding: 12, textAlign: 'center', color: '#888', fontSize: 11 }}>
+                  No bundle breakdown captured.
+                </div>
+              ) : bundleRows.map((rowBundles, rowIdx) => {
+                const startBundle = rowIdx * BUNDLES_PER_ROW;
+                return (
+                  <table key={rowIdx} className="bundles">
+                    <thead>
+                      <tr>
+                        <th className="lbl" style={{ minWidth: 50 }}>BUNDLE</th>
+                        {Array.from({ length: BUNDLES_PER_ROW }).map((_, i) => {
+                          const b = rowBundles[i];
+                          const label = b ? (b.sno ?? (startBundle + i + 1)) : (startBundle + i + 1);
+                          return <th key={i}>{label}</th>;
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: maxPieces }).map((_, pIdx) => (
+                        <tr key={pIdx}>
+                          <td className="lbl">Pc {pIdx + 1}</td>
+                          {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
+                            const b = rowBundles[bIdx];
+                            const v = b?.pieces?.[pIdx];
+                            const n = num(v);
+                            return (
+                              <td key={bIdx} className={n > 0 ? '' : 'empty'}>
+                                {n > 0 ? fmtPiece(n) : '-'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                      <tr className="total">
+                        <td className="lbl">TOTAL</td>
+                        {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
+                          const b = rowBundles[bIdx];
+                          if (!b) return <td key={bIdx}>0.00</td>;
+                          const t = (b.pieces ?? []).reduce<number>((s, p) => s + num(p), 0);
+                          return <td key={bIdx}>{fmtMetres(t)}</td>;
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                );
+              })}
+
+              <div className="summary">
+                <div>
+                  <table>
+                    <tbody>
+                      <tr><td className="l">REED &times; PICK</td><td className="v">{reedXpick}</td></tr>
+                      <tr><td className="l">FABRIC WIDTH</td><td className="v">{widthLabel}</td></tr>
+                      <tr><td className="l">FABRIC WEIGHT</td><td className="v">{weightLabel}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <table>
+                    <tbody>
+                      <tr><td className="l">TOTAL METRES</td><td className="v">{fmtMetres(itemMetres)}</td></tr>
+                      <tr><td className="l">TOTAL PIECES</td><td className="v">{itemPieces}</td></tr>
+                      <tr><td className="l">TOTAL BUNDLES</td><td className="v">{itemBundles}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* ───── Vehicle + footer signatures ───── */}
+        <div className="dc-vehicle">
+          <b style={{ letterSpacing: 0.5 }}>VEHICLE NUM :</b> {dc.vehicle_no || '-'}
+        </div>
+
+        <div className="dc-foot">
+          <div>
+            <div className="sig">RECEIVER&apos;S SIGNATURE &amp; DATE</div>
+            <div className="seal">COMMON SEAL</div>
+          </div>
+          <div>
+            <div style={{ marginBottom: 36 }}>FOR, {COMPANY.name}</div>
+            <div className="auth">AUTHORISED SIGNATORY</div>
+          </div>
+        </div>
+
+        {/* ───── Address footer ───── */}
+        <div className="dc-addrfoot">
+          <div>{COMPANY.address}</div>
+          <div className="small">
+            MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
+          </div>
+        </div>
+
+        {/* DC-level totals row at the very bottom (small, optional cross-check) */}
+        {(dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
+          <div style={{ marginTop: 6, textAlign: 'right', fontSize: 10, color: '#666' }}>
+            DC Totals: {fmtMetres(num(dc.total_metres))} m &nbsp;&middot;&nbsp;
+            {dc.total_pieces ?? 0} pcs &nbsp;&middot;&nbsp;
+            {dc.total_bundles ?? 0} bundles
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
