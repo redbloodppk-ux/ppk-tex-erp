@@ -1,0 +1,125 @@
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/app/components/page-header';
+import { formatRupee } from '@/lib/utils';
+import { Plus, Pencil } from 'lucide-react';
+
+export const metadata = { title: 'Delivery Challan' };
+export const dynamic = 'force-dynamic';
+
+interface DcRow {
+  id: number;
+  code: string;
+  dc_date: string;
+  status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
+  production_mode: 'inhouse' | 'jobwork';
+  party_id: number | null;
+  bill_to_name: string | null;
+  total_metres: number | string | null;
+  total_pieces: number | null;
+  total_bundles: number | null;
+  total_amount: number | string | null;
+  sales_order_id: number | null;
+  invoice_id: number | null;
+}
+
+function fmtDate(s: string | null): string {
+  if (!s) return '-';
+  const d = new Date(s + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return s;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function statusPill(s: DcRow['status']): { label: string; cls: string } {
+  switch (s) {
+    case 'draft':     return { label: 'Draft',     cls: 'bg-slate-100 text-slate-600' };
+    case 'confirmed': return { label: 'Confirmed', cls: 'bg-amber-50 text-amber-700' };
+    case 'invoiced':  return { label: 'Invoiced',  cls: 'bg-emerald-50 text-emerald-700' };
+    case 'cancelled': return { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700' };
+    default:          return { label: s,           cls: 'bg-slate-100 text-slate-600' };
+  }
+}
+
+export default async function DeliveryChallanListPage() {
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  const { data, error } = await sb
+    .from('delivery_challan')
+    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, total_amount, sales_order_id, invoice_id')
+    .order('dc_date', { ascending: false })
+    .order('id', { ascending: false });
+
+  const rows = (data ?? []) as DcRow[];
+
+  return (
+    <div>
+      <PageHeader
+        title="Delivery Challan"
+        subtitle="Generate DCs for in-house and jobwork dispatches. Confirmed DCs flow into the Sales Orders page for invoicing."
+        actions={
+          <Link href="/app/delivery-challan/new" className="btn-primary">
+            <Plus className="w-4 h-4" /> New DC
+          </Link>
+        }
+      />
+
+      {error && (
+        <div className="card p-3 mb-4 text-err text-sm">Could not load DCs: {error.message}</div>
+      )}
+
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-3 py-3">DC No</th>
+              <th className="text-left px-3 py-3">Date</th>
+              <th className="text-left px-3 py-3">Mode</th>
+              <th className="text-left px-3 py-3">Party (Bill-To)</th>
+              <th className="text-right px-3 py-3">Metres</th>
+              <th className="text-right px-3 py-3">Pcs</th>
+              <th className="text-right px-3 py-3">Bundles</th>
+              <th className="text-right px-3 py-3">Amount</th>
+              <th className="text-left px-3 py-3">Status</th>
+              <th className="text-right px-3 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
+                  No delivery challans yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link>
+                </td>
+              </tr>
+            ) : rows.map((r) => {
+              const pill = statusPill(r.status);
+              return (
+                <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-3 py-2 font-mono text-xs">
+                    <Link href={`/app/delivery-challan/${r.id}`} className="text-indigo hover:underline">{r.code}</Link>
+                  </td>
+                  <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
+                  <td className="px-3 py-2 text-xs capitalize">{r.production_mode}</td>
+                  <td className="px-3 py-2 font-medium">{r.bill_to_name ?? '-'}</td>
+                  <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                  <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
+                  <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
+                  <td className="px-3 py-2 text-right num text-emerald-700 font-semibold">{formatRupee(r.total_amount, { compact: true })}</td>
+                  <td className="px-3 py-2">
+                    <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Link href={`/app/delivery-challan/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="Edit DC">
+                      <Pencil className="w-4 h-4" />
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

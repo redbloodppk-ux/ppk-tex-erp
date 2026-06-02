@@ -1,10 +1,25 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader, ComingSoon } from '@/app/components/page-header';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil, FileText } from 'lucide-react';
 import { formatRupee, formatDate, formatMetres } from '@/lib/utils';
+import { DcConfirmButton } from './dc-confirm-button';
 
 export const metadata = { title: 'Sales Orders' };
+export const dynamic = 'force-dynamic';
+
+interface PendingDc {
+  id: number;
+  code: string;
+  dc_date: string;
+  production_mode: 'inhouse' | 'jobwork';
+  bill_to_name: string | null;
+  total_metres: number | string | null;
+  total_pieces: number | null;
+  total_bundles: number | null;
+  total_amount: number | string | null;
+  status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
+}
 
 export default async function OrdersPage() {
   const supabase = await createClient();
@@ -13,6 +28,18 @@ export default async function OrdersPage() {
     .select('id, doc_no, customer_name, order_date, expected_delivery_date, total_metres, total_amount, status')
     .order('order_date', { ascending: false })
     .limit(50);
+
+  // Draft DCs that are waiting for the operator to confirm before they
+  // can be turned into invoices.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: pendingDcs } = await (supabase as any)
+    .from('delivery_challan')
+    .select('id, code, dc_date, production_mode, bill_to_name, total_metres, total_pieces, total_bundles, total_amount, status')
+    .in('status', ['draft', 'confirmed'])
+    .is('invoice_id', null)
+    .order('dc_date', { ascending: false })
+    .limit(50);
+  const pending = (pendingDcs ?? []) as PendingDc[];
 
   return (
     <div>
@@ -25,6 +52,76 @@ export default async function OrdersPage() {
           </Link>
         }
       />
+
+      {/* DELIVERY CHALLAN INBOX
+          DCs created from /app/delivery-challan land here for the sales
+          team to confirm before invoicing. Confirmed DCs stay visible
+          until an invoice is generated, then drop off the inbox. */}
+      {pending.length > 0 && (
+        <div className="card mb-5 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line/60 bg-amber-50/50">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-amber-700" />
+              <h2 className="font-display font-bold text-sm">Delivery Challans awaiting action</h2>
+              <span className="pill bg-amber-100 text-amber-700 text-[10px]">{pending.length}</span>
+            </div>
+            <Link href="/app/delivery-challan" className="text-xs text-indigo hover:underline">
+              Manage all DCs →
+            </Link>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left px-4 py-2.5">DC No</th>
+                <th className="text-left px-4 py-2.5">Date</th>
+                <th className="text-left px-4 py-2.5">Mode</th>
+                <th className="text-left px-4 py-2.5">Party</th>
+                <th className="text-right px-4 py-2.5">Metres</th>
+                <th className="text-right px-4 py-2.5">Pcs</th>
+                <th className="text-right px-4 py-2.5">Bundles</th>
+                <th className="text-right px-4 py-2.5">Amount</th>
+                <th className="text-left px-4 py-2.5">Status</th>
+                <th className="text-right px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {pending.map((d) => (
+                <tr key={d.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-4 py-2 font-mono text-xs">
+                    <Link href={`/app/delivery-challan/${d.id}`} className="text-indigo hover:underline">{d.code}</Link>
+                  </td>
+                  <td className="px-4 py-2 text-xs text-ink-soft">{formatDate(d.dc_date)}</td>
+                  <td className="px-4 py-2 text-xs capitalize">{d.production_mode}</td>
+                  <td className="px-4 py-2 font-medium">{d.bill_to_name ?? '-'}</td>
+                  <td className="px-4 py-2 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-2 text-right num">{d.total_pieces ?? 0}</td>
+                  <td className="px-4 py-2 text-right num">{d.total_bundles ?? 0}</td>
+                  <td className="px-4 py-2 text-right num font-semibold text-emerald-700">{formatRupee(d.total_amount, { compact: true })}</td>
+                  <td className="px-4 py-2">
+                    <span className={'pill text-xs uppercase tracking-wide ' +
+                      (d.status === 'confirmed'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-slate-100 text-slate-600')}>
+                      {d.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <Link href={`/app/delivery-challan/${d.id}`}
+                      className="inline-flex items-center gap-1 p-1 rounded hover:bg-indigo-50 text-indigo-700 mr-1"
+                      title="Edit DC">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Link>
+                    {d.status === 'draft' && (
+                      <DcConfirmButton dcId={d.id} dcCode={d.code} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {!orders?.length ? (
         <ComingSoon note="No sales orders yet. Once you create one, it appears here with delivery date and invoiced status." />
       ) : (

@@ -42,8 +42,9 @@ const NAV: NavItem[] = [
   // under Admin. Both old pages still work at their old URLs for any
   // bookmarks / legacy links.
   { href: '/app/costing',         label: 'Fabric Costing',   icon: Calculator,      group: 'sales',      roles: ['owner','mill_manager','sales_manager','auditor'] },
-  { href: '/app/orders',        label: 'Sales Orders',       icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
-  { href: '/app/invoices',      label: 'Invoices',           icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
+  { href: '/app/orders',            label: 'Sales Orders',     icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
+  { href: '/app/delivery-challan',  label: 'Delivery Challan', icon: Truck,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
+  { href: '/app/invoices',          label: 'Invoices',         icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
   { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Inventory
