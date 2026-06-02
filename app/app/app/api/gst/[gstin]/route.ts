@@ -176,19 +176,26 @@ interface SandboxAuthResponse {
   message?: string;
   code?: number;
 }
+interface SandboxTaxpayer {
+  gstin?: string;
+  lgnm?: string;
+  tradeNam?: string;
+  sts?: string;
+  ctb?: string;
+  dty?: string;
+  rgdt?: string;
+  nba?: string[];
+  pradr?: { addr?: AppyFlowAddress; ntr?: string | string[] };
+}
 interface SandboxGstinResponse {
   code?: number;
   message?: string;
+  // Inner GSTN response is double-nested: response.data.data.{gstin,lgnm,...}
+  // For "no records found" the response sets data.error instead of data.data.
   data?: {
-    gstin?: string;
-    lgnm?: string;
-    tradeNam?: string;
-    sts?: string;
-    ctb?: string;
-    dty?: string;
-    rgdt?: string;
-    nba?: string[];
-    pradr?: { addr?: AppyFlowAddress };
+    data?: SandboxTaxpayer;
+    error?: { error_cd?: string; message?: string };
+    status_cd?: string;
   };
 }
 
@@ -217,71 +224,62 @@ async function sandboxAuth(apiKey: string, apiSecret: string, signal: AbortSigna
   return { ok: true, token: json.access_token };
 }
 
-async function tryLookup(
-  url: string,
-  apiKey: string,
-  token: string,
-  apiVersion: string,
-  signal: AbortSignal,
-): Promise<{ status: number; raw: string; json: SandboxGstinResponse | null }> {
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': token,
-      'x-api-key': apiKey,
-      'x-api-version': apiVersion,
-      'accept': 'application/json',
-    },
-    signal,
-  });
-  const raw = await res.text();
-  let json: SandboxGstinResponse | null = null;
-  try { json = raw ? (JSON.parse(raw) as SandboxGstinResponse) : null; } catch { /* not JSON */ }
-  return { status: res.status, raw, json };
-}
-
 async function callSandbox(gstin: string, apiKey: string, apiSecret: string): Promise<ProviderResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12_000);
   try {
-    // Step 1 — exchange key+secret for a short-lived access token.
+    // Step 1 — exchange key+secret for a short-lived JWT access token.
     const auth = await sandboxAuth(apiKey, apiSecret, controller.signal);
     if (!auth.ok) return { ok: false, error: auth.error };
 
-    // Step 2 — try known Sandbox GST search endpoint variants. Sandbox has
-    // shipped multiple URL shapes over the years; we walk through them in
-    // priority order and stop at the first non-404. This makes the route
-    // resilient to URL renames in their docs.
-    const variants: Array<{ url: string; version: string }> = [
-      { url: `https://api.sandbox.co.in/gst/compliance/public/gstin/${encodeURIComponent(gstin)}/search`, version: '1.0' },
-      { url: `https://api.sandbox.co.in/gst/compliance/public/gstin/${encodeURIComponent(gstin)}`,         version: '1.0' },
-      { url: `https://api.sandbox.co.in/gst/compliance/public/gstins/${encodeURIComponent(gstin)}`,        version: '1.0' },
-      { url: `https://api.sandbox.co.in/gsp/public/gstin/${encodeURIComponent(gstin)}/search`,             version: '2.0' },
-      { url: `https://api.sandbox.co.in/gst/compliance/public/search?gstin=${encodeURIComponent(gstin)}`,  version: '1.0' },
-    ];
+    // Step 2 — POST to the GSTIN search endpoint with the GSTIN in the JSON
+    // body. Spec:
+    //   POST https://api.sandbox.co.in/gst/compliance/public/gstin/search
+    //   Headers: authorization, x-api-key, x-api-version (1.0.0)
+    //   Body:   { "gstin": "..." }
+    // Docs: developer.sandbox.co.in/api-reference/gst/compliance/endpoints/public/search_gstin
+    const url = process.env.SANDBOX_GST_URL?.trim()
+      || 'https://api.sandbox.co.in/gst/compliance/public/gstin/search';
+    const apiVersion = process.env.SANDBOX_API_VERSION?.trim() || '1.0.0';
 
-    let last: { status: number; raw: string; json: SandboxGstinResponse | null; url: string; version: string } | null = null;
-    for (const v of variants) {
-      const r = await tryLookup(v.url, apiKey, auth.token, v.version, controller.signal);
-      // eslint-disable-next-line no-console
-      console.log('[gst] Sandbox lookup', gstin, 'try', v.url, 'v', v.version, 'status', r.status, 'body', r.raw.slice(0, 300));
-      last = { ...r, url: v.url, version: v.version };
-      // If we got anything other than 404, stop walking variants - that
-      // endpoint exists and the error (if any) is meaningful.
-      if (r.status !== 404) break;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'authorization': auth.token,
+        'x-api-key': apiKey,
+        'x-api-version': apiVersion,
+        'content-type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({ gstin }),
+      signal: controller.signal,
+    });
+    const raw = await res.text();
+    let json: SandboxGstinResponse | null = null;
+    try { json = raw ? (JSON.parse(raw) as SandboxGstinResponse) : null; } catch { /* not JSON */ }
+
+    // eslint-disable-next-line no-console
+    console.log('[gst] Sandbox lookup', gstin, 'status', res.status, 'body', raw.slice(0, 600));
+
+    if (!(res.status >= 200 && res.status < 300)) {
+      const msg = json?.message ?? raw.slice(0, 200);
+      const hint = res.status === 404
+        ? ' — Make sure "GST Compliance" is subscribed under Products in your Sandbox dashboard.'
+        : '';
+      return { ok: false, error: `Sandbox lookup HTTP ${res.status}: ${msg || 'no body'}${hint}` };
     }
 
-    if (!last) {
-      return { ok: false, error: 'Sandbox lookup failed (no response).' };
+    // GSTN's "no records found" path: response is 200 OK but data.error is set.
+    const errCd = json?.data?.error?.error_cd;
+    if (errCd) {
+      const errMsg = json?.data?.error?.message ?? 'No records found.';
+      return { ok: false, error: `Sandbox: ${errMsg} (${errCd}).` };
     }
 
-    if (!(last.status >= 200 && last.status < 300)) {
-      const msg = last.json?.message ?? last.raw.slice(0, 200);
-      return { ok: false, error: `Sandbox lookup HTTP ${last.status} at ${last.url}: ${msg || 'no body'}` };
-    }
-    const d = last.json?.data;
+    // Real data is double-nested: response.data.data.{...}.
+    const d = json?.data?.data;
     if (!d) {
-      return { ok: false, error: last.json?.message ?? 'Sandbox returned no data for this GSTIN.' };
+      return { ok: false, error: json?.message ?? 'Sandbox returned an empty payload for this GSTIN.' };
     }
     if (d.gstin && d.gstin.toUpperCase() !== gstin) {
       return { ok: false, error: `Sandbox returned a different GSTIN (${d.gstin}) than requested (${gstin}).` };
@@ -291,6 +289,15 @@ async function callSandbox(gstin: string, apiKey: string, apiSecret: string): Pr
     const stateCode = gstin.slice(0, 2);
     const state = addr.stcd ?? STATE_BY_CODE[stateCode] ?? '';
 
+    // Sandbox / GSTN field meanings:
+    //   bnm/bno/flno - building name / number / floor
+    //   st          - street
+    //   loc         - location (typically the city/town, e.g. "Mumbai")
+    //   locality    - sub-locality (often empty)
+    //   dst         - district (e.g. "Bengaluru Urban")
+    //   stcd / pncd - state name, pincode
+    // We prefer `loc` for the City input since that's what holds the
+    // city name in Sandbox responses.
     return {
       ok: true,
       data: {
@@ -305,8 +312,8 @@ async function callSandbox(gstin: string, apiKey: string, apiSecret: string): Pr
         address: {
           building: [addr.bno, addr.bnm].filter(Boolean).join(' ').trim() || undefined,
           street: addr.st,
-          locality: addr.loc,
-          city: addr.city,
+          locality: undefined,
+          city: addr.loc ?? addr.city,
           district: addr.dst,
           state,
           state_code: stateCode,
