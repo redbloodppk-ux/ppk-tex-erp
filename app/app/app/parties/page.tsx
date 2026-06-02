@@ -13,6 +13,7 @@ interface PartyRow {
   code: string;
   name: string;
   party_type_id: number | null;
+  party_type_ids: number[] | null;
   gstin: string | null;
   phone: string | null;
   email: string | null;
@@ -39,8 +40,11 @@ export default async function PartiesPage({
   const [typesRes, partiesRes] = await Promise.all([
     sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
     (typeFilter === ''
-      ? sb.from('party').select('id, code, name, party_type_id, gstin, phone, email, city, credit_limit, payment_terms_days, status').order('name')
-      : sb.from('party').select('id, code, name, party_type_id, gstin, phone, email, city, credit_limit, payment_terms_days, status').eq('party_type_id', Number(typeFilter)).order('name')),
+      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, phone, email, city, credit_limit, payment_terms_days, status').order('name')
+      // Use array containment (`@>`) so the filter pill matches parties
+      // whose party_type_ids includes the selected type. Supabase exposes
+      // this via the .contains() filter.
+      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order('name')),
   ]);
 
   const types = (typesRes.data ?? []) as TypeRow[];
@@ -106,7 +110,19 @@ export default async function PartiesPage({
                   )}
                 </td>
                 <td className="px-4 py-3 hidden sm:table-cell text-xs text-ink-soft">
-                  {p.party_type_id ? (typeNameById.get(p.party_type_id) ?? '-') : '-'}
+                  {(() => {
+                    // Show every type the party belongs to, comma-separated.
+                    // Falls back to the legacy single party_type_id when the
+                    // array hasn't been populated yet (pre-migration rows).
+                    const ids = Array.isArray(p.party_type_ids) && p.party_type_ids.length > 0
+                      ? p.party_type_ids
+                      : (p.party_type_id ? [p.party_type_id] : []);
+                    if (ids.length === 0) return '-';
+                    return ids
+                      .map((id) => typeNameById.get(id))
+                      .filter((s): s is string => Boolean(s))
+                      .join(', ') || '-';
+                  })()}
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{p.gstin ?? '-'}</td>
                 <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">

@@ -163,7 +163,9 @@ export default function BobbinPage() {
             .from('party')
             .select('id, code, name')
             .eq('status', 'active')
-            .eq('party_type_id', bobbinSupplierTypeId)
+            // Use array containment so parties tagged with multiple
+            // types (e.g. Customer + Bobbin Supplier) still show here.
+            .contains('party_type_ids', [bobbinSupplierTypeId])
             .order('name'),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)

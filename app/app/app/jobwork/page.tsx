@@ -99,10 +99,10 @@ export default function JobworkPage(): React.ReactElement {
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
       bobbinSupplierTypeId === null
         ? Promise.resolve({ data: [], error: null })
-        : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', bobbinSupplierTypeId).order('name'),
+        : sb.from('party').select('id, code, name').eq('status', 'active').contains('party_type_ids', [bobbinSupplierTypeId]).order('name'),
       sizingPartyTypeId === null
         ? Promise.resolve({ data: [], error: null })
-        : sb.from('party').select('id, code, name').eq('status', 'active').eq('party_type_id', sizingPartyTypeId).order('name'),
+        : sb.from('party').select('id, code, name').eq('status', 'active').contains('party_type_ids', [sizingPartyTypeId]).order('name'),
       // calc_snapshot carries the warp_count_id, ends_id, total_ends entered
       // on the Fabric Quality form - we use it to auto-fill the warp beam
       // form when a fabric is picked.

@@ -14,7 +14,12 @@ import { Loader2, Trash2, Archive } from 'lucide-react';
 export interface PartyTypeOpt { id: number; code: string; name: string; }
 
 export interface PartyFormValues {
+  /** Legacy single type — kept for back-compat. The canonical source of
+   *  truth is `party_type_ids` below. */
   party_type_id: string;
+  /** Migration 081: a party can belong to multiple types (e.g. Customer
+   *  + Bobbin Supplier). Stored as a bigint[] in the DB. */
+  party_type_ids: string[];
   name: string;
   gstin: string;
   contact_person: string;
@@ -40,6 +45,7 @@ interface PartyFormProps {
 
 const EMPTY: PartyFormValues = {
   party_type_id: '',
+  party_type_ids: [],
   name: '',
   gstin: '',
   contact_person: '',
@@ -64,8 +70,23 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   const values: PartyFormValues = { ...EMPTY, ...(initial ?? {}) };
 
   const [partyTypes, setPartyTypes] = useState<PartyTypeOpt[]>([]);
+  // Multi-type selection. Hydrate from values.party_type_ids when editing
+  // an existing party, or from the single legacy party_type_id when older
+  // rows haven't been migrated yet.
+  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>(() => {
+    const arr = values.party_type_ids ?? [];
+    if (arr.length > 0) return arr.map((s) => String(s));
+    if (values.party_type_id) return [String(values.party_type_id)];
+    return [];
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleType(idStr: string): void {
+    setSelectedTypeIds((prev) => prev.includes(idStr)
+      ? prev.filter((x) => x !== idStr)
+      : [...prev, idStr].sort());
+  }
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -112,11 +133,16 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
     setSavedMsg(null);
     const fd = new FormData(e.currentTarget);
 
-    const partyTypeId = String(fd.get('party_type_id') ?? '');
-    if (partyTypeId === '') { setBusy(false); setError('Pick a party type.'); return; }
+    if (selectedTypeIds.length === 0) {
+      setBusy(false); setError('Pick at least one party type.'); return;
+    }
+    const typeIdNums = selectedTypeIds.map((s) => Number(s)).filter((n) => Number.isFinite(n));
 
     const payload = {
-      party_type_id: Number(partyTypeId),
+      // Multi-type array (canonical). The DB trigger keeps party_type_id
+      // in sync with the first element, so we send both for safety.
+      party_type_ids: typeIdNums,
+      party_type_id: typeIdNums[0],
       name: String(fd.get('name') ?? '').trim(),
       gstin: String(fd.get('gstin') ?? '').trim().toUpperCase() || null,
       contact_person: String(fd.get('contact_person') ?? '').trim() || null,
@@ -190,19 +216,41 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
           )}
         </div>
         <div>
-          <label className="label">Party Type *</label>
-          <div className="flex items-stretch gap-1.5">
-            <select name="party_type_id" required className="input w-full"
-              defaultValue={values.party_type_id}>
-              <option value="">--- pick a type ---</option>
-              {partyTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+          <label className="label">Party Type * <span className="text-ink-mute font-normal">(tick all that apply)</span></label>
+          <div className="flex items-start gap-1.5">
+            <div className="flex-1 input min-h-[40px] py-1.5 flex flex-wrap gap-1.5 items-center">
+              {partyTypes.length === 0 ? (
+                <span className="text-xs text-ink-mute">Loading...</span>
+              ) : partyTypes.map((t) => {
+                const idStr = String(t.id);
+                const active = selectedTypeIds.includes(idStr);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleType(idStr)}
+                    className={
+                      'px-2.5 py-1 rounded-full border text-xs font-semibold transition ' +
+                      (active
+                        ? 'border-transparent bg-indigo-600 text-white'
+                        : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+                    }
+                  >
+                    {active && <span className="mr-1">✓</span>}
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
             <a href="/app/settings/party-types" target="_blank" rel="noopener noreferrer"
               title="Add new party type"
-              className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0">
+              className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0 self-stretch">
               +
             </a>
           </div>
+          <p className="text-[11px] text-ink-mute mt-1">
+            One party can be e.g. <span className="font-semibold">Customer</span> + <span className="font-semibold">Bobbin Supplier</span> at the same time - no need to create duplicate rows.
+          </p>
         </div>
       </div>
 
