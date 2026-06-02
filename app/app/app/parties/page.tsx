@@ -2,7 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
-import { Plus, Phone, MapPin } from 'lucide-react';
+import { Plus, Phone, MapPin, Pencil } from 'lucide-react';
+import { DeletePartyButton } from './delete-party-button';
 
 export const metadata = { title: 'Parties' };
 export const dynamic = 'force-dynamic';
@@ -89,6 +90,7 @@ export default async function PartiesPage({
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>
               <th className="text-right px-4 py-3">Credit</th>
               <th className="text-right px-4 py-3">Terms</th>
+              <th className="text-right px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -113,10 +115,22 @@ export default async function PartiesPage({
                 </td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.credit_limit, { compact: true })}</td>
                 <td className="px-4 py-3 text-right num text-ink-soft">{p.payment_terms_days ?? 0}d</td>
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <div className="inline-flex items-center gap-1">
+                    <Link
+                      href={`/app/parties/${p.id}`}
+                      className="p-1 rounded hover:bg-indigo-50 text-indigo-700"
+                      title={`Edit ${p.name}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Link>
+                    <DeletePartyButton partyId={p.id} partyName={p.name} />
+                  </div>
+                </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No parties yet. <Link href="/app/parties/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>
