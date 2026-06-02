@@ -34,6 +34,22 @@
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-feature-settings: 'tnum' 1, 'cv01' 1;
   }
+
+  /* Hide the browser-native increment / decrement spinner on number inputs
+     marked .num. Operators were accidentally bumping the wrong loom's metres
+     by tapping the arrow buttons; this turns those inputs into plain text
+     boxes (with the numeric mobile keyboard still available via
+     inputmode="numeric"). Covers Chrome/Edge/Safari and Firefox. */
+  input.num[type='number']::-webkit-outer-spin-button,
+  input.num[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
+  input.num[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 @layer components {
