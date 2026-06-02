@@ -18,8 +18,10 @@ export const metadata = { title: 'Weaver Production by Quality' };
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; shed?: string }>;
 }
+
+const SHEDS = [1, 2, 3, 4] as const;
 
 /** Format a local Date as YYYY-MM-DD without UTC conversion. */
 function localISO(d: Date): string {
@@ -75,7 +77,7 @@ interface RawRow {
 }
 
 export default async function WeaverProductionReport({ searchParams }: PageProps) {
-  const { week } = await searchParams;
+  const { week, shed } = await searchParams;
   const requested = typeof week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(week)
     ? week
     : mondayISO(new Date());
@@ -85,6 +87,12 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
   const prevWeek  = addDaysISO(weekStart, -7);
   const nextWeek  = addDaysISO(weekStart, 7);
   const thisWeek  = mondayISO(new Date());
+
+  // Shed filter — narrows which looms' production we count. null = all sheds.
+  const shedFilter: number | null = shed && /^\d+$/.test(shed) ? Number(shed) : null;
+
+  // Preserve filters across the prev/next/this navigator links.
+  const shedSuffix = shedFilter !== null ? `&shed=${shedFilter}` : '';
 
   const supabase = await createClient();
 
@@ -134,24 +142,28 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
       empInfo.set(e.id, { full_name: e.full_name, code: e.code });
     }
 
-    // Step 4: Loom fabric_quality mapping.
+    // Step 4: Loom fabric_quality + shed mapping.
     const loomIds = Array.from(new Set(shiftLogs.map((s) => s.loom_id)));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: loomRaw } = await (supabase as any)
       .from('loom')
-      .select('id, fabric_quality:fabric_quality_id ( code, name )')
+      .select('id, shed_no, fabric_quality:fabric_quality_id ( code, name )')
       .in('id', loomIds);
-    type LoomRow = { id: number; fabric_quality: { code: string; name: string } | null };
+    type LoomRow = { id: number; shed_no: number | null; fabric_quality: { code: string; name: string } | null };
     const qualityByLoom = new Map<number, { code: string; name: string }>();
+    const shedByLoom = new Map<number, number | null>();
     for (const l of (loomRaw ?? []) as LoomRow[]) {
       qualityByLoom.set(l.id, l.fabric_quality ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' });
+      shedByLoom.set(l.id, l.shed_no);
     }
 
-    // Step 5: Aggregate metres per (employee, quality).
+    // Step 5: Aggregate metres per (employee, quality). When a shed filter
+    // is active, drop entries whose loom isn't in that shed.
     const grouped = new Map<string, { employee_id: number; full_name: string; code: string; quality_code: string; quality_name: string; total: number }>();
     for (const w of weaverEntries) {
       const loomId = loomByShift.get(w.shift_log_id);
       if (loomId == null) continue;
+      if (shedFilter !== null && shedByLoom.get(loomId) !== shedFilter) continue;
       const fq = qualityByLoom.get(loomId) ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' };
       const key = `${w.employee_id}|${fq.code}`;
       const m = Number(w.metres_woven ?? 0);
@@ -218,50 +230,78 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
 
   const hasData = weavers.length > 0;
 
+  const subtitle = shedFilter !== null
+    ? `${prettyRange(weekStart, weekEnd)} \u00b7 Shed ${shedFilter}`
+    : prettyRange(weekStart, weekEnd);
+
   return (
     <div>
       <PageHeader
         title="Weaver Production by Quality"
-        subtitle={prettyRange(weekStart, weekEnd)}
+        subtitle={subtitle}
         crumbs={[{ label: 'Reports', href: '/app/reports' }, { label: 'Weaver Production' }]}
       />
 
-      {/* Week navigator */}
+      {/* Week navigator + shed filter */}
       <div className="card p-3 mb-4 flex flex-wrap items-center gap-3">
         <Link
-          href={`/app/reports/weaver-production?week=${prevWeek}`}
+          href={`/app/reports/weaver-production?week=${prevWeek}${shedSuffix}`}
           className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
         >
           <ChevronLeft className="w-3.5 h-3.5" /> Previous week
         </Link>
         <Link
-          href={`/app/reports/weaver-production?week=${nextWeek}`}
+          href={`/app/reports/weaver-production?week=${nextWeek}${shedSuffix}`}
           className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
         >
           Next week <ChevronRight className="w-3.5 h-3.5" />
         </Link>
         <Link
-          href={`/app/reports/weaver-production?week=${thisWeek}`}
+          href={`/app/reports/weaver-production?week=${thisWeek}${shedSuffix}`}
           className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
         >
           This week
         </Link>
-        <form action="/app/reports/weaver-production" method="get" className="ml-auto flex items-center gap-2">
-          <label htmlFor="jump" className="text-xs text-ink-mute">Jump to week:</label>
-          <input
-            id="jump"
-            name="week"
-            type="date"
-            defaultValue={weekStart}
-            className="input py-1 text-xs max-w-[160px]"
-          />
-          <button type="submit" className="btn-secondary text-xs py-1 px-2">Go</button>
+        <form action="/app/reports/weaver-production" method="get" className="ml-auto flex flex-wrap items-end gap-2">
+          <div className="flex flex-col">
+            <label htmlFor="jump" className="text-[10px] uppercase tracking-wide text-ink-mute">Week</label>
+            <input
+              id="jump"
+              name="week"
+              type="date"
+              defaultValue={weekStart}
+              className="input py-1 text-xs max-w-[150px]"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="shed" className="text-[10px] uppercase tracking-wide text-ink-mute">Shed</label>
+            <select
+              id="shed"
+              name="shed"
+              defaultValue={shedFilter !== null ? String(shedFilter) : ''}
+              className="input py-1 text-xs max-w-[110px]"
+            >
+              <option value="">All sheds</option>
+              {SHEDS.map((s) => <option key={s} value={s}>Shed {s}</option>)}
+            </select>
+          </div>
+          <button type="submit" className="btn-secondary text-xs py-1 px-3">Apply</button>
+          {shedFilter !== null && (
+            <Link
+              href={`/app/reports/weaver-production?week=${weekStart}`}
+              className="text-xs text-ink-mute hover:text-ink underline self-center"
+            >
+              Clear shed
+            </Link>
+          )}
         </form>
       </div>
 
       {!hasData ? (
         <div className="card p-10 text-center text-ink-mute text-sm">
-          No shift log data found for this week.
+          {shedFilter !== null
+            ? `No shift log data for Shed ${shedFilter} this week.`
+            : 'No shift log data found for this week.'}
         </div>
       ) : (
         <>
