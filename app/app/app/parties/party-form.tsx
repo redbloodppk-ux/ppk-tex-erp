@@ -216,40 +216,67 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
           )}
         </div>
         <div>
-          <label className="label">Party Type * <span className="text-ink-mute font-normal">(tick all that apply)</span></label>
-          <div className="flex items-start gap-1.5">
-            <div className="flex-1 input min-h-[40px] py-1.5 flex flex-wrap gap-1.5 items-center">
-              {partyTypes.length === 0 ? (
-                <span className="text-xs text-ink-mute">Loading...</span>
-              ) : partyTypes.map((t) => {
-                const idStr = String(t.id);
-                const active = selectedTypeIds.includes(idStr);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => toggleType(idStr)}
-                    className={
-                      'px-2.5 py-1 rounded-full border text-xs font-semibold transition ' +
-                      (active
-                        ? 'border-transparent bg-indigo-600 text-white'
-                        : 'border-line bg-white text-ink-soft hover:bg-haze/60')
-                    }
-                  >
-                    {active && <span className="mr-1">✓</span>}
-                    {t.name}
-                  </button>
-                );
-              })}
-            </div>
-            <a href="/app/settings/party-types" target="_blank" rel="noopener noreferrer"
-              title="Add new party type"
-              className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0 self-stretch">
-              +
-            </a>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <label className="label mb-0">Party Type *</label>
+            <span className="text-[11px] text-ink-mute">
+              {selectedTypeIds.length === 0
+                ? 'Pick one or more'
+                : `${selectedTypeIds.length} selected`}
+            </span>
           </div>
-          <p className="text-[11px] text-ink-mute mt-1">
-            One party can be e.g. <span className="font-semibold">Customer</span> + <span className="font-semibold">Bobbin Supplier</span> at the same time - no need to create duplicate rows.
+          <div className="rounded-lg border border-line bg-cloud/30 p-2.5">
+            {partyTypes.length === 0 ? (
+              <div className="text-xs text-ink-mute py-1.5 px-1">Loading party types...</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {partyTypes.map((t) => {
+                  const idStr = String(t.id);
+                  const active = selectedTypeIds.includes(idStr);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleType(idStr)}
+                      aria-pressed={active}
+                      className={
+                        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ' +
+                        (active
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700'
+                          : 'border-line bg-white text-ink-soft hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/50')
+                      }
+                    >
+                      <span
+                        className={
+                          'inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border ' +
+                          (active
+                            ? 'border-white bg-white text-indigo-600'
+                            : 'border-line bg-white text-transparent')
+                        }
+                      >
+                        <svg viewBox="0 0 12 12" className="w-2.5 h-2.5" fill="none">
+                          <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                      {t.name}
+                    </button>
+                  );
+                })}
+                <a
+                  href="/app/settings/party-types"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Add a new party type in Settings"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-dashed border-line text-xs font-semibold text-ink-mute hover:border-indigo-400 hover:text-indigo-700 hover:bg-white transition"
+                >
+                  <span className="text-base leading-none">+</span> New type
+                </a>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] text-ink-mute mt-1.5">
+            Pick every role this business plays for you. A party can be
+            <span className="font-semibold text-ink"> Customer</span> +
+            <span className="font-semibold text-ink"> Bobbin Supplier</span> at the same time - no need to duplicate.
           </p>
         </div>
       </div>
