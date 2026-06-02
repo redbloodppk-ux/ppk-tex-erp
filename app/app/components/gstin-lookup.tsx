@@ -89,6 +89,11 @@ export function GstinLookup({
     }
   }
 
+  // GSTIN is 15 chars in a specific pattern. Highlight in red whenever the
+  // operator has typed something but the value isn't 15 chars yet OR is the
+  // wrong format. Pristine empty input stays neutral.
+  const showInvalid = value.length > 0 && !isValid;
+
   return (
     <div className={className}>
       <label className="label flex items-center gap-1.5">
@@ -112,11 +117,16 @@ export function GstinLookup({
               lookup();
             }
           }}
-          className="input num uppercase flex-1"
+          className={
+            'input num uppercase flex-1 ' +
+            (showInvalid
+              ? 'border-rose-400 bg-rose-50 text-rose-800 focus:border-rose-500 focus:ring-rose-200'
+              : '')
+          }
           placeholder="33ABCDE1234F1Z5"
           maxLength={15}
           autoComplete="off"
-          aria-invalid={value.length > 0 && !isValid}
+          aria-invalid={showInvalid}
         />
         <button
           type="button"
@@ -138,6 +148,14 @@ export function GstinLookup({
           )}
         </button>
       </div>
+      {showInvalid && !error && (
+        <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3" />
+          {value.length < 15
+            ? `Enter all 15 characters (${value.length}/15 typed).`
+            : 'Format must be 2 digits + 5 letters + 4 digits + 1 letter + 1 alphanum + Z + 1 alphanum.'}
+        </p>
+      )}
       {error && (
         <p className="mt-1 text-xs text-err flex items-center gap-1">
           <AlertCircle className="w-3 h-3" />

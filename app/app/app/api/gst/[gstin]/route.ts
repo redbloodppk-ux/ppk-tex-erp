@@ -148,16 +148,36 @@ function normaliseDate(s: string | undefined): string | undefined {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-async function callAppyFlow(gstin: string, apiKey: string): Promise<GstinData | null> {
-  // 5s timeout so the operator isn't stuck waiting on a slow provider.
+type ProviderResult =
+  | { ok: true; data: GstinData }
+  | { ok: false; error: string };
+
+async function callAppyFlow(gstin: string, apiKey: string): Promise<ProviderResult> {
+  // 8s timeout so the operator isn't stuck waiting on a slow provider.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5_000);
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
     const url = `https://appyflow.in/api/verifyGST?gstNo=${encodeURIComponent(gstin)}&key_secret=${encodeURIComponent(apiKey)}`;
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const json = (await res.json()) as AppyFlowResponse;
-    if (json?.error || !json?.taxpayerInfo) return null;
+
+    // Read the body once as text so we can return a useful error even when
+    // the response isn't JSON (HTML error pages from upstream, etc).
+    const raw = await res.text();
+    let json: AppyFlowResponse | null = null;
+    try { json = raw ? (JSON.parse(raw) as AppyFlowResponse) : null; } catch { /* not JSON */ }
+
+    if (!res.ok) {
+      const snippet = (json?.message ?? raw ?? '').slice(0, 200);
+      return { ok: false, error: `AppyFlow HTTP ${res.status}: ${snippet || 'no body'}` };
+    }
+    if (!json) {
+      return { ok: false, error: `AppyFlow returned a non-JSON response: ${raw.slice(0, 200)}` };
+    }
+    // AppyFlow signals "key invalid", "quota exceeded", "GSTIN not found", etc.
+    // by setting error=true and putting the reason in message.
+    if (json.error === true || !json.taxpayerInfo) {
+      return { ok: false, error: json.message ?? 'GSTIN not found by AppyFlow.' };
+    }
 
     const t = json.taxpayerInfo;
     const addr = t.pradr?.addr ?? {};
@@ -165,44 +185,50 @@ async function callAppyFlow(gstin: string, apiKey: string): Promise<GstinData | 
     const state = addr.stcd ?? STATE_BY_CODE[stateCode] ?? '';
 
     return {
-      gstin,
-      legal_name: t.lgnm ?? '',
-      trade_name: t.tradeNam ?? null,
-      status: t.sts,
-      constitution: t.ctb,
-      taxpayer_type: t.dty,
-      registration_date: normaliseDate(t.rgdt),
-      nature_of_business: Array.isArray(t.nba) ? t.nba : undefined,
-      address: {
-        building: [addr.bno, addr.bnm].filter(Boolean).join(' ').trim() || undefined,
-        street: addr.st,
-        locality: addr.loc,
-        city: addr.city,
-        district: addr.dst,
-        state,
-        state_code: stateCode,
-        pincode: addr.pncd,
+      ok: true,
+      data: {
+        gstin,
+        legal_name: t.lgnm ?? '',
+        trade_name: t.tradeNam ?? null,
+        status: t.sts,
+        constitution: t.ctb,
+        taxpayer_type: t.dty,
+        registration_date: normaliseDate(t.rgdt),
+        nature_of_business: Array.isArray(t.nba) ? t.nba : undefined,
+        address: {
+          building: [addr.bno, addr.bnm].filter(Boolean).join(' ').trim() || undefined,
+          street: addr.st,
+          locality: addr.loc,
+          city: addr.city,
+          district: addr.dst,
+          state,
+          state_code: stateCode,
+          pincode: addr.pncd,
+        },
       },
     };
-  } catch {
-    return null;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `AppyFlow request failed: ${msg}` };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchFromProvider(gstin: string): Promise<{ data: GstinData; mocked: boolean }> {
+async function fetchFromProvider(
+  gstin: string,
+): Promise<{ data?: GstinData; mocked: boolean; error?: string }> {
   // Real provider path — only runs when GST_API_KEY is set (in Vercel env).
-  // Currently uses AppyFlow's verifyGST endpoint. Swap to Sandbox / Surepass
-  // / etc. by replacing callAppyFlow with their equivalent.
+  // When set, we DO NOT fall back to mock on failure: surface the real
+  // error so the operator can fix the key / quota / etc.
   const apiKey = process.env.GST_API_KEY;
   if (apiKey && apiKey.trim() !== '') {
     const real = await callAppyFlow(gstin, apiKey);
-    if (real) return { data: real, mocked: false };
-    // fall through to mock on provider error so the form still works during outages
+    if (real.ok) return { data: real.data, mocked: false };
+    return { error: real.error, mocked: false };
   }
 
-  // Mock path — used in dev or when the real provider fails.
+  // Mock path — only used when GST_API_KEY is NOT set (i.e. dev / preview).
   await new Promise((r) => setTimeout(r, 600));
   const stateCode = gstin.slice(0, 2);
   const state = STATE_BY_CODE[stateCode] ?? '';
@@ -259,8 +285,14 @@ export async function GET(
   }
 
   try {
-    const { data, mocked } = await fetchFromProvider(gstin);
-    return NextResponse.json({ ok: true, mocked, data });
+    const result = await fetchFromProvider(gstin);
+    if (result.error || !result.data) {
+      return NextResponse.json(
+        { ok: false, error: result.error ?? 'GSTIN lookup failed.' },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ ok: true, mocked: result.mocked, data: result.data });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? 'Lookup failed' },
