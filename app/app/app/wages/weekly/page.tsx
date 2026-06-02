@@ -397,40 +397,43 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
   }
 
-  // --- Winder: covered sheds per winder + "weaver-missing" tally based on
-  //     the full set of shift-slots in the week.
+  // --- Winder: covered sheds per winder + weaver-absent / "none" tally
+  //     per shed.
   //
-  //     The winder is on the hook for BOTH shifts of every shed they cover,
-  //     so expected = covered_sheds.size * weekShiftSlots.size (typically
-  //     2 sheds * 14 slots/week = 28). For each (shed, date, shift) inside
-  //     that grid, if NO weaver was marked present (i.e. weaver absent,
-  //     weaver status = 'none', or the row is missing entirely), that slot
-  //     counts as 1 deduction for the winder. This matches the operator's
-  //     intent that a "no weaver" scenario should reduce the winder's pay.
+  //     The winder is on the hook for BOTH shifts of every shed they cover.
+  //     Expected = covered_sheds.size * (working shift slots in the week).
+  //     A slot only counts as a deduction if there's an EXPLICIT weaver row
+  //     in that slot with status 'absent' or 'none' (i.e. weaver absent or
+  //     "no weaver assigned"). Slots without any weaver attendance row at
+  //     all are not deducted - silence in attendance is treated as "shed
+  //     not in play that shift", not as a winder failure.
+  //
+  //     Holiday shifts (attendance_day.is_working = false) are excluded
+  //     from BOTH expected and the absent-tally.
   const coveredShedsByWinder = new Map<number, Set<string>>();
-  const weekShiftSlots = new Set<string>();   // keys: "date:shift"
-  const weaverPresentSlots = new Set<string>(); // keys: "shed:date:shift"
+  const weekShiftSlots = new Set<string>();         // keys: "date:shift"
+  const weaverAbsentByShed = new Map<string, number>();
   if (winderIds.length > 0) {
-    // 1) Build the list of (date, shift) WORKING slots for this week. We
-    //    only count slots where attendance_day.is_working = true, so any
-    //    holiday / non-working shift (e.g. Sunday night marked as holiday)
-    //    is excluded from both the expected total and the missing-weaver
-    //    tally - that shift simply doesn't exist for payroll purposes.
+    // 1) Working shift slots in this week (is_working = true only).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: daysRaw } = await (supabase as any)
       .from('attendance_day')
-      .select('attendance_date, shift, is_working')
+      .select('id, attendance_date, shift, is_working')
       .gte('attendance_date', weekStart)
       .lte('attendance_date', weekEnd)
       .eq('is_working', true);
-    for (const d of (daysRaw ?? []) as Array<{ attendance_date: string; shift: string | null; is_working: boolean }>) {
-      if (d.attendance_date && d.shift && d.is_working === true) {
+    const workingDayIds: number[] = [];
+    for (const d of (daysRaw ?? []) as Array<{ id: number; attendance_date: string; shift: string | null; is_working: boolean }>) {
+      if (d.is_working !== true) continue;
+      workingDayIds.push(d.id);
+      if (d.attendance_date && d.shift) {
         weekShiftSlots.add(`${d.attendance_date}:${d.shift}`);
       }
     }
 
-    // 2) Fetch each winder's attendance rows to discover which sheds they
-    //    cover (shed_nos array if present, else fallback to single shed_no).
+    // 2) Each winder's covered sheds (union of shed_nos across their
+    //    non-absent attendance rows in the week, falling back to all rows
+    //    if every entry was absent).
     type WinderAttRow = {
       employee_id: number;
       status: string;
@@ -472,30 +475,27 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       coveredShedsByWinder.set(wid, covered);
     }
 
-    // 3) Build the set of (shed, date, shift) slots where AT LEAST ONE
-    //    weaver was marked present. Anything outside this set (covered
-    //    shed but no weaver present in that shift slot) counts against the
-    //    winder - whether the weaver row was 'absent', 'none', or missing.
-    type WeaverPresentRow = {
-      shed_no: string | null;
-      employee: { role: string | null } | null;
-      attendance_day: { attendance_date: string; shift: string | null } | null;
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: weaverPresentRaw } = await (supabase as any)
-      .from('attendance_entry')
-      .select('shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date, shift )')
-      .eq('status', 'present')
-      .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd);
-    for (const r of (weaverPresentRaw ?? []) as WeaverPresentRow[]) {
-      const role = (r.employee?.role ?? '').toLowerCase();
-      if (role !== 'weaver') continue;
-      const shed  = r.shed_no;
-      const date  = r.attendance_day?.attendance_date;
-      const shift = r.attendance_day?.shift;
-      if (!shed || !date || !shift) continue;
-      weaverPresentSlots.add(`${shed}:${date}:${shift}`);
+    // 3) Tally weaver attendance rows with status absent / none in working
+    //    shifts, grouped by shed. Rows without shed_no aren't attributable
+    //    to any shed and don't penalise any winder.
+    if (workingDayIds.length > 0) {
+      type WeaverGapRow = {
+        shed_no: string | null;
+        employee: { role: string | null } | null;
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: gapRaw } = await (supabase as any)
+        .from('attendance_entry')
+        .select('shed_no, employee:employee_id ( role )')
+        .in('status', ['absent', 'none'])
+        .in('attendance_day_id', workingDayIds);
+      for (const r of (gapRaw ?? []) as WeaverGapRow[]) {
+        const role = (r.employee?.role ?? '').toLowerCase();
+        if (role !== 'weaver') continue;
+        const shed = r.shed_no;
+        if (!shed) continue;
+        weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
+      }
     }
   }
 
@@ -511,18 +511,15 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       absent = absentDaysByEmp.get(e.id) ?? 0;
       deduction = (full / 7) * absent;
     } else if (role === 'winder') {
-      // Expected = covered sheds * total week shift-slots (typically 14).
-      // Deduction count = slots in (covered_shed, date, shift) with NO
-      // weaver present (covers absent, 'none', and missing rows alike).
+      // Expected = covered sheds * working shift-slots in week (holiday
+      // shifts excluded). Deduction count = weaver attendance rows in
+      // covered sheds with status 'absent' or 'none'. Missing rows (no
+      // attendance_entry at all) do NOT count - only explicit absent/none.
       const covered = coveredShedsByWinder.get(e.id) ?? new Set<string>();
       coveredShedsArr = Array.from(covered).sort();
       expectedShiftSheds = coveredShedsArr.length * weekShiftSlots.size;
       for (const shed of coveredShedsArr) {
-        for (const ds of weekShiftSlots) {
-          if (!weaverPresentSlots.has(`${shed}:${ds}`)) {
-            weaverAbsentCount++;
-          }
-        }
+        weaverAbsentCount += weaverAbsentByShed.get(shed) ?? 0;
       }
       deduction = expectedShiftSheds > 0
         ? (full * weaverAbsentCount) / expectedShiftSheds
