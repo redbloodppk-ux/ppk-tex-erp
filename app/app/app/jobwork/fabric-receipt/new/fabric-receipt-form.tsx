@@ -254,9 +254,12 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       return;
     }
 
-    // Link the DC back to this receipt so the same DC can't be received twice.
+    // Link the DC back to this receipt + advance its workflow status to
+    // 'confirmed' so the next step (jobwork bill) can pick it up. The DC
+    // status pipeline is automatic now: draft -> confirmed on receipt ->
+    // invoiced when the jobwork bill is raised.
     await sb.from('delivery_challan')
-      .update({ fabric_receipt_id: receiptId })
+      .update({ fabric_receipt_id: receiptId, status: 'confirmed' })
       .eq('id', dc.id);
 
     // Apply stock reductions FIFO across pavu / yarn_lot / bobbin. If any

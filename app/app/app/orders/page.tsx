@@ -108,8 +108,16 @@ export default async function OrdersPage() {
                       title="Edit DC">
                       <Pencil className="w-3.5 h-3.5" />
                     </Link>
-                    {d.status === 'draft' && (
+                    {d.status === 'draft' && d.production_mode === 'inhouse' && (
                       <DcConfirmButton dcId={d.id} dcCode={d.code} />
+                    )}
+                    {d.status === 'draft' && d.production_mode === 'jobwork' && (
+                      <span
+                        className="pill bg-amber-50 text-amber-700 text-[10px] uppercase tracking-wide"
+                        title="Auto-confirms when fabric is received"
+                      >
+                        Awaits fabric receipt
+                      </span>
                     )}
                   </td>
                 </tr>

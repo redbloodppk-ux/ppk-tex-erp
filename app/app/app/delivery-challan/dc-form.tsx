@@ -501,14 +501,30 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             onChange={(e) => setForm({ ...form, dc_date: e.target.value })} />
         </div>
         <div>
-          <label className="label">Status</label>
-          <select className="input capitalize" value={form.status}
-            onChange={(e) => setForm({ ...form, status: e.target.value as DcFormValues['status'] })}>
-            <option value="draft">Draft</option>
-            <option value="confirmed">Confirmed (ready to invoice)</option>
-            <option value="invoiced">Invoiced</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <label className="label">
+            Status
+            <span className="text-[10px] text-ink-mute font-normal ml-2">(automatic)</span>
+          </label>
+          {/* Status is no longer hand-edited - it follows the workflow:
+              new DC = draft → fabric receipt saved = confirmed → invoice
+              raised = invoiced. The pill below mirrors what's stored. */}
+          {(() => {
+            const cls =
+              form.status === 'invoiced'  ? 'bg-emerald-50 text-emerald-700'
+              : form.status === 'confirmed' ? 'bg-amber-50 text-amber-700'
+              : form.status === 'cancelled' ? 'bg-rose-50 text-rose-700'
+              : 'bg-slate-100 text-slate-600';
+            const label =
+              form.status === 'invoiced'  ? 'Invoiced'
+              : form.status === 'confirmed' ? 'Confirmed'
+              : form.status === 'cancelled' ? 'Cancelled'
+              : 'Draft';
+            return (
+              <div className="input bg-cloud/40 flex items-center">
+                <span className={`pill ${cls} text-xs uppercase tracking-wide`}>{label}</span>
+              </div>
+            );
+          })()}
         </div>
         <div>
           <label className="label">Production Mode *</label>
