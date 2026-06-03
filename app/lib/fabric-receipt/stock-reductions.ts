@@ -57,6 +57,38 @@ export interface ReductionResult {
 
 /* ───────────────────── individual reducers ───────────────────── */
 
+/** Look up the warp / weft count for a fabric quality. Tries the link
+ *  tables first, falls back to calc_snapshot.{warp,weft}CountId. */
+async function getQualityYarnCounts(
+  sb: Sb,
+  fabric_quality_id: number,
+): Promise<{ warpCountIds: number[]; weftCountId: number | null }> {
+  // Link tables first.
+  const [wcRes, weftRes, fqRes] = await Promise.all([
+    sb.from('fabric_quality_warp_count').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id),
+    sb.from('fabric_quality_weft').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id).limit(1).maybeSingle(),
+    sb.from('fabric_quality').select('calc_snapshot').eq('id', fabric_quality_id).maybeSingle(),
+  ]);
+  const warpCountIds: number[] = ((wcRes.data ?? []) as Array<{ yarn_count_id: number | null }>)
+    .map((r) => r.yarn_count_id)
+    .filter((x): x is number => x != null);
+  let weftCountId: number | null = weftRes?.data?.yarn_count_id ?? null;
+
+  // Fallback to calc_snapshot.
+  const snap = fqRes?.data?.calc_snapshot as Record<string, unknown> | null;
+  if (snap) {
+    if (warpCountIds.length === 0 && snap.warpCountId != null && snap.warpCountId !== '') {
+      const n = Number(snap.warpCountId);
+      if (Number.isFinite(n) && n > 0) warpCountIds.push(n);
+    }
+    if (weftCountId == null && snap.weftCountId != null && snap.weftCountId !== '') {
+      const n = Number(snap.weftCountId);
+      if (Number.isFinite(n) && n > 0) weftCountId = n;
+    }
+  }
+  return { warpCountIds, weftCountId };
+}
+
 /** Reduce pavu.meters FIFO across pavus whose sizing_job uses one of
  *  the fabric quality's warp counts. */
 async function reducePavu(
@@ -66,14 +98,7 @@ async function reducePavu(
 ): Promise<{ applied: number }> {
   if (metres <= 0) return { applied: 0 };
 
-  // Step 1: warp_count_ids for this fabric quality.
-  const { data: wcRows } = await sb
-    .from('fabric_quality_warp_count')
-    .select('yarn_count_id')
-    .eq('fabric_quality_id', fabric_quality_id);
-  const warpCountIds = (wcRows ?? [])
-    .map((r: { yarn_count_id: number | null }) => r.yarn_count_id)
-    .filter((x: number | null): x is number => x != null);
+  const { warpCountIds } = await getQualityYarnCounts(sb, fabric_quality_id);
   if (warpCountIds.length === 0) return { applied: 0 };
 
   // Step 2: sizing_job ids whose warp_count_id matches.
@@ -202,15 +227,9 @@ export async function applyFabricReceiptStockReductions(
       }
     }
 
-    // WEFT YARN
+    // WEFT YARN - try link table first, fall back to calc_snapshot.
     if (it.weft_consumed_kg && it.weft_consumed_kg > 0) {
-      const { data: weftLink } = await sb
-        .from('fabric_quality_weft')
-        .select('yarn_count_id')
-        .eq('fabric_quality_id', it.fabric_quality_id)
-        .limit(1)
-        .maybeSingle();
-      const weftCountId = weftLink?.yarn_count_id ?? null;
+      const { weftCountId } = await getQualityYarnCounts(sb, it.fabric_quality_id);
       const r = await reduceYarnLot(sb, weftCountId, it.weft_consumed_kg, 'weft');
       result.applied.weft_kg += r.applied;
       if (r.applied + 0.005 < it.weft_consumed_kg) {

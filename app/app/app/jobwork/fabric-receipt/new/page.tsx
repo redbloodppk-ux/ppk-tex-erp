@@ -56,39 +56,75 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   }>;
 
   // Load fabric_quality master rows for every quality on the DC.
+  // We also pull calc_snapshot - the Fabric Quality master form persists
+  // ends / weft / warp / bobbin assignments INSIDE this jsonb column,
+  // not into the fabric_quality_ends / fabric_quality_weft link tables.
+  // The receipt form falls back to calc_snapshot when the link tables
+  // are empty so existing FQ rows just work.
   const qIds = Array.from(new Set(items.map((r) => r.fabric_quality_id).filter((x): x is number => x != null)));
-  const fqById = new Map<number, {
+  interface FqRow {
     id: number; code: string; name: string;
     weft_kg_per_m: number | string | null;
     porvai_kg_per_m: number | string | null;
     bobbin_pcs_per_m: number | string | null;
-  }>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    calc_snapshot: Record<string, any> | null;
+  }
+  const fqById = new Map<number, FqRow>();
   if (qIds.length > 0) {
     const { data: fqRows } = await sb
       .from('fabric_quality')
-      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot')
       .in('id', qIds);
-    for (const row of (fqRows ?? [])) fqById.set(row.id, row);
+    for (const row of (fqRows ?? []) as FqRow[]) fqById.set(row.id, row);
   }
 
-  // Ends-master link per fabric quality (warp ends count).
+  // Ends-master link per fabric quality. Try the link table first; if
+  // empty, fall back to calc_snapshot.endsId.
   const fqEndsById = new Map<number, { ends_id: number; ends_count: number; ends_code: string } | null>();
+  const endsToLookup = new Set<number>();
   if (qIds.length > 0) {
     const { data: feRows } = await sb
       .from('fabric_quality_ends')
       .select('fabric_quality_id, ends:ends_id ( id, code, ends_count )')
       .in('fabric_quality_id', qIds)
       .order('sno');
-    // first row per quality wins
     for (const r of (feRows ?? [])) {
       if (fqEndsById.has(r.fabric_quality_id)) continue;
       const e = r.ends;
       fqEndsById.set(r.fabric_quality_id, e ? { ends_id: e.id, ends_count: e.ends_count, ends_code: e.code } : null);
     }
+    // Collect ends_ids from calc_snapshot for qualities not yet resolved.
+    for (const qId of qIds) {
+      if (fqEndsById.has(qId)) continue;
+      const snap = fqById.get(qId)?.calc_snapshot;
+      const endsId = snap?.endsId;
+      if (endsId != null && endsId !== '') {
+        endsToLookup.add(Number(endsId));
+      }
+    }
+    if (endsToLookup.size > 0) {
+      const { data: extra } = await sb
+        .from('ends_master')
+        .select('id, code, ends_count')
+        .in('id', Array.from(endsToLookup));
+      const extraById = new Map<number, { id: number; code: string; ends_count: number }>();
+      for (const e of (extra ?? []) as Array<{ id: number; code: string; ends_count: number }>) {
+        extraById.set(e.id, e);
+      }
+      for (const qId of qIds) {
+        if (fqEndsById.has(qId)) continue;
+        const endsId = fqById.get(qId)?.calc_snapshot?.endsId;
+        const e = endsId != null && endsId !== '' ? extraById.get(Number(endsId)) ?? null : null;
+        fqEndsById.set(qId, e ? { ends_id: e.id, ends_count: e.ends_count, ends_code: e.code } : null);
+      }
+    }
   }
 
-  // Weft yarn-count per fabric quality.
+  // Weft yarn-count per fabric quality. Same pattern - link table first,
+  // calc_snapshot.weftCountId as fallback.
   const fqWeftById = new Map<number, { yarn_count_id: number; code: string } | null>();
+  const weftIdsToLookup = new Set<number>();
   if (qIds.length > 0) {
     const { data: fwRows } = await sb
       .from('fabric_quality_weft')
@@ -99,6 +135,29 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       if (fqWeftById.has(r.fabric_quality_id)) continue;
       const y = r.yarn_count;
       fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code } : null);
+    }
+    for (const qId of qIds) {
+      if (fqWeftById.has(qId)) continue;
+      const weftId = fqById.get(qId)?.calc_snapshot?.weftCountId;
+      if (weftId != null && weftId !== '') {
+        weftIdsToLookup.add(Number(weftId));
+      }
+    }
+    if (weftIdsToLookup.size > 0) {
+      const { data: ycRows } = await sb
+        .from('yarn_count')
+        .select('id, code')
+        .in('id', Array.from(weftIdsToLookup));
+      const ycById = new Map<number, { id: number; code: string }>();
+      for (const y of (ycRows ?? []) as Array<{ id: number; code: string }>) {
+        ycById.set(y.id, y);
+      }
+      for (const qId of qIds) {
+        if (fqWeftById.has(qId)) continue;
+        const weftId = fqById.get(qId)?.calc_snapshot?.weftCountId;
+        const y = weftId != null && weftId !== '' ? ycById.get(Number(weftId)) ?? null : null;
+        fqWeftById.set(qId, y ? { yarn_count_id: y.id, code: y.code } : null);
+      }
     }
   }
 
