@@ -832,9 +832,9 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
   const totals: Record<string, { in: number; out: number }> = {};
   for (const col of data.columns) totals[col.id] = { in: 0, out: 0 };
   for (const e of sorted) {
-    if (!totals[e.column_id]) totals[e.column_id] = { in: 0, out: 0 };
-    if (e.direction === 'in') totals[e.column_id].in += e.quantity;
-    else                       totals[e.column_id].out += e.quantity;
+    const t = totals[e.column_id] ?? (totals[e.column_id] = { in: 0, out: 0 });
+    if (e.direction === 'in') t.in += e.quantity;
+    else                       t.out += e.quantity;
   }
   const grandClosing = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0), 0);
   const grandIn      = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0), 0);
@@ -886,19 +886,25 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
           <tfoot className="border-t-2 border-line bg-cloud/30 font-semibold">
             <tr>
               <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total In</td>
-              {data.columns.map(c => (
-                <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs">
-                  {(totals[c.id]?.in ?? 0) > 0 ? '+ ' + fmtUnit(totals[c.id].in, data.unit) : '-'}
-                </td>
-              ))}
+              {data.columns.map(c => {
+                const v = totals[c.id]?.in ?? 0;
+                return (
+                  <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs">
+                    {v > 0 ? '+ ' + fmtUnit(v, data.unit) : '-'}
+                  </td>
+                );
+              })}
             </tr>
             <tr>
               <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total Out</td>
-              {data.columns.map(c => (
-                <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs">
-                  {(totals[c.id]?.out ?? 0) > 0 ? '\u2212 ' + fmtUnit(totals[c.id].out, data.unit) : '-'}
-                </td>
-              ))}
+              {data.columns.map(c => {
+                const v = totals[c.id]?.out ?? 0;
+                return (
+                  <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs">
+                    {v > 0 ? '\u2212 ' + fmtUnit(v, data.unit) : '-'}
+                  </td>
+                );
+              })}
             </tr>
             <tr className="border-t-2 border-line">
               <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Closing balance</td>
