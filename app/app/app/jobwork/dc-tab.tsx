@@ -298,7 +298,13 @@ export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactEleme
                       <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
-                      {r.status === 'confirmed' && r.fabric_receipt_id === null && (
+                      {/* Fabric receipt icon shows for any active DC that
+                          hasn't been receipted yet - draft included. Saving
+                          the receipt auto-flips the DC status from draft
+                          to confirmed via the workflow automation. */}
+                      {r.fabric_receipt_id === null
+                        && r.status !== 'invoiced'
+                        && r.status !== 'cancelled' && (
                         <Link
                           href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
                           className="p-1 rounded hover:bg-teal-50 text-teal-700 inline-flex mr-1"

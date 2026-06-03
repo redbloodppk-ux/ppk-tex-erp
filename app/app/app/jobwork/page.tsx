@@ -66,7 +66,7 @@ function fmtDate(s: string | null): string {
 
 export default function JobworkPage(): React.ReactElement {
   const supabase = createClient();
-  const [tab, setTab] = useState<Tab>('bobbin');
+  const [tab, setTab] = useState<Tab>('dc');
   const [parties, setParties] = useState<PartyOpt[]>([]);
   const [allParties, setAllParties] = useState<PartyOpt[]>([]);
   const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOpt[]>([]);
