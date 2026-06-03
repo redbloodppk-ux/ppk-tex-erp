@@ -286,7 +286,11 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         has_bobbin: it.seed.bobbin_pcs_per_m > 0,
       };
     });
-    const reduction = await applyFabricReceiptStockReductions(sb, reductionItems);
+    const reduction = await applyFabricReceiptStockReductions(sb, reductionItems, {
+      receipt_id: receiptId,
+      receipt_code: hdr.code ?? null,
+      receipt_date: receiptDate,
+    });
 
     setBusy(false);
     if (reduction.shortfalls.length > 0) {

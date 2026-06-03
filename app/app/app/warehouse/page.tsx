@@ -344,8 +344,8 @@ export default async function WarehousePage({
       {mode === 'inhouse' && tab === 'yarn'      && <YarnView rows={yarnRows!} />}
       {mode === 'inhouse' && tab === 'bobbin'    && <BobbinView rows={bobbinRows!} />}
       {mode === 'inhouse' && tab === 'fabric'    && <FabricView rows={fabricRows!} />}
-      {mode === 'jobwork' && tab === 'warp_beam' && <WarpBeamView rows={warpBeamRows!} />}
-      {mode === 'jobwork' && tab === 'weft_yarn' && <WeftYarnView rows={weftYarnRows!} />}
+      {mode === 'jobwork' && tab === 'warp_beam' && <LedgerView groups={warpBeamRows!} emptyMessage="No warp beam ledger entries yet. Issue beams from Job Work → Warp Beam Given to start the ledger." />}
+      {mode === 'jobwork' && tab === 'weft_yarn' && <LedgerView groups={weftYarnRows!} emptyMessage="No weft yarn ledger entries yet. Issue yarn from Job Work → Weft Yarn Given to start the ledger." />}
       {mode === 'jobwork' && tab === 'bobbin'    && <BobbinView rows={bobbinRows!} />}
       {mode === 'jobwork' && tab === 'fabric'    && <FabricView rows={fabricRows!} />}
     </div>
@@ -779,211 +779,268 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
   );
 }
 
-// ─── Jobwork: Warp Beam stock ───────────────────────────────────────────────
-// Rows in jobwork_warp_beam represent warp metres handed out to a jobwork
-// party for a specific fabric quality. total_metres is the live balance:
-// fabric receipts deduct from it via the stock-reduction pipeline. We sum
-// what's still sitting with the party here.
-type WarpBeamRow = {
-  party_id: number;
-  party_name: string;
-  fabric_quality_id: number;
-  quality_code: string;
-  quality_name: string;
-  warp_count_id: number | null;
-  count_code: string;
-  total_metres: number;
-  beam_count: number;
-};
+// ─── Jobwork ledger view ────────────────────────────────────────────────────
+// We display each jobwork stock bucket (warp beam / weft yarn / porvai /
+// bobbin) as a ledger: one card per group key with rows for every
+// inflow (when stock was given to the party) and every outflow (when a
+// fabric receipt consumed it), with a running balance column and a
+// closing-balance footer.
 
+type LedgerUnit = 'm' | 'kg' | 'pcs';
+
+interface LedgerEvent {
+  event_date: string;
+  direction: 'in' | 'out';
+  quantity: number;
+  reference: string;
+  notes: string;
+}
+
+interface LedgerGroup {
+  key: string;
+  title: string;
+  subtitle: string;
+  extra: string;
+  unit: LedgerUnit;
+  events: LedgerEvent[];
+}
+
+function fmtUnit(qty: number, unit: LedgerUnit): string {
+  if (unit === 'm')   return formatMetres(qty, 1);
+  if (unit === 'kg')  return formatKg(qty, 2);
+  return qty.toFixed(2) + ' pcs';
+}
+
+function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
+  if (a.event_date !== b.event_date) return a.event_date < b.event_date ? -1 : 1;
+  if (a.direction !== b.direction) return a.direction === 'in' ? -1 : 1;
+  return 0;
+}
+
+// ─── Warp Beam ledger ───────────────────────────────────────────────────────
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
-): Promise<WarpBeamRow[]> {
-  let q = supabase
+): Promise<LedgerGroup[]> {
+  // Inflows: each jobwork_warp_beam row is an "in" event with original_metres.
+  let beamQ = supabase
     .from('jobwork_warp_beam')
-    .select('jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, beam_count')
-    .gt('total_metres', 0);
-  if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
-  if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
-  if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
-  const { data: rows } = await q;
+    .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count');
+  if (sp.party)   beamQ = beamQ.eq('jobwork_party_id',  Number(sp.party));
+  if (sp.quality) beamQ = beamQ.eq('fabric_quality_id', Number(sp.quality));
+  if (sp.count)   beamQ = beamQ.eq('warp_count_id',     Number(sp.count));
+  const { data: beams } = await beamQ;
+
+  // Outflows: stock_ledger rows for warp_beam bucket.
+  let ledgerQ = supabase
+    .from('stock_ledger')
+    .select('jobwork_party_id, fabric_quality_id, quantity, event_date, reference_no, notes')
+    .eq('bucket', 'warp_beam');
+  if (sp.party)   ledgerQ = ledgerQ.eq('jobwork_party_id',  Number(sp.party));
+  if (sp.quality) ledgerQ = ledgerQ.eq('fabric_quality_id', Number(sp.quality));
+  const { data: outRows } = await ledgerQ;
 
   const partyById   = new Map(parties.map((p: any) => [p.id, p]));
   const qualityById = new Map(qualities.map((q: any) => [q.id, q]));
   const countById   = new Map(counts.map((c: any) => [c.id, c]));
 
-  // Aggregate by (party, quality, warp_count)
-  const grouped = new Map<string, WarpBeamRow>();
-  ((rows ?? []) as any[]).forEach((r) => {
-    if (r.jobwork_party_id == null || r.fabric_quality_id == null) return;
-    const key = `${r.jobwork_party_id}|${r.fabric_quality_id}|${r.warp_count_id ?? 'n'}`;
-    let row = grouped.get(key);
-    if (!row) {
-      const p = partyById.get(r.jobwork_party_id);
-      const fq = qualityById.get(r.fabric_quality_id);
-      const c = r.warp_count_id != null ? countById.get(r.warp_count_id) : null;
-      row = {
-        party_id: r.jobwork_party_id,
-        party_name: p?.name ?? '—',
-        fabric_quality_id: r.fabric_quality_id,
-        quality_code: fq?.code ?? '—',
-        quality_name: fq?.name ?? '',
-        warp_count_id: r.warp_count_id,
-        count_code: c?.code ?? '—',
-        total_metres: 0,
-        beam_count: 0,
+  const groups = new Map<string, LedgerGroup>();
+  const ensure = (partyId: number, qualityId: number, countId: number | null): LedgerGroup => {
+    const key = `${partyId}|${qualityId}`;
+    let g = groups.get(key);
+    if (!g) {
+      const p = partyById.get(partyId);
+      const fq = qualityById.get(qualityId);
+      const c = countId != null ? countById.get(countId) : null;
+      g = {
+        key,
+        title: p?.name ?? `Party #${partyId}`,
+        subtitle: `${fq?.code ?? '?'} - ${fq?.name ?? ''}`,
+        extra: c ? `Warp count: ${c.code}` : '',
+        unit: 'm',
+        events: [],
       };
-      grouped.set(key, row);
+      groups.set(key, g);
     }
-    row.total_metres += Number(r.total_metres ?? 0);
-    row.beam_count   += Number(r.beam_count ?? 0);
-  });
+    return g;
+  };
 
-  return Array.from(grouped.values()).sort((a, b) => b.total_metres - a.total_metres);
-}
-
-function WarpBeamView({ rows }: { rows: WarpBeamRow[] }) {
-  if (!rows.length) {
-    return (
-      <div className="card p-8 text-center text-ink-soft text-sm">
-        No warp beam stock with jobwork parties. Issue warp beams from Job Work &rarr; Warp Beam Given.
-      </div>
-    );
+  for (const b of (beams ?? []) as any[]) {
+    if (b.jobwork_party_id == null || b.fabric_quality_id == null) continue;
+    const g = ensure(b.jobwork_party_id, b.fabric_quality_id, b.warp_count_id);
+    g.events.push({
+      event_date: b.given_date ?? '',
+      direction: 'in',
+      quantity: Number(b.original_metres ?? b.total_metres ?? 0),
+      reference: b.reference_no ?? `Beam #${b.id}`,
+      notes: b.beam_count ? `${b.beam_count} beam(s)` : '',
+    });
   }
-  const totalM = rows.reduce((s, r) => s + r.total_metres, 0);
-  const totalBeams = rows.reduce((s, r) => s + r.beam_count, 0);
-  return (
-    <>
-      <div className="grid sm:grid-cols-3 gap-3 mb-4">
-        <Kpi label="Total Warp Metres" value={formatMetres(totalM, 0)} icon={Ruler} />
-        <Kpi label="Beam Count" value={String(totalBeams)} icon={Layers} />
-        <Kpi label="Party × Quality rows" value={String(rows.length)} icon={TrendingDown} />
-      </div>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-            <tr>
-              <th className="text-left px-4 py-3">Party</th>
-              <th className="text-left px-4 py-3">Fabric Quality</th>
-              <th className="text-left px-4 py-3 hidden md:table-cell">Warp Count</th>
-              <th className="text-right px-4 py-3">Metres</th>
-              <th className="text-right px-4 py-3 hidden md:table-cell">Beams</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.party_id}-${r.fabric_quality_id}-${r.warp_count_id ?? 'n'}`} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">{r.party_name}</td>
-                <td className="px-4 py-3">
-                  <div className="font-semibold">{r.quality_code}</div>
-                  <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
-                </td>
-                <td className="px-4 py-3 hidden md:table-cell">{r.count_code}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatMetres(r.total_metres, 1)}</td>
-                <td className="px-4 py-3 text-right num hidden md:table-cell">{r.beam_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
+  for (const o of (outRows ?? []) as any[]) {
+    if (o.jobwork_party_id == null || o.fabric_quality_id == null) continue;
+    const g = ensure(o.jobwork_party_id, o.fabric_quality_id, null);
+    g.events.push({
+      event_date: o.event_date ?? '',
+      direction: 'out',
+      quantity: Number(o.quantity ?? 0),
+      reference: o.reference_no ?? 'Fabric receipt',
+      notes: o.notes ?? '',
+    });
+  }
+  for (const g of groups.values()) g.events.sort(sortEvents);
+  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
 }
 
-// ─── Jobwork: Weft / Porvai Yarn stock ───────────────────────────────────────
-// Rows in jobwork_weft_bag represent weft (or porvai) yarn issued to a
-// jobwork party. total_kg is the live balance the party is sitting on.
-type WeftYarnRow = {
-  party_id: number;
-  party_name: string;
-  yarn_count_id: number;
-  count_code: string;
-  count_name: string;
-  total_kg: number;
-  bag_count: number;
-};
-
+// ─── Weft (and Porvai) Yarn ledger ──────────────────────────────────────────
 async function loadJobworkWeftYarn(
   supabase: any, sp: SP, parties: any[], counts: any[],
-): Promise<WeftYarnRow[]> {
-  let q = supabase
+): Promise<LedgerGroup[]> {
+  let bagQ = supabase
     .from('jobwork_weft_bag')
-    .select('jobwork_party_id, yarn_count_id, total_kg, bag_count')
-    .gt('total_kg', 0);
-  if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
-  if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
-  const { data: rows } = await q;
+    .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count');
+  if (sp.party) bagQ = bagQ.eq('jobwork_party_id', Number(sp.party));
+  if (sp.count) bagQ = bagQ.eq('yarn_count_id',    Number(sp.count));
+  const { data: bags } = await bagQ;
+
+  let ledgerQ = supabase
+    .from('stock_ledger')
+    .select('jobwork_party_id, yarn_count_id, quantity, event_date, reference_no, notes, bucket')
+    .in('bucket', ['weft_yarn', 'porvai_yarn']);
+  if (sp.party) ledgerQ = ledgerQ.eq('jobwork_party_id', Number(sp.party));
+  if (sp.count) ledgerQ = ledgerQ.eq('yarn_count_id',    Number(sp.count));
+  const { data: outRows } = await ledgerQ;
 
   const partyById = new Map(parties.map((p: any) => [p.id, p]));
   const countById = new Map(counts.map((c: any) => [c.id, c]));
 
-  const grouped = new Map<string, WeftYarnRow>();
-  ((rows ?? []) as any[]).forEach((r) => {
-    if (r.jobwork_party_id == null || r.yarn_count_id == null) return;
-    const key = `${r.jobwork_party_id}|${r.yarn_count_id}`;
-    let row = grouped.get(key);
-    if (!row) {
-      const p = partyById.get(r.jobwork_party_id);
-      const c = countById.get(r.yarn_count_id);
-      row = {
-        party_id: r.jobwork_party_id,
-        party_name: p?.name ?? '—',
-        yarn_count_id: r.yarn_count_id,
-        count_code: c?.code ?? '—',
-        count_name: c?.display_name ?? '',
-        total_kg: 0,
-        bag_count: 0,
+  const groups = new Map<string, LedgerGroup>();
+  const ensure = (partyId: number, countId: number): LedgerGroup => {
+    const key = `${partyId}|${countId}`;
+    let g = groups.get(key);
+    if (!g) {
+      const p = partyById.get(partyId);
+      const c = countById.get(countId);
+      g = {
+        key,
+        title: p?.name ?? `Party #${partyId}`,
+        subtitle: c?.code ?? `Yarn count #${countId}`,
+        extra: c?.display_name ?? '',
+        unit: 'kg',
+        events: [],
       };
-      grouped.set(key, row);
+      groups.set(key, g);
     }
-    row.total_kg   += Number(r.total_kg ?? 0);
-    row.bag_count  += Number(r.bag_count ?? 0);
-  });
+    return g;
+  };
 
-  return Array.from(grouped.values()).sort((a, b) => b.total_kg - a.total_kg);
+  for (const b of (bags ?? []) as any[]) {
+    if (b.jobwork_party_id == null || b.yarn_count_id == null) continue;
+    const g = ensure(b.jobwork_party_id, b.yarn_count_id);
+    g.events.push({
+      event_date: b.given_date ?? '',
+      direction: 'in',
+      quantity: Number(b.original_kg ?? b.total_kg ?? 0),
+      reference: b.reference_no ?? `Bag #${b.id}`,
+      notes: b.bag_count ? `${b.bag_count} bag(s)` : '',
+    });
+  }
+  for (const o of (outRows ?? []) as any[]) {
+    if (o.jobwork_party_id == null || o.yarn_count_id == null) continue;
+    const g = ensure(o.jobwork_party_id, o.yarn_count_id);
+    g.events.push({
+      event_date: o.event_date ?? '',
+      direction: 'out',
+      quantity: Number(o.quantity ?? 0),
+      reference: o.reference_no ?? 'Fabric receipt',
+      notes: `${o.bucket === 'porvai_yarn' ? '[porvai] ' : ''}${o.notes ?? ''}`,
+    });
+  }
+  for (const g of groups.values()) g.events.sort(sortEvents);
+  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
 }
 
-function WeftYarnView({ rows }: { rows: WeftYarnRow[] }) {
-  if (!rows.length) {
-    return (
-      <div className="card p-8 text-center text-ink-soft text-sm">
-        No weft yarn with jobwork parties. Issue yarn from Job Work &rarr; Weft Yarn Given.
-      </div>
-    );
+// ─── Ledger view (shared renderer) ──────────────────────────────────────────
+function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMessage: string }) {
+  if (!groups.length) {
+    return <div className="card p-8 text-center text-ink-soft text-sm">{emptyMessage}</div>;
   }
-  const totalKg = rows.reduce((s, r) => s + r.total_kg, 0);
-  const totalBags = rows.reduce((s, r) => s + r.bag_count, 0);
+  const totals = groups.map(g => {
+    const closing = g.events.reduce((bal, e) => bal + (e.direction === 'in' ? e.quantity : -e.quantity), 0);
+    return { g, closing };
+  });
+  const grandClosing = totals.reduce((s, t) => s + t.closing, 0);
+  const unit = groups[0]?.unit ?? 'm';
+
   return (
     <>
       <div className="grid sm:grid-cols-3 gap-3 mb-4">
-        <Kpi label="Total Yarn" value={formatKg(totalKg, 1)} icon={Boxes} />
-        <Kpi label="Bag Count" value={String(totalBags)} icon={Package} />
-        <Kpi label="Party × Count rows" value={String(rows.length)} icon={TrendingDown} />
+        <Kpi label="Closing balance (all)" value={fmtUnit(grandClosing, unit)} icon={Coins} />
+        <Kpi label="Groups" value={String(groups.length)} icon={Layers} />
+        <Kpi label="Total events" value={String(groups.reduce((s, g) => s + g.events.length, 0))} icon={TrendingDown} />
       </div>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-            <tr>
-              <th className="text-left px-4 py-3">Party</th>
-              <th className="text-left px-4 py-3">Yarn Count</th>
-              <th className="text-right px-4 py-3">On Hand</th>
-              <th className="text-right px-4 py-3 hidden md:table-cell">Bags</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.party_id}-${r.yarn_count_id}`} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">{r.party_name}</td>
-                <td className="px-4 py-3">
-                  <div className="font-semibold">{r.count_code}</div>
-                  <div className="text-[11px] text-ink-soft">{r.count_name}</div>
-                </td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatKg(r.total_kg, 1)}</td>
-                <td className="px-4 py-3 text-right num hidden md:table-cell">{r.bag_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div className="space-y-4">
+        {totals.map(({ g, closing }) => {
+          let running = 0;
+          return (
+            <div key={g.key} className="card overflow-hidden">
+              <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex flex-wrap items-baseline justify-between gap-2">
+                <div>
+                  <div className="font-bold">{g.title}</div>
+                  <div className="text-xs text-ink-soft">{g.subtitle}{g.extra ? ' · ' + g.extra : ''}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[11px] uppercase tracking-wide text-ink-mute">Closing balance</div>
+                  <div className={`text-base font-bold num ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {fmtUnit(closing, g.unit)}
+                  </div>
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
+                  <tr>
+                    <th className="text-left px-4 py-2">Date</th>
+                    <th className="text-left px-4 py-2">Reference</th>
+                    <th className="text-left px-4 py-2 hidden md:table-cell">Notes</th>
+                    <th className="text-right px-4 py-2">In</th>
+                    <th className="text-right px-4 py-2">Out</th>
+                    <th className="text-right px-4 py-2">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.events.length === 0 ? (
+                    <tr><td colSpan={6} className="px-4 py-6 text-center text-ink-mute text-xs">No movements yet.</td></tr>
+                  ) : g.events.map((e, i) => {
+                    running += e.direction === 'in' ? e.quantity : -e.quantity;
+                    return (
+                      <tr key={i} className="border-t border-line/40">
+                        <td className="px-4 py-2 text-xs text-ink-soft">{e.event_date || '-'}</td>
+                        <td className="px-4 py-2 text-xs">{e.reference}</td>
+                        <td className="px-4 py-2 text-xs text-ink-soft hidden md:table-cell">{e.notes}</td>
+                        <td className="px-4 py-2 text-right num text-emerald-700">
+                          {e.direction === 'in' ? '+ ' + fmtUnit(e.quantity, g.unit) : ''}
+                        </td>
+                        <td className="px-4 py-2 text-right num text-rose-700">
+                          {e.direction === 'out' ? '\u2212 ' + fmtUnit(e.quantity, g.unit) : ''}
+                        </td>
+                        <td className={`px-4 py-2 text-right num font-semibold ${running < 0 ? 'text-rose-700' : ''}`}>
+                          {fmtUnit(running, g.unit)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="border-t-2 border-line bg-cloud/30">
+                  <tr>
+                    <td colSpan={5} className="px-4 py-2 font-semibold text-right">Closing balance</td>
+                    <td className={`px-4 py-2 text-right num font-bold ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                      {fmtUnit(closing, g.unit)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          );
+        })}
       </div>
     </>
   );
