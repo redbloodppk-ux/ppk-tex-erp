@@ -71,7 +71,7 @@ const NAV: NavItem[] = [
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'people',     roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
-  { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'people',     roles: ['owner','accounts','auditor'] },
+  { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'insights',   roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',      label: 'Expenses',           icon: Wallet,          group: 'people',     roles: ['owner','accounts','auditor'] },
 
   // Insights

@@ -27,6 +27,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { applyFabricReceiptStockReductions, type ReceiptItemForReduction, type Shortfall } from '@/lib/fabric-receipt/stock-reductions';
 
 export interface DcInfo {
   id: number;
@@ -126,6 +127,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
 
   const [busy, setBusy]   = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [shortfalls, setShortfalls] = useState<Shortfall[]>([]);
 
   function patch(idx: number, mut: Partial<ItemState>): void {
     setItems((arr) => arr.map((x, i) => i === idx ? { ...x, ...mut } : x));
@@ -243,13 +245,29 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       .update({ fabric_receipt_id: receiptId })
       .eq('id', dc.id);
 
-    // PHASE 2 TODO: apply stock reductions here.
-    //   - pavu.meters     -= totals.metres  (FIFO; match by warp_count)
-    //   - yarn_lot.current_kg -= weft kg     (FIFO; yarn_count_id = weft_yarn_count_id)
-    //   - yarn_lot.current_kg -= porvai kg   (FIFO; yarn_kind='porvai')
-    //   - bobbin.quantity -= bobbin pcs / bobbin_metre (FIFO)
+    // Apply stock reductions FIFO across pavu / yarn_lot / bobbin. If any
+    // bucket can't satisfy the full amount we still keep the receipt
+    // saved and surface the shortfalls so the operator can investigate.
+    const reductionItems: ReceiptItemForReduction[] = items.map((it) => {
+      const m = resolvedMetres(it);
+      return {
+        fabric_quality_id: it.seed.fabric_quality_id,
+        received_metres: m,
+        weft_consumed_kg:   it.seed.weft_kg_per_m   > 0 ? round2(m * it.seed.weft_kg_per_m)   : null,
+        porvai_consumed_kg: it.seed.porvai_kg_per_m > 0 ? round2(m * it.seed.porvai_kg_per_m) : null,
+        // bobbin_id picker not exposed yet - skip bobbin reduction until
+        // the form gains a per-row bobbin dropdown.
+        bobbin_id: null,
+      };
+    });
+    const reduction = await applyFabricReceiptStockReductions(sb, reductionItems);
 
     setBusy(false);
+    if (reduction.shortfalls.length > 0) {
+      setShortfalls(reduction.shortfalls);
+      // Don't navigate away - let the operator read the warnings.
+      return;
+    }
     router.push('/app/jobwork');
     router.refresh();
   }
@@ -427,6 +445,56 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
           </div>
         </div>
       </div>
+
+      {/* Stock-reduction shortfalls (receipt is still saved). */}
+      {shortfalls.length > 0 && (
+        <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50/40">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-amber-700" />
+            <h2 className="font-display font-bold text-sm text-amber-800">
+              Receipt saved, but some stock buckets fell short
+            </h2>
+          </div>
+          <p className="text-xs text-ink-soft mb-3">
+            The receipt is stored and the DC is marked received. The
+            following stock movements could not be fully applied -
+            please reconcile the affected master rows manually.
+          </p>
+          <table className="w-full text-xs">
+            <thead className="text-[10px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left  px-2 py-1">Bucket</th>
+                <th className="text-right px-2 py-1">Needed</th>
+                <th className="text-right px-2 py-1">Applied</th>
+                <th className="text-right px-2 py-1">Short by</th>
+                <th className="text-left  px-2 py-1">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shortfalls.map((s, i) => {
+                const shortBy = Math.max(0, s.needed - s.applied);
+                return (
+                  <tr key={i} className="border-t border-amber-200/60">
+                    <td className="px-2 py-1 capitalize">{s.bucket.replace('_', ' ')}</td>
+                    <td className="px-2 py-1 text-right num">{fmtMoney(s.needed)} {s.unit}</td>
+                    <td className="px-2 py-1 text-right num">{fmtMoney(s.applied)} {s.unit}</td>
+                    <td className="px-2 py-1 text-right num text-rose-700">{fmtMoney(shortBy)} {s.unit}</td>
+                    <td className="px-2 py-1 text-ink-soft">{s.note ?? ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="mt-3 flex items-center gap-2">
+            <button type="button" onClick={() => router.push('/app/jobwork')} className="btn-secondary text-xs">
+              Back to Jobwork
+            </button>
+            <span className="text-xs text-ink-mute">
+              Or stay here to copy the warnings before navigating away.
+            </span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="card p-3 text-err text-sm flex items-center gap-2">
