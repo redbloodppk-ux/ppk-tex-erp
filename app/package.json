@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "typegen": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts"
+    "typegen": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "next": "^15.1.0",
