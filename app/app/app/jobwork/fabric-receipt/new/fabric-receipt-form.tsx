@@ -62,16 +62,13 @@ export interface ReceiptItemSeed {
   hsn: string;
 }
 
-type EntryMode = 'mtr' | 'pcs';
-
 interface ItemState {
   seed: ReceiptItemSeed;
-  entry_mode: EntryMode;
-  no_of_pieces: string;
-  length_per_pc: string;
-  received_metres: string; // typed directly in mtr mode
-  product: string;
-  qty: string;
+  /** Length of each towel in metres. When > 0 we treat received_metres
+   *  as a towel COUNT and the effective metres = received_metres ×
+   *  towel_length. When 0/blank, received_metres is the actual metres. */
+  towel_length: string;
+  received_metres: string;
 }
 
 interface FabricReceiptFormProps {
@@ -94,13 +91,14 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Resolve received metres from the item state. In MTR mode use the typed
- *  value; in PCS mode compute as pieces × length-per-piece. */
+/** Resolve effective received metres from the item state. If a towel
+ *  length is set, the typed received_metres is treated as a towel count
+ *  and the actual metres = count × towel_length. Otherwise the typed
+ *  value is taken as actual metres. */
 function resolvedMetres(it: ItemState): number {
-  if (it.entry_mode === 'pcs') {
-    return round2(num(it.no_of_pieces) * num(it.length_per_pc));
-  }
-  return round2(num(it.received_metres));
+  const m = num(it.received_metres);
+  const t = num(it.towel_length);
+  return round2(t > 0 ? m * t : m);
 }
 
 export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.ReactElement {
@@ -109,19 +107,14 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
 
   // Header state
   const [receiptDate, setReceiptDate] = useState<string>(todayISO());
-  const [receiptType, setReceiptType] = useState<string>('weaving');
   const [remarks, setRemarks]         = useState<string>('');
 
   // One row of state per DC item
   const [items, setItems] = useState<ItemState[]>(
     seeds.map((s) => ({
       seed: s,
-      entry_mode: 'mtr',
-      no_of_pieces: String(s.dc_pieces || 0),
-      length_per_pc: '',
+      towel_length: '',
       received_metres: String(s.dc_metres || 0),
-      product: '',
-      qty: '',
     })),
   );
 
@@ -143,7 +136,10 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     for (const it of items) {
       const m = resolvedMetres(it);
       metres += m;
-      pieces += Math.round(num(it.no_of_pieces));
+      // When a towel length is set the typed received_metres is the
+      // towel count - that's our piece count for the receipt.
+      const towelLen = num(it.towel_length);
+      pieces += towelLen > 0 ? Math.round(num(it.received_metres)) : 0;
       weftKg   += m * it.seed.weft_kg_per_m;
       porvaiKg += m * it.seed.porvai_kg_per_m;
       // Bobbin stock is reduced 1:1 in metres against the received fabric
@@ -174,7 +170,8 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
 
     const headerPayload = {
       receipt_date: receiptDate,
-      receipt_type: receiptType,
+      // Receipt type field removed from the UI - default to 'weaving'.
+      receipt_type: 'weaving',
       dc_id: dc.id,
       party_id: dc.party_id,
       party_dc_no: dc.code,
@@ -203,12 +200,12 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       const m = resolvedMetres(it);
       const weftKg   = round2(m * it.seed.weft_kg_per_m);
       const porvaiKg = round2(m * it.seed.porvai_kg_per_m);
-      // Bobbin consumption is now tracked in metres (1:1 with received
-      // metres). The fabric_receipt_item.bobbin_consumed_pcs column is
-      // still used but holds METRES, not pieces; we can rename in a
-      // later migration if it confuses downstream reports.
       const hasBobbin = it.seed.bobbin_pcs_per_m > 0;
       const bobMtrs  = hasBobbin ? m : 0;
+      // If towel length is set, the typed received_metres is the towel
+      // count; otherwise it's actual metres and we save 0 as the count.
+      const towelLen = round2(num(it.towel_length));
+      const pieces   = towelLen > 0 ? Math.round(num(it.received_metres)) : 0;
       return {
         receipt_id: receiptId,
         sno: it.seed.sno || idx + 1,
@@ -216,10 +213,12 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         ends_id: it.seed.ends_id,
         ends_count_snapshot: it.seed.ends_count,
         fd_pct: null,
-        no_of_pieces: Math.round(num(it.no_of_pieces)),
-        length_per_pc: it.entry_mode === 'pcs' ? round2(num(it.length_per_pc)) : null,
+        no_of_pieces: pieces,
+        // Towel length is stored on the existing length_per_pc column so
+        // we don't need a schema change. Detail page reads it back.
+        length_per_pc: towelLen > 0 ? towelLen : null,
         received_metres: m,
-        entry_mode: it.entry_mode,
+        entry_mode: towelLen > 0 ? 'pcs' : 'mtr',
         weft_yarn_count_id: it.seed.weft_yarn_count_id,
         weft_kg_per_m:    it.seed.weft_kg_per_m   > 0 ? it.seed.weft_kg_per_m   : null,
         weft_consumed_kg: weftKg > 0 ? weftKg : null,
@@ -227,10 +226,10 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         porvai_kg_per_m:    it.seed.porvai_kg_per_m   > 0 ? it.seed.porvai_kg_per_m   : null,
         porvai_consumed_kg: porvaiKg > 0 ? porvaiKg : null,
         bobbin_id: null,
-        bobbin_pcs_per_m:    hasBobbin ? 1 : null, // flag - quality uses a bobbin
-        bobbin_consumed_pcs: bobMtrs > 0 ? bobMtrs : null,  // actually metres now
-        product: it.product || null,
-        qty: it.qty ? round2(num(it.qty)) : null,
+        bobbin_pcs_per_m:    hasBobbin ? 1 : null,
+        bobbin_consumed_pcs: bobMtrs > 0 ? bobMtrs : null,
+        product: null,
+        qty: null,
       };
     });
     const { error: itemErr } = await sb.from('fabric_receipt_item').insert(itemPayload);
@@ -277,7 +276,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
       {/* Header card */}
       <div className="card p-4 space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div>
             <label className="label">Receipt no</label>
             <div className="input bg-cloud/40 text-ink-mute">Auto (FR/26-27/NNNN)</div>
@@ -285,14 +284,6 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
           <div>
             <label className="label">Receipt date</label>
             <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className="input" required />
-          </div>
-          <div>
-            <label className="label">Receipt type</label>
-            <select value={receiptType} onChange={(e) => setReceiptType(e.target.value)} className="input">
-              <option value="weaving">Weaving</option>
-              <option value="sizing">Sizing</option>
-              <option value="other">Other</option>
-            </select>
           </div>
           <div className="md:col-span-2">
             <label className="label">Received from</label>
@@ -310,20 +301,18 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
           <h2 className="font-display font-bold text-sm">Items</h2>
         </div>
-        <table className="w-full text-sm min-w-[1100px]">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left  px-2 py-2">SNo</th>
               <th className="text-left  px-2 py-2">Quality</th>
               <th className="text-right px-2 py-2">Ends</th>
-              <th className="text-right px-2 py-2">No. of pcs</th>
+              <th className="text-right px-2 py-2">Towel length</th>
               <th className="text-right px-2 py-2">Received metres</th>
               <th className="text-left  px-2 py-2">Weft count</th>
               <th className="text-right px-2 py-2">Weft cons/m</th>
               <th className="text-right px-2 py-2">Consumed wt (kg)</th>
               <th className="text-right px-2 py-2">Bobbin mtrs</th>
-              <th className="text-left  px-2 py-2">Product</th>
-              <th className="text-right px-2 py-2">Qty</th>
             </tr>
           </thead>
           <tbody>
@@ -345,37 +334,20 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                     {it.seed.ends_count ?? <span className="text-ink-mute">nil</span>}
                   </td>
                   <td className="px-2 py-2">
-                    <input type="number" step="1" min="0" value={it.no_of_pieces}
-                      onChange={(e) => patch(idx, { no_of_pieces: e.target.value })}
-                      className="input h-8 text-xs num w-20 text-right" />
+                    <input type="number" step="0.01" min="0" value={it.towel_length}
+                      onChange={(e) => patch(idx, { towel_length: e.target.value })}
+                      className="input h-8 text-xs num w-24 text-right" placeholder="m / towel" />
                   </td>
                   <td className="px-2 py-2">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex gap-1">
-                        <button type="button"
-                          onClick={() => patch(idx, { entry_mode: 'mtr' })}
-                          className={'px-2 py-0.5 text-[10px] rounded border ' + (it.entry_mode === 'mtr' ? 'bg-indigo text-white border-indigo' : 'bg-white border-line text-ink-soft')}>
-                          MTR
-                        </button>
-                        <button type="button"
-                          onClick={() => patch(idx, { entry_mode: 'pcs' })}
-                          className={'px-2 py-0.5 text-[10px] rounded border ' + (it.entry_mode === 'pcs' ? 'bg-indigo text-white border-indigo' : 'bg-white border-line text-ink-soft')}>
-                          PCS &times; L
-                        </button>
+                    <input type="number" step="0.01" min="0" value={it.received_metres}
+                      onChange={(e) => patch(idx, { received_metres: e.target.value })}
+                      className="input h-8 text-xs num w-28 text-right"
+                      placeholder={num(it.towel_length) > 0 ? 'towel count' : 'metres'} />
+                    {num(it.towel_length) > 0 && (
+                      <div className="text-[10px] text-ink-mute text-right mt-0.5">
+                        = {fmtMoney(m)} m
                       </div>
-                      {it.entry_mode === 'mtr' ? (
-                        <input type="number" step="0.01" min="0" value={it.received_metres}
-                          onChange={(e) => patch(idx, { received_metres: e.target.value })}
-                          className="input h-8 text-xs num w-28 text-right" placeholder="metres" />
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <input type="number" step="0.01" min="0" value={it.length_per_pc}
-                            onChange={(e) => patch(idx, { length_per_pc: e.target.value })}
-                            className="input h-8 text-xs num w-20 text-right" placeholder="length / pc" />
-                          <span className="text-[10px] text-ink-mute">= {fmtMoney(m)}</span>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </td>
                   <td className="px-2 py-2 text-xs">
                     {it.seed.weft_yarn_count_code ?? <span className="text-ink-mute">nil</span>}
@@ -390,16 +362,6 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                     {hasBobbin
                       ? <span className="font-semibold text-indigo-700">{fmtMoney(bobbinMtrs)} m</span>
                       : <span className="text-ink-mute">nil</span>}
-                  </td>
-                  <td className="px-2 py-2">
-                    <input type="text" value={it.product}
-                      onChange={(e) => patch(idx, { product: e.target.value })}
-                      className="input h-8 text-xs w-32" placeholder="-" />
-                  </td>
-                  <td className="px-2 py-2">
-                    <input type="number" step="0.01" min="0" value={it.qty}
-                      onChange={(e) => patch(idx, { qty: e.target.value })}
-                      className="input h-8 text-xs num w-20 text-right" placeholder="-" />
                   </td>
                 </tr>
               );

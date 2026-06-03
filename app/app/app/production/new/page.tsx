@@ -141,11 +141,50 @@ export default function NewFabricReceiptPage() {
   useEffect(() => {
     (async () => {
       const [c, a, l, y, b, s] = await Promise.all([
-        supabase
-          .from('costing_master')
-          .select('id, quality_code, quality_name, approval_status, use_bobbin_1, use_bobbin_2, use_porvai')
-          .eq('approval_status', 'approved')
-          .order('quality_code'),
+        // "Quality being woven" comes from fabric_quality master, not from
+        // the costing master. We still save costing_id internally (no
+        // schema change), but the dropdown labels show the fabric_quality
+        // code + name so the operator picks a quality, not a costing.
+        // Only fabric_qualities with an approved costing assigned are
+        // pickable - because the rest of the form depends on a costing.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (async () => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const sb = supabase as any;
+          const [fqRes, cmRes] = await Promise.all([
+            sb.from('fabric_quality')
+              .select('id, code, name, costing_id, active')
+              .eq('active', true)
+              .not('costing_id', 'is', null)
+              .order('code'),
+            sb.from('costing_master')
+              .select('id, approval_status, use_bobbin_1, use_bobbin_2, use_porvai')
+              .eq('approval_status', 'approved'),
+          ]);
+          const cms = new Map<number, { approval_status: string; use_bobbin_1: boolean | null; use_bobbin_2: boolean | null; use_porvai: boolean | null }>();
+          for (const c of (cmRes.data ?? []) as Array<{ id: number; approval_status: string; use_bobbin_1: boolean | null; use_bobbin_2: boolean | null; use_porvai: boolean | null }>) {
+            cms.set(c.id, c);
+          }
+          // Each row's id is the costing_id (so the rest of the form
+          // keeps working unchanged), but quality_code / quality_name
+          // come from fabric_quality.
+          const merged = ((fqRes.data ?? []) as Array<{ id: number; code: string; name: string; costing_id: number | null }>)
+            .map((f) => {
+              const cm = f.costing_id != null ? cms.get(f.costing_id) : null;
+              if (!cm) return null;
+              return {
+                id: f.costing_id as number,
+                quality_code: f.code,
+                quality_name: f.name,
+                approval_status: cm.approval_status,
+                use_bobbin_1: cm.use_bobbin_1,
+                use_bobbin_2: cm.use_bobbin_2,
+                use_porvai:   cm.use_porvai,
+              };
+            })
+            .filter((x): x is NonNullable<typeof x> => x !== null);
+          return { data: merged };
+        })(),
         supabase
           .from('pavu_assign')
           .select(`
@@ -313,7 +352,7 @@ export default function NewFabricReceiptPage() {
           </h3>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="label">Costing (approved) *</label>
+              <label className="label">Fabric Quality *</label>
               <select
                 required
                 value={costingId}
@@ -329,7 +368,7 @@ export default function NewFabricReceiptPage() {
               </select>
               {costings.length === 0 && (
                 <div className="text-xs text-amber-700 mt-1">
-                  No approved costings. Get one approved before recording production.
+                  No fabric qualities with an approved costing. Set up one in Fabric Quality master + approve its costing first.
                 </div>
               )}
             </div>
