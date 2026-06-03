@@ -186,21 +186,18 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   let stock_porvai_kg = 0;
   let stock_bobbin_m = 0;
 
-  if (warpCountIds.size > 0) {
-    const { data: sjRows } = await sb
-      .from('sizing_job')
-      .select('id')
-      .in('warp_count_id', Array.from(warpCountIds));
-    const sjIds = ((sjRows ?? []) as Array<{ id: number }>).map((r) => r.id);
-    if (sjIds.length > 0) {
-      const { data: pavuRows } = await sb
-        .from('pavu')
-        .select('meters')
-        .in('sizing_job_id', sjIds)
-        .gt('meters', 0);
-      stock_pavu_m = ((pavuRows ?? []) as Array<{ meters: number | string }>)
-        .reduce((s, r) => s + Number(r.meters), 0);
-    }
+  // Warp stock = sum of jobwork_warp_beam.total_metres for the qualities
+  // on this receipt's DC. This matches how the operator thinks about it:
+  // "what's the total warp metre I've handed out for this fabric quality
+  // that hasn't been woven back yet". Pavu rows are not used here.
+  if (qIds.length > 0) {
+    const { data: wbRows } = await sb
+      .from('jobwork_warp_beam')
+      .select('total_metres')
+      .in('fabric_quality_id', qIds)
+      .gt('total_metres', 0);
+    stock_pavu_m = ((wbRows ?? []) as Array<{ total_metres: number | string | null }>)
+      .reduce((s, r) => s + Number(r.total_metres ?? 0), 0);
   }
 
   if (weftCountIds.size > 0) {

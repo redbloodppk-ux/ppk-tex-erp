@@ -89,8 +89,9 @@ async function getQualityYarnCounts(
   return { warpCountIds, weftCountId };
 }
 
-/** Reduce pavu.meters FIFO across pavus whose sizing_job uses one of
- *  the fabric quality's warp counts. */
+/** Reduce jobwork_warp_beam.total_metres FIFO for rows matching the
+ *  fabric quality. The "warp metre stock" the operator sees is the sum
+ *  of these rows, so the receipt subtracts back from the same source. */
 async function reducePavu(
   sb: Sb,
   fabric_quality_id: number,
@@ -98,33 +99,23 @@ async function reducePavu(
 ): Promise<{ applied: number }> {
   if (metres <= 0) return { applied: 0 };
 
-  const { warpCountIds } = await getQualityYarnCounts(sb, fabric_quality_id);
-  if (warpCountIds.length === 0) return { applied: 0 };
-
-  // Step 2: sizing_job ids whose warp_count_id matches.
-  const { data: sjRows } = await sb
-    .from('sizing_job')
-    .select('id')
-    .in('warp_count_id', warpCountIds);
-  const sjIds = (sjRows ?? []).map((r: { id: number }) => r.id);
-  if (sjIds.length === 0) return { applied: 0 };
-
-  // Step 3: pavus FIFO with meters > 0.
-  const { data: pavus } = await sb
-    .from('pavu')
-    .select('id, meters')
-    .in('sizing_job_id', sjIds)
-    .gt('meters', 0)
-    .order('id');
+  // FIFO by given_date then id (oldest beam consumed first).
+  const { data: beams } = await sb
+    .from('jobwork_warp_beam')
+    .select('id, total_metres')
+    .eq('fabric_quality_id', fabric_quality_id)
+    .gt('total_metres', 0)
+    .order('given_date', { ascending: true })
+    .order('id', { ascending: true });
 
   let remaining = metres;
   let applied = 0;
-  for (const p of (pavus ?? []) as Array<{ id: number; meters: number | string }>) {
+  for (const b of (beams ?? []) as Array<{ id: number; total_metres: number | string }>) {
     if (remaining <= 0) break;
-    const available = Number(p.meters);
+    const available = Number(b.total_metres);
     const cut = Math.min(available, remaining);
-    const newMeters = Math.max(0, available - cut);
-    const { error } = await sb.from('pavu').update({ meters: newMeters }).eq('id', p.id);
+    const next = Math.max(0, available - cut);
+    const { error } = await sb.from('jobwork_warp_beam').update({ total_metres: next }).eq('id', b.id);
     if (error) break;
     applied += cut;
     remaining -= cut;
@@ -222,7 +213,7 @@ export async function applyFabricReceiptStockReductions(
         result.shortfalls.push({
           bucket: 'pavu', fabric_quality_id: it.fabric_quality_id,
           needed: it.received_metres, applied: r.applied, unit: 'm',
-          note: 'Available pavu metres less than received - check sizing job stock for this quality.',
+          note: 'Available warp-beam metres less than received - check Jobwork \u2192 Warp beam given for this fabric quality.',
         });
       }
     }

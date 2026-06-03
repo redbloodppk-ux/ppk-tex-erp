@@ -95,6 +95,10 @@ function round2(n: number): number {
 function fmtMoney(v: unknown): string {
   return Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+/** 5-decimal formatter for per-metre yarn-consumption rates (e.g. 0.020027). */
+function fmtRate(v: unknown): string {
+  return Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 5, maximumFractionDigits: 5 });
+}
 function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -365,7 +369,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                         : <span className="text-ink-mute">nil</span>}
                   </td>
                   <td className="px-2 py-2 text-right num text-xs">
-                    {it.seed.weft_kg_per_m > 0 ? fmtMoney(it.seed.weft_kg_per_m) : <span className="text-ink-mute">nil</span>}
+                    {it.seed.weft_kg_per_m > 0 ? fmtRate(it.seed.weft_kg_per_m) : <span className="text-ink-mute">nil</span>}
                   </td>
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {consumed > 0 ? fmtMoney(consumed) : '-'}
@@ -425,7 +429,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
             </thead>
             <tbody>
               {([
-                { label: 'Warp (pavu metres)', before: dc.stock.pavu_m,   used: totals.metres,     unit: 'm'  },
+                { label: 'Warp beam metres',  before: dc.stock.pavu_m,   used: totals.metres,     unit: 'm'  },
                 { label: 'Weft yarn',          before: dc.stock.weft_kg,  used: totals.weftKg,     unit: 'kg' },
                 { label: 'Porvai yarn',        before: dc.stock.porvai_kg, used: totals.porvaiKg,  unit: 'kg' },
                 { label: 'Bobbin metres',      before: dc.stock.bobbin_m, used: totals.bobbinMtrs, unit: 'm'  },
