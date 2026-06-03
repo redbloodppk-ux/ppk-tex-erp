@@ -96,9 +96,10 @@ async function getQualityYarnCounts(
   return { warpCountIds, weftCountId, porvaiCountId };
 }
 
-/** Reduce jobwork_warp_beam.total_metres FIFO for rows matching the
- *  fabric quality. The "warp metre stock" the operator sees is the sum
- *  of these rows, so the receipt subtracts back from the same source. */
+/** Reduce jobwork_warp_beam.total_metres FIFO across the fabric
+ *  quality AND any merged-delivery siblings (same merged_name). The
+ *  stock pool the operator sees in the Stock card matches the pool we
+ *  subtract from here. */
 async function reducePavu(
   sb: Sb,
   fabric_quality_id: number,
@@ -106,11 +107,31 @@ async function reducePavu(
 ): Promise<{ applied: number }> {
   if (metres <= 0) return { applied: 0 };
 
-  // FIFO by given_date then id (oldest beam consumed first).
+  // Resolve the set of fabric_quality ids that share warp stock with
+  // this one. If is_merged + merged_name is set we pull siblings.
+  const qIds: number[] = [fabric_quality_id];
+  const { data: self } = await sb
+    .from('fabric_quality')
+    .select('is_merged, merged_name')
+    .eq('id', fabric_quality_id)
+    .maybeSingle();
+  if (self?.is_merged && self.merged_name && self.merged_name.trim() !== '') {
+    const { data: siblings } = await sb
+      .from('fabric_quality')
+      .select('id')
+      .eq('is_merged', true)
+      .eq('merged_name', self.merged_name.trim());
+    for (const s of ((siblings ?? []) as Array<{ id: number }>)) {
+      if (!qIds.includes(s.id)) qIds.push(s.id);
+    }
+  }
+
+  // FIFO by given_date then id (oldest beam consumed first), across
+  // every fabric_quality_id in the pool.
   const { data: beams } = await sb
     .from('jobwork_warp_beam')
     .select('id, total_metres')
-    .eq('fabric_quality_id', fabric_quality_id)
+    .in('fabric_quality_id', qIds)
     .gt('total_metres', 0)
     .order('given_date', { ascending: true })
     .order('id', { ascending: true });

@@ -27,6 +27,11 @@ export interface FabricQualityHeader {
   weight_gsm: string; rate_per_m: string;
   // Migration 078: cost of pick yarn allocated per metre of fabric (Rs/m).
   pick_cost_per_m: string;
+  // Migration 089: merge several qualities under one common name so
+  // their warp / weft / bobbin stock is treated as a single pool
+  // during Fabric Receipt.
+  is_merged: boolean;
+  merged_name: string;
   active: boolean; status: string; notes: string;
 }
 export interface FQEndsLine { sno: number; ends_id: number | null; }
@@ -114,6 +119,11 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   // Migration 078: cost of pick yarn allocated per metre of fabric. Manually
   // entered. Empty string = NULL in DB.
   const [pickCostPerM, setPickCostPerM] = useState<string>('');
+  // Migration 089: merge several qualities under one common name so
+  // their warp / weft / bobbin stock is treated as a single pool during
+  // Fabric Receipt. The text field is enabled only when isMerged is on.
+  const [isMerged, setIsMerged] = useState<boolean>(false);
+  const [mergedName, setMergedName] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [warpCountId, setWarpCountId] = useState('');
   const [weftCountId, setWeftCountId] = useState('');
@@ -150,7 +160,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const sb = supabase as any;
       const { data } = await sb
         .from('fabric_quality')
-        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, pick_cost_per_m, notes, calc_snapshot')
+        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, pick_cost_per_m, is_merged, merged_name, notes, calc_snapshot')
         .eq('id', props.fabricQualityId)
         .single();
       if (!data) return;
@@ -166,6 +176,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
       if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
       setPickCostPerM(data.pick_cost_per_m == null ? '' : String(data.pick_cost_per_m));
+      setIsMerged(Boolean(data.is_merged));
+      setMergedName(data.merged_name ?? '');
       setNotes(data.notes ?? '');
 
       const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
@@ -256,6 +268,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       crimp_pct: crimpPct,
       gst_pct: gstPct,
       pick_cost_per_m: pickCostPerM.trim() === '' ? null : Number(pickCostPerM),
+      is_merged: isMerged,
+      merged_name: isMerged ? (mergedName.trim() || null) : null,
       weight_gsm: Number(r.gramsPerSqM.toFixed(2)),
       active: true,
       notes: notes.trim() || null,
@@ -563,6 +577,30 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
             <p className="text-[10px] text-ink-mute mt-0.5">
               Pick yarn cost allocated per metre of fabric.
             </p>
+          </div>
+          <div className="md:col-span-2 rounded-md border border-line/60 bg-cloud/20 p-2">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isMerged}
+                onChange={(e) => setIsMerged(e.target.checked)}
+              />
+              <span className="text-sm font-medium">Merge delivery</span>
+              <span className="text-[10px] text-ink-mute">
+                Pool warp / weft / bobbin stock with other qualities of the same common name during Fabric Receipt.
+              </span>
+            </label>
+            <div className="mt-2">
+              <label className="text-[10px] uppercase tracking-wide text-ink-mute">Common fabric name</label>
+              <input
+                type="text"
+                className="input w-full"
+                placeholder={isMerged ? 'e.g. THALAPATHI 30 INCH' : 'enable Merge delivery first'}
+                value={mergedName}
+                onChange={(e) => setMergedName(e.target.value)}
+                disabled={!isMerged}
+              />
+            </div>
           </div>
           <div className="md:col-span-2">
             <label className="label">Notes</label>

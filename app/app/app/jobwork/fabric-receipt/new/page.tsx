@@ -74,9 +74,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (qIds.length > 0) {
     const { data: fqRows } = await sb
       .from('fabric_quality')
-      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name')
       .in('id', qIds);
-    for (const row of (fqRows ?? []) as FqRow[]) fqById.set(row.id, row);
+    for (const row of (fqRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>) fqById.set(row.id, row);
   }
 
   // Ends-master link per fabric quality. Try the link table first; if
@@ -187,14 +187,32 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   let stock_bobbin_m = 0;
 
   // Warp stock = sum of jobwork_warp_beam.total_metres for the qualities
-  // on this receipt's DC. This matches how the operator thinks about it:
-  // "what's the total warp metre I've handed out for this fabric quality
-  // that hasn't been woven back yet". Pavu rows are not used here.
-  if (qIds.length > 0) {
+  // on this receipt's DC, POOLED across any merged-delivery siblings.
+  // For each quality on the DC, if it has is_merged=true we also pull
+  // every other fabric_quality row with the same merged_name and treat
+  // their beams as part of the same stock pool.
+  const pooledQIds = new Set<number>(qIds);
+  const mergedNamesSeen = new Set<string>();
+  for (const qId of qIds) {
+    const fq = fqById.get(qId) as (FqRow & { is_merged?: boolean; merged_name?: string | null }) | undefined;
+    if (fq?.is_merged && fq.merged_name && fq.merged_name.trim() !== '') {
+      mergedNamesSeen.add(fq.merged_name.trim());
+    }
+  }
+  if (mergedNamesSeen.size > 0) {
+    const { data: siblingRows } = await sb
+      .from('fabric_quality')
+      .select('id, merged_name')
+      .eq('is_merged', true)
+      .in('merged_name', Array.from(mergedNamesSeen));
+    for (const r of ((siblingRows ?? []) as Array<{ id: number }>)) pooledQIds.add(r.id);
+  }
+
+  if (pooledQIds.size > 0) {
     const { data: wbRows } = await sb
       .from('jobwork_warp_beam')
       .select('total_metres')
-      .in('fabric_quality_id', qIds)
+      .in('fabric_quality_id', Array.from(pooledQIds))
       .gt('total_metres', 0);
     stock_pavu_m = ((wbRows ?? []) as Array<{ total_metres: number | string | null }>)
       .reduce((s, r) => s + Number(r.total_metres ?? 0), 0);
