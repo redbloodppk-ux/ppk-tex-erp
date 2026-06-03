@@ -62,6 +62,9 @@
   .btn-primary {
     @apply btn bg-indigo text-white shadow-emboss hover:bg-indigo-600 active:scale-[0.98];
   }
+  .btn-secondary {
+    @apply btn bg-paper text-ink border border-line hover:bg-cloud active:scale-[0.98];
+  }
   .btn-ghost {
     @apply btn text-ink-soft hover:bg-cloud;
   }
