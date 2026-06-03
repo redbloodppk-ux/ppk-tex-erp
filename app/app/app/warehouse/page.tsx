@@ -347,10 +347,10 @@ export default async function WarehousePage({
       {mode === 'inhouse' && tab === 'yarn'        && <YarnView rows={yarnRows!} />}
       {mode === 'inhouse' && tab === 'bobbin'      && <BobbinView rows={inhouseBobbinRows!} />}
       {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
-      {mode === 'jobwork' && tab === 'warp_beam'   && <LedgerView groups={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to start the ledger." />}
-      {mode === 'jobwork' && tab === 'weft_yarn'   && <LedgerView groups={weftYarnRows!}   emptyMessage="No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to start the ledger." />}
-      {mode === 'jobwork' && tab === 'porvai_yarn' && <LedgerView groups={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
-      {mode === 'jobwork' && tab === 'bobbin'      && <LedgerView groups={jwBobbinRows!}   emptyMessage="No bobbin entries yet. Assign bobbins to jobwork parties to start the ledger." />}
+      {mode === 'jobwork' && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here." />}
+      {mode === 'jobwork' && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage="No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here." />}
+      {mode === 'jobwork' && tab === 'porvai_yarn' && <PivotView data={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
+      {mode === 'jobwork' && tab === 'bobbin'      && <PivotView data={jwBobbinRows!}   emptyMessage="No bobbin entries yet. Assign bobbins to jobwork parties to see them here." />}
       {mode === 'jobwork' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
     </div>
   );
@@ -783,14 +783,152 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
   );
 }
 
-// ─── Jobwork ledger view ────────────────────────────────────────────────────
-// We display each jobwork stock bucket (warp beam / weft yarn / porvai /
-// bobbin) as a ledger: one card per group key with rows for every
-// inflow (when stock was given to the party) and every outflow (when a
-// fabric receipt consumed it), with a running balance column and a
-// closing-balance footer.
+// ─── Jobwork pivot view ─────────────────────────────────────────────────────
+// Pivot table: one column per (ends count / yarn count / bobbin spec),
+// one row per movement (date + reference). Each row shows the metres /
+// kg / pcs for that movement under the matching column. Footer shows
+// per-column totals and closing balance. Outflow rows come from
+// stock_ledger; inflow rows from jobwork_warp_beam / jobwork_weft_bag /
+// bobbin master.
 
 type LedgerUnit = 'm' | 'kg' | 'pcs';
+
+interface PivotColumn {
+  id: string;
+  label: string;
+  sublabel?: string;
+}
+
+interface PivotEvent {
+  event_date: string;
+  column_id: string;
+  direction: 'in' | 'out';
+  quantity: number;
+  reference: string;
+  notes: string;
+}
+
+interface PivotData {
+  unit: LedgerUnit;
+  columns: PivotColumn[];
+  events: PivotEvent[];
+}
+
+/** Pivot-style ledger. Rows = events (date), columns = ends / yarn count /
+ *  bobbin spec. Each row populates one cell with the in/out delta. Footer
+ *  shows totals per column. Date column shown on the left so the user can
+ *  scan timeline; column headers run across the top for "warp metre,
+ *  weft, bobbin, porvai" tabs. */
+function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: string }) {
+  if (data.events.length === 0 && data.columns.length === 0) {
+    return <div className="card p-8 text-center text-ink-soft text-sm">{emptyMessage}</div>;
+  }
+  const sorted = [...data.events].sort((a, b) => {
+    if (a.event_date !== b.event_date) return a.event_date < b.event_date ? -1 : 1;
+    if (a.direction !== b.direction) return a.direction === 'in' ? -1 : 1;
+    return a.column_id.localeCompare(b.column_id);
+  });
+
+  const totals: Record<string, { in: number; out: number }> = {};
+  for (const col of data.columns) totals[col.id] = { in: 0, out: 0 };
+  for (const e of sorted) {
+    if (!totals[e.column_id]) totals[e.column_id] = { in: 0, out: 0 };
+    if (e.direction === 'in') totals[e.column_id].in += e.quantity;
+    else                       totals[e.column_id].out += e.quantity;
+  }
+  const grandClosing = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0), 0);
+  const grandIn      = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0), 0);
+  const grandOut     = data.columns.reduce((s, c) => s + (totals[c.id]?.out ?? 0), 0);
+
+  return (
+    <>
+      <div className="grid sm:grid-cols-4 gap-3 mb-4">
+        <Kpi label="Closing balance" value={fmtUnit(grandClosing, data.unit)} icon={Coins} />
+        <Kpi label="Total inflow"    value={fmtUnit(grandIn, data.unit)}      icon={Layers} />
+        <Kpi label="Total outflow"   value={fmtUnit(grandOut, data.unit)}     icon={TrendingDown} />
+        <Kpi label="Columns × events" value={`${data.columns.length} × ${sorted.length}`} icon={Package} />
+      </div>
+
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-3 py-2 sticky left-0 bg-cloud/60 z-10">Date</th>
+              <th className="text-left px-3 py-2">Reference</th>
+              {data.columns.map(c => (
+                <th key={c.id} className="text-right px-3 py-2 min-w-[110px]">
+                  <div className="font-bold text-ink">{c.label}</div>
+                  {c.sublabel && <div className="text-[10px] font-normal text-ink-mute normal-case">{c.sublabel}</div>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 ? (
+              <tr><td colSpan={2 + data.columns.length} className="px-3 py-6 text-center text-ink-mute text-xs">No movements yet. Issue stock from Job Work or post a Fabric Receipt to see entries here.</td></tr>
+            ) : sorted.map((e, i) => (
+              <tr key={i} className="border-t border-line/40">
+                <td className="px-3 py-2 text-xs text-ink-soft sticky left-0 bg-paper">{e.event_date || '-'}</td>
+                <td className="px-3 py-2 text-xs">
+                  {e.reference}
+                  {e.notes && <div className="text-[10px] text-ink-mute">{e.notes}</div>}
+                </td>
+                {data.columns.map(c => (
+                  <td key={c.id} className={`px-3 py-2 text-right num text-xs ${e.column_id === c.id ? (e.direction === 'in' ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-semibold') : ''}`}>
+                    {e.column_id === c.id
+                      ? (e.direction === 'in' ? '+ ' : '\u2212 ') + fmtUnit(e.quantity, data.unit)
+                      : ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="border-t-2 border-line bg-cloud/30 font-semibold">
+            <tr>
+              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total In</td>
+              {data.columns.map(c => (
+                <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs">
+                  {(totals[c.id]?.in ?? 0) > 0 ? '+ ' + fmtUnit(totals[c.id].in, data.unit) : '-'}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total Out</td>
+              {data.columns.map(c => (
+                <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs">
+                  {(totals[c.id]?.out ?? 0) > 0 ? '\u2212 ' + fmtUnit(totals[c.id].out, data.unit) : '-'}
+                </td>
+              ))}
+            </tr>
+            <tr className="border-t-2 border-line">
+              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Closing balance</td>
+              {data.columns.map(c => {
+                const closing = (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0);
+                return (
+                  <td key={c.id} className={`px-3 py-2 text-right num text-sm font-bold ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {fmtUnit(closing, data.unit)}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** Run a Supabase select and return [] on error (e.g. table missing
+ *  because migration 090 not applied yet). Keeps the page rendering. */
+async function safeSelect<T>(p: Promise<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  try {
+    const res = await p;
+    if (res.error) return [];
+    return (res.data ?? []) as T[];
+  } catch {
+    return [];
+  }
+}
 
 interface LedgerEvent {
   event_date: string;
@@ -821,170 +959,278 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
   return 0;
 }
 
-// ─── Warp Beam ledger ───────────────────────────────────────────────────────
-// Inflows = every row in jobwork_warp_beam (issued = bought for the party).
-// Outflows = stock_ledger rows tagged bucket='warp_beam' (from fabric receipts).
-// Groups by party + fabric_quality. Rows without a fabric_quality_id are
-// still shown under a "No quality assigned" sub-group so nothing
-// disappears from the ledger.
+// ─── Warp Beam pivot ────────────────────────────────────────────────────────
+// Columns = distinct "ends count" (e.g. 2200, 2196, 2230) resolved from
+// the fabric_quality of each beam. Rows = each warp-beam-given event
+// (inflow) and each fabric-receipt-consumed event (outflow), in date
+// order. Cell = +metres for inflow, -metres for outflow.
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
-): Promise<LedgerGroup[]> {
-  let beamQ = supabase
-    .from('jobwork_warp_beam')
-    .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count');
-  if (sp.party)   beamQ = beamQ.eq('jobwork_party_id',  Number(sp.party));
-  if (sp.quality) beamQ = beamQ.eq('fabric_quality_id', Number(sp.quality));
-  if (sp.count)   beamQ = beamQ.eq('warp_count_id',     Number(sp.count));
-  const { data: beams } = await beamQ;
-
-  let ledgerQ = supabase
-    .from('stock_ledger')
-    .select('jobwork_party_id, fabric_quality_id, quantity, event_date, reference_no, notes')
-    .eq('bucket', 'warp_beam');
-  if (sp.party)   ledgerQ = ledgerQ.eq('jobwork_party_id',  Number(sp.party));
-  if (sp.quality) ledgerQ = ledgerQ.eq('fabric_quality_id', Number(sp.quality));
-  const { data: outRows } = await ledgerQ;
-
-  const partyById   = new Map(parties.map((p: any) => [p.id, p]));
-  const qualityById = new Map(qualities.map((q: any) => [q.id, q]));
-  const countById   = new Map(counts.map((c: any) => [c.id, c]));
-
-  const groups = new Map<string, LedgerGroup>();
-  const ensure = (partyId: number | null, qualityId: number | null, countId: number | null): LedgerGroup => {
-    const key = `${partyId ?? 'n'}|${qualityId ?? 'n'}`;
-    let g = groups.get(key);
-    if (!g) {
-      const p = partyId != null ? partyById.get(partyId) : null;
-      const fq = qualityId != null ? qualityById.get(qualityId) : null;
-      const c = countId != null ? countById.get(countId) : null;
-      g = {
-        key,
-        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
-        subtitle: fq ? `${fq.code} - ${fq.name ?? ''}` : '(no fabric quality)',
-        extra: c ? `Warp count: ${c.code}` : '',
-        unit: 'm',
-        events: [],
-      };
-      groups.set(key, g);
+): Promise<PivotData> {
+  // Resolve ends_count for each fabric_quality.
+  // Path 1: fabric_quality_ends link → ends.ends_count
+  // Path 2: calc_snapshot.endsId → ends.ends_count
+  let endsByQId = new Map<number, number>();
+  const qIds = qualities.map((q: any) => q.id);
+  if (qIds.length > 0) {
+    const linkRows = await safeSelect<{ fabric_quality_id: number; ends: { ends_count: number | null } | null }>(
+      supabase.from('fabric_quality_ends')
+        .select('fabric_quality_id, ends:ends_id ( ends_count )')
+        .in('fabric_quality_id', qIds),
+    );
+    for (const r of linkRows) {
+      const ec = r.ends?.ends_count;
+      if (r.fabric_quality_id != null && ec != null && !endsByQId.has(r.fabric_quality_id)) {
+        endsByQId.set(r.fabric_quality_id, Number(ec));
+      }
     }
-    return g;
+    // Fallback via calc_snapshot.endsId
+    const missingQIds = qIds.filter((id: number) => !endsByQId.has(id));
+    if (missingQIds.length > 0) {
+      const snapRows = await safeSelect<{ id: number; calc_snapshot: { endsId?: number | string } | null }>(
+        supabase.from('fabric_quality')
+          .select('id, calc_snapshot')
+          .in('id', missingQIds),
+      );
+      const endsIdsToLookup = new Set<number>();
+      const endsIdByQId = new Map<number, number>();
+      for (const r of snapRows) {
+        const eid = r.calc_snapshot?.endsId;
+        if (eid != null && eid !== '') {
+          const n = Number(eid);
+          if (Number.isFinite(n) && n > 0) {
+            endsIdsToLookup.add(n);
+            endsIdByQId.set(r.id, n);
+          }
+        }
+      }
+      if (endsIdsToLookup.size > 0) {
+        const endsRows = await safeSelect<{ id: number; ends_count: number | null }>(
+          supabase.from('ends').select('id, ends_count').in('id', Array.from(endsIdsToLookup)),
+        );
+        const endsCountById = new Map<number, number>();
+        for (const r of endsRows) {
+          if (r.ends_count != null) endsCountById.set(r.id, Number(r.ends_count));
+        }
+        for (const [qId, eId] of endsIdByQId) {
+          const ec = endsCountById.get(eId);
+          if (ec != null) endsByQId.set(qId, ec);
+        }
+      }
+    }
+  }
+
+  // Inflows: jobwork_warp_beam rows. Use original_metres if column exists,
+  // else fall back to total_metres.
+  let beams = await safeSelect<{
+    id: number; jobwork_party_id: number | null; fabric_quality_id: number | null;
+    warp_count_id: number | null; total_metres: number | string | null;
+    original_metres?: number | string | null; given_date: string | null;
+    reference_no: string | null; beam_count: number | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('jobwork_warp_beam')
+        .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count');
+      if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
+      if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+      if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
+      return q;
+    })(),
+  );
+  // Fallback without original_metres if migration 090 not yet applied.
+  if (beams.length === 0) {
+    beams = await safeSelect(
+      (() => {
+        let q = supabase
+          .from('jobwork_warp_beam')
+          .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, given_date, reference_no, beam_count');
+        if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
+        if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+        if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
+        return q;
+      })(),
+    );
+  }
+
+  // Outflows: stock_ledger. May not exist yet → safeSelect returns [].
+  const outRows = await safeSelect<{
+    fabric_quality_id: number | null; quantity: number | string | null;
+    event_date: string | null; reference_no: string | null; notes: string | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('stock_ledger')
+        .select('fabric_quality_id, quantity, event_date, reference_no, notes')
+        .eq('bucket', 'warp_beam');
+      if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
+      if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+      return q;
+    })(),
+  );
+
+  // Build columns and events keyed by ends_count.
+  const colByEnds = new Map<number, PivotColumn>();
+  const events: PivotEvent[] = [];
+  const partyById = new Map(parties.map((p: any) => [p.id, p]));
+  const qualityById = new Map(qualities.map((q: any) => [q.id, q]));
+
+  const colIdFor = (qualityId: number | null): { id: string; ec: number | null } => {
+    const ec = qualityId != null ? endsByQId.get(qualityId) ?? null : null;
+    return { id: ec != null ? `ends_${ec}` : 'ends_unknown', ec };
+  };
+  const ensureCol = (qualityId: number | null) => {
+    const { id, ec } = colIdFor(qualityId);
+    if (!colByEnds.has(qualityId ?? -1) && !Array.from(colByEnds.values()).some(c => c.id === id)) {
+      // Use ends_count as the dedupe key
+    }
+    const existing = Array.from(colByEnds.values()).find(c => c.id === id);
+    if (existing) return id;
+    colByEnds.set(qualityId ?? -1, {
+      id,
+      label: ec != null ? `${ec} ends` : '(no ends)',
+      sublabel: '',
+    });
+    return id;
   };
 
-  for (const b of (beams ?? []) as any[]) {
-    const g = ensure(b.jobwork_party_id, b.fabric_quality_id, b.warp_count_id);
-    g.events.push({
+  for (const b of beams) {
+    const colId = ensureCol(b.fabric_quality_id);
+    const fq = b.fabric_quality_id != null ? qualityById.get(b.fabric_quality_id) : null;
+    const p  = b.jobwork_party_id   != null ? partyById.get(b.jobwork_party_id) : null;
+    events.push({
       event_date: b.given_date ?? '',
+      column_id: colId,
       direction: 'in',
       quantity: Number(b.original_metres ?? b.total_metres ?? 0),
-      reference: b.reference_no ?? `Beam #${b.id}`,
-      notes: b.beam_count ? `${b.beam_count} beam(s)` : '',
+      reference: `${b.reference_no ?? 'Beam #' + b.id} · ${p?.name ?? ''}`,
+      notes: [fq?.code, b.beam_count ? `${b.beam_count} beam(s)` : ''].filter(Boolean).join(' · '),
     });
   }
-  for (const o of (outRows ?? []) as any[]) {
-    const g = ensure(o.jobwork_party_id, o.fabric_quality_id, null);
-    g.events.push({
+  for (const o of outRows) {
+    const colId = ensureCol(o.fabric_quality_id);
+    events.push({
       event_date: o.event_date ?? '',
+      column_id: colId,
       direction: 'out',
       quantity: Number(o.quantity ?? 0),
       reference: o.reference_no ?? 'Fabric receipt',
       notes: o.notes ?? '',
     });
   }
-  for (const g of groups.values()) g.events.sort(sortEvents);
-  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
+
+  const columns = Array.from(colByEnds.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit: 'm', columns, events };
 }
 
-// ─── Bobbin ledger (jobwork) ────────────────────────────────────────────────
-// Inflows = jobwork bobbin master rows (production_mode='jobwork',
-// original_quantity). Outflows = stock_ledger rows with bucket='bobbin'.
-// Bobbin quantity is in PCS but each row's `bobbin_metre` gives metres
-// per piece, so we surface both pcs and metres in the notes column.
+// ─── Bobbin pivot (jobwork) ─────────────────────────────────────────────────
+// Columns = distinct bobbin specs (ends × metres per piece). Rows =
+// bobbin purchases (inflow) and fabric-receipt consumption (outflow).
 async function loadJobworkBobbin(
   supabase: any, sp: SP, parties: any[], _bobbinMasters: any[],
-): Promise<LedgerGroup[]> {
-  let bobQ = supabase
-    .from('bobbin')
-    .select('id, code, description, jobwork_party_id, quantity, original_quantity, bobbin_metre, ends_per_bobbin, purchase_date')
-    .eq('production_mode', 'jobwork');
-  if (sp.party) bobQ = bobQ.eq('jobwork_party_id', Number(sp.party));
-  const { data: bobs } = await bobQ;
+): Promise<PivotData> {
+  let bobs = await safeSelect<{
+    id: number; code: string; description: string | null;
+    jobwork_party_id: number | null; quantity: number | string | null;
+    original_quantity?: number | string | null;
+    bobbin_metre: number | string | null; ends_per_bobbin: number | null;
+    purchase_date: string | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('bobbin')
+        .select('id, code, description, jobwork_party_id, quantity, original_quantity, bobbin_metre, ends_per_bobbin, purchase_date')
+        .eq('production_mode', 'jobwork');
+      if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+      return q;
+    })(),
+  );
+  if (bobs.length === 0) {
+    bobs = await safeSelect(
+      (() => {
+        let q = supabase
+          .from('bobbin')
+          .select('id, code, description, jobwork_party_id, quantity, bobbin_metre, ends_per_bobbin, purchase_date')
+          .eq('production_mode', 'jobwork');
+        if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+        return q;
+      })(),
+    );
+  }
 
-  let ledgerQ = supabase
-    .from('stock_ledger')
-    .select('jobwork_party_id, bobbin_id, quantity, event_date, reference_no, notes')
-    .eq('bucket', 'bobbin');
-  if (sp.party) ledgerQ = ledgerQ.eq('jobwork_party_id', Number(sp.party));
-  const { data: outRows } = await ledgerQ;
+  const outRows = await safeSelect<{
+    bobbin_id: number | null; quantity: number | string | null;
+    event_date: string | null; reference_no: string | null; notes: string | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('stock_ledger')
+        .select('bobbin_id, quantity, event_date, reference_no, notes')
+        .eq('bucket', 'bobbin');
+      if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+      return q;
+    })(),
+  );
 
   const partyById = new Map(parties.map((p: any) => [p.id, p]));
-  const bobInfoById = new Map<number, { code: string; description: string; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>();
-  for (const b of (bobs ?? []) as any[]) bobInfoById.set(b.id, b);
+  const bobInfoById = new Map<number, { code: string; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>();
+  for (const b of bobs) bobInfoById.set(b.id, b);
 
-  const groups = new Map<string, LedgerGroup>();
-  const ensure = (partyId: number | null, bobbinId: number | null): LedgerGroup => {
-    const key = `${partyId ?? 'n'}|${bobbinId ?? 'n'}`;
-    let g = groups.get(key);
-    if (!g) {
-      const p = partyId != null ? partyById.get(partyId) : null;
-      const b = bobbinId != null ? bobInfoById.get(bobbinId) : null;
-      g = {
-        key,
-        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
-        subtitle: b ? `${b.code} - ${b.description ?? ''}` : '(no bobbin)',
-        extra: b ? `${b.ends_per_bobbin ?? '?'} ends × ${b.bobbin_metre ?? '?'} m / pc` : '',
-        unit: 'pcs',
-        events: [],
-      };
-      groups.set(key, g);
-    }
-    return g;
+  const colMap = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  const specColId = (ends: number | null, metre: number | string | null): { id: string; label: string; sub: string } => {
+    const e = ends ?? 0;
+    const m = Number(metre ?? 0);
+    if (e <= 0 && m <= 0) return { id: 'spec_unknown', label: '(no spec)', sub: '' };
+    return { id: `spec_${e}_${m}`, label: `${e} × ${m} m`, sub: 'pcs · ends × m/pc' };
   };
 
-  for (const b of (bobs ?? []) as any[]) {
-    const g = ensure(b.jobwork_party_id, b.id);
-    g.events.push({
+  for (const b of bobs) {
+    const spec = specColId(b.ends_per_bobbin, b.bobbin_metre);
+    if (!colMap.has(spec.id)) colMap.set(spec.id, { id: spec.id, label: spec.label, sublabel: spec.sub });
+    const p = b.jobwork_party_id != null ? partyById.get(b.jobwork_party_id) : null;
+    events.push({
       event_date: b.purchase_date ?? '',
+      column_id: spec.id,
       direction: 'in',
       quantity: Number(b.original_quantity ?? b.quantity ?? 0),
-      reference: `Bobbin ${b.code}`,
-      notes: `${b.ends_per_bobbin ?? '?'} ends × ${b.bobbin_metre ?? '?'} m/pc`,
+      reference: `${b.code} · ${p?.name ?? ''}`,
+      notes: b.description ?? '',
     });
   }
-  for (const o of (outRows ?? []) as any[]) {
-    const g = ensure(o.jobwork_party_id, o.bobbin_id);
-    g.events.push({
+  for (const o of outRows) {
+    const bob = o.bobbin_id != null ? bobInfoById.get(o.bobbin_id) : null;
+    const spec = specColId(bob?.ends_per_bobbin ?? null, bob?.bobbin_metre ?? null);
+    if (!colMap.has(spec.id)) colMap.set(spec.id, { id: spec.id, label: spec.label, sublabel: spec.sub });
+    events.push({
       event_date: o.event_date ?? '',
+      column_id: spec.id,
       direction: 'out',
       quantity: Number(o.quantity ?? 0),
       reference: o.reference_no ?? 'Fabric receipt',
       notes: o.notes ?? '',
     });
   }
-  for (const g of groups.values()) g.events.sort(sortEvents);
-  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
+
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit: 'pcs', columns, events };
 }
 
-// ─── Weft / Porvai Yarn ledger ──────────────────────────────────────────────
-// Both kinds share jobwork_weft_bag at inflow time (we don't tag bags
-// as weft vs porvai when we issue them). We partition the bags by
-// looking at how each yarn_count is used in fabric_quality.calc_snapshot:
-//   - porvaiCountIds = every yarn_count appearing as a porvai count
-//   - weftCountIds   = every other count that appears as a weft count
-// Bags whose yarn_count is in porvaiCountIds appear under the porvai
-// tab; bags whose count is registered as weft (or neither) appear under
-// the weft tab. A count that's used as both shows the inflow on both
-// tabs (real-world: you bought the yarn once and it can serve either).
+// ─── Weft / Porvai Yarn pivot ───────────────────────────────────────────────
+// Columns = distinct yarn_count codes used as the chosen kind (weft or
+// porvai). Rows = each weft-bag-given event (inflow) and each fabric-
+// receipt-consumed event (outflow). Porvai counts are partitioned via
+// fabric_quality.calc_snapshot.porvaiCountId; all other counts are
+// considered weft by default.
 async function loadJobworkYarn(
   supabase: any, sp: SP, parties: any[], counts: any[], kind: 'weft' | 'porvai',
-): Promise<LedgerGroup[]> {
-  // 1. Resolve which yarn_count_ids are "porvai" counts across the
-  //    fabric_quality master. calc_snapshot.porvaiCountId is the source.
-  const { data: fqRows } = await supabase
-    .from('fabric_quality')
-    .select('calc_snapshot');
+): Promise<PivotData> {
+  const fqRows = await safeSelect<{ calc_snapshot: { porvaiCountId?: number | string } | null }>(
+    supabase.from('fabric_quality').select('calc_snapshot'),
+  );
   const porvaiCountIds = new Set<number>();
-  for (const r of ((fqRows ?? []) as Array<{ calc_snapshot: Record<string, unknown> | null }>)) {
+  for (const r of fqRows) {
     const pid = r.calc_snapshot?.porvaiCountId;
     if (pid != null && pid !== '') {
       const n = Number(pid);
@@ -992,82 +1238,98 @@ async function loadJobworkYarn(
     }
   }
 
-  // 2. Inflows: all jobwork_weft_bag rows. We filter to the right kind
-  //    in JS based on whether the bag's yarn_count is a porvai count.
-  let bagQ = supabase
-    .from('jobwork_weft_bag')
-    .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count');
-  if (sp.party) bagQ = bagQ.eq('jobwork_party_id', Number(sp.party));
-  if (sp.count) bagQ = bagQ.eq('yarn_count_id',    Number(sp.count));
-  const { data: bags } = await bagQ;
+  let bags = await safeSelect<{
+    id: number; jobwork_party_id: number | null; yarn_count_id: number | null;
+    total_kg: number | string | null; original_kg?: number | string | null;
+    given_date: string | null; reference_no: string | null; bag_count: number | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('jobwork_weft_bag')
+        .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count');
+      if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+      if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
+      return q;
+    })(),
+  );
+  if (bags.length === 0) {
+    bags = await safeSelect(
+      (() => {
+        let q = supabase
+          .from('jobwork_weft_bag')
+          .select('id, jobwork_party_id, yarn_count_id, total_kg, given_date, reference_no, bag_count');
+        if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+        if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
+        return q;
+      })(),
+    );
+  }
 
-  // 3. Outflows: stock_ledger filtered to the matching bucket.
   const bucket = kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn';
-  let ledgerQ = supabase
-    .from('stock_ledger')
-    .select('jobwork_party_id, yarn_count_id, quantity, event_date, reference_no, notes')
-    .eq('bucket', bucket);
-  if (sp.party) ledgerQ = ledgerQ.eq('jobwork_party_id', Number(sp.party));
-  if (sp.count) ledgerQ = ledgerQ.eq('yarn_count_id',    Number(sp.count));
-  const { data: outRows } = await ledgerQ;
+  const outRows = await safeSelect<{
+    yarn_count_id: number | null; quantity: number | string | null;
+    event_date: string | null; reference_no: string | null; notes: string | null;
+  }>(
+    (() => {
+      let q = supabase
+        .from('stock_ledger')
+        .select('yarn_count_id, quantity, event_date, reference_no, notes')
+        .eq('bucket', bucket);
+      if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
+      if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
+      return q;
+    })(),
+  );
 
   const partyById = new Map(parties.map((p: any) => [p.id, p]));
   const countById = new Map(counts.map((c: any) => [c.id, c]));
 
-  const groups = new Map<string, LedgerGroup>();
-  const ensure = (partyId: number | null, countId: number | null): LedgerGroup => {
-    const key = `${partyId ?? 'n'}|${countId ?? 'n'}`;
-    let g = groups.get(key);
-    if (!g) {
-      const p = partyId != null ? partyById.get(partyId) : null;
-      const c = countId != null ? countById.get(countId) : null;
-      g = {
-        key,
-        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
-        subtitle: c?.code ?? (countId != null ? `Yarn count #${countId}` : '(no count)'),
-        extra: c?.display_name ?? '',
-        unit: 'kg',
-        events: [],
-      };
-      groups.set(key, g);
-    }
-    return g;
+  const colMap = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  const colIdFor = (cId: number | null): string => `yc_${cId ?? 'unknown'}`;
+  const ensureCol = (cId: number | null) => {
+    const id = colIdFor(cId);
+    if (colMap.has(id)) return id;
+    const c = cId != null ? countById.get(cId) : null;
+    colMap.set(id, {
+      id,
+      label: c?.code ?? (cId != null ? `Count #${cId}` : '(no count)'),
+      sublabel: c?.display_name ?? '',
+    });
+    return id;
   };
 
-  for (const b of (bags ?? []) as any[]) {
+  for (const b of bags) {
     const cId = b.yarn_count_id;
-    // For the weft tab we exclude bags whose count is ONLY a porvai
-    // count. If a count appears in both (rare), we still show it on
-    // the weft tab. For the porvai tab we include bags whose count is
-    // a porvai count.
     const isPorvai = cId != null && porvaiCountIds.has(Number(cId));
     if (kind === 'porvai' && !isPorvai) continue;
-    // (No exclusion for weft tab — counts not registered as porvai are
-    // weft by default. Counts that are porvai will still appear under
-    // weft if we don't exclude them; but they're meant to be tracked
-    // under porvai, so skip them on the weft tab.)
     if (kind === 'weft' && isPorvai) continue;
-    const g = ensure(b.jobwork_party_id, cId);
-    g.events.push({
+    const colId = ensureCol(cId);
+    const p = b.jobwork_party_id != null ? partyById.get(b.jobwork_party_id) : null;
+    events.push({
       event_date: b.given_date ?? '',
+      column_id: colId,
       direction: 'in',
       quantity: Number(b.original_kg ?? b.total_kg ?? 0),
-      reference: b.reference_no ?? `Bag #${b.id}`,
+      reference: `${b.reference_no ?? 'Bag #' + b.id} · ${p?.name ?? ''}`,
       notes: b.bag_count ? `${b.bag_count} bag(s)` : '',
     });
   }
-  for (const o of (outRows ?? []) as any[]) {
-    const g = ensure(o.jobwork_party_id, o.yarn_count_id);
-    g.events.push({
+  for (const o of outRows) {
+    const colId = ensureCol(o.yarn_count_id);
+    events.push({
       event_date: o.event_date ?? '',
+      column_id: colId,
       direction: 'out',
       quantity: Number(o.quantity ?? 0),
       reference: o.reference_no ?? 'Fabric receipt',
       notes: o.notes ?? '',
     });
   }
-  for (const g of groups.values()) g.events.sort(sortEvents);
-  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
+
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit: 'kg', columns, events };
 }
 
 // ─── Ledger view (shared renderer) ──────────────────────────────────────────
