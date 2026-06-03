@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  LayoutDashboard, Users, Calculator, Package, Boxes, ShoppingCart, Receipt,
+  LayoutDashboard, Users, Calculator, Package, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
   CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
@@ -65,6 +65,7 @@ const NAV: NavItem[] = [
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/outsource',     label: 'Outsource Weaving',  icon: Truck,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
 
   // People (HR)
