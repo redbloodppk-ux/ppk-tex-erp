@@ -47,13 +47,6 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
-    href: '/app/reports/correction-status',
-    title: 'Correction Status',
-    description:
-      'Build progress against the 42-card Correction Guide v1.1 with a pending list.',
-    ready: true,
-  },
-  {
     href: '/app/reports/cashflow',
     title: 'Cash-flow Snapshot',
     description:
