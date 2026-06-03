@@ -13,6 +13,7 @@ import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { OfflineSync } from './offline-sync';
 import { OfflineBanner } from './offline-banner';
+import { UpdatePrompt } from './update-prompt';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -59,6 +60,7 @@ export function AppShell({
         onClose={() => setMobileOpen(false)}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <UpdatePrompt />
         <OfflineBanner />
         <Topbar
           fullName={fullName}

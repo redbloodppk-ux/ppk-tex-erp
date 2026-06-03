@@ -7,7 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const withPWA = withPWAInit({
   dest: 'public',
   register: true,
-  skipWaiting: true,
+  // skipWaiting is OFF on purpose. With it ON, a new SW silently takes
+  // over and the user never sees the update. With it OFF, the new SW
+  // waits and the in-app "New version available" banner (see
+  // UpdatePrompt) explicitly asks the user to reload, sending the
+  // SKIP_WAITING message to install the update cleanly.
+  skipWaiting: false,
   disable: process.env.NODE_ENV === 'development',
   // Cache the 5 offline-critical screens (per Master Spec v3.0 §2.5)
   runtimeCaching: [
