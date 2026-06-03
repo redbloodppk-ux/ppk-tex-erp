@@ -38,10 +38,11 @@ const INHOUSE_TABS = [
 ] as const;
 
 const JOBWORK_TABS = [
-  { key: 'warp_beam', label: 'Warp Beam (m)', icon: Ruler   },
-  { key: 'weft_yarn', label: 'Weft Yarn (kg)', icon: Boxes   },
-  { key: 'bobbin',    label: 'Bobbins (pcs)',  icon: Package },
-  { key: 'fabric',    label: 'Fabric (m)',     icon: Layers  },
+  { key: 'warp_beam',   label: 'Warp Beam (m)',   icon: Ruler   },
+  { key: 'weft_yarn',   label: 'Weft Yarn (kg)',  icon: Boxes   },
+  { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes  },
+  { key: 'bobbin',      label: 'Bobbins (m)',     icon: Package },
+  { key: 'fabric',      label: 'Fabric (m)',      icon: Layers  },
 ] as const;
 
 type InhouseSubTab = typeof INHOUSE_TABS[number]['key'];
@@ -139,14 +140,16 @@ export default async function WarehousePage({
     : { yarn: [], bobbin: [] };
 
   // ─── Tab-specific data ────────────────────────────────────────────────────
-  // In-house loaders use existing tables; jobwork loaders hit
-  // jobwork_warp_beam / jobwork_weft_bag / bobbin(production_mode='jobwork') /
-  // fabric_stock(source_type='jobwork').
-  const yarnRows     = mode === 'inhouse' && tab === 'yarn'      ? await loadYarn(supabase, sp, mills ?? [], counts ?? []) : null;
-  const bobbinRows   = tab === 'bobbin'    ? await loadBobbin(supabase, sp, mills ?? [], customers ?? [], bobbinMasters ?? [], mode) : null;
-  const fabricRows   = tab === 'fabric'    ? await loadFabric(supabase, sp, mode) : null;
-  const warpBeamRows = mode === 'jobwork' && tab === 'warp_beam' ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
-  const weftYarnRows = mode === 'jobwork' && tab === 'weft_yarn' ? await loadJobworkWeftYarn(supabase, sp, jobworkParties ?? [], counts ?? []) : null;
+  // In-house loaders use existing tables; jobwork loaders return ledger
+  // groups (inflows from jobwork inflow tables + outflows from
+  // stock_ledger).
+  const yarnRows       = mode === 'inhouse' && tab === 'yarn'         ? await loadYarn(supabase, sp, mills ?? [], counts ?? []) : null;
+  const inhouseBobbinRows = mode === 'inhouse' && tab === 'bobbin'    ? await loadBobbin(supabase, sp, mills ?? [], customers ?? [], bobbinMasters ?? [], mode) : null;
+  const fabricRows     = tab === 'fabric'                              ? await loadFabric(supabase, sp, mode) : null;
+  const warpBeamRows   = mode === 'jobwork' && tab === 'warp_beam'    ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
+  const weftYarnRows   = mode === 'jobwork' && tab === 'weft_yarn'    ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
+  const porvaiYarnRows = mode === 'jobwork' && tab === 'porvai_yarn'  ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
+  const jwBobbinRows   = mode === 'jobwork' && tab === 'bobbin'       ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
 
   const subTabs = mode === 'jobwork' ? JOBWORK_TABS : INHOUSE_TABS;
 
@@ -321,7 +324,7 @@ export default async function WarehousePage({
           />
         )}
 
-        {mode === 'jobwork' && (tab === 'warp_beam' || tab === 'weft_yarn') && (
+        {mode === 'jobwork' && (tab === 'warp_beam' || tab === 'weft_yarn' || tab === 'porvai_yarn') && (
           <FilterSelect
             name="count"
             label="Yarn Count"
@@ -341,13 +344,14 @@ export default async function WarehousePage({
       </form>
 
       {/* ── Tab body ───────────────────────────────────────────────────── */}
-      {mode === 'inhouse' && tab === 'yarn'      && <YarnView rows={yarnRows!} />}
-      {mode === 'inhouse' && tab === 'bobbin'    && <BobbinView rows={bobbinRows!} />}
-      {mode === 'inhouse' && tab === 'fabric'    && <FabricView rows={fabricRows!} />}
-      {mode === 'jobwork' && tab === 'warp_beam' && <LedgerView groups={warpBeamRows!} emptyMessage="No warp beam ledger entries yet. Issue beams from Job Work → Warp Beam Given to start the ledger." />}
-      {mode === 'jobwork' && tab === 'weft_yarn' && <LedgerView groups={weftYarnRows!} emptyMessage="No weft yarn ledger entries yet. Issue yarn from Job Work → Weft Yarn Given to start the ledger." />}
-      {mode === 'jobwork' && tab === 'bobbin'    && <BobbinView rows={bobbinRows!} />}
-      {mode === 'jobwork' && tab === 'fabric'    && <FabricView rows={fabricRows!} />}
+      {mode === 'inhouse' && tab === 'yarn'        && <YarnView rows={yarnRows!} />}
+      {mode === 'inhouse' && tab === 'bobbin'      && <BobbinView rows={inhouseBobbinRows!} />}
+      {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
+      {mode === 'jobwork' && tab === 'warp_beam'   && <LedgerView groups={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to start the ledger." />}
+      {mode === 'jobwork' && tab === 'weft_yarn'   && <LedgerView groups={weftYarnRows!}   emptyMessage="No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to start the ledger." />}
+      {mode === 'jobwork' && tab === 'porvai_yarn' && <LedgerView groups={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
+      {mode === 'jobwork' && tab === 'bobbin'      && <LedgerView groups={jwBobbinRows!}   emptyMessage="No bobbin entries yet. Assign bobbins to jobwork parties to start the ledger." />}
+      {mode === 'jobwork' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
     </div>
   );
 }
@@ -818,10 +822,14 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
 }
 
 // ─── Warp Beam ledger ───────────────────────────────────────────────────────
+// Inflows = every row in jobwork_warp_beam (issued = bought for the party).
+// Outflows = stock_ledger rows tagged bucket='warp_beam' (from fabric receipts).
+// Groups by party + fabric_quality. Rows without a fabric_quality_id are
+// still shown under a "No quality assigned" sub-group so nothing
+// disappears from the ledger.
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
 ): Promise<LedgerGroup[]> {
-  // Inflows: each jobwork_warp_beam row is an "in" event with original_metres.
   let beamQ = supabase
     .from('jobwork_warp_beam')
     .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count');
@@ -830,7 +838,6 @@ async function loadJobworkWarpBeam(
   if (sp.count)   beamQ = beamQ.eq('warp_count_id',     Number(sp.count));
   const { data: beams } = await beamQ;
 
-  // Outflows: stock_ledger rows for warp_beam bucket.
   let ledgerQ = supabase
     .from('stock_ledger')
     .select('jobwork_party_id, fabric_quality_id, quantity, event_date, reference_no, notes')
@@ -844,17 +851,17 @@ async function loadJobworkWarpBeam(
   const countById   = new Map(counts.map((c: any) => [c.id, c]));
 
   const groups = new Map<string, LedgerGroup>();
-  const ensure = (partyId: number, qualityId: number, countId: number | null): LedgerGroup => {
-    const key = `${partyId}|${qualityId}`;
+  const ensure = (partyId: number | null, qualityId: number | null, countId: number | null): LedgerGroup => {
+    const key = `${partyId ?? 'n'}|${qualityId ?? 'n'}`;
     let g = groups.get(key);
     if (!g) {
-      const p = partyById.get(partyId);
-      const fq = qualityById.get(qualityId);
+      const p = partyId != null ? partyById.get(partyId) : null;
+      const fq = qualityId != null ? qualityById.get(qualityId) : null;
       const c = countId != null ? countById.get(countId) : null;
       g = {
         key,
-        title: p?.name ?? `Party #${partyId}`,
-        subtitle: `${fq?.code ?? '?'} - ${fq?.name ?? ''}`,
+        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
+        subtitle: fq ? `${fq.code} - ${fq.name ?? ''}` : '(no fabric quality)',
         extra: c ? `Warp count: ${c.code}` : '',
         unit: 'm',
         events: [],
@@ -865,7 +872,6 @@ async function loadJobworkWarpBeam(
   };
 
   for (const b of (beams ?? []) as any[]) {
-    if (b.jobwork_party_id == null || b.fabric_quality_id == null) continue;
     const g = ensure(b.jobwork_party_id, b.fabric_quality_id, b.warp_count_id);
     g.events.push({
       event_date: b.given_date ?? '',
@@ -876,7 +882,6 @@ async function loadJobworkWarpBeam(
     });
   }
   for (const o of (outRows ?? []) as any[]) {
-    if (o.jobwork_party_id == null || o.fabric_quality_id == null) continue;
     const g = ensure(o.jobwork_party_id, o.fabric_quality_id, null);
     g.events.push({
       event_date: o.event_date ?? '',
@@ -890,10 +895,105 @@ async function loadJobworkWarpBeam(
   return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
 }
 
-// ─── Weft (and Porvai) Yarn ledger ──────────────────────────────────────────
-async function loadJobworkWeftYarn(
-  supabase: any, sp: SP, parties: any[], counts: any[],
+// ─── Bobbin ledger (jobwork) ────────────────────────────────────────────────
+// Inflows = jobwork bobbin master rows (production_mode='jobwork',
+// original_quantity). Outflows = stock_ledger rows with bucket='bobbin'.
+// Bobbin quantity is in PCS but each row's `bobbin_metre` gives metres
+// per piece, so we surface both pcs and metres in the notes column.
+async function loadJobworkBobbin(
+  supabase: any, sp: SP, parties: any[], _bobbinMasters: any[],
 ): Promise<LedgerGroup[]> {
+  let bobQ = supabase
+    .from('bobbin')
+    .select('id, code, description, jobwork_party_id, quantity, original_quantity, bobbin_metre, ends_per_bobbin, purchase_date')
+    .eq('production_mode', 'jobwork');
+  if (sp.party) bobQ = bobQ.eq('jobwork_party_id', Number(sp.party));
+  const { data: bobs } = await bobQ;
+
+  let ledgerQ = supabase
+    .from('stock_ledger')
+    .select('jobwork_party_id, bobbin_id, quantity, event_date, reference_no, notes')
+    .eq('bucket', 'bobbin');
+  if (sp.party) ledgerQ = ledgerQ.eq('jobwork_party_id', Number(sp.party));
+  const { data: outRows } = await ledgerQ;
+
+  const partyById = new Map(parties.map((p: any) => [p.id, p]));
+  const bobInfoById = new Map<number, { code: string; description: string; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>();
+  for (const b of (bobs ?? []) as any[]) bobInfoById.set(b.id, b);
+
+  const groups = new Map<string, LedgerGroup>();
+  const ensure = (partyId: number | null, bobbinId: number | null): LedgerGroup => {
+    const key = `${partyId ?? 'n'}|${bobbinId ?? 'n'}`;
+    let g = groups.get(key);
+    if (!g) {
+      const p = partyId != null ? partyById.get(partyId) : null;
+      const b = bobbinId != null ? bobInfoById.get(bobbinId) : null;
+      g = {
+        key,
+        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
+        subtitle: b ? `${b.code} - ${b.description ?? ''}` : '(no bobbin)',
+        extra: b ? `${b.ends_per_bobbin ?? '?'} ends × ${b.bobbin_metre ?? '?'} m / pc` : '',
+        unit: 'pcs',
+        events: [],
+      };
+      groups.set(key, g);
+    }
+    return g;
+  };
+
+  for (const b of (bobs ?? []) as any[]) {
+    const g = ensure(b.jobwork_party_id, b.id);
+    g.events.push({
+      event_date: b.purchase_date ?? '',
+      direction: 'in',
+      quantity: Number(b.original_quantity ?? b.quantity ?? 0),
+      reference: `Bobbin ${b.code}`,
+      notes: `${b.ends_per_bobbin ?? '?'} ends × ${b.bobbin_metre ?? '?'} m/pc`,
+    });
+  }
+  for (const o of (outRows ?? []) as any[]) {
+    const g = ensure(o.jobwork_party_id, o.bobbin_id);
+    g.events.push({
+      event_date: o.event_date ?? '',
+      direction: 'out',
+      quantity: Number(o.quantity ?? 0),
+      reference: o.reference_no ?? 'Fabric receipt',
+      notes: o.notes ?? '',
+    });
+  }
+  for (const g of groups.values()) g.events.sort(sortEvents);
+  return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title) || a.subtitle.localeCompare(b.subtitle));
+}
+
+// ─── Weft / Porvai Yarn ledger ──────────────────────────────────────────────
+// Both kinds share jobwork_weft_bag at inflow time (we don't tag bags
+// as weft vs porvai when we issue them). We partition the bags by
+// looking at how each yarn_count is used in fabric_quality.calc_snapshot:
+//   - porvaiCountIds = every yarn_count appearing as a porvai count
+//   - weftCountIds   = every other count that appears as a weft count
+// Bags whose yarn_count is in porvaiCountIds appear under the porvai
+// tab; bags whose count is registered as weft (or neither) appear under
+// the weft tab. A count that's used as both shows the inflow on both
+// tabs (real-world: you bought the yarn once and it can serve either).
+async function loadJobworkYarn(
+  supabase: any, sp: SP, parties: any[], counts: any[], kind: 'weft' | 'porvai',
+): Promise<LedgerGroup[]> {
+  // 1. Resolve which yarn_count_ids are "porvai" counts across the
+  //    fabric_quality master. calc_snapshot.porvaiCountId is the source.
+  const { data: fqRows } = await supabase
+    .from('fabric_quality')
+    .select('calc_snapshot');
+  const porvaiCountIds = new Set<number>();
+  for (const r of ((fqRows ?? []) as Array<{ calc_snapshot: Record<string, unknown> | null }>)) {
+    const pid = r.calc_snapshot?.porvaiCountId;
+    if (pid != null && pid !== '') {
+      const n = Number(pid);
+      if (Number.isFinite(n) && n > 0) porvaiCountIds.add(n);
+    }
+  }
+
+  // 2. Inflows: all jobwork_weft_bag rows. We filter to the right kind
+  //    in JS based on whether the bag's yarn_count is a porvai count.
   let bagQ = supabase
     .from('jobwork_weft_bag')
     .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count');
@@ -901,10 +1001,12 @@ async function loadJobworkWeftYarn(
   if (sp.count) bagQ = bagQ.eq('yarn_count_id',    Number(sp.count));
   const { data: bags } = await bagQ;
 
+  // 3. Outflows: stock_ledger filtered to the matching bucket.
+  const bucket = kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn';
   let ledgerQ = supabase
     .from('stock_ledger')
-    .select('jobwork_party_id, yarn_count_id, quantity, event_date, reference_no, notes, bucket')
-    .in('bucket', ['weft_yarn', 'porvai_yarn']);
+    .select('jobwork_party_id, yarn_count_id, quantity, event_date, reference_no, notes')
+    .eq('bucket', bucket);
   if (sp.party) ledgerQ = ledgerQ.eq('jobwork_party_id', Number(sp.party));
   if (sp.count) ledgerQ = ledgerQ.eq('yarn_count_id',    Number(sp.count));
   const { data: outRows } = await ledgerQ;
@@ -913,16 +1015,16 @@ async function loadJobworkWeftYarn(
   const countById = new Map(counts.map((c: any) => [c.id, c]));
 
   const groups = new Map<string, LedgerGroup>();
-  const ensure = (partyId: number, countId: number): LedgerGroup => {
-    const key = `${partyId}|${countId}`;
+  const ensure = (partyId: number | null, countId: number | null): LedgerGroup => {
+    const key = `${partyId ?? 'n'}|${countId ?? 'n'}`;
     let g = groups.get(key);
     if (!g) {
-      const p = partyById.get(partyId);
-      const c = countById.get(countId);
+      const p = partyId != null ? partyById.get(partyId) : null;
+      const c = countId != null ? countById.get(countId) : null;
       g = {
         key,
-        title: p?.name ?? `Party #${partyId}`,
-        subtitle: c?.code ?? `Yarn count #${countId}`,
+        title: p?.name ?? (partyId != null ? `Party #${partyId}` : '(no party)'),
+        subtitle: c?.code ?? (countId != null ? `Yarn count #${countId}` : '(no count)'),
         extra: c?.display_name ?? '',
         unit: 'kg',
         events: [],
@@ -933,8 +1035,19 @@ async function loadJobworkWeftYarn(
   };
 
   for (const b of (bags ?? []) as any[]) {
-    if (b.jobwork_party_id == null || b.yarn_count_id == null) continue;
-    const g = ensure(b.jobwork_party_id, b.yarn_count_id);
+    const cId = b.yarn_count_id;
+    // For the weft tab we exclude bags whose count is ONLY a porvai
+    // count. If a count appears in both (rare), we still show it on
+    // the weft tab. For the porvai tab we include bags whose count is
+    // a porvai count.
+    const isPorvai = cId != null && porvaiCountIds.has(Number(cId));
+    if (kind === 'porvai' && !isPorvai) continue;
+    // (No exclusion for weft tab — counts not registered as porvai are
+    // weft by default. Counts that are porvai will still appear under
+    // weft if we don't exclude them; but they're meant to be tracked
+    // under porvai, so skip them on the weft tab.)
+    if (kind === 'weft' && isPorvai) continue;
+    const g = ensure(b.jobwork_party_id, cId);
     g.events.push({
       event_date: b.given_date ?? '',
       direction: 'in',
@@ -944,14 +1057,13 @@ async function loadJobworkWeftYarn(
     });
   }
   for (const o of (outRows ?? []) as any[]) {
-    if (o.jobwork_party_id == null || o.yarn_count_id == null) continue;
     const g = ensure(o.jobwork_party_id, o.yarn_count_id);
     g.events.push({
       event_date: o.event_date ?? '',
       direction: 'out',
       quantity: Number(o.quantity ?? 0),
       reference: o.reference_no ?? 'Fabric receipt',
-      notes: `${o.bucket === 'porvai_yarn' ? '[porvai] ' : ''}${o.notes ?? ''}`,
+      notes: o.notes ?? '',
     });
   }
   for (const g of groups.values()) g.events.sort(sortEvents);
