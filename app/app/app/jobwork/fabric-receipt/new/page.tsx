@@ -200,26 +200,35 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .reduce((s, r) => s + Number(r.total_metres ?? 0), 0);
   }
 
+  // Weft yarn stock = sum of jobwork_weft_bag.total_kg for the matching
+  // weft yarn count(s). Same workflow as warp: yarn handed out for this
+  // quality that hasn't come back yet as fabric.
   if (weftCountIds.size > 0) {
-    const { data: ylRows } = await sb
-      .from('yarn_lot')
-      .select('current_kg, yarn_kind')
+    const { data: wbagRows } = await sb
+      .from('jobwork_weft_bag')
+      .select('total_kg')
       .in('yarn_count_id', Array.from(weftCountIds))
-      .gt('current_kg', 0);
-    stock_weft_kg = ((ylRows ?? []) as Array<{ current_kg: number | string; yarn_kind: string | null }>)
-      .filter((r) => r.yarn_kind !== 'porvai')
-      .reduce((s, r) => s + Number(r.current_kg), 0);
+      .gt('total_kg', 0);
+    stock_weft_kg = ((wbagRows ?? []) as Array<{ total_kg: number | string | null }>)
+      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
-  // Porvai: any yarn_lot tagged kind='porvai' (no per-quality FK exists yet).
-  {
-    const { data: porvaiRows } = await sb
-      .from('yarn_lot')
-      .select('current_kg')
-      .eq('yarn_kind', 'porvai')
-      .gt('current_kg', 0);
-    stock_porvai_kg = ((porvaiRows ?? []) as Array<{ current_kg: number | string }>)
-      .reduce((s, r) => s + Number(r.current_kg), 0);
+  // Porvai yarn stock = same jobwork_weft_bag table, filtered to the
+  // porvai yarn count from calc_snapshot.porvaiCountId.
+  const porvaiCountIds = new Set<number>();
+  for (const qId of qIds) {
+    const snap = fqById.get(qId)?.calc_snapshot;
+    const pId = snap?.porvaiCountId;
+    if (pId != null && pId !== '') porvaiCountIds.add(Number(pId));
+  }
+  if (porvaiCountIds.size > 0) {
+    const { data: pBagRows } = await sb
+      .from('jobwork_weft_bag')
+      .select('total_kg')
+      .in('yarn_count_id', Array.from(porvaiCountIds))
+      .gt('total_kg', 0);
+    stock_porvai_kg = ((pBagRows ?? []) as Array<{ total_kg: number | string | null }>)
+      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
   if (bobbinIds.size > 0) {

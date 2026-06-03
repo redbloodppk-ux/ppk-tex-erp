@@ -57,13 +57,12 @@ export interface ReductionResult {
 
 /* ───────────────────── individual reducers ───────────────────── */
 
-/** Look up the warp / weft count for a fabric quality. Tries the link
- *  tables first, falls back to calc_snapshot.{warp,weft}CountId. */
+/** Look up the warp / weft / porvai counts for a fabric quality. Tries
+ *  the link tables first, falls back to calc_snapshot ids. */
 async function getQualityYarnCounts(
   sb: Sb,
   fabric_quality_id: number,
-): Promise<{ warpCountIds: number[]; weftCountId: number | null }> {
-  // Link tables first.
+): Promise<{ warpCountIds: number[]; weftCountId: number | null; porvaiCountId: number | null }> {
   const [wcRes, weftRes, fqRes] = await Promise.all([
     sb.from('fabric_quality_warp_count').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id),
     sb.from('fabric_quality_weft').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id).limit(1).maybeSingle(),
@@ -73,8 +72,8 @@ async function getQualityYarnCounts(
     .map((r) => r.yarn_count_id)
     .filter((x): x is number => x != null);
   let weftCountId: number | null = weftRes?.data?.yarn_count_id ?? null;
+  let porvaiCountId: number | null = null;
 
-  // Fallback to calc_snapshot.
   const snap = fqRes?.data?.calc_snapshot as Record<string, unknown> | null;
   if (snap) {
     if (warpCountIds.length === 0 && snap.warpCountId != null && snap.warpCountId !== '') {
@@ -85,8 +84,12 @@ async function getQualityYarnCounts(
       const n = Number(snap.weftCountId);
       if (Number.isFinite(n) && n > 0) weftCountId = n;
     }
+    if (snap.porvaiCountId != null && snap.porvaiCountId !== '') {
+      const n = Number(snap.porvaiCountId);
+      if (Number.isFinite(n) && n > 0) porvaiCountId = n;
+    }
   }
-  return { warpCountIds, weftCountId };
+  return { warpCountIds, weftCountId, porvaiCountId };
 }
 
 /** Reduce jobwork_warp_beam.total_metres FIFO for rows matching the
@@ -123,42 +126,32 @@ async function reducePavu(
   return { applied: Math.round(applied * 100) / 100 };
 }
 
-/** Reduce yarn_lot.current_kg FIFO for the matching yarn count. */
-async function reduceYarnLot(
+/** Reduce jobwork_weft_bag.total_kg FIFO for the matching yarn count.
+ *  Used for both weft and porvai consumption - the bag table holds both
+ *  (just keyed by yarn_count_id, no yarn_kind distinction needed). */
+async function reduceWeftBag(
   sb: Sb,
   yarn_count_id: number | null,
   kg: number,
-  kind: 'weft' | 'porvai',
 ): Promise<{ applied: number }> {
-  if (kg <= 0) return { applied: 0 };
+  if (kg <= 0 || yarn_count_id == null) return { applied: 0 };
 
-  let q = sb
-    .from('yarn_lot')
-    .select('id, current_kg, yarn_kind, received_date')
-    .gt('current_kg', 0)
-    .order('received_date', { ascending: true })
+  const { data: bags } = await sb
+    .from('jobwork_weft_bag')
+    .select('id, total_kg')
+    .eq('yarn_count_id', yarn_count_id)
+    .gt('total_kg', 0)
+    .order('given_date', { ascending: true })
     .order('id', { ascending: true });
-
-  if (kind === 'porvai') {
-    q = q.eq('yarn_kind', 'porvai');
-  } else if (yarn_count_id != null) {
-    q = q.eq('yarn_count_id', yarn_count_id);
-    // For weft we deliberately don't filter on yarn_kind - any non-porvai
-    // lot of the right count works.
-  } else {
-    return { applied: 0 };
-  }
-
-  const { data: lots } = await q;
 
   let remaining = kg;
   let applied = 0;
-  for (const l of (lots ?? []) as Array<{ id: number; current_kg: number | string }>) {
+  for (const b of (bags ?? []) as Array<{ id: number; total_kg: number | string }>) {
     if (remaining <= 0) break;
-    const avail = Number(l.current_kg);
+    const avail = Number(b.total_kg);
     const cut = Math.min(avail, remaining);
     const next = Math.max(0, avail - cut);
-    const { error } = await sb.from('yarn_lot').update({ current_kg: next }).eq('id', l.id);
+    const { error } = await sb.from('jobwork_weft_bag').update({ total_kg: next }).eq('id', b.id);
     if (error) break;
     applied += cut;
     remaining -= cut;
@@ -218,10 +211,12 @@ export async function applyFabricReceiptStockReductions(
       }
     }
 
-    // WEFT YARN - try link table first, fall back to calc_snapshot.
+    // Resolve all three yarn counts once per item.
+    const { weftCountId, porvaiCountId } = await getQualityYarnCounts(sb, it.fabric_quality_id);
+
+    // WEFT YARN - reduces jobwork_weft_bag.total_kg matched by yarn_count.
     if (it.weft_consumed_kg && it.weft_consumed_kg > 0) {
-      const { weftCountId } = await getQualityYarnCounts(sb, it.fabric_quality_id);
-      const r = await reduceYarnLot(sb, weftCountId, it.weft_consumed_kg, 'weft');
+      const r = await reduceWeftBag(sb, weftCountId, it.weft_consumed_kg);
       result.applied.weft_kg += r.applied;
       if (r.applied + 0.005 < it.weft_consumed_kg) {
         result.shortfalls.push({
@@ -229,20 +224,23 @@ export async function applyFabricReceiptStockReductions(
           needed: it.weft_consumed_kg, applied: r.applied, unit: 'kg',
           note: weftCountId == null
             ? 'No weft yarn count linked to this fabric quality.'
-            : 'Available weft yarn kgs less than consumed - check yarn stock for this count.',
+            : 'Available weft kgs in Jobwork \u2192 Weft bag given less than consumed - check stock for this count.',
         });
       }
     }
 
-    // PORVAI YARN
+    // PORVAI YARN - same table as weft, matched by the porvai yarn count
+    // from calc_snapshot.porvaiCountId.
     if (it.porvai_consumed_kg && it.porvai_consumed_kg > 0) {
-      const r = await reduceYarnLot(sb, null, it.porvai_consumed_kg, 'porvai');
+      const r = await reduceWeftBag(sb, porvaiCountId, it.porvai_consumed_kg);
       result.applied.porvai_kg += r.applied;
       if (r.applied + 0.005 < it.porvai_consumed_kg) {
         result.shortfalls.push({
           bucket: 'porvai_yarn', fabric_quality_id: it.fabric_quality_id,
           needed: it.porvai_consumed_kg, applied: r.applied, unit: 'kg',
-          note: 'No porvai yarn stock found - check yarn_lot rows with yarn_kind = porvai.',
+          note: porvaiCountId == null
+            ? 'No porvai yarn count assigned on the fabric quality master.'
+            : 'Available porvai kgs in Jobwork \u2192 Weft bag given less than consumed for this count.',
         });
       }
     }
