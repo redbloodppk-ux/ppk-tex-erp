@@ -122,19 +122,21 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   }
 
   // Weft yarn-count per fabric quality. Same pattern - link table first,
-  // calc_snapshot.weftCountId as fallback.
-  const fqWeftById = new Map<number, { yarn_count_id: number; code: string } | null>();
+  // calc_snapshot.weftCountId as fallback. We also pull the count's `ne`
+  // (English count number, e.g. 39) so the form shows the count instead
+  // of the master code (YC-0001).
+  const fqWeftById = new Map<number, { yarn_count_id: number; code: string; ne: number | null } | null>();
   const weftIdsToLookup = new Set<number>();
   if (qIds.length > 0) {
     const { data: fwRows } = await sb
       .from('fabric_quality_weft')
-      .select('fabric_quality_id, yarn_count:yarn_count_id ( id, code )')
+      .select('fabric_quality_id, yarn_count:yarn_count_id ( id, code, ne )')
       .in('fabric_quality_id', qIds)
       .order('sno');
     for (const r of (fwRows ?? [])) {
       if (fqWeftById.has(r.fabric_quality_id)) continue;
       const y = r.yarn_count;
-      fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code } : null);
+      fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code, ne: y.ne != null ? Number(y.ne) : null } : null);
     }
     for (const qId of qIds) {
       if (fqWeftById.has(qId)) continue;
@@ -146,19 +148,90 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     if (weftIdsToLookup.size > 0) {
       const { data: ycRows } = await sb
         .from('yarn_count')
-        .select('id, code')
+        .select('id, code, ne')
         .in('id', Array.from(weftIdsToLookup));
-      const ycById = new Map<number, { id: number; code: string }>();
-      for (const y of (ycRows ?? []) as Array<{ id: number; code: string }>) {
+      const ycById = new Map<number, { id: number; code: string; ne: number | string | null }>();
+      for (const y of (ycRows ?? []) as Array<{ id: number; code: string; ne: number | string | null }>) {
         ycById.set(y.id, y);
       }
       for (const qId of qIds) {
         if (fqWeftById.has(qId)) continue;
         const weftId = fqById.get(qId)?.calc_snapshot?.weftCountId;
         const y = weftId != null && weftId !== '' ? ycById.get(Number(weftId)) ?? null : null;
-        fqWeftById.set(qId, y ? { yarn_count_id: y.id, code: y.code } : null);
+        fqWeftById.set(qId, y ? { yarn_count_id: y.id, code: y.code, ne: y.ne != null ? Number(y.ne) : null } : null);
       }
     }
+  }
+
+  // ── Stock snapshot (before-receipt totals across this DC's items) ──
+  // We sum pavu metres available for any of the receipt's quality's
+  // warp counts, weft yarn kg available for the weft counts, porvai kg
+  // available across yarn_lot rows tagged kind='porvai', and bobbin
+  // metres available for bobbins assigned via calc_snapshot.bobbinId.
+  const warpCountIds = new Set<number>();
+  const weftCountIds = new Set<number>();
+  const bobbinIds    = new Set<number>();
+  for (const qId of qIds) {
+    const snap = fqById.get(qId)?.calc_snapshot;
+    if (snap) {
+      if (snap.warpCountId != null && snap.warpCountId !== '') warpCountIds.add(Number(snap.warpCountId));
+      if (snap.bobbinId    != null && snap.bobbinId    !== '') bobbinIds.add(Number(snap.bobbinId));
+    }
+    const weft = fqWeftById.get(qId);
+    if (weft?.yarn_count_id != null) weftCountIds.add(weft.yarn_count_id);
+  }
+
+  let stock_pavu_m   = 0;
+  let stock_weft_kg  = 0;
+  let stock_porvai_kg = 0;
+  let stock_bobbin_m = 0;
+
+  if (warpCountIds.size > 0) {
+    const { data: sjRows } = await sb
+      .from('sizing_job')
+      .select('id')
+      .in('warp_count_id', Array.from(warpCountIds));
+    const sjIds = ((sjRows ?? []) as Array<{ id: number }>).map((r) => r.id);
+    if (sjIds.length > 0) {
+      const { data: pavuRows } = await sb
+        .from('pavu')
+        .select('meters')
+        .in('sizing_job_id', sjIds)
+        .gt('meters', 0);
+      stock_pavu_m = ((pavuRows ?? []) as Array<{ meters: number | string }>)
+        .reduce((s, r) => s + Number(r.meters), 0);
+    }
+  }
+
+  if (weftCountIds.size > 0) {
+    const { data: ylRows } = await sb
+      .from('yarn_lot')
+      .select('current_kg, yarn_kind')
+      .in('yarn_count_id', Array.from(weftCountIds))
+      .gt('current_kg', 0);
+    stock_weft_kg = ((ylRows ?? []) as Array<{ current_kg: number | string; yarn_kind: string | null }>)
+      .filter((r) => r.yarn_kind !== 'porvai')
+      .reduce((s, r) => s + Number(r.current_kg), 0);
+  }
+
+  // Porvai: any yarn_lot tagged kind='porvai' (no per-quality FK exists yet).
+  {
+    const { data: porvaiRows } = await sb
+      .from('yarn_lot')
+      .select('current_kg')
+      .eq('yarn_kind', 'porvai')
+      .gt('current_kg', 0);
+    stock_porvai_kg = ((porvaiRows ?? []) as Array<{ current_kg: number | string }>)
+      .reduce((s, r) => s + Number(r.current_kg), 0);
+  }
+
+  if (bobbinIds.size > 0) {
+    const { data: bobRows } = await sb
+      .from('bobbin')
+      .select('quantity, bobbin_metre')
+      .in('id', Array.from(bobbinIds));
+    stock_bobbin_m = ((bobRows ?? []) as Array<{ quantity: number | null; bobbin_metre: number | string | null }>)
+      .reduce((s, r) => s + (Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0)), 0);
   }
 
   const seeds: ReceiptItemSeed[] = items.map((it) => {
@@ -176,6 +249,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       ends_code: ends?.ends_code ?? null,
       weft_yarn_count_id: weft?.yarn_count_id ?? null,
       weft_yarn_count_code: weft?.code ?? null,
+      weft_count_ne: weft?.ne ?? null,
       weft_kg_per_m: fq ? Number(fq.weft_kg_per_m ?? 0) : 0,
       porvai_kg_per_m: fq ? Number(fq.porvai_kg_per_m ?? 0) : 0,
       bobbin_pcs_per_m: fq ? Number(fq.bobbin_pcs_per_m ?? 0) : 0,
@@ -197,6 +271,12 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     total_metres: Number(dc.total_metres ?? 0),
     total_pieces: dc.total_pieces ?? 0,
     total_bundles: dc.total_bundles ?? 0,
+    stock: {
+      pavu_m:    Math.round(stock_pavu_m   * 100) / 100,
+      weft_kg:   Math.round(stock_weft_kg  * 100) / 100,
+      porvai_kg: Math.round(stock_porvai_kg * 100) / 100,
+      bobbin_m:  Math.round(stock_bobbin_m * 100) / 100,
+    },
   };
 
   return (

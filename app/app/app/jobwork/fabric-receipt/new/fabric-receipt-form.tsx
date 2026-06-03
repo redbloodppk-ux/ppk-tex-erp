@@ -40,6 +40,14 @@ export interface DcInfo {
   total_metres: number;
   total_pieces: number;
   total_bundles: number;
+  /** Current stock totals (before this receipt is applied). Used to
+   *  render the Before / After Stock card. */
+  stock: {
+    pavu_m: number;
+    weft_kg: number;
+    porvai_kg: number;
+    bobbin_m: number;
+  };
 }
 
 export interface ReceiptItemSeed {
@@ -53,6 +61,7 @@ export interface ReceiptItemSeed {
   ends_code: string | null;
   weft_yarn_count_id: number | null;
   weft_yarn_count_code: string | null;
+  weft_count_ne: number | null;
   weft_kg_per_m: number;
   porvai_kg_per_m: number;
   bobbin_pcs_per_m: number;
@@ -107,7 +116,6 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
 
   // Header state
   const [receiptDate, setReceiptDate] = useState<string>(todayISO());
-  const [remarks, setRemarks]         = useState<string>('');
 
   // One row of state per DC item
   const [items, setItems] = useState<ItemState[]>(
@@ -178,7 +186,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       transport_mode: null,
       freight_charges: 0,
       empty_beams: 0,
-      remarks: remarks || null,
+      remarks: null,
       total_metres: totals.metres,
       total_pieces: totals.pieces,
       status: 'received',
@@ -350,7 +358,11 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                     )}
                   </td>
                   <td className="px-2 py-2 text-xs">
-                    {it.seed.weft_yarn_count_code ?? <span className="text-ink-mute">nil</span>}
+                    {it.seed.weft_count_ne != null
+                      ? <span className="font-semibold">{it.seed.weft_count_ne}</span>
+                      : it.seed.weft_yarn_count_code
+                        ? <span>{it.seed.weft_yarn_count_code}</span>
+                        : <span className="text-ink-mute">nil</span>}
                   </td>
                   <td className="px-2 py-2 text-right num text-xs">
                     {it.seed.weft_kg_per_m > 0 ? fmtMoney(it.seed.weft_kg_per_m) : <span className="text-ink-mute">nil</span>}
@@ -370,16 +382,10 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         </table>
       </div>
 
-      {/* Remarks */}
-      <div className="card p-4">
-        <label className="label">Remarks</label>
-        <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} className="input" placeholder="-" />
-      </div>
-
       {/* Consumption summary */}
       <div className="card p-4">
         <h2 className="font-display font-bold text-sm mb-3">Consumption (against received metres)</h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-mute">Received</div>
             <div className="num font-bold text-lg">{fmtMoney(totals.metres)} m</div>
@@ -401,10 +407,46 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
               {totals.bobbinMtrs > 0 ? fmtMoney(totals.bobbinMtrs) + ' m' : <span className="text-ink-mute text-sm">nil</span>}
             </div>
           </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-ink-mute">DC totals</div>
-            <div className="text-xs">{fmtMoney(dc.total_metres)} m &middot; {dc.total_pieces} pcs &middot; {dc.total_bundles} bdl</div>
-          </div>
+        </div>
+      </div>
+
+      {/* Stock before / after this receipt */}
+      <div className="card p-4">
+        <h2 className="font-display font-bold text-sm mb-3">Stock impact</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead className="text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left  px-2 py-2">Bucket</th>
+                <th className="text-right px-2 py-2">Before</th>
+                <th className="text-right px-2 py-2">Consumed</th>
+                <th className="text-right px-2 py-2">After</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                { label: 'Warp (pavu metres)', before: dc.stock.pavu_m,   used: totals.metres,     unit: 'm'  },
+                { label: 'Weft yarn',          before: dc.stock.weft_kg,  used: totals.weftKg,     unit: 'kg' },
+                { label: 'Porvai yarn',        before: dc.stock.porvai_kg, used: totals.porvaiKg,  unit: 'kg' },
+                { label: 'Bobbin metres',      before: dc.stock.bobbin_m, used: totals.bobbinMtrs, unit: 'm'  },
+              ] as const).map((b) => {
+                const after = round2(b.before - b.used);
+                const short = after < 0;
+                return (
+                  <tr key={b.label} className="border-t border-line/40">
+                    <td className="px-2 py-2 font-medium">{b.label}</td>
+                    <td className="px-2 py-2 text-right num">{fmtMoney(b.before)} {b.unit}</td>
+                    <td className="px-2 py-2 text-right num text-amber-700">
+                      {b.used > 0 ? '\u2212 ' + fmtMoney(b.used) + ' ' + b.unit : '-'}
+                    </td>
+                    <td className={'px-2 py-2 text-right num font-semibold ' + (short ? 'text-rose-700' : 'text-emerald-700')}>
+                      {fmtMoney(after)} {b.unit}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
