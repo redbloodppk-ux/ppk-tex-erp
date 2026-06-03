@@ -63,6 +63,10 @@ interface FabricQualityRow {
   name: string;
   hsn: string | null;
   pick_cost_per_m: number | string | null;
+  /** Towel length (metres per piece). When set, the bill line switches
+   *  from per-metre to per-piece pricing: rate = pick_cost_per_m ×
+   *  meter_per_pc, quantity = pieces, uom = pcs. */
+  meter_per_pc: number | string | null;
 }
 
 interface JobworkBillFormProps {
@@ -74,11 +78,22 @@ interface LineAgg {
   fq_code: string;
   fq_name: string;
   hsn: string;
-  rate: number;       // pick_cost_per_m (locked)
-  metres: number;     // sum across selected DCs
-  pieces: number;     // sum across selected DCs (display)
+  /** Base rate per metre from fabric_quality.pick_cost_per_m. */
+  base_rate: number;
+  /** Towel length (metres per piece) from fabric_quality.meter_per_pc.
+   *  0 means the quality is sold in metres (not a towel). */
+  towel_length: number;
+  /** Effective billing rate: per-piece rate when towel_length > 0,
+   *  otherwise the per-metre rate. */
+  rate: number;
+  /** Effective quantity: pieces when towel_length > 0, otherwise metres. */
+  quantity: number;
+  /** Effective unit of measure: 'pcs' for towels, 'mtr' otherwise. */
+  uom: 'pcs' | 'mtr';
+  metres: number;     // sum across selected DCs (raw)
+  pieces: number;     // sum across selected DCs (raw)
   bundles: number;    // sum across selected DCs (display)
-  taxable: number;    // metres * rate
+  taxable: number;    // quantity * rate
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -194,7 +209,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       if (qIds.length > 0) {
         const { data: qRows } = await sb
           .from('fabric_quality')
-          .select('id, code, name, hsn, pick_cost_per_m')
+          .select('id, code, name, hsn, pick_cost_per_m, meter_per_pc')
           .in('id', qIds);
         if (cancelled) return;
         const m = new Map<number, FabricQualityRow>();
@@ -215,6 +230,11 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   }, [partyId, parties]);
 
   // ── Aggregated lines, keyed by fabric_quality_id ──
+  // For towel qualities (meter_per_pc > 0) we bill per piece. The
+  // effective rate becomes pick_cost_per_m × meter_per_pc (Rs/piece) and
+  // the quantity is pieces, not metres. Total amount stays the same:
+  //   pieces × (pick_cost_per_m × towel_length) ≡ metres × pick_cost_per_m
+  // For non-towel qualities the line stays per-metre.
   const lines = useMemo<LineAgg[]>(() => {
     if (pickedDcIds.size === 0) return [];
     const byFq = new Map<number, LineAgg>();
@@ -223,25 +243,35 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       if (it.fabric_quality_id == null) continue;
       const fq = qualityById.get(it.fabric_quality_id);
       if (!fq) continue;
-      const rate = num(fq.pick_cost_per_m);
+      const baseRate = num(fq.pick_cost_per_m);
+      const towelLength = num(fq.meter_per_pc);
       const metres = num(it.metres);
+      const pieces = it.pieces ?? 0;
+      const isTowel = towelLength > 0;
+      const effectiveRate = isTowel ? round2(baseRate * towelLength) : baseRate;
       const existing = byFq.get(fq.id);
       if (existing) {
         existing.metres += metres;
-        existing.pieces += it.pieces ?? 0;
+        existing.pieces += pieces;
         existing.bundles += it.bundles ?? 0;
-        existing.taxable = round2(existing.metres * existing.rate);
+        existing.quantity = existing.uom === 'pcs' ? existing.pieces : existing.metres;
+        existing.taxable = round2(existing.quantity * existing.rate);
       } else {
+        const quantity = isTowel ? pieces : metres;
         byFq.set(fq.id, {
           fq_id: fq.id,
           fq_code: fq.code,
           fq_name: fq.name,
           hsn: it.hsn ?? fq.hsn ?? '',
-          rate,
+          base_rate: baseRate,
+          towel_length: towelLength,
+          rate: effectiveRate,
+          quantity,
+          uom: isTowel ? 'pcs' : 'mtr',
           metres,
-          pieces: it.pieces ?? 0,
+          pieces,
           bundles: it.bundles ?? 0,
-          taxable: round2(metres * rate),
+          taxable: round2(quantity * effectiveRate),
         });
       }
     }
@@ -278,9 +308,9 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
     setPickedDcIds(new Set());
   }
 
-  // ── Pricing safety: any line with rate 0 means pick_cost_per_m wasn't set ──
+  // ── Pricing safety: any line with base_rate 0 means pick_cost_per_m wasn't set ──
   const missingRateQualities = useMemo<string[]>(
-    () => lines.filter((l) => l.rate <= 0).map((l) => l.fq_code),
+    () => lines.filter((l) => l.base_rate <= 0).map((l) => l.fq_code),
     [lines],
   );
 
@@ -348,10 +378,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       return {
         invoice_id: invoiceId,
         description: `Jobwork weaving - ${l.fq_code}${l.fq_name ? ' (' + l.fq_name + ')' : ''}`,
-        quantity: l.metres,
+        quantity: l.quantity,
         rate: l.rate,
         hsn_sac: l.hsn || null,
-        uom: 'mtr',
+        uom: l.uom,
         discount_pct: 0,
         discount_amount: 0,
         gst_rate_pct: gst,
@@ -528,6 +558,9 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
             <h2 className="font-display font-bold text-sm">Bill lines (auto-calculated, not editable)</h2>
+            <p className="text-[11px] text-ink-mute mt-0.5">
+              Towel qualities bill per piece: rate = pick cost/m × towel length. Others bill per metre.
+            </p>
           </div>
           <table className="w-full text-sm">
             <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
@@ -537,7 +570,8 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
                 <th className="text-right px-3 py-2">Metres</th>
                 <th className="text-right px-3 py-2">Pcs</th>
                 <th className="text-right px-3 py-2">Bundles</th>
-                <th className="text-right px-3 py-2">Rate (Rs/m)</th>
+                <th className="text-right px-3 py-2">Qty (billed)</th>
+                <th className="text-right px-3 py-2">Rate</th>
                 <th className="text-right px-3 py-2">Amount</th>
               </tr>
             </thead>
@@ -553,9 +587,22 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
                   <td className="px-3 py-2 text-right num">{l.pieces}</td>
                   <td className="px-3 py-2 text-right num">{l.bundles}</td>
                   <td className="px-3 py-2 text-right num">
-                    {l.rate > 0
-                      ? fmtMoney(l.rate)
-                      : <span className="text-rose-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> not set</span>}
+                    <span className="font-semibold">{l.uom === 'pcs' ? l.quantity : fmtMoney(l.quantity)}</span>
+                    <span className="text-[10px] text-ink-mute ml-1">{l.uom}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right num">
+                    {l.base_rate > 0 ? (
+                      <>
+                        <div>Rs {fmtMoney(l.rate)} / {l.uom}</div>
+                        {l.uom === 'pcs' && (
+                          <div className="text-[10px] text-ink-mute">
+                            {fmtMoney(l.base_rate)} × {fmtMoney(l.towel_length)} m
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-rose-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> not set</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(l.taxable)}</td>
                 </tr>
@@ -567,6 +614,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
                 <td className="px-3 py-2.5 text-right num">{fmtMoney(totals.metres)}</td>
                 <td className="px-3 py-2.5 text-right num">{totals.pieces}</td>
                 <td className="px-3 py-2.5 text-right num">{totals.bundles}</td>
+                <td className="px-3 py-2.5"></td>
                 <td className="px-3 py-2.5"></td>
                 <td className="px-3 py-2.5 text-right num">{fmtMoney(totals.taxable)}</td>
               </tr>
