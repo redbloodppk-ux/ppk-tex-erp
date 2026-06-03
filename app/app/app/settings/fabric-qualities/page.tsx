@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, Pencil, Link2 } from 'lucide-react';
 import { FabricActiveToggle } from '@/app/components/fabric-active-toggle';
 import { FabricDeleteButton } from '@/app/components/fabric-delete-button';
 
@@ -18,6 +18,8 @@ interface FQRow {
   pick_per_inch: number | null;
   reed: number | null;
   active: boolean;
+  is_merged: boolean;
+  merged_name: string | null;
 }
 
 const PRODUCTION_MODE_LABEL: Record<string, string> = {
@@ -26,15 +28,49 @@ const PRODUCTION_MODE_LABEL: Record<string, string> = {
   outsourcing: 'Outsourcing',
 };
 
+function fmtM(n: number): string {
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 export default async function FabricQualitiesPage() {
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const sb = supabase as any;
+  const { data, error } = await sb
     .from('fabric_quality')
-    .select('id, code, name, fabric_type, production_mode, width_in, pick_per_inch, reed, active')
+    .select('id, code, name, fabric_type, production_mode, width_in, pick_per_inch, reed, active, is_merged, merged_name')
     .order('name');
 
   const rows = (data ?? []) as unknown as FQRow[];
+
+  // Build per-merged-group totals: sum of jobwork_warp_beam.total_metres
+  // across every quality sharing the same merged_name. Renders in the
+  // "Merged warp m" column so the operator can see the pooled stock that
+  // Fabric Receipt will draw from.
+  const mergedIds = rows
+    .filter((r) => r.is_merged && r.merged_name && r.merged_name.trim() !== '')
+    .map((r) => r.id);
+  const warpByQId = new Map<number, number>();
+  if (mergedIds.length > 0) {
+    const { data: wbRows } = await sb
+      .from('jobwork_warp_beam')
+      .select('fabric_quality_id, total_metres')
+      .in('fabric_quality_id', mergedIds)
+      .gt('total_metres', 0);
+    for (const w of ((wbRows ?? []) as Array<{ fabric_quality_id: number | null; total_metres: number | string | null }>)) {
+      if (w.fabric_quality_id == null) continue;
+      warpByQId.set(
+        w.fabric_quality_id,
+        (warpByQId.get(w.fabric_quality_id) ?? 0) + Number(w.total_metres ?? 0),
+      );
+    }
+  }
+  const mergedPoolByName = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.is_merged || !r.merged_name || r.merged_name.trim() === '') continue;
+    const key = r.merged_name.trim();
+    mergedPoolByName.set(key, (mergedPoolByName.get(key) ?? 0) + (warpByQId.get(r.id) ?? 0));
+  }
 
   return (
     <div>
@@ -63,6 +99,8 @@ export default async function FabricQualitiesPage() {
               <th className="text-left px-4 py-3">Quality</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Fabric Type</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Production Mode</th>
+              <th className="text-left px-4 py-3 hidden lg:table-cell">Merged as</th>
+              <th className="text-right px-4 py-3 hidden lg:table-cell">Merged warp m</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Pick/inch</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Reed</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Width (in)</th>
@@ -86,6 +124,20 @@ export default async function FabricQualitiesPage() {
                 <td className="px-4 py-3 hidden md:table-cell text-ink-soft">
                   {r.production_mode ? (PRODUCTION_MODE_LABEL[r.production_mode] ?? r.production_mode) : '-'}
                 </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  {r.is_merged && r.merged_name ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">
+                      <Link2 className="w-3 h-3" /> {r.merged_name}
+                    </span>
+                  ) : (
+                    <span className="text-ink-mute">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell text-right num text-xs">
+                  {r.is_merged && r.merged_name
+                    ? <span className="font-semibold text-emerald-700">{fmtM(mergedPoolByName.get(r.merged_name.trim()) ?? 0)} m</span>
+                    : <span className="text-ink-mute">-</span>}
+                </td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.pick_per_inch ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.reed ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.width_in ?? '-'}</td>
@@ -106,7 +158,7 @@ export default async function FabricQualitiesPage() {
               </tr>
             )) : (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={11} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No fabric qualities yet. <Link href="/app/settings/fabric-qualities/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>
