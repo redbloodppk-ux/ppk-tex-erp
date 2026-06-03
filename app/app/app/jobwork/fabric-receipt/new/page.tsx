@@ -163,31 +163,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     }
   }
 
-  // ── Stock snapshot (before-receipt totals across this DC's items) ──
-  // We sum pavu metres available for any of the receipt's quality's
-  // warp counts, weft yarn kg available for the weft counts, porvai kg
-  // available across yarn_lot rows tagged kind='porvai', and bobbin
-  // metres available for bobbins assigned via calc_snapshot.bobbinId.
-  // Iterate the POOLED quality ids so warp/weft/porvai/bobbin sets
-  // include the contributions of every merged sibling.
-  const warpCountIds = new Set<number>();
-  const weftCountIds = new Set<number>();
-  const bobbinIds    = new Set<number>();
-  for (const qId of pooledQIds) {
-    const snap = fqById.get(qId)?.calc_snapshot;
-    if (snap) {
-      if (snap.warpCountId != null && snap.warpCountId !== '') warpCountIds.add(Number(snap.warpCountId));
-      if (snap.bobbinId    != null && snap.bobbinId    !== '') bobbinIds.add(Number(snap.bobbinId));
-    }
-    const weft = fqWeftById.get(qId);
-    if (weft?.yarn_count_id != null) weftCountIds.add(weft.yarn_count_id);
-  }
-
-  let stock_pavu_m   = 0;
-  let stock_weft_kg  = 0;
-  let stock_porvai_kg = 0;
-  let stock_bobbin_m = 0;
-
+  // ── Merge-delivery sibling pool ──
   // Warp / weft / porvai / bobbin stock pools across any merged-delivery
   // siblings. For each quality on the DC, if it has is_merged=true we
   // also pull every other fabric_quality row with the same merged_name
@@ -203,7 +179,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (mergedNamesSeen.size > 0) {
     const { data: siblingRows } = await sb
       .from('fabric_quality')
-      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name, merged_name')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name')
       .eq('is_merged', true)
       .in('merged_name', Array.from(mergedNamesSeen));
     for (const r of ((siblingRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>)) {
@@ -243,6 +219,31 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       }
     }
   }
+
+  // ── Stock snapshot (before-receipt totals across this DC's items) ──
+  // We sum pavu metres available for any of the receipt's quality's
+  // warp counts, weft yarn kg available for the weft counts, porvai kg
+  // available across yarn_lot rows tagged kind='porvai', and bobbin
+  // metres available for bobbins assigned via calc_snapshot.bobbinId.
+  // Iterate the POOLED quality ids so warp/weft/porvai/bobbin sets
+  // include the contributions of every merged sibling.
+  const warpCountIds = new Set<number>();
+  const weftCountIds = new Set<number>();
+  const bobbinIds    = new Set<number>();
+  for (const qId of pooledQIds) {
+    const snap = fqById.get(qId)?.calc_snapshot;
+    if (snap) {
+      if (snap.warpCountId != null && snap.warpCountId !== '') warpCountIds.add(Number(snap.warpCountId));
+      if (snap.bobbinId    != null && snap.bobbinId    !== '') bobbinIds.add(Number(snap.bobbinId));
+    }
+    const weft = fqWeftById.get(qId);
+    if (weft?.yarn_count_id != null) weftCountIds.add(weft.yarn_count_id);
+  }
+
+  let stock_pavu_m   = 0;
+  let stock_weft_kg  = 0;
+  let stock_porvai_kg = 0;
+  let stock_bobbin_m = 0;
 
   if (pooledQIds.size > 0) {
     const { data: wbRows } = await sb
