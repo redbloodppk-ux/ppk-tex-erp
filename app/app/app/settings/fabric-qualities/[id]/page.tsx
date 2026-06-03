@@ -80,6 +80,8 @@ export default async function EditFabricQualityPage({
     weight_gsm:        s(fq.weight_gsm),
     rate_per_m:        s(fq.rate_per_m),
     pick_cost_per_m:   s(fq.pick_cost_per_m),
+    is_merged:         false,
+    merged_name:       '',
     active:            fq.active,
     status:            fq.active ? 'active' : 'inactive',
     notes:             fq.notes ?? '',

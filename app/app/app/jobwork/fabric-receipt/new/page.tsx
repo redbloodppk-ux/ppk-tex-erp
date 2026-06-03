@@ -168,10 +168,12 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   // warp counts, weft yarn kg available for the weft counts, porvai kg
   // available across yarn_lot rows tagged kind='porvai', and bobbin
   // metres available for bobbins assigned via calc_snapshot.bobbinId.
+  // Iterate the POOLED quality ids so warp/weft/porvai/bobbin sets
+  // include the contributions of every merged sibling.
   const warpCountIds = new Set<number>();
   const weftCountIds = new Set<number>();
   const bobbinIds    = new Set<number>();
-  for (const qId of qIds) {
+  for (const qId of pooledQIds) {
     const snap = fqById.get(qId)?.calc_snapshot;
     if (snap) {
       if (snap.warpCountId != null && snap.warpCountId !== '') warpCountIds.add(Number(snap.warpCountId));
@@ -186,11 +188,10 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   let stock_porvai_kg = 0;
   let stock_bobbin_m = 0;
 
-  // Warp stock = sum of jobwork_warp_beam.total_metres for the qualities
-  // on this receipt's DC, POOLED across any merged-delivery siblings.
-  // For each quality on the DC, if it has is_merged=true we also pull
-  // every other fabric_quality row with the same merged_name and treat
-  // their beams as part of the same stock pool.
+  // Warp / weft / porvai / bobbin stock pools across any merged-delivery
+  // siblings. For each quality on the DC, if it has is_merged=true we
+  // also pull every other fabric_quality row with the same merged_name
+  // and treat their beams / bags / bobbins as part of one stock pool.
   const pooledQIds = new Set<number>(qIds);
   const mergedNamesSeen = new Set<string>();
   for (const qId of qIds) {
@@ -202,10 +203,45 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (mergedNamesSeen.size > 0) {
     const { data: siblingRows } = await sb
       .from('fabric_quality')
-      .select('id, merged_name')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name, merged_name')
       .eq('is_merged', true)
       .in('merged_name', Array.from(mergedNamesSeen));
-    for (const r of ((siblingRows ?? []) as Array<{ id: number }>)) pooledQIds.add(r.id);
+    for (const r of ((siblingRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>)) {
+      pooledQIds.add(r.id);
+      // Add the sibling's master row to fqById so the count + bobbin
+      // resolution loops below see them. Existing entries (the original
+      // qIds) are left untouched.
+      if (!fqById.has(r.id)) fqById.set(r.id, r);
+    }
+  }
+
+  // Also pull fabric_quality_weft links for sibling ids so weft counts
+  // contribute to the pool. Original qIds are already covered above.
+  const siblingOnlyIds = Array.from(pooledQIds).filter((id) => !qIds.includes(id));
+  if (siblingOnlyIds.length > 0) {
+    const { data: sibWeft } = await sb
+      .from('fabric_quality_weft')
+      .select('fabric_quality_id, yarn_count:yarn_count_id ( id, code, ne )')
+      .in('fabric_quality_id', siblingOnlyIds)
+      .order('sno');
+    for (const r of (sibWeft ?? [])) {
+      if (fqWeftById.has(r.fabric_quality_id)) continue;
+      const y = r.yarn_count;
+      fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code, ne: y.ne != null ? Number(y.ne) : null } : null);
+    }
+    // Fallback to calc_snapshot.weftCountId for siblings with no link table row.
+    for (const sid of siblingOnlyIds) {
+      if (fqWeftById.has(sid)) continue;
+      const weftId = fqById.get(sid)?.calc_snapshot?.weftCountId;
+      if (weftId != null && weftId !== '') {
+        const { data: yc } = await sb
+          .from('yarn_count')
+          .select('id, code, ne')
+          .eq('id', Number(weftId))
+          .maybeSingle();
+        fqWeftById.set(sid, yc ? { yarn_count_id: yc.id, code: yc.code, ne: yc.ne != null ? Number(yc.ne) : null } : null);
+      }
+    }
   }
 
   if (pooledQIds.size > 0) {
@@ -234,7 +270,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   // Porvai yarn stock = same jobwork_weft_bag table, filtered to the
   // porvai yarn count from calc_snapshot.porvaiCountId.
   const porvaiCountIds = new Set<number>();
-  for (const qId of qIds) {
+  for (const qId of pooledQIds) {
     const snap = fqById.get(qId)?.calc_snapshot;
     const pId = snap?.porvaiCountId;
     if (pId != null && pId !== '') porvaiCountIds.add(Number(pId));

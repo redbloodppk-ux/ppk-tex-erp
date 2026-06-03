@@ -61,39 +61,78 @@ export interface ReductionResult {
 
 /* ───────────────────── individual reducers ───────────────────── */
 
-/** Look up the warp / weft / porvai counts for a fabric quality. Tries
- *  the link tables first, falls back to calc_snapshot ids. */
+/** Resolve the set of fabric_quality ids that share stock with the
+ *  given one - itself plus any is_merged siblings sharing merged_name. */
+async function getPooledQualityIds(sb: Sb, fabric_quality_id: number): Promise<number[]> {
+  const out: number[] = [fabric_quality_id];
+  const { data: self } = await sb
+    .from('fabric_quality')
+    .select('is_merged, merged_name')
+    .eq('id', fabric_quality_id)
+    .maybeSingle();
+  const mergedName = self?.merged_name?.trim?.() ?? '';
+  if (self?.is_merged && mergedName !== '') {
+    const { data: siblings } = await sb
+      .from('fabric_quality')
+      .select('id')
+      .eq('is_merged', true)
+      .eq('merged_name', mergedName);
+    for (const s of ((siblings ?? []) as Array<{ id: number }>)) {
+      if (!out.includes(s.id)) out.push(s.id);
+    }
+  }
+  return out;
+}
+
+/** Look up the warp / weft / porvai counts for a fabric quality, POOLED
+ *  across merged-delivery siblings. Tries link tables first, falls back
+ *  to calc_snapshot ids. All return values are arrays so downstream
+ *  reducers can run a single IN() against the full pool. */
 async function getQualityYarnCounts(
   sb: Sb,
   fabric_quality_id: number,
-): Promise<{ warpCountIds: number[]; weftCountId: number | null; porvaiCountId: number | null }> {
-  const [wcRes, weftRes, fqRes] = await Promise.all([
-    sb.from('fabric_quality_warp_count').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id),
-    sb.from('fabric_quality_weft').select('yarn_count_id').eq('fabric_quality_id', fabric_quality_id).limit(1).maybeSingle(),
-    sb.from('fabric_quality').select('calc_snapshot').eq('id', fabric_quality_id).maybeSingle(),
-  ]);
-  const warpCountIds: number[] = ((wcRes.data ?? []) as Array<{ yarn_count_id: number | null }>)
-    .map((r) => r.yarn_count_id)
-    .filter((x): x is number => x != null);
-  let weftCountId: number | null = weftRes?.data?.yarn_count_id ?? null;
-  let porvaiCountId: number | null = null;
+): Promise<{ warpCountIds: number[]; weftCountIds: number[]; porvaiCountIds: number[] }> {
+  const qIds = await getPooledQualityIds(sb, fabric_quality_id);
 
-  const snap = fqRes?.data?.calc_snapshot as Record<string, unknown> | null;
-  if (snap) {
-    if (warpCountIds.length === 0 && snap.warpCountId != null && snap.warpCountId !== '') {
+  const [wcRes, weftRes, fqRes] = await Promise.all([
+    sb.from('fabric_quality_warp_count').select('yarn_count_id').in('fabric_quality_id', qIds),
+    sb.from('fabric_quality_weft').select('fabric_quality_id, yarn_count_id').in('fabric_quality_id', qIds),
+    sb.from('fabric_quality').select('id, calc_snapshot').in('id', qIds),
+  ]);
+
+  const warpSet   = new Set<number>();
+  const weftSet   = new Set<number>();
+  const porvaiSet = new Set<number>();
+
+  for (const r of ((wcRes.data ?? []) as Array<{ yarn_count_id: number | null }>)) {
+    if (r.yarn_count_id != null) warpSet.add(Number(r.yarn_count_id));
+  }
+  const weftLinkedFqIds = new Set<number>();
+  for (const r of ((weftRes.data ?? []) as Array<{ fabric_quality_id: number; yarn_count_id: number | null }>)) {
+    weftLinkedFqIds.add(r.fabric_quality_id);
+    if (r.yarn_count_id != null) weftSet.add(Number(r.yarn_count_id));
+  }
+  for (const r of ((fqRes.data ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
+    const snap = r.calc_snapshot;
+    if (!snap) continue;
+    if (warpSet.size === 0 && snap.warpCountId != null && snap.warpCountId !== '') {
       const n = Number(snap.warpCountId);
-      if (Number.isFinite(n) && n > 0) warpCountIds.push(n);
+      if (Number.isFinite(n) && n > 0) warpSet.add(n);
     }
-    if (weftCountId == null && snap.weftCountId != null && snap.weftCountId !== '') {
+    if (!weftLinkedFqIds.has(r.id) && snap.weftCountId != null && snap.weftCountId !== '') {
       const n = Number(snap.weftCountId);
-      if (Number.isFinite(n) && n > 0) weftCountId = n;
+      if (Number.isFinite(n) && n > 0) weftSet.add(n);
     }
     if (snap.porvaiCountId != null && snap.porvaiCountId !== '') {
       const n = Number(snap.porvaiCountId);
-      if (Number.isFinite(n) && n > 0) porvaiCountId = n;
+      if (Number.isFinite(n) && n > 0) porvaiSet.add(n);
     }
   }
-  return { warpCountIds, weftCountId, porvaiCountId };
+  return {
+    warpCountIds: Array.from(warpSet),
+    weftCountIds: Array.from(weftSet),
+    porvaiCountIds: Array.from(porvaiSet),
+  };
 }
 
 /** Reduce jobwork_warp_beam.total_metres FIFO across the fabric
@@ -151,20 +190,21 @@ async function reducePavu(
   return { applied: Math.round(applied * 100) / 100 };
 }
 
-/** Reduce jobwork_weft_bag.total_kg FIFO for the matching yarn count.
- *  Used for both weft and porvai consumption - the bag table holds both
- *  (just keyed by yarn_count_id, no yarn_kind distinction needed). */
+/** Reduce jobwork_weft_bag.total_kg FIFO across one or more yarn counts.
+ *  Multiple counts come into play when merged-delivery siblings each
+ *  have a different weft (or porvai) yarn count assigned but share the
+ *  same stock pool. */
 async function reduceWeftBag(
   sb: Sb,
-  yarn_count_id: number | null,
+  yarn_count_ids: number[],
   kg: number,
 ): Promise<{ applied: number }> {
-  if (kg <= 0 || yarn_count_id == null) return { applied: 0 };
+  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0 };
 
   const { data: bags } = await sb
     .from('jobwork_weft_bag')
     .select('id, total_kg')
-    .eq('yarn_count_id', yarn_count_id)
+    .in('yarn_count_id', yarn_count_ids)
     .gt('total_kg', 0)
     .order('given_date', { ascending: true })
     .order('id', { ascending: true });
@@ -185,9 +225,9 @@ async function reduceWeftBag(
 }
 
 /** Reduce bobbin.quantity FIFO across every jobwork bobbin whose spec
- *  (ends_per_bobbin + bobbin_metre) matches the bobbin assigned to the
- *  fabric quality via calc_snapshot.bobbinId. Same flavour as warp beam
- *  and weft bag: multiple batches accumulate, FIFO by purchase_date. */
+ *  (ends_per_bobbin + bobbin_metre) matches a bobbin assigned to ANY
+ *  fabric quality in the merged pool. Pool defaults to the single
+ *  quality if it's not part of a merged group. */
 async function reduceBobbin(
   sb: Sb,
   fabric_quality_id: number,
@@ -195,41 +235,67 @@ async function reduceBobbin(
 ): Promise<{ applied_pcs: number; applied_m: number }> {
   if (metres <= 0) return { applied_pcs: 0, applied_m: 0 };
 
-  // Step 1: which bobbin is assigned to this quality?
-  const { data: fq } = await sb
+  // Step 1: pool the pool. Each quality may assign a different bobbin
+  // (id) - we collect all assigned bobbin ids across the pool.
+  const pooledQIds = await getPooledQualityIds(sb, fabric_quality_id);
+  const { data: fqs } = await sb
     .from('fabric_quality')
-    .select('calc_snapshot')
-    .eq('id', fabric_quality_id)
-    .maybeSingle();
-  const bobbinIdRaw = fq?.calc_snapshot?.bobbinId;
-  if (bobbinIdRaw == null || bobbinIdRaw === '') return { applied_pcs: 0, applied_m: 0 };
+    .select('id, calc_snapshot')
+    .in('id', pooledQIds);
+  const assignedBobbinIds = new Set<number>();
+  for (const r of ((fqs ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
+    const bid = r.calc_snapshot?.bobbinId;
+    if (bid != null && bid !== '') {
+      const n = Number(bid);
+      if (Number.isFinite(n) && n > 0) assignedBobbinIds.add(n);
+    }
+  }
+  if (assignedBobbinIds.size === 0) return { applied_pcs: 0, applied_m: 0 };
 
-  // Step 2: pull the assigned bobbin's spec.
-  const { data: assigned } = await sb
+  // Step 2: every spec (ends_per_bobbin + bobbin_metre) the pool uses.
+  const { data: assignedRows } = await sb
     .from('bobbin')
     .select('ends_per_bobbin, bobbin_metre')
-    .eq('id', Number(bobbinIdRaw))
-    .maybeSingle();
-  if (!assigned) return { applied_pcs: 0, applied_m: 0 };
-  const ends = Number(assigned.ends_per_bobbin) || 0;
-  const per  = Number(assigned.bobbin_metre)   || 0;
-  if (ends <= 0 || per <= 0) return { applied_pcs: 0, applied_m: 0 };
+    .in('id', Array.from(assignedBobbinIds));
+  const specs: Array<{ ends: number; per: number }> = [];
+  const seen = new Set<string>();
+  for (const r of ((assignedRows ?? []) as Array<{ ends_per_bobbin: number | null; bobbin_metre: number | string | null }>)) {
+    const e = Number(r.ends_per_bobbin) || 0;
+    const p = Number(r.bobbin_metre)   || 0;
+    if (e <= 0 || p <= 0) continue;
+    const k = e + ':' + p;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    specs.push({ ends: e, per: p });
+  }
+  if (specs.length === 0) return { applied_pcs: 0, applied_m: 0 };
 
-  // Step 3: FIFO across jobwork bobbins of matching spec.
-  const { data: bobs } = await sb
-    .from('bobbin')
-    .select('id, quantity, bobbin_metre')
-    .eq('production_mode', 'jobwork')
-    .eq('ends_per_bobbin', ends)
-    .eq('bobbin_metre', per)
-    .gt('quantity', 0)
-    .order('purchase_date', { ascending: true })
-    .order('id', { ascending: true });
+  // Step 3: FIFO across every jobwork bobbin matching any spec. We need
+  // to issue one query per spec because PostgREST doesn't support
+  // matching on (col1, col2) tuples; results are interleaved + sorted.
+  type BobRow = { id: number; quantity: number | string; bobbin_metre: number | string; purchase_date: string | null };
+  const allBobs: BobRow[] = [];
+  for (const s of specs) {
+    const { data: bobs } = await sb
+      .from('bobbin')
+      .select('id, quantity, bobbin_metre, purchase_date')
+      .eq('production_mode', 'jobwork')
+      .eq('ends_per_bobbin', s.ends)
+      .eq('bobbin_metre', s.per)
+      .gt('quantity', 0);
+    for (const r of (bobs ?? []) as BobRow[]) allBobs.push(r);
+  }
+  allBobs.sort((a, b) => {
+    const da = a.purchase_date ?? '';
+    const db = b.purchase_date ?? '';
+    if (da !== db) return da < db ? -1 : 1;
+    return a.id - b.id;
+  });
 
   let remaining_m = metres;
   let total_pcs = 0;
   let total_m_consumed = 0;
-  for (const b of (bobs ?? []) as Array<{ id: number; quantity: number | string; bobbin_metre: number | string }>) {
+  for (const b of allBobs) {
     if (remaining_m <= 0) break;
     const rowPer = Number(b.bobbin_metre);
     const avail  = Number(b.quantity);
@@ -276,36 +342,38 @@ export async function applyFabricReceiptStockReductions(
       }
     }
 
-    // Resolve all three yarn counts once per item.
-    const { weftCountId, porvaiCountId } = await getQualityYarnCounts(sb, it.fabric_quality_id);
+    // Resolve all three yarn-count sets once per item. Each set is
+    // already pooled across merged-delivery siblings inside the helper.
+    const { weftCountIds, porvaiCountIds } = await getQualityYarnCounts(sb, it.fabric_quality_id);
 
-    // WEFT YARN - reduces jobwork_weft_bag.total_kg matched by yarn_count.
+    // WEFT YARN - reduces jobwork_weft_bag.total_kg FIFO across every
+    // yarn count in the pool.
     if (it.weft_consumed_kg && it.weft_consumed_kg > 0) {
-      const r = await reduceWeftBag(sb, weftCountId, it.weft_consumed_kg);
+      const r = await reduceWeftBag(sb, weftCountIds, it.weft_consumed_kg);
       result.applied.weft_kg += r.applied;
       if (r.applied + 0.005 < it.weft_consumed_kg) {
         result.shortfalls.push({
           bucket: 'weft_yarn', fabric_quality_id: it.fabric_quality_id,
           needed: it.weft_consumed_kg, applied: r.applied, unit: 'kg',
-          note: weftCountId == null
+          note: weftCountIds.length === 0
             ? 'No weft yarn count linked to this fabric quality.'
-            : 'Available weft kgs in Jobwork \u2192 Weft bag given less than consumed - check stock for this count.',
+            : 'Available weft kgs in Jobwork \u2192 Weft bag given less than consumed - check stock for this count (pool includes merged siblings).',
         });
       }
     }
 
-    // PORVAI YARN - same table as weft, matched by the porvai yarn count
-    // from calc_snapshot.porvaiCountId.
+    // PORVAI YARN - same table as weft, FIFO across the pooled porvai
+    // counts.
     if (it.porvai_consumed_kg && it.porvai_consumed_kg > 0) {
-      const r = await reduceWeftBag(sb, porvaiCountId, it.porvai_consumed_kg);
+      const r = await reduceWeftBag(sb, porvaiCountIds, it.porvai_consumed_kg);
       result.applied.porvai_kg += r.applied;
       if (r.applied + 0.005 < it.porvai_consumed_kg) {
         result.shortfalls.push({
           bucket: 'porvai_yarn', fabric_quality_id: it.fabric_quality_id,
           needed: it.porvai_consumed_kg, applied: r.applied, unit: 'kg',
-          note: porvaiCountId == null
+          note: porvaiCountIds.length === 0
             ? 'No porvai yarn count assigned on the fabric quality master.'
-            : 'Available porvai kgs in Jobwork \u2192 Weft bag given less than consumed for this count.',
+            : 'Available porvai kgs in Jobwork \u2192 Weft bag given less than consumed for this count (pool includes merged siblings).',
         });
       }
     }
@@ -319,7 +387,7 @@ export async function applyFabricReceiptStockReductions(
         result.shortfalls.push({
           bucket: 'bobbin', fabric_quality_id: it.fabric_quality_id,
           needed: it.received_metres, applied: r.applied_m, unit: 'm',
-          note: 'Available bobbin metres in Jobwork \u2192 Bobbin given less than received for this spec.',
+          note: 'Available bobbin metres in Jobwork \u2192 Bobbin given less than received for this spec (pool includes merged siblings).',
         });
       }
     }
