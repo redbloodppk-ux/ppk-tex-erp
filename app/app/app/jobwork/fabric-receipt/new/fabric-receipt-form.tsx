@@ -68,6 +68,11 @@ export interface ReceiptItemSeed {
   /** ends_per_bobbin from the bobbin master row assigned to this fabric
    *  quality (via calc_snapshot.bobbinId). Used by the item-row display. */
   bobbin_ends: number | null;
+  /** Length per piece (towel length) auto-fetched from the fabric_quality
+   *  master meter_per_pc column. When non-null the towel-length input
+   *  pre-fills with this value and the operator just types the towel
+   *  count in the received-metres column. */
+  towel_length: number | null;
   dc_metres: number;
   dc_pieces: number;
   dc_bundles: number;
@@ -124,11 +129,14 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
   // Header state
   const [receiptDate, setReceiptDate] = useState<string>(todayISO());
 
-  // One row of state per DC item
+  // One row of state per DC item. The towel length is auto-fetched from
+  // the fabric_quality master (meter_per_pc) when the quality is tagged
+  // as a towel - operators don't need to type it in again. They can
+  // still edit the value per receipt if a particular batch is different.
   const [items, setItems] = useState<ItemState[]>(
     seeds.map((s) => ({
       seed: s,
-      towel_length: '',
+      towel_length: s.towel_length != null && s.towel_length > 0 ? String(s.towel_length) : '',
       received_metres: String(s.dc_metres || 0),
     })),
   );
@@ -356,6 +364,11 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                     <input type="number" step="0.01" min="0" value={it.towel_length}
                       onChange={(e) => patch(idx, { towel_length: e.target.value })}
                       className="input h-8 text-xs num w-24 text-right" placeholder="m / towel" />
+                    {it.seed.towel_length != null && it.seed.towel_length > 0 && (
+                      <div className="text-[10px] text-ink-mute text-right mt-0.5">
+                        auto: {fmtMoney(it.seed.towel_length)} m
+                      </div>
+                    )}
                   </td>
                   <td className="px-2 py-2">
                     <input type="number" step="0.01" min="0" value={it.received_metres}

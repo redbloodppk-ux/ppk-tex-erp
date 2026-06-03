@@ -67,6 +67,10 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     weft_kg_per_m: number | string | null;
     porvai_kg_per_m: number | string | null;
     bobbin_pcs_per_m: number | string | null;
+    /** Length per piece (towel length) configured on the fabric_quality
+     *  master. Auto-fills the Towel length input on the receipt form so
+     *  the operator can just type the towel COUNT. */
+    meter_per_pc: number | string | null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     calc_snapshot: Record<string, any> | null;
   }
@@ -74,7 +78,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (qIds.length > 0) {
     const { data: fqRows } = await sb
       .from('fabric_quality')
-      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, meter_per_pc, calc_snapshot, is_merged, merged_name')
       .in('id', qIds);
     for (const row of (fqRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>) fqById.set(row.id, row);
   }
@@ -179,7 +183,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (mergedNamesSeen.size > 0) {
     const { data: siblingRows } = await sb
       .from('fabric_quality')
-      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, calc_snapshot, is_merged, merged_name')
+      .select('id, code, name, weft_kg_per_m, porvai_kg_per_m, bobbin_pcs_per_m, meter_per_pc, calc_snapshot, is_merged, merged_name')
       .eq('is_merged', true)
       .in('merged_name', Array.from(mergedNamesSeen));
     for (const r of ((siblingRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>)) {
@@ -357,6 +361,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       porvai_kg_per_m: fq ? Number(fq.porvai_kg_per_m ?? 0) : 0,
       bobbin_pcs_per_m: fq ? Number(fq.bobbin_pcs_per_m ?? 0) : 0,
       bobbin_ends: it.fabric_quality_id != null ? bobbinEndsByQId.get(it.fabric_quality_id) ?? null : null,
+      towel_length: fq && fq.meter_per_pc != null && fq.meter_per_pc !== ''
+        ? Number(fq.meter_per_pc)
+        : null,
       dc_metres: Number(it.metres ?? 0),
       dc_pieces: it.pieces ?? 0,
       dc_bundles: it.bundles ?? 0,
