@@ -269,9 +269,10 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         received_metres: m,
         weft_consumed_kg:   it.seed.weft_kg_per_m   > 0 ? round2(m * it.seed.weft_kg_per_m)   : null,
         porvai_consumed_kg: it.seed.porvai_kg_per_m > 0 ? round2(m * it.seed.porvai_kg_per_m) : null,
-        // bobbin_id picker not exposed yet - skip bobbin reduction until
-        // the form gains a per-row bobbin dropdown.
-        bobbin_id: null,
+        // Bobbin row is resolved inside reduceBobbin via the fabric
+        // quality's calc_snapshot.bobbinId. We just signal whether
+        // bobbin reduction should run for this item.
+        has_bobbin: it.seed.bobbin_pcs_per_m > 0,
       };
     });
     const reduction = await applyFabricReceiptStockReductions(sb, reductionItems);

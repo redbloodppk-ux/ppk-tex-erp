@@ -231,25 +231,53 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
-  // Bobbin metres stock (used in the consumption summary) + ends-per-bobbin
-  // (used as a per-item display column on the receipt items table).
+  // Bobbin stock = sum of (quantity x bobbin_metre) across ALL jobwork
+  // bobbins whose spec (ends_per_bobbin + bobbin_metre) matches the
+  // bobbin assigned to the fabric quality in calc_snapshot.bobbinId.
+  // Same idea as warp beam given: multiple batches of the same bobbin
+  // spec accumulate to a single stock total. FIFO reduction by
+  // purchase_date is wired in stock-reductions.ts.
   const bobbinEndsByQId = new Map<number, number | null>();
   if (bobbinIds.size > 0) {
-    const { data: bobRows } = await sb
+    // Step 1 - look up the assigned bobbin's spec (ends + metre).
+    const { data: assignedRows } = await sb
       .from('bobbin')
-      .select('id, quantity, bobbin_metre, ends_per_bobbin')
+      .select('id, ends_per_bobbin, bobbin_metre')
       .in('id', Array.from(bobbinIds));
-    const bobById = new Map<number, { quantity: number | null; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>();
-    for (const r of (bobRows ?? []) as Array<{ id: number; quantity: number | null; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>) {
-      bobById.set(r.id, r);
-      stock_bobbin_m += Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0);
+    const assignedById = new Map<number, { ends_per_bobbin: number | null; bobbin_metre: number | string | null }>();
+    for (const r of (assignedRows ?? []) as Array<{ id: number; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>) {
+      assignedById.set(r.id, r);
     }
-    // Map each fabric_quality to its bobbin's ends_per_bobbin (if any).
+    // Map each fabric_quality to its bobbin's ends_per_bobbin.
+    const specsKey = new Set<string>();
+    const specs: Array<{ ends_per_bobbin: number; bobbin_metre: number }> = [];
     for (const qId of qIds) {
       const bId = fqById.get(qId)?.calc_snapshot?.bobbinId;
-      if (bId != null && bId !== '') {
-        const b = bobById.get(Number(bId));
-        bobbinEndsByQId.set(qId, b?.ends_per_bobbin ?? null);
+      if (bId == null || bId === '') continue;
+      const a = assignedById.get(Number(bId));
+      if (!a) continue;
+      bobbinEndsByQId.set(qId, a.ends_per_bobbin ?? null);
+      const e = Number(a.ends_per_bobbin ?? 0);
+      const m = Number(a.bobbin_metre ?? 0);
+      if (e > 0 && m > 0) {
+        const key = e + ':' + m;
+        if (!specsKey.has(key)) {
+          specsKey.add(key);
+          specs.push({ ends_per_bobbin: e, bobbin_metre: m });
+        }
+      }
+    }
+    // Step 2 - sum stock across every jobwork bobbin matching any spec.
+    for (const spec of specs) {
+      const { data: bobs } = await sb
+        .from('bobbin')
+        .select('quantity, bobbin_metre')
+        .eq('production_mode', 'jobwork')
+        .eq('ends_per_bobbin', spec.ends_per_bobbin)
+        .eq('bobbin_metre', spec.bobbin_metre)
+        .gt('quantity', 0);
+      for (const r of (bobs ?? []) as Array<{ quantity: number | null; bobbin_metre: number | string | null }>) {
+        stock_bobbin_m += Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0);
       }
     }
   }

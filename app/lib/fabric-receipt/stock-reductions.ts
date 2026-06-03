@@ -33,7 +33,11 @@ export interface ReceiptItemForReduction {
   received_metres: number;
   weft_consumed_kg: number | null;
   porvai_consumed_kg: number | null;
-  bobbin_id: number | null;
+  /** Whether to fire bobbin reduction at all - set from the form when
+   *  the quality has a bobbin assigned (bobbin_pcs_per_m > 0). The
+   *  actual bobbin row is resolved inside reduceBobbin via the fabric
+   *  quality's calc_snapshot. */
+  has_bobbin: boolean;
 }
 
 export interface Shortfall {
@@ -159,29 +163,69 @@ async function reduceWeftBag(
   return { applied: Math.round(applied * 100) / 100 };
 }
 
-/** Reduce bobbin.quantity by ceil(metres / bobbin_metre). Only runs
- *  when the receipt item explicitly carries a bobbin_id. */
+/** Reduce bobbin.quantity FIFO across every jobwork bobbin whose spec
+ *  (ends_per_bobbin + bobbin_metre) matches the bobbin assigned to the
+ *  fabric quality via calc_snapshot.bobbinId. Same flavour as warp beam
+ *  and weft bag: multiple batches accumulate, FIFO by purchase_date. */
 async function reduceBobbin(
   sb: Sb,
-  bobbin_id: number | null,
+  fabric_quality_id: number,
   metres: number,
 ): Promise<{ applied_pcs: number; applied_m: number }> {
-  if (bobbin_id == null || metres <= 0) return { applied_pcs: 0, applied_m: 0 };
-  const { data: b } = await sb
-    .from('bobbin')
-    .select('id, bobbin_metre, quantity')
-    .eq('id', bobbin_id)
+  if (metres <= 0) return { applied_pcs: 0, applied_m: 0 };
+
+  // Step 1: which bobbin is assigned to this quality?
+  const { data: fq } = await sb
+    .from('fabric_quality')
+    .select('calc_snapshot')
+    .eq('id', fabric_quality_id)
     .maybeSingle();
-  if (!b) return { applied_pcs: 0, applied_m: 0 };
-  const per = Number(b.bobbin_metre) || 0;
-  if (per <= 0) return { applied_pcs: 0, applied_m: 0 };
-  const pcsNeeded = Math.ceil(metres / per);
-  const avail = Number(b.quantity) || 0;
-  const pcsToCut = Math.min(avail, pcsNeeded);
-  const next = Math.max(0, avail - pcsToCut);
-  const { error } = await sb.from('bobbin').update({ quantity: next }).eq('id', bobbin_id);
-  if (error) return { applied_pcs: 0, applied_m: 0 };
-  return { applied_pcs: pcsToCut, applied_m: Math.round(pcsToCut * per * 100) / 100 };
+  const bobbinIdRaw = fq?.calc_snapshot?.bobbinId;
+  if (bobbinIdRaw == null || bobbinIdRaw === '') return { applied_pcs: 0, applied_m: 0 };
+
+  // Step 2: pull the assigned bobbin's spec.
+  const { data: assigned } = await sb
+    .from('bobbin')
+    .select('ends_per_bobbin, bobbin_metre')
+    .eq('id', Number(bobbinIdRaw))
+    .maybeSingle();
+  if (!assigned) return { applied_pcs: 0, applied_m: 0 };
+  const ends = Number(assigned.ends_per_bobbin) || 0;
+  const per  = Number(assigned.bobbin_metre)   || 0;
+  if (ends <= 0 || per <= 0) return { applied_pcs: 0, applied_m: 0 };
+
+  // Step 3: FIFO across jobwork bobbins of matching spec.
+  const { data: bobs } = await sb
+    .from('bobbin')
+    .select('id, quantity, bobbin_metre')
+    .eq('production_mode', 'jobwork')
+    .eq('ends_per_bobbin', ends)
+    .eq('bobbin_metre', per)
+    .gt('quantity', 0)
+    .order('purchase_date', { ascending: true })
+    .order('id', { ascending: true });
+
+  let remaining_m = metres;
+  let total_pcs = 0;
+  let total_m_consumed = 0;
+  for (const b of (bobs ?? []) as Array<{ id: number; quantity: number | string; bobbin_metre: number | string }>) {
+    if (remaining_m <= 0) break;
+    const rowPer = Number(b.bobbin_metre);
+    const avail  = Number(b.quantity);
+    const pcsNeeded = Math.ceil(remaining_m / rowPer);
+    const pcsToCut  = Math.min(avail, pcsNeeded);
+    const next = Math.max(0, avail - pcsToCut);
+    const { error } = await sb.from('bobbin').update({ quantity: next }).eq('id', b.id);
+    if (error) break;
+    total_pcs += pcsToCut;
+    const mCut = pcsToCut * rowPer;
+    total_m_consumed += mCut;
+    remaining_m -= mCut;
+  }
+  return {
+    applied_pcs: total_pcs,
+    applied_m: Math.round(total_m_consumed * 100) / 100,
+  };
 }
 
 /* ───────────────────── orchestrator ───────────────────── */
@@ -245,15 +289,16 @@ export async function applyFabricReceiptStockReductions(
       }
     }
 
-    // BOBBIN
-    if (it.bobbin_id != null && it.received_metres > 0) {
-      const r = await reduceBobbin(sb, it.bobbin_id, it.received_metres);
+    // BOBBIN - spec match (ends_per_bobbin + bobbin_metre), FIFO by
+    // purchase_date across jobwork bobbins.
+    if (it.has_bobbin && it.received_metres > 0) {
+      const r = await reduceBobbin(sb, it.fabric_quality_id, it.received_metres);
       result.applied.bobbin_pcs += r.applied_pcs;
       if (r.applied_m + 0.005 < it.received_metres) {
         result.shortfalls.push({
           bucket: 'bobbin', fabric_quality_id: it.fabric_quality_id,
           needed: it.received_metres, applied: r.applied_m, unit: 'm',
-          note: 'Selected bobbin did not have enough quantity left.',
+          note: 'Available bobbin metres in Jobwork \u2192 Bobbin given less than received for this spec.',
         });
       }
     }
