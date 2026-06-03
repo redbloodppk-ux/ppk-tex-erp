@@ -45,6 +45,7 @@ interface DcRow {
   total_metres: number | string | null;
   total_pieces: number | null;
   total_bundles: number | null;
+  fabric_receipt_id: number | null;
 }
 
 interface DcItemRow {
@@ -151,13 +152,16 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
 
-      // Confirmed jobwork DCs for this party that haven't been invoiced yet.
+      // All un-invoiced jobwork DCs for this party. We surface both
+      // receipted (status='confirmed') and not-yet-receipted DCs so the
+      // operator can see the gap; only receipted DCs are selectable for
+      // billing (UI disables the checkbox otherwise).
       const { data: hdrs, error: hdrErr } = await sb
         .from('delivery_challan')
-        .select('id, code, dc_date, party_id, total_metres, total_pieces, total_bundles')
+        .select('id, code, dc_date, party_id, total_metres, total_pieces, total_bundles, fabric_receipt_id')
         .eq('production_mode', 'jobwork')
         .eq('party_id', Number(partyId))
-        .eq('status', 'confirmed')
+        .in('status', ['draft', 'confirmed'])
         .is('invoice_id', null)
         .order('dc_date', { ascending: false })
         .order('id', { ascending: false });
@@ -467,6 +471,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
                 <th className="px-3 py-2 w-10" />
                 <th className="text-left px-3 py-2">DC No</th>
                 <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">Receipt</th>
                 <th className="text-right px-3 py-2">Metres</th>
                 <th className="text-right px-3 py-2">Pcs</th>
                 <th className="text-right px-3 py-2">Bundles</th>
@@ -475,22 +480,38 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
             <tbody>
               {dcs.map((d) => {
                 const picked = pickedDcIds.has(d.id);
+                const receipted = d.fabric_receipt_id !== null;
                 return (
                   <tr
                     key={d.id}
-                    className={'border-t border-line/40 cursor-pointer ' + (picked ? 'bg-indigo/5' : 'hover:bg-haze/60')}
-                    onClick={() => toggleDc(d.id)}
+                    className={'border-t border-line/40 ' +
+                      (receipted ? 'cursor-pointer ' + (picked ? 'bg-indigo/5' : 'hover:bg-haze/60')
+                                  : 'bg-rose-50/40 opacity-70')}
+                    onClick={() => { if (receipted) toggleDc(d.id); }}
                   >
                     <td className="px-3 py-2">
                       <input
                         type="checkbox"
                         checked={picked}
+                        disabled={!receipted}
                         onChange={() => toggleDc(d.id)}
                         onClick={(e) => e.stopPropagation()}
+                        title={receipted ? 'Pick / unpick this DC' : 'DC has no fabric receipt yet - cannot bill'}
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{d.code}</td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{fmtDate(d.dc_date)}</td>
+                    <td className="px-3 py-2">
+                      {receipted ? (
+                        <span className="pill bg-emerald-50 text-emerald-700 text-[10px] uppercase tracking-wide">
+                          Receipted
+                        </span>
+                      ) : (
+                        <span className="pill bg-rose-50 text-rose-700 text-[10px] uppercase tracking-wide" title="Save a Fabric Receipt against this DC before billing">
+                          Not receipted
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right num">{d.total_pieces ?? 0}</td>
                     <td className="px-3 py-2 text-right num">{d.total_bundles ?? 0}</td>

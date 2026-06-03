@@ -16,8 +16,9 @@ import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw } from 'lucide-react';
 
 import { JobworkDcTab } from './dc-tab';
+import { JobworkPaymentTab } from './payment-tab';
 
-type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'status';
+type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'status' | 'payment';
 
 interface PartyOpt { id: number; code: string; name: string; }
 interface QualityOpt { id: number; code: string | null; name: string; }
@@ -179,6 +180,7 @@ export default function JobworkPage(): React.ReactElement {
         <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
         <TabButton active={tab === 'status'}    onClick={() => setTab('status')}>Status</TabButton>
+        <TabButton active={tab === 'payment'}   onClick={() => setTab('payment')}>Payment</TabButton>
       </div>
 
       {error && <div className="card p-3 mb-3 text-err text-sm">{error}</div>}
@@ -203,6 +205,8 @@ export default function JobworkPage(): React.ReactElement {
           partyById={partyById} countById={countById} allPartyById={allPartyById}
           onChanged={load}
         />
+      ) : tab === 'payment' ? (
+        <JobworkPaymentTab parties={parties} />
       ) : (
         <StatusTab
           parties={parties} qualities={qualities}
