@@ -65,6 +65,9 @@ export interface ReceiptItemSeed {
   weft_kg_per_m: number;
   porvai_kg_per_m: number;
   bobbin_pcs_per_m: number;
+  /** ends_per_bobbin from the bobbin master row assigned to this fabric
+   *  quality (via calc_snapshot.bobbinId). Used by the item-row display. */
+  bobbin_ends: number | null;
   dc_metres: number;
   dc_pieces: number;
   dc_bundles: number;
@@ -324,7 +327,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
               <th className="text-left  px-2 py-2">Weft count</th>
               <th className="text-right px-2 py-2">Weft cons/m</th>
               <th className="text-right px-2 py-2">Consumed wt (kg)</th>
-              <th className="text-right px-2 py-2">Bobbin mtrs</th>
+              <th className="text-right px-2 py-2">Bobbin ends</th>
             </tr>
           </thead>
           <tbody>
@@ -375,8 +378,8 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
                     {consumed > 0 ? fmtMoney(consumed) : '-'}
                   </td>
                   <td className="px-2 py-2 text-right num text-xs">
-                    {hasBobbin
-                      ? <span className="font-semibold text-indigo-700">{fmtMoney(bobbinMtrs)} m</span>
+                    {it.seed.bobbin_ends != null
+                      ? <span className="font-semibold">{it.seed.bobbin_ends}</span>
                       : <span className="text-ink-mute">nil</span>}
                   </td>
                 </tr>

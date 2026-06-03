@@ -231,13 +231,27 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
+  // Bobbin metres stock (used in the consumption summary) + ends-per-bobbin
+  // (used as a per-item display column on the receipt items table).
+  const bobbinEndsByQId = new Map<number, number | null>();
   if (bobbinIds.size > 0) {
     const { data: bobRows } = await sb
       .from('bobbin')
-      .select('quantity, bobbin_metre')
+      .select('id, quantity, bobbin_metre, ends_per_bobbin')
       .in('id', Array.from(bobbinIds));
-    stock_bobbin_m = ((bobRows ?? []) as Array<{ quantity: number | null; bobbin_metre: number | string | null }>)
-      .reduce((s, r) => s + (Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0)), 0);
+    const bobById = new Map<number, { quantity: number | null; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>();
+    for (const r of (bobRows ?? []) as Array<{ id: number; quantity: number | null; bobbin_metre: number | string | null; ends_per_bobbin: number | null }>) {
+      bobById.set(r.id, r);
+      stock_bobbin_m += Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0);
+    }
+    // Map each fabric_quality to its bobbin's ends_per_bobbin (if any).
+    for (const qId of qIds) {
+      const bId = fqById.get(qId)?.calc_snapshot?.bobbinId;
+      if (bId != null && bId !== '') {
+        const b = bobById.get(Number(bId));
+        bobbinEndsByQId.set(qId, b?.ends_per_bobbin ?? null);
+      }
+    }
   }
 
   const seeds: ReceiptItemSeed[] = items.map((it) => {
@@ -259,6 +273,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       weft_kg_per_m: fq ? Number(fq.weft_kg_per_m ?? 0) : 0,
       porvai_kg_per_m: fq ? Number(fq.porvai_kg_per_m ?? 0) : 0,
       bobbin_pcs_per_m: fq ? Number(fq.bobbin_pcs_per_m ?? 0) : 0,
+      bobbin_ends: it.fabric_quality_id != null ? bobbinEndsByQId.get(it.fabric_quality_id) ?? null : null,
       dc_metres: Number(it.metres ?? 0),
       dc_pieces: it.pieces ?? 0,
       dc_bundles: it.bundles ?? 0,
