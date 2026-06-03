@@ -57,6 +57,20 @@ interface DcItemRow {
   hsn: string | null;
 }
 
+/** Aggregated billing data per DC × quality, sourced from the fabric
+ *  receipt (not the DC). The receipt is the source of truth for what
+ *  actually changed hands. When `entry_mode='pcs'` the row was entered
+ *  as a towel count and we bill per piece. */
+interface ReceiptAggRow {
+  dc_id: number;
+  fabric_quality_id: number | null;
+  received_metres: number;     // sum of received_metres on the receipt
+  pieces_from_receipt: number; // sum of no_of_pieces on the receipt (towel rows only)
+  any_towel: boolean;          // true if any receipt item had length_per_pc > 0
+  towel_length: number;        // representative length_per_pc (last-seen non-null)
+  hsn: string | null;
+}
+
 interface FabricQualityRow {
   id: number;
   code: string;
@@ -148,6 +162,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   // ── Data state ──
   const [dcs, setDcs]                 = useState<DcRow[]>([]);
   const [items, setItems]             = useState<DcItemRow[]>([]);
+  const [receiptAggs, setReceiptAggs] = useState<ReceiptAggRow[]>([]);
   const [qualityById, setQualityById] = useState<Map<number, FabricQualityRow>>(new Map());
   const [pickedDcIds, setPickedDcIds] = useState<Set<number>>(new Set());
   const [loadingDcs, setLoadingDcs]   = useState<boolean>(false);
@@ -189,6 +204,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
 
       if (dcList.length === 0) {
         setItems([]);
+        setReceiptAggs([]);
         setLoadingDcs(false);
         return;
       }
@@ -201,6 +217,70 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       if (cancelled) return;
       const itemList = (itemRows ?? []) as DcItemRow[];
       setItems(itemList);
+
+      // ── Receipt-side aggregates ──
+      // For receipted DCs we want the bill quantity to come from the
+      // fabric_receipt (the source of truth for what arrived), not the
+      // DC. If a receipt item had a towel length set we treat the
+      // received quantity as PIECES on the invoice line.
+      const receiptIds = dcList.map((d) => d.fabric_receipt_id).filter((x): x is number => x != null);
+      if (receiptIds.length > 0) {
+        const { data: rItems } = await sb
+          .from('fabric_receipt_item')
+          .select('receipt_id, fabric_quality_id, received_metres, no_of_pieces, length_per_pc, entry_mode')
+          .in('receipt_id', receiptIds);
+        if (cancelled) return;
+
+        // Map receipt_id -> dc_id so we can attribute receipt items back.
+        const dcByReceipt = new Map<number, number>();
+        for (const d of dcList) {
+          if (d.fabric_receipt_id != null) dcByReceipt.set(d.fabric_receipt_id, d.id);
+        }
+
+        // HSN lookup from DC items (receipt items don't carry it).
+        const hsnByKey = new Map<string, string | null>();
+        for (const ir of itemList) {
+          hsnByKey.set(`${ir.dc_id}|${ir.fabric_quality_id ?? 'n'}`, ir.hsn);
+        }
+
+        const aggByKey = new Map<string, ReceiptAggRow>();
+        type RawRi = {
+          receipt_id: number;
+          fabric_quality_id: number | null;
+          received_metres: number | string | null;
+          no_of_pieces: number | null;
+          length_per_pc: number | string | null;
+          entry_mode: string | null;
+        };
+        for (const ri of (rItems ?? []) as RawRi[]) {
+          const dcId = dcByReceipt.get(ri.receipt_id);
+          if (dcId === undefined) continue;
+          const key = `${dcId}|${ri.fabric_quality_id ?? 'n'}`;
+          let agg = aggByKey.get(key);
+          if (!agg) {
+            agg = {
+              dc_id: dcId,
+              fabric_quality_id: ri.fabric_quality_id,
+              received_metres: 0,
+              pieces_from_receipt: 0,
+              any_towel: false,
+              towel_length: 0,
+              hsn: hsnByKey.get(key) ?? null,
+            };
+            aggByKey.set(key, agg);
+          }
+          agg.received_metres += num(ri.received_metres);
+          const isTowelRow = ri.entry_mode === 'pcs' || num(ri.length_per_pc) > 0;
+          if (isTowelRow) {
+            agg.pieces_from_receipt += Number(ri.no_of_pieces ?? 0);
+            agg.any_towel = true;
+            if (num(ri.length_per_pc) > 0) agg.towel_length = num(ri.length_per_pc);
+          }
+        }
+        setReceiptAggs(Array.from(aggByKey.values()));
+      } else {
+        setReceiptAggs([]);
+      }
 
       // Load fabric_quality master for the qualities that appear.
       const qIds = Array.from(new Set(
@@ -230,24 +310,41 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   }, [partyId, parties]);
 
   // ── Aggregated lines, keyed by fabric_quality_id ──
-  // For towel qualities (meter_per_pc > 0) we bill per piece. The
-  // effective rate becomes pick_cost_per_m × meter_per_pc (Rs/piece) and
-  // the quantity is pieces, not metres. Total amount stays the same:
-  //   pieces × (pick_cost_per_m × towel_length) ≡ metres × pick_cost_per_m
-  // For non-towel qualities the line stays per-metre.
+  // Source of truth = the fabric_receipt (not the DC). If any receipt
+  // row for this quality was entered with a towel length, we bill per
+  // piece using the pieces recorded on the receipt. Per-piece rate =
+  // pick_cost_per_m × towel_length. Total amount is equivalent to
+  // received_metres × pick_cost_per_m when pieces × towel_length matches
+  // metres on the receipt, but we use the operator-confirmed piece
+  // count as the line quantity.
   const lines = useMemo<LineAgg[]>(() => {
     if (pickedDcIds.size === 0) return [];
+    // Quick lookup of receipt aggregates by (dc_id, fabric_quality_id).
+    const receiptByKey = new Map<string, ReceiptAggRow>();
+    for (const ra of receiptAggs) {
+      receiptByKey.set(`${ra.dc_id}|${ra.fabric_quality_id ?? 'n'}`, ra);
+    }
+
     const byFq = new Map<number, LineAgg>();
     for (const it of items) {
       if (!pickedDcIds.has(it.dc_id)) continue;
       if (it.fabric_quality_id == null) continue;
       const fq = qualityById.get(it.fabric_quality_id);
       if (!fq) continue;
+      // Prefer receipt-side values; fall back to DC if the receipt row
+      // is missing (shouldn't happen for receipted DCs but keep us safe).
+      const receipt = receiptByKey.get(`${it.dc_id}|${it.fabric_quality_id}`);
+      const metres = receipt ? receipt.received_metres : num(it.metres);
       const baseRate = num(fq.pick_cost_per_m);
-      const towelLength = num(fq.meter_per_pc);
-      const metres = num(it.metres);
-      const pieces = it.pieces ?? 0;
-      const isTowel = towelLength > 0;
+      const masterTowelLen = num(fq.meter_per_pc);
+      // A line is "towel-billed" if the receipt itself was entered as
+      // pieces (towel length captured at receipt time). Falls back to
+      // the master's meter_per_pc as a hint when no receipt yet (legacy
+      // un-receipted DCs).
+      const receiptTowel = receipt?.any_towel === true;
+      const towelLength = receiptTowel ? (receipt!.towel_length || masterTowelLen) : masterTowelLen;
+      const isTowel = receiptTowel || (!receipt && masterTowelLen > 0);
+      const pieces = receipt ? receipt.pieces_from_receipt : (it.pieces ?? 0);
       const effectiveRate = isTowel ? round2(baseRate * towelLength) : baseRate;
       const existing = byFq.get(fq.id);
       if (existing) {
@@ -276,7 +373,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       }
     }
     return Array.from(byFq.values()).sort((a, b) => a.fq_code.localeCompare(b.fq_code));
-  }, [items, pickedDcIds, qualityById]);
+  }, [items, pickedDcIds, qualityById, receiptAggs]);
 
   // ── Totals (header) ──
   const gst = num(gstPct);
