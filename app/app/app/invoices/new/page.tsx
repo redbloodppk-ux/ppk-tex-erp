@@ -124,15 +124,16 @@ export default function NewInvoicePage() {
     (async () => {
       const [cp, cu, ve, so, fs, yl, oi] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
-        // Only customers backed by a Customer ledger appear in the
-        // dropdown. The !inner join through ledger.ledger_type ensures
-        // we drop any orphan customer rows that aren't tied to a
-        // CUSTOMER-type ledger.
+        // All active customers. The customer master is the source of
+        // truth; every customer also has a linked CUSTOMER ledger that
+        // is auto-maintained via party_type_master wiring. We don't
+        // hard-filter on the ledger link here because some legacy
+        // customers may briefly lack a ledger row, and we'd rather
+        // show them in the dropdown than silently hide them.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('customer')
-          .select('id, name, gstin, state, billing_address, is_vip, ledger:ledger_id!inner(id, ledger_type:type_id!inner(name))')
+          .select('id, name, gstin, state, billing_address, is_vip')
           .eq('status','active')
-          .eq('ledger.ledger_type.name', 'CUSTOMER')
           // VIPs first so the most important customers sit at the top
           // of the dropdown; alphabetical within each tier.
           .order('is_vip', { ascending: false })
