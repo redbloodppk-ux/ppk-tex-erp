@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil } from 'lucide-react';
+import { LedgerDeleteButton } from './delete-button';
 
 export const metadata = { title: 'Ledgers' };
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,7 @@ export default async function LedgersPage() {
               <th className="text-left px-4 py-3 hidden lg:table-cell">GSTIN</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Area</th>
               <th className="text-center px-4 py-3">Active</th>
+              <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -77,10 +79,18 @@ export default async function LedgersPage() {
                     ? <span className="pill bg-emerald-50 text-emerald-700">active</span>
                     : <span className="pill bg-slate-100 text-slate-500">inactive</span>}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="inline-flex items-center gap-2">
+                    <Link href={`/app/ledgers/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold" title="Edit ledger">
+                      <Pencil className="w-3 h-3" /> Edit
+                    </Link>
+                    <LedgerDeleteButton id={r.id} name={r.name} />
+                  </div>
+                </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No ledgers yet. <Link href="/app/ledgers/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>
