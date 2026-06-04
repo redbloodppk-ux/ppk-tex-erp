@@ -295,6 +295,8 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
 }) {
   const supabase = createClient();
   const [restockId, setRestockId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<BobbinRow | null>(null);
 
   async function restock(parent: BobbinRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -325,6 +327,43 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
     onChanged();
   }
 
+  async function saveEdit(): Promise<void> {
+    if (!editForm) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    // Editing the issued qty resets BOTH original_quantity (the
+    // history value) and quantity (the live balance) so the corrected
+    // value reflects everywhere. Any past stock-reduction math against
+    // this row should be reviewed by the operator separately.
+    const editedQty = Number(editForm.original_quantity ?? editForm.quantity ?? 0);
+    const payload = {
+      description: editForm.description,
+      ends_per_bobbin: editForm.ends_per_bobbin,
+      bobbin_metre: editForm.bobbin_metre,
+      original_quantity: editedQty,
+      quantity: editedQty,
+      jobwork_party_id: editForm.jobwork_party_id,
+      purchase_date: editForm.purchase_date,
+      bobbin_price: editForm.bobbin_price,
+    };
+    const { error } = await sb.from('bobbin').update(payload).eq('id', editForm.id);
+    if (error) { window.alert('Save failed: ' + error.message); return; }
+    setEditingId(null);
+    setEditForm(null);
+    onChanged();
+  }
+
+  async function del(id: number): Promise<void> {
+    if (!window.confirm('Delete this bobbin entry? This cannot be undone.')) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    // Soft-delete by status flip - matches what the page already filters
+    // out via .neq('status', 'archived').
+    const { error } = await sb.from('bobbin').update({ status: 'archived' }).eq('id', id);
+    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    onChanged();
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
@@ -350,33 +389,101 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
           <tbody>
             {rows.length === 0 ? (
               <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
-            ) : rows.map((r) => (
-              <React.Fragment key={r.id}>
-                <tr className="border-t border-line/40">
-                  <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                  <td className="px-3 py-2">{r.jobwork_party_id ? (partyById.get(r.jobwork_party_id)?.name ?? '-') : '-'}</td>
-                  <td className="px-3 py-2 text-ink-soft">{r.description}</td>
-                  <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
-                  <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
-                  <td className="px-3 py-2 text-right num font-semibold">{(r.original_quantity ?? r.quantity)}</td>
-                  <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => setRestockId(restockId === r.id ? null : r.id)}
-                      className="text-indigo-700 hover:text-indigo-900" title="Restock">
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-                {restockId === r.id && (
-                  <tr><td colSpan={8} className="p-0">
-                    <RestockForm parties={bobbinSuppliers}
-                      qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
-                      onCancel={() => setRestockId(null)}
-                      onSave={(data) => restock(r, data)} />
-                  </td></tr>
-                )}
-              </React.Fragment>
-            ))}
+            ) : rows.map((r) => {
+              const isEditing = editingId === r.id;
+              const ef = isEditing && editForm ? editForm : r;
+              const partyOptions = Array.from(partyById.values());
+              return (
+                <React.Fragment key={r.id}>
+                  <tr className="border-t border-line/40">
+                    {isEditing ? (
+                      <>
+                        <td className="px-3 py-2 font-mono text-xs text-ink-mute">{r.code}</td>
+                        <td className="px-2 py-2">
+                          <select
+                            className="input h-8 text-xs"
+                            value={ef.jobwork_party_id ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, jobwork_party_id: e.target.value === '' ? null : Number(e.target.value) })}
+                          >
+                            <option value="">---</option>
+                            {partyOptions.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            className="input h-8 text-xs"
+                            value={ef.description ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, description: e.target.value })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="number"
+                            className="input num h-8 text-xs w-16"
+                            value={ef.ends_per_bobbin ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, ends_per_bobbin: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="number"
+                            step={0.01}
+                            className="input num h-8 text-xs w-20"
+                            value={ef.bobbin_metre ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, bobbin_metre: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="number"
+                            className="input num h-8 text-xs w-20"
+                            value={ef.original_quantity ?? ef.quantity ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, original_quantity: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="date"
+                            className="input h-8 text-xs"
+                            value={ef.purchase_date ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
+                          <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                        <td className="px-3 py-2">{r.jobwork_party_id ? (partyById.get(r.jobwork_party_id)?.name ?? '-') : '-'}</td>
+                        <td className="px-3 py-2 text-ink-soft">{r.description}</td>
+                        <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
+                        <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
+                        <td className="px-3 py-2 text-right num font-semibold">{(r.original_quantity ?? r.quantity)}</td>
+                        <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                          <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                          <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {restockId === r.id && !isEditing && (
+                    <tr><td colSpan={8} className="p-0">
+                      <RestockForm parties={bobbinSuppliers}
+                        qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
+                        onCancel={() => setRestockId(null)}
+                        onSave={(data) => restock(r, data)} />
+                    </td></tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
           {rows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
