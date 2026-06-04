@@ -1224,16 +1224,16 @@ async function loadJobworkBobbin(
     const bob = o.bobbin_id != null ? bobInfoById.get(o.bobbin_id) : null;
     const col = endsColId(bob?.ends_per_bobbin ?? null);
     if (!colMap.has(col.id)) colMap.set(col.id, { id: col.id, label: col.label, sublabel: 'metres' });
-    const pcsCut = Number(o.quantity ?? 0);
-    const perPc = Number(bob?.bobbin_metre ?? 0);
-    const metresCut = perPc > 0 ? pcsCut * perPc : pcsCut;
+    // stock_ledger.quantity for bobbin is stored in METRES (1 m fabric
+    // consumes 1 m bobbin yarn). No conversion needed.
+    const metresCut = Number(o.quantity ?? 0);
     events.push({
       event_date: o.event_date ?? '',
       column_id: col.id,
       direction: 'out',
       quantity: Math.round(metresCut * 100) / 100,
       reference: o.reference_no ?? 'Fabric receipt',
-      notes: perPc > 0 ? `${pcsCut} pcs × ${perPc} m/pc` : (o.notes ?? ''),
+      notes: o.notes ?? '',
     });
   }
 

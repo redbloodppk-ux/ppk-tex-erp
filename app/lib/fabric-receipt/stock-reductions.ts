@@ -457,13 +457,16 @@ export async function applyFabricReceiptStockReductions(
       result.applied.bobbin_pcs += r.applied_pcs;
       for (const b of r.perBobbin) {
         if (b.cut_pcs <= 0) continue;
+        // Store bobbin consumption in METRES so the warehouse pivot
+        // reads it directly without needing to multiply by bobbin_metre.
+        // (1 m fabric consumes 1 m of bobbin yarn.)
         ledgerRows.push({
           bucket: 'bobbin', direction: 'out',
           jobwork_party_id: b.party_id, fabric_quality_id: it.fabric_quality_id,
           yarn_count_id: null, bobbin_id: b.bobbin_id,
-          quantity: b.cut_pcs, unit: 'pcs',
+          quantity: Math.round(b.cut_m * 100) / 100, unit: 'm',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-          notes: `${Math.round(b.cut_m * 100) / 100} m consumed`,
+          notes: `${b.cut_pcs} pcs × bobbin spec`,
         });
       }
       if (r.applied_m + 0.005 < it.received_metres) {

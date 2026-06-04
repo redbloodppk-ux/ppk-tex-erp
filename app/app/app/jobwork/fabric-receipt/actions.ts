@@ -463,15 +463,18 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
           });
         }
       }
-      // Bobbin outflow: ledger stores qty in PCS (bobbin_consumed_pcs),
-      // bobbin_id from fabric_quality.calc_snapshot.bobbinId.
+      // Bobbin outflow: stored in METRES (the receipt's
+      // bobbin_consumed_pcs column actually holds metres - one m of
+      // fabric consumes one m of bobbin yarn). We write unit='m' so the
+      // warehouse loader can use the value directly without trying to
+      // convert pcs → metres again.
       if (bobbinPcs > 0 && snap?.bobbinId != null && snap.bobbinId !== '') {
         const bobbinId = Number(snap.bobbinId);
         if (Number.isFinite(bobbinId) && bobbinId > 0) {
           rowsForThis.push({
             bucket: 'bobbin', direction: 'out',
             fabric_quality_id: fqId, bobbin_id: bobbinId,
-            quantity: Math.round(bobbinPcs * 100) / 100, unit: 'pcs',
+            quantity: Math.round(bobbinPcs * 100) / 100, unit: 'm',
             event_date: r.receipt_date,
             source_kind: 'fabric_receipt', source_id: r.id,
             reference_no: r.code, notes: 'Backfilled from receipt items',
