@@ -25,6 +25,12 @@ interface ReceiptItem {
   received_metres: number | string | null;
   weft_consumed_kg: number | string | null;
   porvai_consumed_kg: number | string | null;
+  /** Stored historically in PCS, but the snapshot now tracks bobbin in
+   *  METRES. We convert pcs → metres via the assigned bobbin's
+   *  bobbin_metre when we read it (resolved inside measureStock). For
+   *  the consumed delta here we just use received_metres since each
+   *  metre of fabric consumes one metre of bobbin yarn 1:1 when the
+   *  quality has a bobbin assigned. */
   bobbin_consumed_pcs: number | string | null;
 }
 
@@ -56,18 +62,21 @@ interface BucketTotals {
   warp_m: number;
   weft_kg: number;
   porvai_kg: number;
-  bobbin_pcs: number;
+  /** Bobbin consumption in METRES. For each receipt item that has
+   *  bobbin_consumed_pcs > 0 we use received_metres as the bobbin metre
+   *  consumption (1 m fabric consumes 1 m bobbin yarn). */
+  bobbin_m: number;
 }
 
 function consumedTotals(items: ReceiptItem[]): BucketTotals {
   return items.reduce<BucketTotals>(
     (acc, it) => ({
-      warp_m:     acc.warp_m     + n(it.received_metres),
-      weft_kg:    acc.weft_kg    + n(it.weft_consumed_kg),
-      porvai_kg:  acc.porvai_kg  + n(it.porvai_consumed_kg),
-      bobbin_pcs: acc.bobbin_pcs + n(it.bobbin_consumed_pcs),
+      warp_m:    acc.warp_m    + n(it.received_metres),
+      weft_kg:   acc.weft_kg   + n(it.weft_consumed_kg),
+      porvai_kg: acc.porvai_kg + n(it.porvai_consumed_kg),
+      bobbin_m:  acc.bobbin_m  + (n(it.bobbin_consumed_pcs) > 0 ? n(it.received_metres) : 0),
     }),
-    { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_pcs: 0 },
+    { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_m: 0 },
   );
 }
 
@@ -137,35 +146,35 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
     let todayBalance: BucketTotals;
     try {
       const m = await measureStock(sb, qIds);
-      todayBalance = { warp_m: m.warp_m, weft_kg: m.weft_kg, porvai_kg: m.porvai_kg, bobbin_pcs: m.bobbin_pcs };
+      todayBalance = { warp_m: m.warp_m, weft_kg: m.weft_kg, porvai_kg: m.porvai_kg, bobbin_m: m.bobbin_m };
     } catch {
       skipped++;
       continue;
     }
 
     const poolKey = qIds.slice().sort((a, b) => a - b).join(',');
-    const accAfter = runningPostReceipt[poolKey] ?? { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_pcs: 0 };
+    const accAfter = runningPostReceipt[poolKey] ?? { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_m: 0 };
 
     // after this receipt = today + everything consumed by NEWER receipts
     const afterR = {
-      warp_m:     todayBalance.warp_m     + accAfter.warp_m,
-      weft_kg:    todayBalance.weft_kg    + accAfter.weft_kg,
-      porvai_kg:  todayBalance.porvai_kg  + accAfter.porvai_kg,
-      bobbin_pcs: todayBalance.bobbin_pcs + accAfter.bobbin_pcs,
+      warp_m:    todayBalance.warp_m    + accAfter.warp_m,
+      weft_kg:   todayBalance.weft_kg   + accAfter.weft_kg,
+      porvai_kg: todayBalance.porvai_kg + accAfter.porvai_kg,
+      bobbin_m:  todayBalance.bobbin_m  + accAfter.bobbin_m,
     };
     const consumed = consumedTotals(r.items ?? []);
     const beforeR = {
-      warp_m:     afterR.warp_m     + consumed.warp_m,
-      weft_kg:    afterR.weft_kg    + consumed.weft_kg,
-      porvai_kg:  afterR.porvai_kg  + consumed.porvai_kg,
-      bobbin_pcs: afterR.bobbin_pcs + consumed.bobbin_pcs,
+      warp_m:    afterR.warp_m    + consumed.warp_m,
+      weft_kg:   afterR.weft_kg   + consumed.weft_kg,
+      porvai_kg: afterR.porvai_kg + consumed.porvai_kg,
+      bobbin_m:  afterR.bobbin_m  + consumed.bobbin_m,
     };
 
     const snapshot = {
-      warp_beam:   { before_m:  round2(beforeR.warp_m),     consumed_m:  round2(consumed.warp_m),     after_m:  round2(afterR.warp_m)     },
-      weft_yarn:   { before_kg: round3(beforeR.weft_kg),    consumed_kg: round3(consumed.weft_kg),    after_kg: round3(afterR.weft_kg)    },
-      porvai_yarn: { before_kg: round3(beforeR.porvai_kg),  consumed_kg: round3(consumed.porvai_kg),  after_kg: round3(afterR.porvai_kg)  },
-      bobbin:      { before_pcs: round2(beforeR.bobbin_pcs), consumed_pcs: round2(consumed.bobbin_pcs), after_pcs: round2(afterR.bobbin_pcs), before_m: 0, after_m: 0 },
+      warp_beam:   { before_m:  round2(beforeR.warp_m),    consumed_m:  round2(consumed.warp_m),    after_m:  round2(afterR.warp_m)    },
+      weft_yarn:   { before_kg: round3(beforeR.weft_kg),   consumed_kg: round3(consumed.weft_kg),   after_kg: round3(afterR.weft_kg)   },
+      porvai_yarn: { before_kg: round3(beforeR.porvai_kg), consumed_kg: round3(consumed.porvai_kg), after_kg: round3(afterR.porvai_kg) },
+      bobbin:      { before_m:  round2(beforeR.bobbin_m),  consumed_m:  round2(consumed.bobbin_m),  after_m:  round2(afterR.bobbin_m)  },
     };
 
     const { error: upErr } = await sb
@@ -178,10 +187,10 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
     // Roll the running total forward (older receipts saw this one's
     // consumption on top of their own future).
     runningPostReceipt[poolKey] = {
-      warp_m:     accAfter.warp_m     + consumed.warp_m,
-      weft_kg:    accAfter.weft_kg    + consumed.weft_kg,
-      porvai_kg:  accAfter.porvai_kg  + consumed.porvai_kg,
-      bobbin_pcs: accAfter.bobbin_pcs + consumed.bobbin_pcs,
+      warp_m:    accAfter.warp_m    + consumed.warp_m,
+      weft_kg:   accAfter.weft_kg   + consumed.weft_kg,
+      porvai_kg: accAfter.porvai_kg + consumed.porvai_kg,
+      bobbin_m:  accAfter.bobbin_m  + consumed.bobbin_m,
     };
   }
 

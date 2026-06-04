@@ -188,12 +188,15 @@ export async function measureStock(
   return result;
 }
 
-/** Shape persisted into fabric_receipt.stock_snapshot. */
+/** Shape persisted into fabric_receipt.stock_snapshot. Bobbin balance is
+ *  tracked in METRES (sum of quantity × bobbin_metre across matching
+ *  jobwork bobbins), not pieces. The operator thinks in metres on the
+ *  receipt — pieces are an implementation detail. */
 export interface StockSnapshotJson {
-  warp_beam:   { before_m: number;  consumed_m: number;  after_m: number };
+  warp_beam:   { before_m: number;  consumed_m: number;  after_m: number  };
   weft_yarn:   { before_kg: number; consumed_kg: number; after_kg: number };
   porvai_yarn: { before_kg: number; consumed_kg: number; after_kg: number };
-  bobbin:      { before_pcs: number; consumed_pcs: number; after_pcs: number; before_m: number; after_m: number };
+  bobbin:      { before_m: number;  consumed_m: number;  after_m: number  };
 }
 
 /** Build the snapshot JSON from two BucketSnapshot measurements. */
@@ -215,10 +218,8 @@ export function buildSnapshot(before: BucketSnapshot, after: BucketSnapshot): St
       after_kg:    after.porvai_kg,
     },
     bobbin: {
-      before_pcs:  before.bobbin_pcs,
-      consumed_pcs: Math.round((before.bobbin_pcs - after.bobbin_pcs) * 100) / 100,
-      after_pcs:   after.bobbin_pcs,
       before_m:    before.bobbin_m,
+      consumed_m:  Math.round((before.bobbin_m - after.bobbin_m) * 100) / 100,
       after_m:     after.bobbin_m,
     },
   };

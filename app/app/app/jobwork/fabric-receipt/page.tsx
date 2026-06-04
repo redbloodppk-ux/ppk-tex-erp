@@ -17,7 +17,7 @@ interface StockSnapshotJson {
   warp_beam?:   { before_m?: number;  consumed_m?: number;  after_m?: number  };
   weft_yarn?:   { before_kg?: number; consumed_kg?: number; after_kg?: number };
   porvai_yarn?: { before_kg?: number; consumed_kg?: number; after_kg?: number };
-  bobbin?:      { before_pcs?: number; consumed_pcs?: number; after_pcs?: number };
+  bobbin?:      { before_m?: number;  consumed_m?: number;  after_m?: number  };
 }
 
 interface ReceiptRow {
@@ -210,7 +210,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
               <th className="text-right px-3 py-3" title="Warp metres consumed">Warp Δ</th>
               <th className="text-right px-3 py-3" title="Weft yarn kg consumed">Weft Δ</th>
               <th className="text-right px-3 py-3" title="Porvai yarn kg consumed">Porvai Δ</th>
-              <th className="text-right px-3 py-3" title="Bobbin pcs consumed">Bobbin Δ</th>
+              <th className="text-right px-3 py-3" title="Bobbin metres consumed">Bobbin Δ</th>
               <th className="text-right px-3 py-3" />
             </tr>
           </thead>
@@ -226,7 +226,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
               const warpΔ   = snap?.warp_beam?.consumed_m    ?? 0;
               const weftΔ   = snap?.weft_yarn?.consumed_kg   ?? 0;
               const porvaiΔ = snap?.porvai_yarn?.consumed_kg ?? 0;
-              const bobbinΔ = snap?.bobbin?.consumed_pcs     ?? 0;
+              const bobbinΔ = snap?.bobbin?.consumed_m       ?? 0;
               const noSnapshot = snap == null;
               return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
@@ -251,7 +251,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
                     {noSnapshot ? <span className="text-ink-mute">-</span> : porvaiΔ > 0 ? '\u2212 ' + fmtMetres(porvaiΔ) + ' kg' : '-'}
                   </td>
                   <td className="px-3 py-2 text-right num text-xs text-rose-700">
-                    {noSnapshot ? <span className="text-ink-mute">-</span> : bobbinΔ > 0 ? '\u2212 ' + fmtMetres(bobbinΔ) + ' pcs' : '-'}
+                    {noSnapshot ? <span className="text-ink-mute">-</span> : bobbinΔ > 0 ? '\u2212 ' + fmtMetres(bobbinΔ) + ' m' : '-'}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">

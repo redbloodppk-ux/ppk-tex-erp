@@ -26,7 +26,7 @@ interface StockSnapshotJson {
   warp_beam?:   { before_m?: number;  consumed_m?: number;  after_m?: number  };
   weft_yarn?:   { before_kg?: number; consumed_kg?: number; after_kg?: number };
   porvai_yarn?: { before_kg?: number; consumed_kg?: number; after_kg?: number };
-  bobbin?:      { before_pcs?: number; consumed_pcs?: number; after_pcs?: number; before_m?: number; after_m?: number };
+  bobbin?:      { before_m?: number;  consumed_m?: number;  after_m?: number };
 }
 
 interface ReceiptRow {
@@ -296,11 +296,11 @@ function StockSnapshotCard({ snapshot }: { snapshot: StockSnapshotJson | null })
       </div>
     );
   }
-  const rows: Array<{ label: string; unit: 'm' | 'kg' | 'pcs'; before: number; consumed: number; after: number }> = [
-    { label: 'Warp metre',  unit: 'm',   before: snapshot.warp_beam?.before_m   ?? 0, consumed: snapshot.warp_beam?.consumed_m   ?? 0, after: snapshot.warp_beam?.after_m   ?? 0 },
-    { label: 'Weft yarn',   unit: 'kg',  before: snapshot.weft_yarn?.before_kg  ?? 0, consumed: snapshot.weft_yarn?.consumed_kg  ?? 0, after: snapshot.weft_yarn?.after_kg  ?? 0 },
-    { label: 'Porvai yarn', unit: 'kg',  before: snapshot.porvai_yarn?.before_kg?? 0, consumed: snapshot.porvai_yarn?.consumed_kg?? 0, after: snapshot.porvai_yarn?.after_kg?? 0 },
-    { label: 'Bobbin',      unit: 'pcs', before: snapshot.bobbin?.before_pcs    ?? 0, consumed: snapshot.bobbin?.consumed_pcs    ?? 0, after: snapshot.bobbin?.after_pcs    ?? 0 },
+  const rows: Array<{ label: string; unit: 'm' | 'kg'; before: number; consumed: number; after: number }> = [
+    { label: 'Warp metre',  unit: 'm',  before: snapshot.warp_beam?.before_m   ?? 0, consumed: snapshot.warp_beam?.consumed_m   ?? 0, after: snapshot.warp_beam?.after_m   ?? 0 },
+    { label: 'Weft yarn',   unit: 'kg', before: snapshot.weft_yarn?.before_kg  ?? 0, consumed: snapshot.weft_yarn?.consumed_kg  ?? 0, after: snapshot.weft_yarn?.after_kg  ?? 0 },
+    { label: 'Porvai yarn', unit: 'kg', before: snapshot.porvai_yarn?.before_kg?? 0, consumed: snapshot.porvai_yarn?.consumed_kg?? 0, after: snapshot.porvai_yarn?.after_kg?? 0 },
+    { label: 'Bobbin',      unit: 'm',  before: snapshot.bobbin?.before_m      ?? 0, consumed: snapshot.bobbin?.consumed_m      ?? 0, after: snapshot.bobbin?.after_m      ?? 0 },
   ];
   return (
     <div className="card overflow-hidden mb-4">
