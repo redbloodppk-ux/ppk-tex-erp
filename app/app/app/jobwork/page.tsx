@@ -30,6 +30,10 @@ interface BobbinRow {
   id: number; code: string; description: string;
   ends_per_bobbin: number; bobbin_metre: number; quantity: number; gst_pct: number;
   bobbin_price: number; jobwork_party_id: number | null; vendor_id: number | null;
+  /** Unified-party FK pointing at the bobbin supplier. Selected on
+   *  load alongside vendor_id. Used as the default supplier when
+   *  logging a bobbin-return back to the source. */
+  supplier_party_id: number | null;
   purchase_date: string | null; invoice_no: string | null; is_lurex: boolean;
   notes: string | null;
   /** Original purchase quantity, preserved by migration 090. Used in
