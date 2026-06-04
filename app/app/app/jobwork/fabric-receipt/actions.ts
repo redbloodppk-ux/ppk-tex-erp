@@ -197,3 +197,211 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
   revalidatePath('/app/jobwork/fabric-receipt');
   return { scanned, updated, skipped };
 }
+
+// ─── Reorganize receipts: dedupe + renumber to match source DC ──────────────
+
+export interface ReorganizeResult {
+  duplicates_removed: number;
+  renumbered: number;
+  skipped: number;
+  error?: string;
+}
+
+/** Parse the trailing sequence number out of a code like "JDC/26-27/0021"
+ *  or "FR/26-27/3". Returns the integer part of the LAST '/' segment, or
+ *  null if it can't be parsed. */
+function parseTrailingSeq(code: string | null | undefined): number | null {
+  if (!code) return null;
+  const tail = code.split('/').pop();
+  if (!tail) return null;
+  const m = /^(\d+)/.exec(tail);
+  return m ? Number(m[1]) : null;
+}
+
+/** Pad a sequence to a 4-digit string. */
+function pad4(n: number): string { return String(n).padStart(4, '0'); }
+
+/** Dedupe + renumber fabric_receipt codes so each FR matches its source
+ *  DC's sequence number. Steps:
+ *   1. Group receipts by dc_id; for each dc_id with > 1 receipt, keep
+ *      the newest (highest id) and cancel the rest (reverse stock,
+ *      delete items, delete header, free... but in this case the
+ *      remaining receipt still occupies the DC so we don't reset it).
+ *   2. For each surviving receipt, parse the source DC's seq and set
+ *      the receipt's code to FR/<fy>/<seq:0000>.
+ *   3. Clear all stock_snapshot fields (forcing a fresh backfill).
+ *   4. Resync doc_sequence.fabric_receipt next_value to MAX(seq) + 1.
+ *
+ * The caller is expected to click "Backfill snapshots" afterwards to
+ * regenerate the per-receipt before/after rows from current stock.
+ */
+export async function reorganizeFabricReceipts(): Promise<ReorganizeResult> {
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+
+  // 1. Pull every receipt with its dc_id, ordered by id ascending. We
+  //    use the receipt with the HIGHEST id per dc_id as the canonical
+  //    one (assumed to be the most recently saved + most correct).
+  const { data: receipts, error: rxErr } = await sb
+    .from('fabric_receipt')
+    .select('id, code, dc_id, dc:dc_id ( id, code, production_mode )')
+    .order('id', { ascending: true });
+  if (rxErr) return { duplicates_removed: 0, renumbered: 0, skipped: 0, error: rxErr.message };
+
+  type ReceiptRow = { id: number; code: string; dc_id: number | null; dc: { id: number; code: string; production_mode: string | null } | null };
+  const list = (receipts ?? []) as ReceiptRow[];
+
+  // Group by dc_id.
+  const byDc = new Map<number, ReceiptRow[]>();
+  const standalone: ReceiptRow[] = [];
+  for (const r of list) {
+    if (r.dc_id == null) { standalone.push(r); continue; }
+    const arr = byDc.get(r.dc_id);
+    if (arr) arr.push(r);
+    else byDc.set(r.dc_id, [r]);
+  }
+
+  // 2. Cancel duplicate receipts (everything except the highest-id one
+  //    per dc_id). Reuses cancelFabricReceipt logic inline so we don't
+  //    cross-import a server action.
+  let duplicates_removed = 0;
+  for (const [, group] of byDc) {
+    if (group.length <= 1) continue;
+    const sorted = group.slice().sort((a, b) => a.id - b.id);
+    const survivors = sorted.slice(-1); // keep latest
+    const losers = sorted.slice(0, -1);
+    void survivors;
+    for (const loser of losers) {
+      const ok = await internalCancelReceipt(sb, loser.id, false /* leave DC alone, survivor still holds it */);
+      if (ok) duplicates_removed++;
+    }
+  }
+
+  // 3. Re-read survivors after dedupe and renumber to match DC seq.
+  const { data: postDedupe } = await sb
+    .from('fabric_receipt')
+    .select('id, code, dc:dc_id ( id, code )')
+    .order('id', { ascending: true });
+  let renumbered = 0;
+  let skipped = 0;
+  let maxSeq = 0;
+  for (const r of (postDedupe ?? []) as Array<{ id: number; code: string; dc: { id: number; code: string } | null }>) {
+    const seq = parseTrailingSeq(r.dc?.code ?? null);
+    if (seq == null) { skipped++; continue; }
+    // Build new code mirroring the DC's FY portion. JDC/26-27/0021 -> FR/26-27/0021.
+    const parts = (r.dc?.code ?? '').split('/');
+    const fy = parts.length >= 3 ? parts[1] : '26-27';
+    const newCode = `FR/${fy}/${pad4(seq)}`;
+    if (r.code === newCode) { skipped++; if (seq > maxSeq) maxSeq = seq; continue; }
+    const { error: upErr } = await sb
+      .from('fabric_receipt')
+      .update({ code: newCode, stock_snapshot: null })
+      .eq('id', r.id);
+    if (upErr) { skipped++; continue; }
+    renumbered++;
+    if (seq > maxSeq) maxSeq = seq;
+  }
+  // Even rows we skipped should have snapshots cleared so the next
+  // backfill regenerates a consistent history.
+  await sb.from('fabric_receipt').update({ stock_snapshot: null }).is('stock_snapshot', null);
+
+  // 4. Resync the doc_sequence so the NEXT new receipt continues from
+  //    maxSeq + 1. We try the function from migration 092 first; if
+  //    it's not there fall back to a direct UPDATE.
+  try {
+    await sb.rpc('fn_resync_doc_sequence', { p_doc_type: 'fabric_receipt' });
+  } catch {
+    try {
+      await sb.from('doc_sequence')
+        .update({ next_value: maxSeq + 1 })
+        .eq('doc_type', 'fabric_receipt');
+    } catch {
+      // ignore - resync is best-effort
+    }
+  }
+
+  revalidatePath('/app/jobwork/fabric-receipt');
+  void standalone;
+  return { duplicates_removed, renumbered, skipped };
+}
+
+/** Internal cancel helper used by reorganizeFabricReceipts. Mirrors
+ *  cancelFabricReceipt's reversal logic but takes a flag for whether to
+ *  also reset the source DC. When deduping we leave the DC pointing at
+ *  the surviving receipt. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function internalCancelReceipt(sb: any, receiptId: number, resetDc: boolean): Promise<boolean> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let ledgerRows: any[] = [];
+  try {
+    const res = await sb
+      .from('stock_ledger')
+      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, quantity')
+      .eq('source_kind', 'fabric_receipt')
+      .eq('source_id', receiptId);
+    if (!res.error) ledgerRows = res.data ?? [];
+  } catch { ledgerRows = []; }
+
+  for (const row of ledgerRows) {
+    const qty = Number(row.quantity ?? 0);
+    if (qty <= 0) continue;
+    try {
+      if (row.bucket === 'warp_beam' && row.fabric_quality_id != null) {
+        const { data: beam } = await sb
+          .from('jobwork_warp_beam')
+          .select('id, total_metres')
+          .eq('fabric_quality_id', row.fabric_quality_id)
+          .order('id', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (beam) {
+          await sb.from('jobwork_warp_beam').update({ total_metres: Number(beam.total_metres ?? 0) + qty }).eq('id', beam.id);
+        }
+      } else if ((row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') && row.yarn_count_id != null) {
+        const { data: bag } = await sb
+          .from('jobwork_weft_bag')
+          .select('id, total_kg')
+          .eq('yarn_count_id', row.yarn_count_id)
+          .order('id', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (bag) {
+          await sb.from('jobwork_weft_bag').update({ total_kg: Number(bag.total_kg ?? 0) + qty }).eq('id', bag.id);
+        }
+      } else if (row.bucket === 'bobbin' && row.bobbin_id != null) {
+        const { data: bob } = await sb
+          .from('bobbin')
+          .select('id, quantity')
+          .eq('id', row.bobbin_id)
+          .maybeSingle();
+        if (bob) {
+          await sb.from('bobbin').update({ quantity: Number(bob.quantity ?? 0) + qty }).eq('id', bob.id);
+        }
+      }
+    } catch { /* keep going */ }
+  }
+
+  try {
+    await sb.from('stock_ledger')
+      .delete()
+      .eq('source_kind', 'fabric_receipt')
+      .eq('source_id', receiptId);
+  } catch { /* ignore */ }
+
+  const { error: itErr } = await sb.from('fabric_receipt_item').delete().eq('receipt_id', receiptId);
+  if (itErr) return false;
+
+  if (resetDc) {
+    // Look up dc_id first, then reset.
+    const { data: hdr } = await sb.from('fabric_receipt').select('dc_id').eq('id', receiptId).maybeSingle();
+    if (hdr?.dc_id) {
+      await sb.from('delivery_challan')
+        .update({ fabric_receipt_id: null, status: 'draft' })
+        .eq('id', hdr.dc_id);
+    }
+  }
+
+  const { error: rmErr } = await sb.from('fabric_receipt').delete().eq('id', receiptId);
+  return rmErr == null;
+}

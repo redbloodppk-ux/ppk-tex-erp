@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Eye } from 'lucide-react';
 import { BackfillSnapshotsButton } from './backfill-button';
+import { ReorganizeReceiptsButton } from './reorganize-button';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -138,7 +139,8 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
           { label: 'Fabric Receipts' },
         ]}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <ReorganizeReceiptsButton />
             <BackfillSnapshotsButton />
             <Link href="/app/jobwork" className="btn-secondary text-xs">
               Pick a DC to receive
