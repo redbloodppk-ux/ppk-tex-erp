@@ -153,7 +153,12 @@ export default function BobbinPage() {
       (supabase as any)
         .from('bobbin')
         .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, supplier_party_id, purchase_date, invoice_no, production_mode, jobwork_party_id, status, notes')
+        // Bobbin stock page is for IN-HOUSE bobbins only. Jobwork
+        // bobbins are managed from /app/jobwork → Bobbin given tab.
+        // Filter out rows tagged production_mode='jobwork' so the list
+        // and totals here reflect only in-house stock.
         .neq('status', 'archived')
+        .neq('production_mode', 'jobwork')
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
       bobbinSupplierTypeId === null
@@ -505,22 +510,10 @@ export default function BobbinPage() {
             </div>
 
             <div>
-              <label className="label" htmlFor="b-mode">Production mode *</label>
-              <select
-                id="b-mode"
-                className="input w-full"
-                value={form.production_mode}
-                onChange={(e) => setForm((f) => ({
-                  ...f,
-                  production_mode: e.target.value === 'jobwork' ? 'jobwork' : 'inhouse',
-                  // Clear party when switching back to in-house so a stale
-                  // FK doesn't get re-saved on the next edit.
-                  jobwork_party_id: e.target.value === 'jobwork' ? f.jobwork_party_id : '',
-                }))}
-              >
-                <option value="inhouse">In-house</option>
-                <option value="jobwork">Job work</option>
-              </select>
+              <label className="label" htmlFor="b-mode">Production mode</label>
+              {/* In-house only. Jobwork bobbins are entered from
+                  /app/jobwork → Bobbin given tab. */}
+              <div className="input bg-cloud/40 text-ink-soft">In-house</div>
             </div>
             {form.production_mode === 'jobwork' && (
               <div className="md:col-span-3">
