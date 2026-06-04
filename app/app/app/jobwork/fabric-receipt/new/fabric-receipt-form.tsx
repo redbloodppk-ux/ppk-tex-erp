@@ -28,6 +28,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { applyFabricReceiptStockReductions, type ReceiptItemForReduction, type Shortfall } from '@/lib/fabric-receipt/stock-reductions';
+import { measureStock, buildSnapshot } from '@/lib/fabric-receipt/stock-measure';
 
 export interface DcInfo {
   id: number;
@@ -191,6 +192,15 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
+    // Capture a "before" snapshot of jobwork stock balance across the
+    // receipt's fabric qualities (pooled with merged-delivery siblings).
+    // We'll capture "after" once reductions have been applied and store
+    // both on fabric_receipt.stock_snapshot as a transaction record.
+    const qualityIdsOnReceipt = Array.from(new Set(
+      items.map((it) => it.seed.fabric_quality_id).filter((x): x is number => x != null),
+    ));
+    const stockBefore = await measureStock(sb, qualityIdsOnReceipt);
+
     const headerPayload = {
       receipt_date: receiptDate,
       // Receipt type field removed from the UI - default to 'weaving'.
@@ -291,6 +301,20 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       receipt_code: hdr.code ?? null,
       receipt_date: receiptDate,
     });
+
+    // Capture "after" snapshot + persist the transaction record on the
+    // receipt itself. Best-effort: if the column doesn't exist yet
+    // (migration 091 not applied) we just skip the update.
+    try {
+      const stockAfter = await measureStock(sb, qualityIdsOnReceipt);
+      const snapshot = buildSnapshot(stockBefore, stockAfter);
+      await sb
+        .from('fabric_receipt')
+        .update({ stock_snapshot: snapshot })
+        .eq('id', receiptId);
+    } catch {
+      // Best-effort - column may not exist yet.
+    }
 
     setBusy(false);
     if (reduction.shortfalls.length > 0) {

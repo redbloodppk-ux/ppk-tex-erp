@@ -12,6 +12,13 @@ import { Eye } from 'lucide-react';
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
 
+interface StockSnapshotJson {
+  warp_beam?:   { before_m?: number;  consumed_m?: number;  after_m?: number  };
+  weft_yarn?:   { before_kg?: number; consumed_kg?: number; after_kg?: number };
+  porvai_yarn?: { before_kg?: number; consumed_kg?: number; after_kg?: number };
+  bobbin?:      { before_pcs?: number; consumed_pcs?: number; after_pcs?: number };
+}
+
 interface ReceiptRow {
   id: number;
   code: string;
@@ -22,6 +29,7 @@ interface ReceiptRow {
   total_pieces: number | null;
   status: string;
   remarks: string | null;
+  stock_snapshot: StockSnapshotJson | null;
   party: { id: number; name: string; code: string } | null;
   dc: { id: number; code: string } | null;
 }
@@ -59,7 +67,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
   let q = sb.from('fabric_receipt')
     .select(`
       id, code, receipt_date, receipt_type, party_dc_no,
-      total_metres, total_pieces, status, remarks,
+      total_metres, total_pieces, status, remarks, stock_snapshot,
       party:party_id ( id, name, code ),
       dc:dc_id ( id, code )
     `)
@@ -183,43 +191,61 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
               <th className="text-left  px-3 py-3">Date</th>
               <th className="text-left  px-3 py-3">Party</th>
               <th className="text-left  px-3 py-3">DC No</th>
-              <th className="text-left  px-3 py-3">Type</th>
               <th className="text-right px-3 py-3">Metres</th>
-              <th className="text-right px-3 py-3">Pieces</th>
-              <th className="text-left  px-3 py-3">Remarks</th>
+              <th className="text-right px-3 py-3" title="Warp metres consumed">Warp Δ</th>
+              <th className="text-right px-3 py-3" title="Weft yarn kg consumed">Weft Δ</th>
+              <th className="text-right px-3 py-3" title="Porvai yarn kg consumed">Porvai Δ</th>
+              <th className="text-right px-3 py-3" title="Bobbin pcs consumed">Bobbin Δ</th>
               <th className="text-right px-3 py-3" />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
+                <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
                   No fabric receipts yet. <Link href="/app/jobwork" className="text-indigo font-semibold">Pick a confirmed DC to receive &rarr;</Link>
                 </td>
               </tr>
-            ) : rows.map((r) => (
-              <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-3 py-2 font-mono text-xs">
-                  <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="text-indigo hover:underline">{r.code}</Link>
-                </td>
-                <td className="px-3 py-2 text-ink-soft">{fmtDate(r.receipt_date)}</td>
-                <td className="px-3 py-2 font-medium">{r.party?.name ?? '-'}</td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  {r.dc ? (
-                    <Link href={`/app/delivery-challan/${r.dc.id}`} className="text-indigo hover:underline">{r.dc.code}</Link>
-                  ) : (r.party_dc_no ?? '-')}
-                </td>
-                <td className="px-3 py-2 text-xs capitalize">{r.receipt_type}</td>
-                <td className="px-3 py-2 text-right num">{fmtMetres(r.total_metres)}</td>
-                <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
-                <td className="px-3 py-2 text-xs text-ink-soft truncate max-w-[200px]">{r.remarks ?? '-'}</td>
-                <td className="px-3 py-2 text-right">
-                  <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">
-                    <Eye className="w-4 h-4" />
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            ) : rows.map((r) => {
+              const snap = r.stock_snapshot;
+              const warpΔ   = snap?.warp_beam?.consumed_m    ?? 0;
+              const weftΔ   = snap?.weft_yarn?.consumed_kg   ?? 0;
+              const porvaiΔ = snap?.porvai_yarn?.consumed_kg ?? 0;
+              const bobbinΔ = snap?.bobbin?.consumed_pcs     ?? 0;
+              const noSnapshot = snap == null;
+              return (
+                <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-3 py-2 font-mono text-xs">
+                    <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="text-indigo hover:underline">{r.code}</Link>
+                  </td>
+                  <td className="px-3 py-2 text-ink-soft">{fmtDate(r.receipt_date)}</td>
+                  <td className="px-3 py-2 font-medium">{r.party?.name ?? '-'}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.dc ? (
+                      <Link href={`/app/delivery-challan/${r.dc.id}`} className="text-indigo hover:underline">{r.dc.code}</Link>
+                    ) : (r.party_dc_no ?? '-')}
+                  </td>
+                  <td className="px-3 py-2 text-right num">{fmtMetres(r.total_metres)}</td>
+                  <td className="px-3 py-2 text-right num text-xs text-rose-700">
+                    {noSnapshot ? <span className="text-ink-mute">-</span> : warpΔ > 0 ? '\u2212 ' + fmtMetres(warpΔ) + ' m' : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right num text-xs text-rose-700">
+                    {noSnapshot ? <span className="text-ink-mute">-</span> : weftΔ > 0 ? '\u2212 ' + fmtMetres(weftΔ) + ' kg' : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right num text-xs text-rose-700">
+                    {noSnapshot ? <span className="text-ink-mute">-</span> : porvaiΔ > 0 ? '\u2212 ' + fmtMetres(porvaiΔ) + ' kg' : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right num text-xs text-rose-700">
+                    {noSnapshot ? <span className="text-ink-mute">-</span> : bobbinΔ > 0 ? '\u2212 ' + fmtMetres(bobbinΔ) + ' pcs' : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">
+                      <Eye className="w-4 h-4" />
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

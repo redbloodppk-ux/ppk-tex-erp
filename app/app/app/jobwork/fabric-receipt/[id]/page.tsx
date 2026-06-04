@@ -22,6 +22,13 @@ export async function generateMetadata({
   return { title: `Fabric Receipt ${id}` };
 }
 
+interface StockSnapshotJson {
+  warp_beam?:   { before_m?: number;  consumed_m?: number;  after_m?: number  };
+  weft_yarn?:   { before_kg?: number; consumed_kg?: number; after_kg?: number };
+  porvai_yarn?: { before_kg?: number; consumed_kg?: number; after_kg?: number };
+  bobbin?:      { before_pcs?: number; consumed_pcs?: number; after_pcs?: number; before_m?: number; after_m?: number };
+}
+
 interface ReceiptRow {
   id: number;
   code: string;
@@ -32,6 +39,7 @@ interface ReceiptRow {
   total_metres: number | string | null;
   total_pieces: number | null;
   status: string;
+  stock_snapshot: StockSnapshotJson | null;
   party: { id: number; name: string; code: string; gstin: string | null } | null;
   dc: { id: number; code: string; dc_date: string } | null;
 }
@@ -85,7 +93,7 @@ export default async function FabricReceiptDetailPage({
     sb.from('fabric_receipt')
       .select(`
         id, code, receipt_date, receipt_type, party_dc_no, remarks,
-        total_metres, total_pieces, status,
+        total_metres, total_pieces, status, stock_snapshot,
         party:party_id ( id, name, code, gstin ),
         dc:dc_id ( id, code, dc_date )
       `)
@@ -178,6 +186,9 @@ export default async function FabricReceiptDetailPage({
         </div>
       </div>
 
+      {/* Stock transaction snapshot - before/after per bucket */}
+      <StockSnapshotCard snapshot={hdr.stock_snapshot} />
+
       {/* Items */}
       <div className="card overflow-x-auto mb-4">
         <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
@@ -255,6 +266,61 @@ export default async function FabricReceiptDetailPage({
           <div className="text-sm whitespace-pre-line">{hdr.remarks}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Render the receipt's stock transaction snapshot as a before / after
+ *  table for the four jobwork buckets (warp metre, weft yarn, porvai
+ *  yarn, bobbin). Captured at receipt save time, so it freezes the
+ *  exact stock movement this transaction caused. */
+function StockSnapshotCard({ snapshot }: { snapshot: StockSnapshotJson | null }): React.ReactElement {
+  if (!snapshot) {
+    return (
+      <div className="card p-4 mb-4 border-l-4 border-l-amber-400 bg-amber-50/30">
+        <div className="text-[11px] uppercase tracking-wide text-amber-700 mb-1">Stock transaction</div>
+        <div className="text-xs text-ink-soft">
+          No snapshot stored on this receipt - the receipt was saved before the snapshot feature was enabled, or migration 091 has not been applied. New receipts capture before/after automatically.
+        </div>
+      </div>
+    );
+  }
+  const rows: Array<{ label: string; unit: 'm' | 'kg' | 'pcs'; before: number; consumed: number; after: number }> = [
+    { label: 'Warp metre',  unit: 'm',   before: snapshot.warp_beam?.before_m   ?? 0, consumed: snapshot.warp_beam?.consumed_m   ?? 0, after: snapshot.warp_beam?.after_m   ?? 0 },
+    { label: 'Weft yarn',   unit: 'kg',  before: snapshot.weft_yarn?.before_kg  ?? 0, consumed: snapshot.weft_yarn?.consumed_kg  ?? 0, after: snapshot.weft_yarn?.after_kg  ?? 0 },
+    { label: 'Porvai yarn', unit: 'kg',  before: snapshot.porvai_yarn?.before_kg?? 0, consumed: snapshot.porvai_yarn?.consumed_kg?? 0, after: snapshot.porvai_yarn?.after_kg?? 0 },
+    { label: 'Bobbin',      unit: 'pcs', before: snapshot.bobbin?.before_pcs    ?? 0, consumed: snapshot.bobbin?.consumed_pcs    ?? 0, after: snapshot.bobbin?.after_pcs    ?? 0 },
+  ];
+  return (
+    <div className="card overflow-hidden mb-4">
+      <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex items-baseline justify-between">
+        <h2 className="font-display font-bold text-sm">Stock transaction</h2>
+        <span className="text-[11px] text-ink-soft">Captured at save time; pooled across merged-delivery siblings.</span>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
+          <tr>
+            <th className="text-left  px-4 py-2">Bucket</th>
+            <th className="text-right px-4 py-2">Before</th>
+            <th className="text-right px-4 py-2">Consumed</th>
+            <th className="text-right px-4 py-2">After</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className="border-t border-line/40">
+              <td className="px-4 py-2 font-medium">{r.label}</td>
+              <td className="px-4 py-2 text-right num">{fmtNum(r.before)} {r.unit}</td>
+              <td className="px-4 py-2 text-right num text-rose-700">
+                {r.consumed > 0 ? '\u2212 ' + fmtNum(r.consumed) + ' ' + r.unit : '-'}
+              </td>
+              <td className={'px-4 py-2 text-right num font-semibold ' + (r.after < 0 ? 'text-rose-700' : 'text-emerald-700')}>
+                {fmtNum(r.after)} {r.unit}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
