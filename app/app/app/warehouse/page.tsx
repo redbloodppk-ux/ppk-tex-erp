@@ -38,11 +38,11 @@ const INHOUSE_TABS = [
 ] as const;
 
 const JOBWORK_TABS = [
-  { key: 'warp_beam',   label: 'Warp Beam (m)',   icon: Ruler   },
-  { key: 'weft_yarn',   label: 'Weft Yarn (kg)',  icon: Boxes   },
-  { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes  },
-  { key: 'bobbin',      label: 'Bobbins (m)',     icon: Package },
-  { key: 'fabric',      label: 'Fabric (m)',      icon: Layers  },
+  { key: 'warp_beam',   label: 'Warp Beam (m)',    icon: Ruler   },
+  { key: 'weft_yarn',   label: 'Weft Yarn (kg)',   icon: Boxes   },
+  { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes   },
+  { key: 'bobbin',      label: 'Bobbins (m)',      icon: Package },
+  { key: 'fabric',      label: 'Fabric (m)',       icon: Layers  },
 ] as const;
 
 type InhouseSubTab = typeof INHOUSE_TABS[number]['key'];
@@ -999,63 +999,33 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
 }
 
 // ─── Warp Beam pivot ────────────────────────────────────────────────────────
-// Columns = distinct "ends count" (e.g. 2200, 2196, 2230) resolved from
-// the fabric_quality of each beam. Rows = each warp-beam-given event
-// (inflow) and each fabric-receipt-consumed event (outflow), in date
-// order. Cell = +metres for inflow, -metres for outflow.
+// Columns = distinct fabric qualities. For qualities with is_merged=true
+// AND a merged_name set, all siblings of the merge group collapse into
+// ONE column labelled with the merged_name. Standalone qualities appear
+// as their own column labelled with fq.code + fq.name.
+// Rows = each warp-beam-given event (inflow) and each fabric-receipt-
+// consumed event (outflow), in date order. Cell = +metres for inflow,
+// -metres for outflow.
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
 ): Promise<PivotData> {
-  // Resolve ends_count for each fabric_quality.
-  // Path 1: fabric_quality_ends link → ends.ends_count
-  // Path 2: calc_snapshot.endsId → ends.ends_count
-  let endsByQId = new Map<number, number>();
-  const qIds = qualities.map((q: any) => q.id);
-  if (qIds.length > 0) {
-    const linkRows = await safeSelect<{ fabric_quality_id: number; ends: { ends_count: number | null } | null }>(
-      supabase.from('fabric_quality_ends')
-        .select('fabric_quality_id, ends:ends_id ( ends_count )')
-        .in('fabric_quality_id', qIds),
+  // Read merge metadata for every fabric_quality we may encounter so we
+  // can collapse merged siblings into a single column.
+  const fqMergeById = new Map<number, { code: string; name: string; is_merged: boolean; merged_name: string | null }>();
+  if (qualities.length > 0) {
+    const qIds = qualities.map((q: any) => q.id);
+    const mergeRows = await safeSelect<{ id: number; code: string; name: string; is_merged: boolean | null; merged_name: string | null }>(
+      supabase.from('fabric_quality')
+        .select('id, code, name, is_merged, merged_name')
+        .in('id', qIds),
     );
-    for (const r of linkRows) {
-      const ec = r.ends?.ends_count;
-      if (r.fabric_quality_id != null && ec != null && !endsByQId.has(r.fabric_quality_id)) {
-        endsByQId.set(r.fabric_quality_id, Number(ec));
-      }
-    }
-    // Fallback via calc_snapshot.endsId
-    const missingQIds = qIds.filter((id: number) => !endsByQId.has(id));
-    if (missingQIds.length > 0) {
-      const snapRows = await safeSelect<{ id: number; calc_snapshot: { endsId?: number | string } | null }>(
-        supabase.from('fabric_quality')
-          .select('id, calc_snapshot')
-          .in('id', missingQIds),
-      );
-      const endsIdsToLookup = new Set<number>();
-      const endsIdByQId = new Map<number, number>();
-      for (const r of snapRows) {
-        const eid = r.calc_snapshot?.endsId;
-        if (eid != null && eid !== '') {
-          const n = Number(eid);
-          if (Number.isFinite(n) && n > 0) {
-            endsIdsToLookup.add(n);
-            endsIdByQId.set(r.id, n);
-          }
-        }
-      }
-      if (endsIdsToLookup.size > 0) {
-        const endsRows = await safeSelect<{ id: number; ends_count: number | null }>(
-          supabase.from('ends').select('id, ends_count').in('id', Array.from(endsIdsToLookup)),
-        );
-        const endsCountById = new Map<number, number>();
-        for (const r of endsRows) {
-          if (r.ends_count != null) endsCountById.set(r.id, Number(r.ends_count));
-        }
-        for (const [qId, eId] of endsIdByQId) {
-          const ec = endsCountById.get(eId);
-          if (ec != null) endsByQId.set(qId, ec);
-        }
-      }
+    for (const r of mergeRows) {
+      fqMergeById.set(r.id, {
+        code: r.code ?? '',
+        name: r.name ?? '',
+        is_merged: r.is_merged === true,
+        merged_name: r.merged_name ?? null,
+      });
     }
   }
 
@@ -1108,42 +1078,42 @@ async function loadJobworkWarpBeam(
     })(),
   );
 
-  // Build columns and events keyed by ends_count.
-  const colByEnds = new Map<number, PivotColumn>();
+  // Build columns + events keyed by fabric quality (with merged groups
+  // collapsed into a single column). Column id =
+  //   m:<merged_name>  for merged-delivery siblings
+  //   fq:<id>          for standalone qualities
+  //   unknown          for rows with no fabric_quality_id
+  const colMap = new Map<string, PivotColumn>();
   const events: PivotEvent[] = [];
   const partyById = new Map(parties.map((p: any) => [p.id, p]));
-  const qualityById = new Map(qualities.map((q: any) => [q.id, q]));
 
-  const colIdFor = (qualityId: number | null): { id: string; ec: number | null } => {
-    const ec = qualityId != null ? endsByQId.get(qualityId) ?? null : null;
-    return { id: ec != null ? `ends_${ec}` : 'ends_unknown', ec };
-  };
-  const ensureCol = (qualityId: number | null) => {
-    const { id, ec } = colIdFor(qualityId);
-    if (!colByEnds.has(qualityId ?? -1) && !Array.from(colByEnds.values()).some(c => c.id === id)) {
-      // Use ends_count as the dedupe key
+  const colInfo = (qualityId: number | null): { id: string; label: string; sublabel: string } => {
+    if (qualityId == null) return { id: 'unknown', label: '(no quality)', sublabel: '' };
+    const m = fqMergeById.get(qualityId);
+    if (m && m.is_merged && m.merged_name && m.merged_name.trim() !== '') {
+      return { id: `m:${m.merged_name.trim()}`, label: m.merged_name.trim(), sublabel: 'merged group' };
     }
-    const existing = Array.from(colByEnds.values()).find(c => c.id === id);
-    if (existing) return id;
-    colByEnds.set(qualityId ?? -1, {
-      id,
-      label: ec != null ? `${ec} ends` : '(no ends)',
-      sublabel: '',
-    });
-    return id;
+    return { id: `fq:${qualityId}`, label: m?.code ?? `FQ #${qualityId}`, sublabel: m?.name ?? '' };
+  };
+  const ensureCol = (qualityId: number | null): string => {
+    const info = colInfo(qualityId);
+    if (!colMap.has(info.id)) {
+      colMap.set(info.id, { id: info.id, label: info.label, sublabel: info.sublabel });
+    }
+    return info.id;
   };
 
   for (const b of beams) {
     const colId = ensureCol(b.fabric_quality_id);
-    const fq = b.fabric_quality_id != null ? qualityById.get(b.fabric_quality_id) : null;
-    const p  = b.jobwork_party_id   != null ? partyById.get(b.jobwork_party_id) : null;
+    const m = b.fabric_quality_id != null ? fqMergeById.get(b.fabric_quality_id) : null;
+    const p = b.jobwork_party_id != null ? partyById.get(b.jobwork_party_id) : null;
     events.push({
       event_date: b.given_date ?? '',
       column_id: colId,
       direction: 'in',
       quantity: Number(b.original_metres ?? b.total_metres ?? 0),
       reference: `${b.reference_no ?? 'Beam #' + b.id} · ${p?.name ?? ''}`,
-      notes: [fq?.code, b.beam_count ? `${b.beam_count} beam(s)` : ''].filter(Boolean).join(' · '),
+      notes: [m?.code, b.beam_count ? `${b.beam_count} beam(s)` : ''].filter(Boolean).join(' · '),
     });
   }
   for (const o of outRows) {
@@ -1157,14 +1127,18 @@ async function loadJobworkWarpBeam(
       notes: o.notes ?? '',
     });
   }
-
-  const columns = Array.from(colByEnds.values()).sort((a, b) => a.label.localeCompare(b.label));
+  void counts;
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   return { unit: 'm', columns, events };
 }
 
 // ─── Bobbin pivot (jobwork) ─────────────────────────────────────────────────
-// Columns = distinct bobbin specs (ends × metres per piece). Rows =
-// bobbin purchases (inflow) and fabric-receipt consumption (outflow).
+// Columns = distinct ends_per_bobbin values (e.g. "30 ends", "32 ends").
+// Bobbins with the same ends count but different bobbin_metre still
+// share one column. Rows = bobbin purchases (inflow) and fabric-receipt
+// consumption (outflow). All quantities expressed in METRES (inflow:
+// quantity × bobbin_metre per piece; outflow: ledger qty pcs ×
+// bobbin_metre of the consumed bobbin).
 async function loadJobworkBobbin(
   supabase: any, sp: SP, parties: any[], _bobbinMasters: any[],
 ): Promise<PivotData> {
@@ -1218,42 +1192,48 @@ async function loadJobworkBobbin(
   const colMap = new Map<string, PivotColumn>();
   const events: PivotEvent[] = [];
 
-  const specColId = (ends: number | null, metre: number | string | null): { id: string; label: string; sub: string } => {
-    const e = ends ?? 0;
-    const m = Number(metre ?? 0);
-    if (e <= 0 && m <= 0) return { id: 'spec_unknown', label: '(no spec)', sub: '' };
-    return { id: `spec_${e}_${m}`, label: `${e} × ${m} m`, sub: 'pcs · ends × m/pc' };
+  const endsColId = (ends: number | null): { id: string; label: string } => {
+    if (ends == null || ends <= 0) return { id: 'ends_unknown', label: '(no ends)' };
+    return { id: `ends_${ends}`, label: `${ends} ends` };
   };
 
   for (const b of bobs) {
-    const spec = specColId(b.ends_per_bobbin, b.bobbin_metre);
-    if (!colMap.has(spec.id)) colMap.set(spec.id, { id: spec.id, label: spec.label, sublabel: spec.sub });
+    const col = endsColId(b.ends_per_bobbin);
+    if (!colMap.has(col.id)) colMap.set(col.id, { id: col.id, label: col.label, sublabel: 'metres' });
     const p = b.jobwork_party_id != null ? partyById.get(b.jobwork_party_id) : null;
+    // Inflow quantity = pcs × metres-per-piece. If bobbin_metre is null
+    // or zero, fall back to the raw pcs count so the row still shows.
+    const pcs = Number(b.original_quantity ?? b.quantity ?? 0);
+    const perPc = Number(b.bobbin_metre ?? 0);
+    const metres = perPc > 0 ? pcs * perPc : pcs;
     events.push({
       event_date: b.purchase_date ?? '',
-      column_id: spec.id,
+      column_id: col.id,
       direction: 'in',
-      quantity: Number(b.original_quantity ?? b.quantity ?? 0),
+      quantity: Math.round(metres * 100) / 100,
       reference: `${b.code} · ${p?.name ?? ''}`,
-      notes: b.description ?? '',
+      notes: perPc > 0 ? `${pcs} pcs × ${perPc} m/pc` : (b.description ?? ''),
     });
   }
   for (const o of outRows) {
     const bob = o.bobbin_id != null ? bobInfoById.get(o.bobbin_id) : null;
-    const spec = specColId(bob?.ends_per_bobbin ?? null, bob?.bobbin_metre ?? null);
-    if (!colMap.has(spec.id)) colMap.set(spec.id, { id: spec.id, label: spec.label, sublabel: spec.sub });
+    const col = endsColId(bob?.ends_per_bobbin ?? null);
+    if (!colMap.has(col.id)) colMap.set(col.id, { id: col.id, label: col.label, sublabel: 'metres' });
+    const pcsCut = Number(o.quantity ?? 0);
+    const perPc = Number(bob?.bobbin_metre ?? 0);
+    const metresCut = perPc > 0 ? pcsCut * perPc : pcsCut;
     events.push({
       event_date: o.event_date ?? '',
-      column_id: spec.id,
+      column_id: col.id,
       direction: 'out',
-      quantity: Number(o.quantity ?? 0),
+      quantity: Math.round(metresCut * 100) / 100,
       reference: o.reference_no ?? 'Fabric receipt',
-      notes: o.notes ?? '',
+      notes: perPc > 0 ? `${pcsCut} pcs × ${perPc} m/pc` : (o.notes ?? ''),
     });
   }
 
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  return { unit: 'pcs', columns, events };
+  return { unit: 'm', columns, events };
 }
 
 // ─── Weft / Porvai Yarn pivot ───────────────────────────────────────────────
