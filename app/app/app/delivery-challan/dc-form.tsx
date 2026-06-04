@@ -223,22 +223,27 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
 
   // ---- Fabric quality dropdown filtered by DC production mode ----
-  // In jobwork DCs only show fabric_quality rows where production_mode
-  // is 'jobwork'. In inhouse DCs show everything that isn't tagged as
-  // jobwork (covers inhouse + outsourcing + null). A quality that's
-  // already saved on an existing item is always kept visible so the
-  // operator can see what was previously picked even if the mode now
-  // disqualifies it.
+  // String mismatch alert: delivery_challan.production_mode stores
+  // 'jobwork' (no underscore) but fabric_quality.production_mode stores
+  // 'job_work' (with underscore — see migration 065 + fabric quality
+  // form). We normalize: the DC's 'jobwork' mode matches fabric
+  // qualities whose production_mode is either 'job_work' or 'jobwork'.
+  // In inhouse DCs we show everything that ISN'T a jobwork quality
+  // (covers inhouse + outsourcing + null). Qualities already saved on
+  // an item stay visible so the operator can see what was picked
+  // before, even if the mode now disqualifies them.
   const filteredQualities = useMemo<QualityOpt[]>(() => {
     const keepIds = new Set<number>(
       form.items
         .map((it) => Number(it.fabric_quality_id))
         .filter((n) => Number.isInteger(n) && n > 0),
     );
+    const isJobworkQuality = (q: QualityOpt): boolean =>
+      q.production_mode === 'job_work' || q.production_mode === 'jobwork';
     if (form.production_mode === 'jobwork') {
-      return qualities.filter((q) => q.production_mode === 'jobwork' || keepIds.has(q.id));
+      return qualities.filter((q) => isJobworkQuality(q) || keepIds.has(q.id));
     }
-    return qualities.filter((q) => q.production_mode !== 'jobwork' || keepIds.has(q.id));
+    return qualities.filter((q) => !isJobworkQuality(q) || keepIds.has(q.id));
   }, [qualities, form.production_mode, form.items]);
 
   function pickParty(partyIdStr: string): void {
