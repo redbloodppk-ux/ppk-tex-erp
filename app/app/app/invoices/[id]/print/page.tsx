@@ -231,18 +231,25 @@ export default async function InvoicePrintPage({
           border: 1px solid #d4d4d4;
           box-shadow: 0 4px 24px rgba(0,0,0,0.08);
         }
-        .inv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-        .inv-head .co-name { font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: #111; margin-top: 4px; }
-        .inv-head .co-sub { font-size: 9px; color: #888; line-height: 1.5; }
+        /* DC-style header: centered title band + meta strip + bill/ship grid */
+        .inv-title { text-align: center; font-size: 16px; font-weight: 700; letter-spacing: 2px; color: #111; padding-top: 4px; }
+        .inv-orig  { text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 4px; color: #555; margin-top: 2px; margin-bottom: 8px; }
+        .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
+        .inv-meta > div { padding: 6px 8px; border-right: 1px solid #000; font-size: 10px; }
+        .inv-meta > div:last-child { border-right: none; }
+        .inv-meta .lbl { font-size: 8px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+        .inv-meta .val { font-weight: 700; color: #111; font-size: 11px; }
+        .inv-secbar { background: #000; color: #fff; padding: 4px 8px; font-size: 10px; font-weight: 700; letter-spacing: 2px; margin-top: 10px; }
+        .inv-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
+        .inv-billship > div { padding: 8px 10px; border-right: 1px solid #000; }
+        .inv-billship > div:last-child { border-right: none; }
+        .inv-billship .tag { font-size: 9px; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+        .inv-billship .gst { font-size: 10px; color: #333; }
+        .inv-billship .party { font-size: 12px; font-weight: 700; color: #111; margin-top: 2px; }
+        .inv-billship .addr { font-size: 10px; color: #444; white-space: pre-line; line-height: 1.5; margin-top: 2px; }
+        .inv-billship .ps { font-size: 9px; color: #555; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #aaa; }
         .inv-tag { display: inline-block; font-size: 9px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
-        .inv-no { font-size: 16px; font-weight: 700; color: #111; margin-top: 6px; }
-        .inv-date { font-size: 10px; color: #666; }
-        .inv-rule { border-bottom: 0.5px solid #e5e5e5; margin: 14px 0; }
         .inv-lab { font-size: 8px; color: #aaa; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
-        .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .pname { font-size: 12px; font-weight: 600; color: #111; }
-        .paddr { font-size: 10px; color: #555; white-space: pre-line; }
-        .pgst { font-size: 10px; color: #555; margin-top: 2px; }
         .refstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f7f7f9; padding: 8px 10px; border-radius: 4px; margin-top: 12px; }
         .refstrip .lbl { font-size: 8px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
         .refstrip .val { font-size: 10px; font-weight: 600; color: #111; }
@@ -275,41 +282,47 @@ export default async function InvoicePrintPage({
         className={'inv-sheet inv-watermark ' +
           (inv.status === 'draft' ? 'inv-status-draft' : inv.status === 'cancelled' ? 'inv-status-cancelled' : '')}
       >
-        {/* ───── Header: logo + name on left, doc tag + invoice no on right ───── */}
-        <div className="inv-head">
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <BrandLogo variant="mark" height={56} />
-            <div>
-              <div className="co-name">{COMPANY.name}</div>
-              <div className="co-sub">{COMPANY.address}</div>
-              <div className="co-sub">GSTIN {COMPANY.gstin} &middot; State {COMPANY.state} ({COMPANY.stateCode})</div>
+        {/* ───── Header band: logo + company name + doc title (DC-style) ───── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <BrandLogo variant="mark" height={56} />
+          <div style={{ flex: 1 }}>
+            <div className="inv-title">{COMPANY.name} &nbsp; {style.title.toUpperCase()}</div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: '#555', marginTop: 2 }}>
+              {COMPANY.address}
             </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <span className="inv-tag" style={{ background: style.accentSoft, color: style.accent }}>
-              {style.title}
-            </span>
-            <div className="inv-no">{inv.invoice_no}</div>
-            <div className="inv-date">{fmtDate(inv.invoice_date)} &middot; Original Copy</div>
           </div>
         </div>
 
-        <div className="inv-rule"></div>
+        <div className="inv-orig">ORIGINAL COPY</div>
 
-        {/* ───── Parties ───── */}
-        <div className="parties">
+        {/* ───── Meta strip ───── */}
+        <div className="inv-meta">
+          <div><div className="lbl">INVOICE DATE</div><div className="val">{fmtDate(inv.invoice_date)}</div></div>
+          <div><div className="lbl">INVOICE #</div><div className="val">{inv.invoice_no}</div></div>
+          <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
+          <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
+        </div>
+
+        {/* ───── Bill To / Ship To (DC-style) ───── */}
+        <div className="inv-secbar">{style.partyLabel.toUpperCase()} :</div>
+        <div className="inv-billship">
           <div>
-            <div className="inv-lab">{style.partyLabel}</div>
-            <div className="pname">{partyName || '-'}</div>
-            <div className="paddr">{partyAddress || ''}</div>
-            {partyGstin && <div className="pgst">GSTIN {partyGstin}</div>}
-            {partyState && <div className="pgst">State {partyState} {isInterstate ? '· Interstate (IGST)' : '· Intrastate (CGST + SGST)'}</div>}
+            <div className="tag">{style.partyLabel.toUpperCase()}</div>
+            <div className="gst">GSTIN : {partyGstin || '-'}</div>
+            <div className="party">{partyName || '-'}</div>
+            <div className="addr">{partyAddress || ''}</div>
+            <div className="ps">
+              PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'} &nbsp;&middot;&nbsp; {isInterstate ? 'INTERSTATE (IGST)' : 'INTRASTATE (CGST + SGST)'}
+            </div>
           </div>
           <div>
-            <div className="inv-lab">Ship to</div>
-            <div className="pname">{partyName || '-'}</div>
-            <div className="paddr">{partyAddress || ''}</div>
-            {inv.place_of_supply && <div className="pgst">Place of supply : {inv.place_of_supply}</div>}
+            <div className="tag">SHIP TO</div>
+            <div className="gst">GSTIN : {partyGstin || '-'}</div>
+            <div className="party">{partyName || '-'}</div>
+            <div className="addr">{partyAddress || ''}</div>
+            <div className="ps">
+              PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'}
+            </div>
           </div>
         </div>
 
