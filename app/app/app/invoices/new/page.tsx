@@ -21,7 +21,7 @@ import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } fr
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
 type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return';
 
-interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null }
+interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null; is_vip?: boolean | null }
 interface Vendor   { id: number; name: string; gstin: string | null; ledger_type?: { name: string } | null }
 interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_kg: number;
                      yarn_count_id: number; mill_id: number;
@@ -130,9 +130,12 @@ export default function NewInvoicePage() {
         // CUSTOMER-type ledger.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('customer')
-          .select('id, name, gstin, state, billing_address, ledger:ledger_id!inner(id, ledger_type:type_id!inner(name))')
+          .select('id, name, gstin, state, billing_address, is_vip, ledger:ledger_id!inner(id, ledger_type:type_id!inner(name))')
           .eq('status','active')
           .eq('ledger.ledger_type.name', 'CUSTOMER')
+          // VIPs first so the most important customers sit at the top
+          // of the dropdown; alphabetical within each tier.
+          .order('is_vip', { ascending: false })
           .order('name'),
         // Vendors are now ledgers - pull any active ledger that's not a CUSTOMER/CASH/BANK/TAX type
         // so we cover SUPPLIER, AGENT, SIZING/WEAVING/FOLDING vendors etc.
@@ -509,7 +512,7 @@ export default function NewInvoicePage() {
                     <option value="" disabled>Select customer…</option>
                     {customers.map(c => (
                       <option key={c.id} value={c.id}>
-                        {c.name} {c.state ? `· ${c.state}` : ''}
+                        {c.is_vip ? '★ ' : ''}{c.name} {c.state ? `· ${c.state}` : ''}
                       </option>
                     ))}
                   </select>

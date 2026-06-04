@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
-import { Plus, Phone, MapPin } from 'lucide-react';
+import { Plus, Phone, MapPin, Star } from 'lucide-react';
 
 export const metadata = { title: 'Customers' };
 
@@ -10,7 +10,9 @@ export default async function CustomersPage() {
   const supabase = await createClient();
   const { data: customers, error } = await supabase
     .from('customer')
-    .select('id, code, name, gstin, phone, email, city, credit_limit, payment_terms_days, status')
+    .select('id, code, name, gstin, phone, email, city, credit_limit, payment_terms_days, status, is_vip')
+    // VIP customers float to the top, then alphabetical within each group.
+    .order('is_vip', { ascending: false })
     .order('name');
 
   return (
@@ -48,9 +50,14 @@ export default async function CustomersPage() {
               <tr key={c.id} className="border-t border-line/40 hover:bg-haze/60">
                 <td className="px-4 py-3 font-mono text-xs">{c.code}</td>
                 <td className="px-4 py-3">
-                  <Link href={`/app/customers/${c.id}`} className="font-semibold text-ink hover:text-indigo">
-                    {c.name}
-                  </Link>
+                  <span className="inline-flex items-center gap-1.5">
+                    {c.is_vip && (
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" aria-label="VIP customer" />
+                    )}
+                    <Link href={`/app/customers/${c.id}`} className="font-semibold text-ink hover:text-indigo">
+                      {c.name}
+                    </Link>
+                  </span>
                   {c.status !== 'active' && (
                     <span className="ml-2 pill bg-slate-100 text-slate-500">{c.status}</span>
                   )}
