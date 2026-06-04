@@ -174,8 +174,45 @@ export function JobworkPaymentTab(_props: JobworkPaymentTabProps): React.ReactEl
       ledger_id: pMode === 'bank' && pLedger !== '' ? Number(pLedger) : null,
     };
     const { error: err } = await sb.from('payment').insert(payload);
+    if (err) { setBusy(false); setError(err.message); return; }
+
+    // ── Auto-update invoice status based on the new paid total ──
+    // Threshold rule: if the outstanding balance is LESS THAN Rs 10 we
+    // treat the bill as fully paid (covers rounding / cash short-pay
+    // tolerances). Anything Rs 10 or above remains 'partial'. Zero
+    // payments fall back to whatever status the bill already had.
+    try {
+      const bill = bills.find((b) => b.id === billId);
+      if (bill) {
+        const previouslyPaid = paidTotal(billId);
+        const newPaid = previouslyPaid + amt;
+        const billTotal = Number(bill.total ?? 0);
+        const outstanding = billTotal - newPaid;
+        // Tolerance: a 10-rupee shortage still counts as fully paid
+        // (covers your "bill 610, received 600 -> full" rule).
+        let nextStatus: string | null = null;
+        if (outstanding <= 10) nextStatus = 'paid';
+        else if (newPaid > 0)   nextStatus = 'partial';
+        if (nextStatus && nextStatus !== bill.status) {
+          await sb.from('invoice')
+            .update({
+              status: nextStatus,
+              amount_paid: Math.round(newPaid * 100) / 100,
+            })
+            .eq('id', billId);
+        } else {
+          // Even if status didn't change, keep amount_paid in sync so
+          // reports + invoice detail show the right outstanding.
+          await sb.from('invoice')
+            .update({ amount_paid: Math.round(newPaid * 100) / 100 })
+            .eq('id', billId);
+        }
+      }
+    } catch {
+      // Status update is best-effort - the payment itself is saved.
+    }
+
     setBusy(false);
-    if (err) { setError(err.message); return; }
     setOpenFor(null);
     await load();
   }
