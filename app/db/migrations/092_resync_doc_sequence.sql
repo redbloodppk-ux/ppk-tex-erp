@@ -59,7 +59,9 @@ BEGIN
 END;
 $$;
 
--- One-shot resync for the known doc types we ship.
+-- One-shot resync for the known doc types we ship. Each call sets
+-- next_value = (max existing sequence) + 1 so the very next saved row
+-- continues from where the live data left off.
 SELECT public.fn_resync_doc_sequence('jobwork_invoice');
 SELECT public.fn_resync_doc_sequence('jobwork_dc');
 SELECT public.fn_resync_doc_sequence('inhouse_dc');
