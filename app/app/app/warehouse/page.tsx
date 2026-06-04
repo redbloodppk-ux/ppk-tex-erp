@@ -23,6 +23,11 @@ import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
+// Force server-render on every visit so the jobwork tabs always reflect
+// the latest inflow rows added on the /app/jobwork page (and outflows
+// from fabric receipts). Without this Next.js may serve a cached
+// snapshot of the page and the operator sees stale inflows.
+export const dynamic = 'force-dynamic';
 
 type Mode = 'inhouse' | 'jobwork';
 
