@@ -297,6 +297,84 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
   const [restockId, setRestockId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<BobbinRow | null>(null);
+  // Add-new form state. The form panel only renders when showAdd=true so
+  // the table isn't pushed down by an empty form on first load.
+  const [showAdd, setShowAdd] = useState<boolean>(false);
+  const [addBusy, setAddBusy] = useState<boolean>(false);
+  const [addForm, setAddForm] = useState<{
+    jobwork_party_id: string;
+    description: string;
+    ends_per_bobbin: string;
+    bobbin_metre: string;
+    quantity: string;
+    bobbin_price: string;
+    gst_pct: string;
+    purchase_date: string;
+    supplier_party_id: string;
+    is_lurex: boolean;
+    notes: string;
+  }>({
+    jobwork_party_id: '',
+    description: '',
+    ends_per_bobbin: '',
+    bobbin_metre: '',
+    quantity: '',
+    bobbin_price: '',
+    gst_pct: '0',
+    purchase_date: todayISO(),
+    supplier_party_id: '',
+    is_lurex: false,
+    notes: '',
+  });
+
+  function resetAddForm(): void {
+    setAddForm({
+      jobwork_party_id: '',
+      description: '',
+      ends_per_bobbin: '',
+      bobbin_metre: '',
+      quantity: '',
+      bobbin_price: '',
+      gst_pct: '0',
+      purchase_date: todayISO(),
+      supplier_party_id: '',
+      is_lurex: false,
+      notes: '',
+    });
+  }
+
+  async function addBobbin(): Promise<void> {
+    const partyId = addForm.jobwork_party_id === '' ? null : Number(addForm.jobwork_party_id);
+    if (partyId === null) { window.alert('Select a jobwork party.'); return; }
+    const ends = Number(addForm.ends_per_bobbin || 0);
+    const perPc = Number(addForm.bobbin_metre || 0);
+    const qty = Number(addForm.quantity || 0);
+    if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
+    setAddBusy(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const payload = {
+      description: addForm.description || `${ends} ends × ${perPc} m`,
+      ends_per_bobbin: ends,
+      bobbin_metre: perPc,
+      bobbin_price: Number(addForm.bobbin_price || 0),
+      gst_pct: Number(addForm.gst_pct || 0),
+      quantity: Math.trunc(qty),
+      jobwork_party_id: partyId,
+      supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
+      production_mode: 'jobwork',
+      purchase_date: addForm.purchase_date,
+      is_lurex: addForm.is_lurex,
+      notes: addForm.notes || null,
+      status: 'active',
+    };
+    const { error } = await sb.from('bobbin').insert(payload);
+    setAddBusy(false);
+    if (error) { window.alert('Add failed: ' + error.message); return; }
+    resetAddForm();
+    setShowAdd(false);
+    onChanged();
+  }
 
   async function restock(parent: BobbinRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,11 +445,116 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
-        <p className="text-sm text-ink-mute">Bobbin purchases marked as jobwork. Click Restock to log a new batch of the same spec.</p>
-        <Link href="/app/bobbin" className="btn-primary">
-          <Plus className="w-4 h-4" /> Add Bobbin Stock
-        </Link>
+        <p className="text-sm text-ink-mute">Bobbin issued to jobwork parties. Use Add to log a new bobbin spec; Restock to log a fresh batch of an existing spec.</p>
+        <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
+          {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {showAdd ? 'Cancel' : 'Add bobbin given'}
+        </button>
       </div>
+
+      {/* Inline add form. Mirrors the WarpBeam/WeftBag tabs' inline
+          create pattern. Inserts directly into the bobbin table with
+          production_mode='jobwork'. */}
+      {showAdd && (
+        <div className="card p-3 mb-3 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="label text-xs">Jobwork Party *</label>
+            <select
+              className="input h-9 text-sm"
+              value={addForm.jobwork_party_id}
+              onChange={(e) => setAddForm({ ...addForm, jobwork_party_id: e.target.value })}
+            >
+              <option value="">--- select ---</option>
+              {Array.from(partyById.values()).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label text-xs">Description</label>
+            <input
+              className="input h-9 text-sm"
+              placeholder="e.g. 30 ends 100 m"
+              value={addForm.description}
+              onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Ends per bobbin *</label>
+            <input
+              type="number"
+              className="input num h-9 text-sm"
+              value={addForm.ends_per_bobbin}
+              onChange={(e) => setAddForm({ ...addForm, ends_per_bobbin: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Metres per piece *</label>
+            <input
+              type="number"
+              step={0.01}
+              className="input num h-9 text-sm"
+              value={addForm.bobbin_metre}
+              onChange={(e) => setAddForm({ ...addForm, bobbin_metre: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Quantity (pcs) *</label>
+            <input
+              type="number"
+              className="input num h-9 text-sm"
+              value={addForm.quantity}
+              onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Bobbin price (Rs)</label>
+            <input
+              type="number"
+              step={0.01}
+              className="input num h-9 text-sm"
+              value={addForm.bobbin_price}
+              onChange={(e) => setAddForm({ ...addForm, bobbin_price: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Purchase date *</label>
+            <input
+              type="date"
+              className="input h-9 text-sm"
+              value={addForm.purchase_date}
+              onChange={(e) => setAddForm({ ...addForm, purchase_date: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Supplier (optional)</label>
+            <select
+              className="input h-9 text-sm"
+              value={addForm.supplier_party_id}
+              onChange={(e) => setAddForm({ ...addForm, supplier_party_id: e.target.value })}
+            >
+              <option value="">---</option>
+              {bobbinSuppliers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-4 flex items-center justify-end gap-2 pt-1">
+            <button type="button" onClick={() => { setShowAdd(false); resetAddForm(); }} className="btn-secondary text-xs">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={addBobbin}
+              disabled={addBusy}
+              className="btn-primary text-xs"
+            >
+              {addBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Save bobbin given
+            </button>
+          </div>
+        </div>
+      )}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
