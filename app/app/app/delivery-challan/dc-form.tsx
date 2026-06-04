@@ -46,6 +46,7 @@ export interface QualityOpt {
   code: string | null;
   name: string;
   hsn: string | null;
+  production_mode: string | null;
 }
 
 /** Each piece is just a metres value (as a string for controlled input). */
@@ -197,7 +198,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const [ptRes, partyRes, fqRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
-        sb.from('fabric_quality').select('id, code, name, hsn').eq('active', true).order('name'),
+        sb.from('fabric_quality').select('id, code, name, hsn, production_mode').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
@@ -220,6 +221,25 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   }, [allParties, form.production_mode, customerTypeId, jobworkTypeId]);
 
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
+
+  // ---- Fabric quality dropdown filtered by DC production mode ----
+  // In jobwork DCs only show fabric_quality rows where production_mode
+  // is 'jobwork'. In inhouse DCs show everything that isn't tagged as
+  // jobwork (covers inhouse + outsourcing + null). A quality that's
+  // already saved on an existing item is always kept visible so the
+  // operator can see what was previously picked even if the mode now
+  // disqualifies it.
+  const filteredQualities = useMemo<QualityOpt[]>(() => {
+    const keepIds = new Set<number>(
+      form.items
+        .map((it) => Number(it.fabric_quality_id))
+        .filter((n) => Number.isInteger(n) && n > 0),
+    );
+    if (form.production_mode === 'jobwork') {
+      return qualities.filter((q) => q.production_mode === 'jobwork' || keepIds.has(q.id));
+    }
+    return qualities.filter((q) => q.production_mode !== 'jobwork' || keepIds.has(q.id));
+  }, [qualities, form.production_mode, form.items]);
 
   function pickParty(partyIdStr: string): void {
     setForm((f) => {
@@ -701,7 +721,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                       value={it.fabric_quality_id}
                       onChange={(e) => pickFabric(itemIdx, e.target.value)}>
                       <option value="">--- pick ---</option>
-                      {qualities.map((q) => (
+                      {filteredQualities.map((q) => (
                         <option key={q.id} value={q.id}>{q.name}</option>
                       ))}
                     </select>
