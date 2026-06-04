@@ -47,6 +47,8 @@ export interface QualityOpt {
   name: string;
   hsn: string | null;
   production_mode: string | null;
+  is_merged: boolean | null;
+  merged_name: string | null;
 }
 
 /** Each piece is just a metres value (as a string for controlled input). */
@@ -198,7 +200,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const [ptRes, partyRes, fqRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
-        sb.from('fabric_quality').select('id, code, name, hsn, production_mode').eq('active', true).order('name'),
+        sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
@@ -240,10 +242,40 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     );
     const isJobworkQuality = (q: QualityOpt): boolean =>
       q.production_mode === 'job_work' || q.production_mode === 'jobwork';
-    if (form.production_mode === 'jobwork') {
-      return qualities.filter((q) => isJobworkQuality(q) || keepIds.has(q.id));
+
+    // Step 1: apply the production-mode filter (with keepIds escape
+    // hatch so any quality already on an item stays visible).
+    const modeFiltered = form.production_mode === 'jobwork'
+      ? qualities.filter((q) => isJobworkQuality(q) || keepIds.has(q.id))
+      : qualities.filter((q) => !isJobworkQuality(q) || keepIds.has(q.id));
+
+    // Step 2: collapse merged-delivery siblings. For each merged group
+    // (rows with is_merged=true sharing a merged_name), show ONE option
+    // with the merged_name as the label. The option's value is the id
+    // of a representative sibling - we prefer a sibling already saved
+    // on an item so existing DCs reload correctly; otherwise the
+    // smallest id wins.
+    const mergedGroups = new Map<string, QualityOpt[]>();
+    const standalone: QualityOpt[] = [];
+    for (const q of modeFiltered) {
+      if (q.is_merged && q.merged_name && q.merged_name.trim() !== '') {
+        const mn = q.merged_name.trim();
+        const list = mergedGroups.get(mn);
+        if (list) list.push(q);
+        else mergedGroups.set(mn, [q]);
+      } else {
+        standalone.push(q);
+      }
     }
-    return qualities.filter((q) => !isJobworkQuality(q) || keepIds.has(q.id));
+    const result: QualityOpt[] = [...standalone];
+    for (const [mn, group] of mergedGroups) {
+      const keepSibling = group.find((q) => keepIds.has(q.id));
+      const rep = keepSibling ?? group.slice().sort((a, b) => a.id - b.id)[0]!;
+      // Overlay the merged_name as the displayed `name` so the dropdown
+      // option label reads "Bath Towel 30x60" instead of "FQ-0001".
+      result.push({ ...rep, name: mn });
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   }, [qualities, form.production_mode, form.items]);
 
   function pickParty(partyIdStr: string): void {

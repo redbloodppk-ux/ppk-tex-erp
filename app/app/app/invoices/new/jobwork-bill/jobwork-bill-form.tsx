@@ -81,6 +81,11 @@ interface FabricQualityRow {
    *  from per-metre to per-piece pricing: rate = pick_cost_per_m ×
    *  meter_per_pc, quantity = pieces, uom = pcs. */
   meter_per_pc: number | string | null;
+  /** Merge-delivery flag + common name. When two qualities share the
+   *  same merged_name, their lines are rolled up into a single invoice
+   *  line under that name. */
+  is_merged: boolean | null;
+  merged_name: string | null;
 }
 
 interface JobworkBillFormProps {
@@ -289,7 +294,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       if (qIds.length > 0) {
         const { data: qRows } = await sb
           .from('fabric_quality')
-          .select('id, code, name, hsn, pick_cost_per_m, meter_per_pc')
+          .select('id, code, name, hsn, pick_cost_per_m, meter_per_pc, is_merged, merged_name')
           .in('id', qIds);
         if (cancelled) return;
         const m = new Map<number, FabricQualityRow>();
@@ -325,28 +330,40 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       receiptByKey.set(`${ra.dc_id}|${ra.fabric_quality_id ?? 'n'}`, ra);
     }
 
-    const byFq = new Map<number, LineAgg>();
+    // Aggregation key: for merged-delivery qualities (is_merged=true +
+    // merged_name set) we use the merged_name so every sibling rolls up
+    // into ONE invoice line. For standalone qualities we key by id.
+    // The line's fq_id stays a single representative id (the first
+    // sibling encountered) so the saved invoice_line still references a
+    // real fabric_quality row.
+    const groupKey = (fq: FabricQualityRow): string => {
+      const mn = (fq.merged_name ?? '').trim();
+      if (fq.is_merged && mn !== '') return `m:${mn}`;
+      return `fq:${fq.id}`;
+    };
+    const groupDisplay = (fq: FabricQualityRow): { code: string; name: string } => {
+      const mn = (fq.merged_name ?? '').trim();
+      if (fq.is_merged && mn !== '') return { code: mn, name: '' };
+      return { code: fq.code, name: fq.name };
+    };
+
+    const byKey = new Map<string, LineAgg>();
     for (const it of items) {
       if (!pickedDcIds.has(it.dc_id)) continue;
       if (it.fabric_quality_id == null) continue;
       const fq = qualityById.get(it.fabric_quality_id);
       if (!fq) continue;
-      // Prefer receipt-side values; fall back to DC if the receipt row
-      // is missing (shouldn't happen for receipted DCs but keep us safe).
       const receipt = receiptByKey.get(`${it.dc_id}|${it.fabric_quality_id}`);
       const metres = receipt ? receipt.received_metres : num(it.metres);
       const baseRate = num(fq.pick_cost_per_m);
       const masterTowelLen = num(fq.meter_per_pc);
-      // A line is "towel-billed" if the receipt itself was entered as
-      // pieces (towel length captured at receipt time). Falls back to
-      // the master's meter_per_pc as a hint when no receipt yet (legacy
-      // un-receipted DCs).
       const receiptTowel = receipt?.any_towel === true;
       const towelLength = receiptTowel ? (receipt!.towel_length || masterTowelLen) : masterTowelLen;
       const isTowel = receiptTowel || (!receipt && masterTowelLen > 0);
       const pieces = receipt ? receipt.pieces_from_receipt : (it.pieces ?? 0);
       const effectiveRate = isTowel ? round2(baseRate * towelLength) : baseRate;
-      const existing = byFq.get(fq.id);
+      const key = groupKey(fq);
+      const existing = byKey.get(key);
       if (existing) {
         existing.metres += metres;
         existing.pieces += pieces;
@@ -354,11 +371,12 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         existing.quantity = existing.uom === 'pcs' ? existing.pieces : existing.metres;
         existing.taxable = round2(existing.quantity * existing.rate);
       } else {
+        const display = groupDisplay(fq);
         const quantity = isTowel ? pieces : metres;
-        byFq.set(fq.id, {
+        byKey.set(key, {
           fq_id: fq.id,
-          fq_code: fq.code,
-          fq_name: fq.name,
+          fq_code: display.code,
+          fq_name: display.name,
           hsn: it.hsn ?? fq.hsn ?? '',
           base_rate: baseRate,
           towel_length: towelLength,
@@ -372,7 +390,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         });
       }
     }
-    return Array.from(byFq.values()).sort((a, b) => a.fq_code.localeCompare(b.fq_code));
+    return Array.from(byKey.values()).sort((a, b) => a.fq_code.localeCompare(b.fq_code));
   }, [items, pickedDcIds, qualityById, receiptAggs]);
 
   // ── Totals (header) ──
