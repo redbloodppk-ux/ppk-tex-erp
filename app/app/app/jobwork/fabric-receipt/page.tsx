@@ -206,7 +206,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
               <th className="text-left  px-3 py-3">Date</th>
               <th className="text-left  px-3 py-3">Party</th>
               <th className="text-left  px-3 py-3">DC No</th>
-              <th className="text-right px-3 py-3">Metres</th>
+              <th className="text-right px-3 py-3" title="Pieces if the receipt was entered in PCS, otherwise metres">Metres/Pcs</th>
               <th className="text-right px-3 py-3" title="Warp metres consumed">Warp Δ</th>
               <th className="text-right px-3 py-3" title="Weft yarn kg consumed">Weft Δ</th>
               <th className="text-right px-3 py-3" title="Porvai yarn kg consumed">Porvai Δ</th>
@@ -240,7 +240,16 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
                       <Link href={`/app/delivery-challan/${r.dc.id}`} className="text-indigo hover:underline">{r.dc.code}</Link>
                     ) : (r.party_dc_no ?? '-')}
                   </td>
-                  <td className="px-3 py-2 text-right num">{fmtMetres(r.total_metres)}</td>
+                  <td className="px-3 py-2 text-right num">
+                    {/* Show the ACTUAL delivery quantity. If the receipt
+                        was entered in PCS (towel mode), show pieces; the
+                        metres value would just be pieces × towel_length
+                        which is a derived/converted number, so we skip
+                        it. If the receipt was in MTR mode, show metres. */}
+                    {(r.total_pieces ?? 0) > 0
+                      ? <>{r.total_pieces} <span className="text-[10px] text-ink-mute">pcs</span></>
+                      : <>{fmtMetres(r.total_metres)} <span className="text-[10px] text-ink-mute">m</span></>}
+                  </td>
                   <td className="px-3 py-2 text-right num text-xs text-rose-700">
                     {noSnapshot ? <span className="text-ink-mute">-</span> : warpΔ > 0 ? '\u2212 ' + fmtMetres(warpΔ) + ' m' : '-'}
                   </td>
