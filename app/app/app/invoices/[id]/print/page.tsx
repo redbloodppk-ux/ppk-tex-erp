@@ -228,11 +228,11 @@ export default async function InvoicePrintPage({
           padding: 12mm 14mm;
           box-sizing: border-box;
           font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
-          /* Bumped from 11px → 13px and weight to 600 for a bolder,
-             easier-to-read print across all invoice/jobwork bill types. */
-          font-size: 13px;
+          /* Bumped again: body 13px → 14px for easier reading from a
+             distance. Weight stays 600. */
+          font-size: 14px;
           font-weight: 600;
-          line-height: 1.45;
+          line-height: 1.5;
           border: 1px solid #d4d4d4;
           box-shadow: 0 4px 24px rgba(0,0,0,0.08);
         }
@@ -244,8 +244,11 @@ export default async function InvoicePrintPage({
         .inv-meta > div:last-child { border-right: none; }
         .inv-meta .lbl { font-size: 9px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
         .inv-meta .val { font-weight: 800; color: #000; font-size: 13px; }
-        .inv-secbar { background: #000; color: #fff; padding: 4px 8px; font-size: 12px; font-weight: 800; letter-spacing: 2px; margin-top: 10px; }
-        .inv-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
+        /* The old black "BILL TO :" header bar was redundant — each box
+           already shows its own label inside (.tag). The bar is now an
+           empty spacer: same height/border-rule but no fill, no text. */
+        .inv-secbar { background: transparent; color: transparent; padding: 0; height: 6px; margin-top: 10px; }
+        .inv-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; }
         .inv-billship > div { padding: 8px 10px; border-right: 1px solid #000; }
         .inv-billship > div:last-child { border-right: none; }
         .inv-billship .tag { font-size: 11px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
@@ -315,7 +318,10 @@ export default async function InvoicePrintPage({
         </div>
 
         {/* ───── Bill To / Ship To (DC-style) ───── */}
-        <div className="inv-secbar">{style.partyLabel.toUpperCase()} :</div>
+        {/* The old solid-black "BILL TO :" header bar is now an empty
+            spacer above the box. Each side of the box still shows its
+            own .tag label ("BILL TO" / "SHIP TO") in plain black text. */}
+        <div className="inv-secbar" aria-hidden="true"></div>
         <div className="inv-billship">
           <div>
             <div className="tag">{style.partyLabel.toUpperCase()}</div>
