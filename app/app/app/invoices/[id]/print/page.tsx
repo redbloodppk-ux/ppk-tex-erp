@@ -237,13 +237,13 @@ export default async function InvoicePrintPage({
           box-shadow: 0 4px 24px rgba(0,0,0,0.08);
         }
         /* DC-style header: centered title band + meta strip + bill/ship grid */
-        .inv-title { text-align: center; font-size: 19px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
-        .inv-orig  { text-align: center; font-size: 12px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 2px; margin-bottom: 8px; }
+        .inv-title { text-align: center; font-size: 21px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
+        .inv-orig  { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 2px; margin-bottom: 8px; }
         .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
-        .inv-meta > div { padding: 6px 8px; border-right: 1px solid #000; font-size: 12px; font-weight: 600; }
+        .inv-meta > div { padding: 7px 8px; border-right: 1px solid #000; font-size: 13px; font-weight: 600; }
         .inv-meta > div:last-child { border-right: none; }
-        .inv-meta .lbl { font-size: 9px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
-        .inv-meta .val { font-weight: 800; color: #000; font-size: 13px; }
+        .inv-meta .lbl { font-size: 10px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+        .inv-meta .val { font-weight: 800; color: #000; font-size: 14px; }
         /* The old black "BILL TO :" header bar was redundant — each box
            already shows its own label inside (.tag). The bar is now an
            empty spacer: same height/border-rule but no fill, no text. */
@@ -251,32 +251,32 @@ export default async function InvoicePrintPage({
         .inv-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; }
         .inv-billship > div { padding: 8px 10px; border-right: 1px solid #000; }
         .inv-billship > div:last-child { border-right: none; }
-        .inv-billship .tag { font-size: 11px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
-        .inv-billship .gst { font-size: 12px; font-weight: 600; color: #111; }
-        .inv-billship .party { font-size: 14px; font-weight: 800; color: #000; margin-top: 2px; }
-        .inv-billship .addr { font-size: 12px; font-weight: 600; color: #222; white-space: pre-line; line-height: 1.5; margin-top: 2px; }
-        .inv-billship .ps { font-size: 11px; font-weight: 600; color: #333; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #aaa; }
-        .inv-tag { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
-        .inv-lab { font-size: 9px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
-        .refstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f7f7f9; padding: 8px 10px; border-radius: 4px; margin-top: 12px; }
-        .refstrip .lbl { font-size: 9px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
-        .refstrip .val { font-size: 12px; font-weight: 700; color: #000; }
+        .inv-billship .tag { font-size: 12px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+        .inv-billship .gst { font-size: 13px; font-weight: 600; color: #111; }
+        .inv-billship .party { font-size: 15px; font-weight: 800; color: #000; margin-top: 2px; }
+        .inv-billship .addr { font-size: 13px; font-weight: 600; color: #222; white-space: pre-line; line-height: 1.5; margin-top: 2px; }
+        .inv-billship .ps { font-size: 12px; font-weight: 600; color: #333; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #aaa; }
+        .inv-tag { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
+        .inv-lab { font-size: 10px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
+        .refstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f7f7f9; padding: 9px 10px; border-radius: 4px; margin-top: 12px; }
+        .refstrip .lbl { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .refstrip .val { font-size: 13px; font-weight: 700; color: #000; }
         table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
-        table.items th { font-size: 11px; font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 1px; text-align: left; padding: 7px 6px; border-bottom: 0.5px solid #888; }
-        table.items td { font-size: 13px; font-weight: 600; padding: 7px 6px; border-bottom: 0.5px solid #ccc; vertical-align: top; color: #111; }
+        table.items th { font-size: 12px; font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 1px; text-align: left; padding: 8px 6px; border-bottom: 0.5px solid #888; }
+        table.items td { font-size: 14px; font-weight: 600; padding: 8px 6px; border-bottom: 0.5px solid #ccc; vertical-align: top; color: #111; }
         table.items td.num, table.items th.num { text-align: right; }
         table.items tfoot td { font-weight: 800; color: #000; border-top: 1px solid #333; border-bottom: none; padding-top: 8px; }
-        .totals-grid { display: grid; grid-template-columns: 1fr 220px; gap: 14px; margin-top: 14px; }
-        .totals-left { font-size: 12px; font-weight: 600; color: #222; }
-        .totals-left .h { font-size: 11px; color: #000; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-        .totals-right table { width: 100%; font-size: 13px; font-weight: 600; }
-        .totals-right td { padding: 4px 0; }
+        .totals-grid { display: grid; grid-template-columns: 1fr 240px; gap: 14px; margin-top: 14px; }
+        .totals-left { font-size: 13px; font-weight: 600; color: #222; }
+        .totals-left .h { font-size: 12px; color: #000; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .totals-right table { width: 100%; font-size: 14px; font-weight: 600; }
+        .totals-right td { padding: 5px 0; }
         .totals-right td.v { text-align: right; font-weight: 700; color: #000; }
-        .totals-right tr.grand td { font-size: 17px; font-weight: 900; color: #000; padding-top: 8px; border-top: 1px solid #333; }
-        .words { margin-top: 10px; padding: 8px 10px; background: #fafafa; border-left: 3px solid; font-size: 12px; font-weight: 700; font-style: italic; color: #222; }
-        .foot-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; padding-top: 10px; border-top: 0.5px solid #e5e5e5; font-size: 12px; font-weight: 600; color: #222; }
-        .sig-block { text-align: right; padding-top: 32px; font-weight: 800; color: #000; font-size: 13px; }
-        .addr-foot { margin-top: 14px; padding-top: 8px; border-top: 0.5px solid #e5e5e5; text-align: center; font-size: 11px; font-weight: 600; color: #333; line-height: 1.5; }
+        .totals-right tr.grand td { font-size: 19px; font-weight: 900; color: #000; padding-top: 8px; border-top: 1px solid #333; }
+        .words { margin-top: 10px; padding: 9px 10px; background: #fafafa; border-left: 3px solid; font-size: 13px; font-weight: 700; font-style: italic; color: #222; }
+        .foot-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; padding-top: 10px; border-top: 0.5px solid #e5e5e5; font-size: 13px; font-weight: 600; color: #222; }
+        .sig-block { text-align: right; padding-top: 32px; font-weight: 800; color: #000; font-size: 14px; }
+        .addr-foot { margin-top: 14px; padding-top: 8px; border-top: 0.5px solid #e5e5e5; text-align: center; font-size: 12px; font-weight: 600; color: #333; line-height: 1.5; }
         .ref-original { margin-top: 6px; font-size: 10px; color: #555; }
         .ref-original b { color: #111; }
         .inv-watermark { position: relative; }
