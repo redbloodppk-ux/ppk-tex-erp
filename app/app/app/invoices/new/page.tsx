@@ -21,7 +21,7 @@ import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } fr
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
 type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return';
 
-interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null; is_vip?: boolean | null }
+interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null; is_vip?: boolean | null; ledger_type_name?: string | null }
 interface Vendor   { id: number; name: string; gstin: string | null; ledger_type?: { name: string } | null }
 interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_kg: number;
                      yarn_count_id: number; mill_id: number;
@@ -132,7 +132,7 @@ export default function NewInvoicePage() {
         // show them in the dropdown than silently hide them.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('customer')
-          .select('id, name, gstin, state, billing_address, is_vip')
+          .select('id, name, gstin, state, billing_address, is_vip, ledger:ledger_id ( ledger_type:type_id ( name ) )')
           .eq('status','active')
           // VIPs first so the most important customers sit at the top
           // of the dropdown; alphabetical within each tier.
@@ -160,7 +160,20 @@ export default function NewInvoicePage() {
           .in('doc_type', ['tax_invoice','yarn_sale','general_sale']).order('invoice_date', { ascending: false }).limit(100),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
-      setCustomers(cu.data ?? []);
+      // Flatten the nested ledger.ledger_type.name onto each customer so
+      // we can tell at a glance if it's a Rental customer (used to
+      // auto-fill the rental defaults on the line rows below).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const flatCustomers: Customer[] = ((cu.data ?? []) as any[]).map((c) => ({
+        id: c.id,
+        name: c.name,
+        gstin: c.gstin ?? null,
+        state: c.state ?? null,
+        billing_address: c.billing_address ?? null,
+        is_vip: c.is_vip ?? false,
+        ledger_type_name: c.ledger?.ledger_type?.name ?? null,
+      }));
+      setCustomers(flatCustomers);
       setVendors(ve.data ?? []);
       setSalesOrders(so.data ?? []);
       setFabricStock((fs.data ?? []) as any);
@@ -234,6 +247,32 @@ export default function NewInvoicePage() {
 
   // ── derived: customer state → interstate? ─────────────────────────────────
   const currentCustomer = customers.find(c => c.id === Number(customerId));
+  const isRentalCustomer = currentCustomer?.ledger_type_name === 'RENTAL';
+
+  // When a Rental customer is picked on a general-sale invoice, pre-fill
+  // sensible defaults on the first row: HSN 997212 ("Renting of
+  // commercial space"), description "COMMERCIAL RENT", GST 18%. We only
+  // overwrite blank fields so the operator's edits aren't trampled.
+  useEffect(() => {
+    if (docType !== 'general_sale' || !isRentalCustomer) return;
+    setRows((prev) => {
+      const first = prev[0];
+      if (!first) return prev;
+      const needsDescription = first.description.trim() === '';
+      const needsHsn         = first.hsn_sac.trim() === '';
+      const needsGst         = first.gst_rate_pct === '' || first.gst_rate_pct === GST_DEFAULT;
+      if (!needsDescription && !needsHsn && !needsGst) return prev;
+      const next = [...prev];
+      next[0] = {
+        ...first,
+        description:  needsDescription ? 'COMMERCIAL RENT' : first.description,
+        hsn_sac:      needsHsn         ? '997212'          : first.hsn_sac,
+        gst_rate_pct: needsGst         ? '18'              : first.gst_rate_pct,
+      };
+      return next;
+    });
+  }, [docType, isRentalCustomer]);
+
   const customerState = currentCustomer?.state ?? '';
   const isInterstate = useMemo(() => {
     if (!customerState || !companyState) return false;
