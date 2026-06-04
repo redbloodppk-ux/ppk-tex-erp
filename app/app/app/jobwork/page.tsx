@@ -1450,140 +1450,193 @@ function WarpYarnTab(_props: unknown) {
 }
 */
 
-/* ===== Status tab ===== */
+/* ===== Status tab =====
+ * Single consolidated table view showing every (party × quality) pair
+ * that has any warp beam given, with the party's weft kg + bobbin pcs
+ * totals attached. Two filters at the top — Party and Quality — let
+ * the operator narrow the view. Quality filter applies to the warp
+ * column only; weft and bobbin numbers stay party-level (they aren't
+ * tied to a specific fabric quality in the data model). */
 function StatusTab({ parties, qualities, bobbins, warpBeams, weftBags, partyById }: {
   parties: PartyOpt[]; qualities: QualityOpt[];
   bobbins: BobbinRow[]; warpBeams: WarpBeamRow[]; weftBags: WeftBagRow[];
   partyById: Map<number, PartyOpt>;
 }) {
-  const pivot = useMemo(() => {
-    const m = new Map<number, Map<number, number>>();
+  const [filterPartyId, setFilterPartyId] = useState<string>('');
+  const [filterQualityId, setFilterQualityId] = useState<string>('');
+  void partyById;
+
+  // Aggregate warp beam metres + beam counts by (party, quality).
+  // Use original_metres ?? total_metres so the history view doesn't
+  // shrink as fabric receipts consume the stock.
+  const warpByKey = useMemo(() => {
+    const m = new Map<string, { partyId: number; qualityId: number; metres: number; beams: number }>();
     for (const w of warpBeams) {
       if (w.fabric_quality_id == null) continue;
-      const row = m.get(w.jobwork_party_id) ?? new Map<number, number>();
-      row.set(w.fabric_quality_id, (row.get(w.fabric_quality_id) ?? 0) + Number(w.total_metres ?? 0));
-      m.set(w.jobwork_party_id, row);
+      const key = `${w.jobwork_party_id}|${w.fabric_quality_id}`;
+      const existing = m.get(key);
+      const metres = Number((w.original_metres ?? w.total_metres) ?? 0);
+      const beams = Number(w.beam_count ?? 0);
+      if (existing) {
+        existing.metres += metres;
+        existing.beams += beams;
+      } else {
+        m.set(key, { partyId: w.jobwork_party_id, qualityId: w.fabric_quality_id, metres, beams });
+      }
     }
     return m;
   }, [warpBeams]);
 
-  const balanceByParty = useMemo(() => {
-    const out = new Map<number, { bobbinQty: number; warpBeams: number; warpMetres: number; weftBags: number; weftKg: number }>();
-    for (const p of parties) out.set(p.id, { bobbinQty: 0, warpBeams: 0, warpMetres: 0, weftBags: 0, weftKg: 0 });
-    for (const b of bobbins) { if (b.jobwork_party_id == null) continue; const r = out.get(b.jobwork_party_id); if (r) r.bobbinQty += Number(b.quantity ?? 0); }
-    for (const w of warpBeams) { const r = out.get(w.jobwork_party_id); if (r) { r.warpBeams += Number(w.beam_count ?? 0); r.warpMetres += Number(w.total_metres ?? 0); } }
-    for (const wb of weftBags) { const r = out.get(wb.jobwork_party_id); if (r) { r.weftBags += Number(wb.bag_count ?? 0); r.weftKg += Number(wb.total_kg ?? 0); } }
+  // Per-party totals for the columns that aren't tied to a fabric
+  // quality: weft kg + bobbin pcs.
+  const partyTotals = useMemo(() => {
+    const out = new Map<number, { weftKg: number; bobbinPcs: number }>();
+    for (const wb of weftBags) {
+      if (wb.jobwork_party_id == null) continue;
+      const existing = out.get(wb.jobwork_party_id) ?? { weftKg: 0, bobbinPcs: 0 };
+      existing.weftKg += Number((wb.original_kg ?? wb.total_kg) ?? 0);
+      out.set(wb.jobwork_party_id, existing);
+    }
+    for (const b of bobbins) {
+      if (b.jobwork_party_id == null) continue;
+      const existing = out.get(b.jobwork_party_id) ?? { weftKg: 0, bobbinPcs: 0 };
+      existing.bobbinPcs += Number((b.original_quantity ?? b.quantity) ?? 0);
+      out.set(b.jobwork_party_id, existing);
+    }
     return out;
-  }, [parties, bobbins, warpBeams, weftBags]);
+  }, [weftBags, bobbins]);
 
-  const byQuality = useMemo(() => {
-    const m = new Map<number, { total: number; byParty: Map<number, number> }>();
-    for (const w of warpBeams) {
-      if (w.fabric_quality_id == null) continue;
-      const q = m.get(w.fabric_quality_id) ?? { total: 0, byParty: new Map<number, number>() };
-      const m2 = Number(w.total_metres ?? 0);
-      q.total += m2;
-      q.byParty.set(w.jobwork_party_id, (q.byParty.get(w.jobwork_party_id) ?? 0) + m2);
-      m.set(w.fabric_quality_id, q);
+  // Build the flat row list and apply filters.
+  const qualityById = useMemo(() => new Map(qualities.map((q) => [q.id, q])), [qualities]);
+  const partyByIdLocal = useMemo(() => new Map(parties.map((p) => [p.id, p])), [parties]);
+  const rows = useMemo(() => {
+    const out: Array<{
+      partyId: number; partyName: string;
+      qualityId: number; qualityName: string;
+      metres: number; beams: number;
+      weftKg: number; bobbinPcs: number;
+    }> = [];
+    for (const entry of warpByKey.values()) {
+      const partyMatch = filterPartyId === '' || String(entry.partyId) === filterPartyId;
+      const qualityMatch = filterQualityId === '' || String(entry.qualityId) === filterQualityId;
+      if (!partyMatch || !qualityMatch) continue;
+      const partyName = partyByIdLocal.get(entry.partyId)?.name ?? `Party #${entry.partyId}`;
+      const qualityName = qualityById.get(entry.qualityId)?.name ?? `Quality #${entry.qualityId}`;
+      const pt = partyTotals.get(entry.partyId);
+      out.push({
+        partyId: entry.partyId, partyName,
+        qualityId: entry.qualityId, qualityName,
+        metres: entry.metres, beams: entry.beams,
+        weftKg: pt?.weftKg ?? 0, bobbinPcs: pt?.bobbinPcs ?? 0,
+      });
     }
-    return m;
-  }, [warpBeams]);
+    return out.sort((a, b) => a.partyName.localeCompare(b.partyName) || a.qualityName.localeCompare(b.qualityName));
+  }, [warpByKey, filterPartyId, filterQualityId, partyByIdLocal, qualityById, partyTotals]);
+
+  // Footer totals: aggregate over the currently visible (filtered) rows.
+  const footer = useMemo(() => {
+    let metres = 0, beams = 0;
+    // Weft and bobbin are party-level, so to avoid double-counting
+    // across the same party's multiple-quality rows, sum them once
+    // per distinct party in the visible result set.
+    const partiesInView = new Set<number>();
+    let weftKg = 0, bobbinPcs = 0;
+    for (const r of rows) {
+      metres += r.metres;
+      beams += r.beams;
+      if (!partiesInView.has(r.partyId)) {
+        partiesInView.add(r.partyId);
+        weftKg += r.weftKg;
+        bobbinPcs += r.bobbinPcs;
+      }
+    }
+    return { metres, beams, weftKg, bobbinPcs, partyCount: partiesInView.size };
+  }, [rows]);
 
   return (
-    <div className="space-y-6">
-      <section>
-        <h3 className="font-display font-bold text-base mb-2">Warp metres by Party x Quality</h3>
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-              <tr>
-                <th className="text-left px-3 py-3">Party</th>
-                {qualities.map((q) => <th key={q.id} className="text-right px-3 py-3">{q.name}</th>)}
-                <th className="text-right px-3 py-3 bg-indigo-50">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {parties.length === 0 ? (
-                <tr><td colSpan={qualities.length + 2} className="px-3 py-8 text-center text-ink-soft">No parties yet.</td></tr>
-              ) : parties.map((p) => {
-                const row = pivot.get(p.id);
-                const partyTotal = row ? Array.from(row.values()).reduce((a, b) => a + b, 0) : 0;
-                return (
-                  <tr key={p.id} className="border-t border-line/40">
-                    <td className="px-3 py-2 font-semibold">{p.name}</td>
-                    {qualities.map((q) => {
-                      const v = row?.get(q.id) ?? 0;
-                      return <td key={q.id} className="px-3 py-2 text-right num">{v > 0 ? v.toFixed(0) : '-'}</td>;
-                    })}
-                    <td className="px-3 py-2 text-right num font-bold bg-indigo-50/40">{partyTotal > 0 ? partyTotal.toFixed(0) : '-'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+    <div className="space-y-3">
+      {/* Filter row */}
+      <div className="card p-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label text-[10px]">Party</label>
+          <select
+            className="input py-1 text-xs min-w-[180px]"
+            value={filterPartyId}
+            onChange={(e) => setFilterPartyId(e.target.value)}
+          >
+            <option value="">All parties</option>
+            {parties.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </div>
-      </section>
+        <div>
+          <label className="label text-[10px]">Fabric Quality</label>
+          <select
+            className="input py-1 text-xs min-w-[180px]"
+            value={filterQualityId}
+            onChange={(e) => setFilterQualityId(e.target.value)}
+          >
+            <option value="">All qualities</option>
+            {qualities.map((q) => (
+              <option key={q.id} value={q.id}>{q.name}</option>
+            ))}
+          </select>
+        </div>
+        {(filterPartyId !== '' || filterQualityId !== '') && (
+          <button
+            type="button"
+            onClick={() => { setFilterPartyId(''); setFilterQualityId(''); }}
+            className="text-xs text-ink-mute hover:text-ink underline self-center"
+          >
+            Clear filters
+          </button>
+        )}
+        <div className="ml-auto text-xs text-ink-soft">
+          {rows.length} row{rows.length === 1 ? '' : 's'} · {footer.partyCount} part{footer.partyCount === 1 ? 'y' : 'ies'}
+        </div>
+      </div>
 
-      <section>
-        <h3 className="font-display font-bold text-base mb-2">Per-party balance</h3>
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-              <tr>
-                <th className="text-left px-3 py-3">Party</th>
-                <th className="text-right px-3 py-3">Bobbin qty</th>
-                <th className="text-right px-3 py-3">Warp beams</th>
-                <th className="text-right px-3 py-3">Warp metres</th>
-                <th className="text-right px-3 py-3">Weft bags</th>
-                <th className="text-right px-3 py-3">Weft kg</th>
+      {/* Single consolidated table */}
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-3 py-3">Party</th>
+              <th className="text-left px-3 py-3">Fabric Quality</th>
+              <th className="text-right px-3 py-3">Warp beams</th>
+              <th className="text-right px-3 py-3">Warp metres</th>
+              <th className="text-right px-3 py-3" title="Party-level total (not per-quality)">Weft kg</th>
+              <th className="text-right px-3 py-3" title="Party-level total (not per-quality)">Bobbin pcs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-ink-soft">No entries match the current filters.</td></tr>
+            ) : rows.map((r) => (
+              <tr key={`${r.partyId}-${r.qualityId}`} className="border-t border-line/40">
+                <td className="px-3 py-2 font-semibold">{r.partyName}</td>
+                <td className="px-3 py-2">{r.qualityName}</td>
+                <td className="px-3 py-2 text-right num">{r.beams}</td>
+                <td className="px-3 py-2 text-right num font-semibold text-indigo-700">{r.metres.toFixed(0)} m</td>
+                <td className="px-3 py-2 text-right num text-ink-soft">{r.weftKg.toFixed(2)} kg</td>
+                <td className="px-3 py-2 text-right num text-ink-soft">{r.bobbinPcs} pcs</td>
               </tr>
-            </thead>
-            <tbody>
-              {parties.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-8 text-center text-ink-soft">No parties yet.</td></tr>
-              ) : parties.map((p) => {
-                const b = balanceByParty.get(p.id);
-                return (
-                  <tr key={p.id} className="border-t border-line/40">
-                    <td className="px-3 py-2 font-semibold">{p.name}</td>
-                    <td className="px-3 py-2 text-right num">{b?.bobbinQty ?? 0}</td>
-                    <td className="px-3 py-2 text-right num">{b?.warpBeams ?? 0}</td>
-                    <td className="px-3 py-2 text-right num">{(b?.warpMetres ?? 0).toFixed(0)}</td>
-                    <td className="px-3 py-2 text-right num">{b?.weftBags ?? 0}</td>
-                    <td className="px-3 py-2 text-right num">{(b?.weftKg ?? 0).toFixed(2)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <h3 className="font-display font-bold text-base mb-2">Per-quality warp metres split by party</h3>
-        <div className="space-y-2">
-          {qualities.length === 0 ? (
-            <div className="card p-6 text-center text-sm text-ink-soft">No fabric qualities defined.</div>
-          ) : qualities.map((q) => {
-            const data = byQuality.get(q.id);
-            if (!data || data.total === 0) return null;
-            return (
-              <div key={q.id} className="card p-4">
-                <div className="flex justify-between items-baseline mb-2">
-                  <h4 className="font-semibold">{q.name}</h4>
-                  <div className="text-sm"><span className="text-ink-mute">Total: </span><span className="num font-bold text-indigo-700">{data.total.toFixed(0)} m</span></div>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {Array.from(data.byParty.entries()).map(([partyId, metres]) => {
-                    const p = partyById.get(partyId);
-                    return <span key={partyId} className="pill bg-indigo-50 text-indigo-700">{p?.name ?? '?'}: <span className="num font-bold">{metres.toFixed(0)} m</span></span>;
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+            ))}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+              <tr>
+                <td colSpan={2} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td className="px-3 py-3 text-right num font-bold">{footer.beams}</td>
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">{footer.metres.toFixed(0)} m</td>
+                <td className="px-3 py-3 text-right num font-bold">{footer.weftKg.toFixed(2)} kg</td>
+                <td className="px-3 py-3 text-right num font-bold">{footer.bobbinPcs} pcs</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }
