@@ -124,7 +124,16 @@ export default function NewInvoicePage() {
     (async () => {
       const [cp, cu, ve, so, fs, yl, oi] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
-        supabase.from('customer').select('id, name, gstin, state, billing_address').eq('status','active').order('name'),
+        // Only customers backed by a Customer ledger appear in the
+        // dropdown. The !inner join through ledger.ledger_type ensures
+        // we drop any orphan customer rows that aren't tied to a
+        // CUSTOMER-type ledger.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('customer')
+          .select('id, name, gstin, state, billing_address, ledger:ledger_id!inner(id, ledger_type:type_id!inner(name))')
+          .eq('status','active')
+          .eq('ledger.ledger_type.name', 'CUSTOMER')
+          .order('name'),
         // Vendors are now ledgers - pull any active ledger that's not a CUSTOMER/CASH/BANK/TAX type
         // so we cover SUPPLIER, AGENT, SIZING/WEAVING/FOLDING vendors etc.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
