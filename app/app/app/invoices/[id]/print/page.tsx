@@ -235,7 +235,17 @@ export default async function InvoicePrintPage({
           line-height: 1.5;
           border: 1px solid #d4d4d4;
           box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+          /* Flex column so the declaration + signature + address footer
+             can be pushed to the bottom of the A4 sheet with margin-top:
+             auto. Without this, short invoices leave a big empty gap
+             between totals and the footer instead of pushing it down. */
+          display: flex;
+          flex-direction: column;
         }
+        /* Push declaration + signature + address footer to the bottom
+           of the sheet. The auto-margin on .foot-strip consumes the
+           leftover vertical space so everything above stays where it is. */
+        .inv-sheet .foot-strip { margin-top: auto; }
         /* DC-style header: centered title band + meta strip + bill/ship grid */
         .inv-title { text-align: center; font-size: 21px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
         .inv-orig  { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 2px; margin-bottom: 8px; }
