@@ -32,6 +32,10 @@ interface BobbinRow {
   bobbin_price: number; jobwork_party_id: number | null; vendor_id: number | null;
   purchase_date: string | null; invoice_no: string | null; is_lurex: boolean;
   notes: string | null;
+  /** Original purchase quantity, preserved by migration 090. Used in
+   *  the read-only "history" display so reductions by fabric receipts
+   *  don't shrink the issued quantity shown on this page. */
+  original_quantity: number | null;
 }
 interface WarpBeamRow {
   id: number; jobwork_party_id: number;
@@ -40,6 +44,9 @@ interface WarpBeamRow {
   tape_length_m: number | null; beam_count: number;
   total_metres: number | null; reference_no: string | null; notes: string | null;
   supplier_party_id: number | null;
+  /** Original issued metres preserved from migration 090. Used on the
+   *  history list so reductions don't shrink the display. */
+  original_metres: number | null;
 }
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
@@ -47,6 +54,9 @@ interface WeftBagRow {
   bag_count: number | null; total_kg: number | null;
   reference_no: string | null; notes: string | null;
   supplier_party_id: number | null;
+  /** Original issued kg preserved from migration 090. Used on the
+   *  history list so reductions don't shrink the display. */
+  original_kg: number | null;
 }
 // (WarpYarnRow interface removed - Warp Yarn tab is no longer in this page.
 //  The jobwork_warp_yarn DB table still exists but is no longer surfaced.)
@@ -111,9 +121,9 @@ export default function JobworkPage(): React.ReactElement {
       // form when a fabric is picked.
       sb.from('fabric_quality').select('id, code, name, calc_snapshot').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
-      sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
-      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
-      sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, original_quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
+      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
     const errObj = [p, ap, bs, sp, q, c, b, w, wb].find((r) => r.error);
     if (errObj) {
@@ -348,7 +358,7 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                   <td className="px-3 py-2 text-ink-soft">{r.description}</td>
                   <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
                   <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
-                  <td className="px-3 py-2 text-right num font-semibold">{r.quantity}</td>
+                  <td className="px-3 py-2 text-right num font-semibold">{(r.original_quantity ?? r.quantity)}</td>
                   <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => setRestockId(restockId === r.id ? null : r.id)}
@@ -377,10 +387,10 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                   bobbin metres
                 </td>
                 <td className="px-3 py-3 text-right num font-bold">
-                  {rows.reduce((s, r) => s + Number(r.quantity ?? 0), 0).toLocaleString('en-IN')} pcs
+                  {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0), 0).toLocaleString('en-IN')} pcs
                 </td>
                 <td colSpan={2} className="px-3 py-3 text-right num font-bold text-indigo-700">
-                  {rows.reduce((s, r) => s + Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                  {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
               </tr>
             </tfoot>
@@ -672,7 +682,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2">{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</td>
                         <td className="px-3 py-2 text-right num">{r.total_ends ?? '-'}</td>
                         <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
-                        <td className="px-3 py-2 text-right num">{r.total_metres ?? '-'}</td>
+                        <td className="px-3 py-2 text-right num">{(r.original_metres ?? r.total_metres) ?? '-'}</td>
                         <td className="px-3 py-2 text-ink-soft">{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '-'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -704,7 +714,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   {filteredRows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-indigo-700">
-                  {filteredRows.reduce((s, r) => s + Number(r.total_metres ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                  {filteredRows.reduce((s, r) => s + Number((r.original_metres ?? r.total_metres) ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
                 <td colSpan={3} />
               </tr>
@@ -860,7 +870,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
                         <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
                         <td className="px-3 py-2">{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}</td>
                         <td className="px-3 py-2 text-right num">{r.bag_count ?? '-'}</td>
-                        <td className="px-3 py-2 text-right num font-semibold">{r.total_kg ?? '-'}</td>
+                        <td className="px-3 py-2 text-right num font-semibold">{(r.original_kg ?? r.total_kg) ?? '-'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '-'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
@@ -890,7 +900,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
                   {rows.reduce((s, r) => s + Number(r.bag_count ?? 0), 0).toLocaleString('en-IN')} bags
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-indigo-700">
-                  {rows.reduce((s, r) => s + Number(r.total_kg ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                  {rows.reduce((s, r) => s + Number((r.original_kg ?? r.total_kg) ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
                 </td>
                 <td colSpan={2} />
               </tr>
