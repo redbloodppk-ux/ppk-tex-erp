@@ -200,7 +200,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       // Format placeholder is e.g. "{prefix}/{fy}/{seq:0000}". We render
       // the sequence with the requested zero-padding width.
       const seqMatch = /\{seq:(0+)\}/.exec(format);
-      const width = seqMatch ? seqMatch[1].length : 4;
+      const width = seqMatch?.[1]?.length ?? 4;
       const seqStr = String(next_value).padStart(width, '0');
       const code = format
         .replace('{prefix}', prefix)
