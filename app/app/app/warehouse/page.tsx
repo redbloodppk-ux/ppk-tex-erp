@@ -41,6 +41,7 @@ const INHOUSE_TABS = [
   { key: 'warp_metre',  label: 'Warp Metre (m)',   icon: Ruler   },
   { key: 'weft_yarn',   label: 'Weft Yarn (kg)',   icon: Boxes   },
   { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes   },
+  { key: 'sizing',      label: 'Sizing (kg)',      icon: Boxes   },
   { key: 'bobbin',      label: 'Bobbins (m)',      icon: Package },
   { key: 'fabric',      label: 'Fabric (m)',       icon: Layers  },
 ] as const;
@@ -160,6 +161,7 @@ export default async function WarehousePage({
   const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  const sizingRows     = mode === 'inhouse' && tab === 'sizing'         ? await loadSizingWarehouse(supabase, counts ?? []) : null;
 
   const subTabs = mode === 'jobwork' ? JOBWORK_TABS : INHOUSE_TABS;
 
@@ -377,6 +379,12 @@ export default async function WarehousePage({
           <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
           <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
         </>
+      )}
+      {mode === 'inhouse' && tab === 'sizing'      && (
+        <PivotView
+          data={sizingRows!}
+          emptyMessage="No sizing-warehouse activity yet. Yarn purchases with delivery = 'sizing' appear here as inflows; sizing jobs that consume them appear as outflows."
+        />
       )}
       {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
       {mode === 'jobwork' && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here." />}
@@ -1114,6 +1122,92 @@ async function loadInhouseOpeningStock(
   }
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   return { unit, columns, events };
+}
+
+// ─── Sizing warehouse loader ────────────────────────────────────────────────
+// Inflows: yarn_lot rows received with delivery_destination='sizing'
+//   - event_date = received_date
+//   - quantity = received_kg
+//   - column = yarn_count_id
+// Outflows: sizing_job consumption (yarn_used_kg if set, else yarn_sent_kg)
+//   - event_date = date_sent
+//   - quantity = yarn_sent_kg (the moment yarn leaves the sizing warehouse)
+//   - column = yarn_count_id resolved from the linked yarn_lot
+async function loadSizingWarehouse(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  counts: any[],
+): Promise<PivotData> {
+  const lots = await safeSelect<{
+    id: number; lot_code: string; yarn_count_id: number | null;
+    received_date: string | null; received_kg: number | string | null;
+    delivery_destination: string | null;
+  }>(
+    supabase.from('yarn_lot')
+      .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination')
+      .eq('delivery_destination', 'sizing'),
+  );
+
+  const lotById = new Map(lots.map((l) => [l.id, l]));
+
+  const jobs = await safeSelect<{
+    id: number; job_code: string | null; yarn_lot_id: number | null;
+    yarn_sent_kg: number | string | null; yarn_used_kg: number | string | null;
+    date_sent: string | null; status: string | null;
+  }>(
+    supabase.from('sizing_job')
+      .select('id, job_code, yarn_lot_id, yarn_sent_kg, yarn_used_kg, date_sent, status'),
+  );
+
+  const countById = new Map(counts.map((c) => [c.id, c]));
+  const colMap = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  const colIdFor = (cId: number | null): string => `yc:${cId ?? 'unknown'}`;
+  const ensureCol = (cId: number | null): string => {
+    const id = colIdFor(cId);
+    if (colMap.has(id)) return id;
+    const c = cId != null ? countById.get(cId) : null;
+    colMap.set(id, {
+      id,
+      label: c?.code ?? (cId != null ? `Count #${cId}` : '(no count)'),
+      sublabel: c?.display_name ?? '',
+    });
+    return id;
+  };
+
+  for (const l of lots) {
+    const cId = l.yarn_count_id;
+    const colId = ensureCol(cId);
+    events.push({
+      event_date: l.received_date ?? '',
+      column_id: colId,
+      direction: 'in',
+      quantity: Number(l.received_kg ?? 0),
+      reference: l.lot_code ?? `Lot #${l.id}`,
+      notes: 'Yarn purchase (delivery=sizing)',
+    });
+  }
+  for (const j of jobs) {
+    if (j.yarn_lot_id == null) continue;
+    const lot = lotById.get(j.yarn_lot_id);
+    if (!lot) continue; // Only count sizing jobs that draw from sizing-warehouse yarn lots
+    const colId = ensureCol(lot.yarn_count_id);
+    const qty = Number(j.yarn_sent_kg ?? j.yarn_used_kg ?? 0);
+    if (qty <= 0) continue;
+    events.push({
+      event_date: j.date_sent ?? '',
+      column_id: colId,
+      direction: 'out',
+      quantity: qty,
+      reference: j.job_code ?? `Sizing job #${j.id}`,
+      notes: 'Sent to sizing',
+    });
+  }
+
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit: 'kg', columns, events };
 }
 
 async function loadJobworkWarpBeam(
