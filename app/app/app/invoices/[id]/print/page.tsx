@@ -215,6 +215,8 @@ export default async function InvoicePrintPage({
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
           .inv-sheet { box-shadow: none !important; border: none !important; }
+          /* Force a fresh A4 page between ORIGINAL and DUPLICATE copies */
+          .inv-sheet + .inv-sheet { page-break-before: always; }
         }
         body { background: #f3f4f6; }
         .inv-sheet {
@@ -278,7 +280,13 @@ export default async function InvoicePrintPage({
 
       <InvoicePrintActions invoiceId={inv.id} invoiceNo={inv.invoice_no} />
 
+      {/* Every invoice prints in two identical copies: one ORIGINAL for the
+          buyer, one DUPLICATE for our records. We render the same sheet
+          markup twice and the CSS rule `.inv-sheet + .inv-sheet` forces a
+          page-break between them when printed. */}
+      {(['ORIGINAL', 'DUPLICATE'] as const).map((copyLabel) => (
       <div
+        key={copyLabel}
         className={'inv-sheet inv-watermark ' +
           (inv.status === 'draft' ? 'inv-status-draft' : inv.status === 'cancelled' ? 'inv-status-cancelled' : '')}
       >
@@ -293,7 +301,7 @@ export default async function InvoicePrintPage({
           </div>
         </div>
 
-        <div className="inv-orig">ORIGINAL COPY</div>
+        <div className="inv-orig">{copyLabel} COPY</div>
 
         {/* ───── Meta strip ───── */}
         <div className="inv-meta">
@@ -452,6 +460,7 @@ export default async function InvoicePrintPage({
           </div>
         </div>
       </div>
+      ))}
     </>
   );
 }

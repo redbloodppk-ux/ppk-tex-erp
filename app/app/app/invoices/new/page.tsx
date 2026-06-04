@@ -107,7 +107,10 @@ export default function NewInvoicePage() {
 
   // ── header ──────────────────────────────────────────────────────────────────
   const [invoiceDate,  setInvoiceDate]  = useState(() => new Date().toISOString().slice(0,10));
-  const [dueDate,      setDueDate]      = useState('');
+  // Due date is captured as a number of days after the invoice date, not
+  // a hard-coded calendar date. Final due_date is computed at save time
+  // (invoice_date + N days). Empty string = no due date.
+  const [dueDays,      setDueDays]      = useState('30');
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu');
   const [notes,        setNotes]        = useState('');
 
@@ -251,8 +254,9 @@ export default function NewInvoicePage() {
 
   // When a Rental customer is picked on a general-sale invoice, pre-fill
   // sensible defaults on the first row: HSN 997212 ("Renting of
-  // commercial space"), description "COMMERCIAL RENT", GST 18%. We only
-  // overwrite blank fields so the operator's edits aren't trampled.
+  // commercial space"), description "COMMERCIAL RENT", GST 18%, and
+  // UOM "Nos" (rent is billed per unit, not per metre). We only
+  // overwrite blank/default fields so the operator's edits aren't trampled.
   useEffect(() => {
     if (docType !== 'general_sale' || !isRentalCustomer) return;
     setRows((prev) => {
@@ -261,13 +265,15 @@ export default function NewInvoicePage() {
       const needsDescription = first.description.trim() === '';
       const needsHsn         = first.hsn_sac.trim() === '';
       const needsGst         = first.gst_rate_pct === '' || first.gst_rate_pct === GST_DEFAULT;
-      if (!needsDescription && !needsHsn && !needsGst) return prev;
+      const needsUom         = first.uom === '' || first.uom === 'mtr';
+      if (!needsDescription && !needsHsn && !needsGst && !needsUom) return prev;
       const next = [...prev];
       next[0] = {
         ...first,
         description:  needsDescription ? 'COMMERCIAL RENT' : first.description,
         hsn_sac:      needsHsn         ? '997212'          : first.hsn_sac,
         gst_rate_pct: needsGst         ? '18'              : first.gst_rate_pct,
+        uom:          needsUom         ? 'Nos'             : first.uom,
       };
       return next;
     });
@@ -400,7 +406,15 @@ export default function NewInvoicePage() {
       place_of_supply: placeOfSupply,
       is_interstate: isInterstate,
       invoice_date:  invoiceDate,
-      due_date:      dueDate || null,
+      // due_date = invoice_date + dueDays (N). Empty/zero days = no due
+      // date. We add days in UTC to avoid timezone slippage.
+      due_date:      (() => {
+        const n = Number(dueDays);
+        if (!Number.isFinite(n) || n <= 0 || !invoiceDate) return null;
+        const d = new Date(invoiceDate + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      })(),
       taxable_value: totals.taxable,
       subtotal:      totals.taxable,        // legacy column kept for back-compat
       cgst_amount:   totals.cgst,
@@ -574,8 +588,25 @@ export default function NewInvoicePage() {
                   className="input" placeholder="e.g. Tamil Nadu" />
               </div>
               <div>
-                <label className="label">Due date</label>
-                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="input" />
+                <label className="label">Due in (days)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={dueDays}
+                  onChange={e => setDueDays(e.target.value)}
+                  className="input num"
+                  placeholder="e.g. 30"
+                />
+                <p className="text-[11px] text-ink-mute mt-1">
+                  {(() => {
+                    const n = Number(dueDays);
+                    if (!Number.isFinite(n) || n <= 0 || !invoiceDate) return 'No due date';
+                    const d = new Date(invoiceDate + 'T00:00:00Z');
+                    d.setUTCDate(d.getUTCDate() + n);
+                    return `Due on ${d.toISOString().slice(0, 10)}`;
+                  })()}
+                </p>
               </div>
             </div>
 
