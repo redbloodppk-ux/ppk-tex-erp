@@ -380,19 +380,23 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
               <th className="text-left px-3 py-3">Party</th>
               <th className="text-left px-3 py-3">Description</th>
               <th className="text-right px-3 py-3">Ends</th>
-              <th className="text-right px-3 py-3">Metres</th>
-              <th className="text-right px-3 py-3">Qty</th>
+              <th className="text-right px-3 py-3" title="Metres per piece">M/pc</th>
+              <th className="text-right px-3 py-3">Qty (pcs)</th>
+              <th className="text-right px-3 py-3" title="Qty × M/pc">Total m</th>
               <th className="text-left px-3 py-3">Purchased</th>
               <th className="text-right px-3 py-3"></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
             ) : rows.map((r) => {
               const isEditing = editingId === r.id;
               const ef = isEditing && editForm ? editForm : r;
               const partyOptions = Array.from(partyById.values());
+              const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
+              const perPcForRow = Number(r.bobbin_metre ?? 0);
+              const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
               return (
                 <React.Fragment key={r.id}>
                   <tr className="border-t border-line/40">
@@ -443,6 +447,16 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                             onChange={(e) => setEditForm({ ...ef, original_quantity: e.target.value === '' ? 0 : Number(e.target.value) })}
                           />
                         </td>
+                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">
+                          {/* Total m is derived; not editable. Shows the
+                              live computed value as the operator edits. */}
+                          {(() => {
+                            const q = Number(ef.original_quantity ?? ef.quantity ?? 0);
+                            const p = Number(ef.bobbin_metre ?? 0);
+                            const t = p > 0 ? q * p : 0;
+                            return t > 0 ? t.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-';
+                          })()}
+                        </td>
                         <td className="px-2 py-2">
                           <input
                             type="date"
@@ -463,7 +477,12 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                         <td className="px-3 py-2 text-ink-soft">{r.description}</td>
                         <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
                         <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
-                        <td className="px-3 py-2 text-right num font-semibold">{(r.original_quantity ?? r.quantity)}</td>
+                        <td className="px-3 py-2 text-right num font-semibold">{qtyForRow}</td>
+                        <td className="px-3 py-2 text-right num text-indigo-700 font-semibold">
+                          {totalMRow > 0
+                            ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m'
+                            : <span className="text-ink-mute">-</span>}
+                        </td>
                         <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
@@ -474,7 +493,7 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                     )}
                   </tr>
                   {restockId === r.id && !isEditing && (
-                    <tr><td colSpan={8} className="p-0">
+                    <tr><td colSpan={9} className="p-0">
                       <RestockForm parties={bobbinSuppliers}
                         qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
                         onCancel={() => setRestockId(null)}
@@ -488,17 +507,14 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
           {rows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
-                <td colSpan={3} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
-                <td className="px-3 py-3 text-right num" />
-                <td className="px-3 py-3 text-right num text-ink-mute text-[11px]">
-                  bobbin metres
-                </td>
+                <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0), 0).toLocaleString('en-IN')} pcs
                 </td>
-                <td colSpan={2} className="px-3 py-3 text-right num font-bold text-indigo-700">
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
+                <td colSpan={2} />
               </tr>
             </tfoot>
           )}

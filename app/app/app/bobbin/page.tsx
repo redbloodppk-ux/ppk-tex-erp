@@ -580,7 +580,8 @@ export default function BobbinPage() {
               <tr>
                 <th className="text-left px-3 py-3">Code</th>
                 <th className="text-left px-3 py-3">Description</th>
-                <th className="text-right px-3 py-3">Qty</th>
+                <th className="text-right px-3 py-3">Qty (pcs)</th>
+                <th className="text-right px-3 py-3" title="Metres per piece × qty">Metres</th>
                 <th className="text-right px-3 py-3">Price Rs</th>
                 <th className="text-right px-3 py-3">GST %</th>
                 <th className="text-right px-3 py-3">Total Rs</th>
@@ -591,40 +592,72 @@ export default function BobbinPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => (
-                <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-3 py-3 font-mono text-xs">{b.code}</td>
-                  <td className="px-3 py-3 font-semibold">{b.description}</td>
-                  <td className="px-3 py-3 text-right num">{b.quantity}</td>
-                  <td className="px-3 py-3 text-right num">{fmtMoney(b.bobbin_price)}</td>
-                  <td className="px-3 py-3 text-right num">{b.gst_pct}</td>
-                  <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(b.total_amount)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(b.supplier_party_id)}</td>
-                  <td className="px-3 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
-                        title="Edit this purchase"
-                        onClick={() => openEditForm(b)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        className="p-1 rounded hover:bg-red-50 text-red-600"
-                        title="Delete this purchase"
-                        onClick={() => deleteRow(b.id, b.code)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((b) => {
+                // Per-row metres = qty × bobbin_metre. Treat missing
+                // bobbin_metre as 0 so the column shows '-' rather than NaN.
+                const perPc = Number(b.bobbin_metre ?? 0);
+                const qty = Number(b.quantity ?? 0);
+                const rowMetres = perPc > 0 ? qty * perPc : 0;
+                return (
+                  <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-3 font-mono text-xs">{b.code}</td>
+                    <td className="px-3 py-3 font-semibold">
+                      {b.description}
+                      {perPc > 0 && (
+                        <div className="text-[10px] font-normal text-ink-mute">{perPc} m/pc</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right num">{qty}</td>
+                    <td className="px-3 py-3 text-right num text-indigo-700 font-semibold">
+                      {rowMetres > 0
+                        ? rowMetres.toLocaleString('en-IN', { maximumFractionDigits: 0 })
+                        : <span className="text-ink-mute">-</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right num">{fmtMoney(b.bobbin_price)}</td>
+                    <td className="px-3 py-3 text-right num">{b.gst_pct}</td>
+                    <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(b.total_amount)}</td>
+                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(b.supplier_party_id)}</td>
+                    <td className="px-3 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
+                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
+                          title="Edit this purchase"
+                          onClick={() => openEditForm(b)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-red-50 text-red-600"
+                          title="Delete this purchase"
+                          onClick={() => deleteRow(b.id, b.code)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+            {rows.length > 0 && (
+              <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+                <tr>
+                  <td colSpan={2} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                  <td className="px-3 py-3 text-right num font-bold">
+                    {rows.reduce((s, r) => s + Number(r.quantity ?? 0), 0).toLocaleString('en-IN')} pcs
+                  </td>
+                  <td className="px-3 py-3 text-right num font-bold text-indigo-700">
+                    {rows.reduce((s, r) => s + Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0), 0)
+                      .toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                  </td>
+                  <td colSpan={7} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
