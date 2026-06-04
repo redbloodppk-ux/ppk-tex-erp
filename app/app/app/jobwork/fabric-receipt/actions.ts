@@ -91,7 +91,17 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
     .order('receipt_date', { ascending: false })
     .order('id', { ascending: false });
 
-  if (error) return { scanned: 0, updated: 0, skipped: 0, error: error.message };
+  if (error) {
+    const msg = error.message ?? '';
+    // Common cause: migration 091 not applied yet. Give a clearer message.
+    if (/stock_snapshot/i.test(msg) && /does not exist/i.test(msg)) {
+      return {
+        scanned: 0, updated: 0, skipped: 0,
+        error: 'Apply migration 091_fabric_receipt_stock_snapshot.sql in Supabase first — the stock_snapshot column does not exist yet.',
+      };
+    }
+    return { scanned: 0, updated: 0, skipped: 0, error: msg };
+  }
 
   const list = (receipts ?? []) as ReceiptForBackfill[];
   let scanned = 0;
