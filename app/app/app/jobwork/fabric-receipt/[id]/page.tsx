@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { EditReceiptButton } from './edit-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,12 +151,15 @@ export default async function FabricReceiptDetailPage({
           { label: hdr.code },
         ]}
         actions={
-          <Link
-            href="/app/jobwork/fabric-receipt"
-            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to list
-          </Link>
+          <div className="flex items-center gap-2">
+            <EditReceiptButton receiptId={hdr.id} receiptCode={hdr.code} dcId={hdr.dc?.id ?? null} />
+            <Link
+              href="/app/jobwork/fabric-receipt"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to list
+            </Link>
+          </div>
         }
       />
 
