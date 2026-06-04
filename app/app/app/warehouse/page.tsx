@@ -21,6 +21,7 @@ import { Boxes, Package, Layers, AlertTriangle, Coins, TrendingDown, Factory, Tr
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
+import { OpeningStockForm } from './opening-stock-form';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
 // Force server-render on every visit so the jobwork tabs always reflect
@@ -37,9 +38,11 @@ const MODE_TABS = [
 ] as const;
 
 const INHOUSE_TABS = [
-  { key: 'yarn',   label: 'Yarn (kg)',     icon: Boxes   },
-  { key: 'bobbin', label: 'Bobbins (pcs)', icon: Package },
-  { key: 'fabric', label: 'Fabric (m)',    icon: Layers  },
+  { key: 'warp_metre',  label: 'Warp Metre (m)',   icon: Ruler   },
+  { key: 'weft_yarn',   label: 'Weft Yarn (kg)',   icon: Boxes   },
+  { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes   },
+  { key: 'bobbin',      label: 'Bobbins (m)',      icon: Package },
+  { key: 'fabric',      label: 'Fabric (m)',       icon: Layers  },
 ] as const;
 
 const JOBWORK_TABS = [
@@ -114,7 +117,7 @@ export default async function WarehousePage({
   const sp = await searchParams;
   const mode: Mode = sp.mode === 'jobwork' ? 'jobwork' : 'inhouse';
   // Pick a default sub-tab based on mode if none specified.
-  const defaultTab = mode === 'jobwork' ? 'warp_beam' : 'yarn';
+  const defaultTab = mode === 'jobwork' ? 'warp_beam' : 'warp_metre';
   const tab = (sp.tab ?? defaultTab);
   const supabase = await createClient();
 
@@ -130,7 +133,7 @@ export default async function WarehousePage({
     supabase.from('mill').select('id, name').eq('status', 'active').order('name'),
     supabase.from('customer').select('id, name').eq('status', 'active').order('name'),
     supabase.from('yarn_count').select('id, code, display_name, reorder_kg').eq('status', 'active').order('code'),
-    supabase.from('bobbin').select('id, code, description, reorder_pieces').eq('status', 'active').order('code'),
+    supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('status', 'active').order('code'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,16 +148,18 @@ export default async function WarehousePage({
     : { yarn: [], bobbin: [] };
 
   // ─── Tab-specific data ────────────────────────────────────────────────────
-  // In-house loaders use existing tables; jobwork loaders return ledger
-  // groups (inflows from jobwork inflow tables + outflows from
-  // stock_ledger).
-  const yarnRows       = mode === 'inhouse' && tab === 'yarn'         ? await loadYarn(supabase, sp, mills ?? [], counts ?? []) : null;
-  const inhouseBobbinRows = mode === 'inhouse' && tab === 'bobbin'    ? await loadBobbin(supabase, sp, mills ?? [], customers ?? [], bobbinMasters ?? [], mode) : null;
-  const fabricRows     = tab === 'fabric'                              ? await loadFabric(supabase, sp, mode) : null;
-  const warpBeamRows   = mode === 'jobwork' && tab === 'warp_beam'    ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
-  const weftYarnRows   = mode === 'jobwork' && tab === 'weft_yarn'    ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
-  const porvaiYarnRows = mode === 'jobwork' && tab === 'porvai_yarn'  ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
-  const jwBobbinRows   = mode === 'jobwork' && tab === 'bobbin'       ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
+  // Both inhouse + jobwork now use the same pivot view. Inhouse
+  // loaders read opening_stock entries as inflows; jobwork loaders
+  // read jobwork_warp_beam / jobwork_weft_bag / bobbin + stock_ledger.
+  const fabricRows     = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
+  const warpBeamRows   = mode === 'jobwork' && tab === 'warp_beam'      ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
+  const weftYarnRows   = mode === 'jobwork' && tab === 'weft_yarn'      ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
+  const porvaiYarnRows = mode === 'jobwork' && tab === 'porvai_yarn'    ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
+  const jwBobbinRows   = mode === 'jobwork' && tab === 'bobbin'         ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
+  const inWarpRows     = mode === 'inhouse' && tab === 'warp_metre'     ? await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
 
   const subTabs = mode === 'jobwork' ? JOBWORK_TABS : INHOUSE_TABS;
 
@@ -349,8 +354,30 @@ export default async function WarehousePage({
       </form>
 
       {/* ── Tab body ───────────────────────────────────────────────────── */}
-      {mode === 'inhouse' && tab === 'yarn'        && <YarnView rows={yarnRows!} />}
-      {mode === 'inhouse' && tab === 'bobbin'      && <BobbinView rows={inhouseBobbinRows!} />}
+      {mode === 'inhouse' && tab === 'warp_metre'  && (
+        <>
+          <OpeningStockForm bucket="warp_beam"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <PivotView data={inWarpRows!} emptyMessage="No in-house warp metre stock yet. Use Add opening stock to enter your starting balance per fabric quality." />
+        </>
+      )}
+      {mode === 'inhouse' && tab === 'weft_yarn'   && (
+        <>
+          <OpeningStockForm bucket="weft_yarn"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <PivotView data={inWeftRows!} emptyMessage="No in-house weft yarn stock yet. Use Add opening stock to enter your starting balance per yarn count." />
+        </>
+      )}
+      {mode === 'inhouse' && tab === 'porvai_yarn' && (
+        <>
+          <OpeningStockForm bucket="porvai_yarn" qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <PivotView data={inPorvaiRows!} emptyMessage="No in-house porvai yarn stock yet. Use Add opening stock to enter your starting balance." />
+        </>
+      )}
+      {mode === 'inhouse' && tab === 'bobbin'      && (
+        <>
+          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
+        </>
+      )}
       {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
       {mode === 'jobwork' && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here." />}
       {mode === 'jobwork' && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage="No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here." />}
@@ -1011,6 +1038,84 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
 // Rows = each warp-beam-given event (inflow) and each fabric-receipt-
 // consumed event (outflow), in date order. Cell = +metres for inflow,
 // -metres for outflow.
+// ─── In-house pivot loader ──────────────────────────────────────────────────
+// Reads opening_stock entries for the given bucket+mode=inhouse and
+// shapes them into the PivotData the warehouse view expects.
+//   - warp_beam   → columns = fabric quality (or merged_name)
+//   - weft_yarn   → columns = yarn count
+//   - porvai_yarn → columns = yarn count
+//   - bobbin      → columns = ends_per_bobbin
+// Outflows for in-house are not yet tracked, so this loader only
+// surfaces inflow events. Outflow integration will come once we wire
+// up an in-house consumption ledger.
+async function loadInhouseOpeningStock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  bucket: 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  qualities: any[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  counts: any[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  bobbinMasters: any[],
+): Promise<PivotData> {
+  const rows = await safeSelect<{
+    id: number; fabric_quality_id: number | null; yarn_count_id: number | null;
+    bobbin_id: number | null; ends_per_bobbin: number | null;
+    quantity: number | string | null; open_date: string | null;
+    reference_no: string | null; notes: string | null;
+  }>(
+    supabase.from('opening_stock')
+      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, ends_per_bobbin, quantity, open_date, reference_no, notes')
+      .eq('bucket', bucket)
+      .eq('mode', 'inhouse')
+      .eq('status', 'active'),
+  );
+
+  const qualityById = new Map(qualities.map((q) => [q.id, q]));
+  const countById   = new Map(counts.map((c) => [c.id, c]));
+  const bobMasterById = new Map(bobbinMasters.map((b) => [b.id, b]));
+
+  const colMap = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  const unit: LedgerUnit = bucket === 'warp_beam' ? 'm' : (bucket === 'bobbin' ? 'm' : 'kg');
+
+  for (const r of rows) {
+    let colId = 'unknown';
+    let label = '(no key)';
+    let sublabel = '';
+    if (bucket === 'warp_beam' && r.fabric_quality_id != null) {
+      const fq = qualityById.get(r.fabric_quality_id);
+      colId = `fq:${r.fabric_quality_id}`;
+      label = fq?.code ?? fq?.name ?? `FQ #${r.fabric_quality_id}`;
+      sublabel = fq?.name ?? '';
+    } else if ((bucket === 'weft_yarn' || bucket === 'porvai_yarn') && r.yarn_count_id != null) {
+      const c = countById.get(r.yarn_count_id);
+      colId = `yc:${r.yarn_count_id}`;
+      label = c?.code ?? `Count #${r.yarn_count_id}`;
+      sublabel = c?.display_name ?? '';
+    } else if (bucket === 'bobbin') {
+      const ends = r.ends_per_bobbin ?? (r.bobbin_id != null ? bobMasterById.get(r.bobbin_id)?.ends_per_bobbin : null);
+      if (ends != null) {
+        colId = `ends:${ends}`;
+        label = `${ends} ends`;
+      }
+    }
+    if (!colMap.has(colId)) colMap.set(colId, { id: colId, label, sublabel });
+    events.push({
+      event_date: r.open_date ?? '',
+      column_id: colId,
+      direction: 'in',
+      quantity: Number(r.quantity ?? 0),
+      reference: r.reference_no ?? 'Opening stock',
+      notes: r.notes ?? '',
+    });
+  }
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit, columns, events };
+}
+
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
 ): Promise<PivotData> {
