@@ -64,22 +64,33 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  let q = sb.from('fabric_receipt')
-    .select(`
-      id, code, receipt_date, receipt_type, party_dc_no,
-      total_metres, total_pieces, status, remarks, stock_snapshot,
-      party:party_id ( id, name, code ),
-      dc:dc_id ( id, code )
-    `)
-    .order('receipt_date', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(200);
+  // Try the full SELECT first (with stock_snapshot). If migration 091
+  // hasn't been applied yet that column doesn't exist - fall back to a
+  // SELECT without it so the page still renders.
+  const baseCols = `
+    id, code, receipt_date, receipt_type, party_dc_no,
+    total_metres, total_pieces, status, remarks,
+    party:party_id ( id, name, code ),
+    dc:dc_id ( id, code )
+  `;
+  const buildQuery = (includeSnapshot: boolean) => {
+    let q = sb.from('fabric_receipt')
+      .select(includeSnapshot ? baseCols.replace('remarks,', 'remarks, stock_snapshot,') : baseCols)
+      .order('receipt_date', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(200);
+    if (partyId !== null) q = q.eq('party_id', partyId);
+    if (fromDate !== null) q = q.gte('receipt_date', fromDate);
+    if (toDate   !== null) q = q.lte('receipt_date', toDate);
+    return q;
+  };
 
-  if (partyId !== null) q = q.eq('party_id', partyId);
-  if (fromDate !== null) q = q.gte('receipt_date', fromDate);
-  if (toDate   !== null) q = q.lte('receipt_date', toDate);
-
-  const { data, error } = await q;
+  let { data, error } = await buildQuery(true);
+  if (error && /stock_snapshot/i.test(error.message ?? '')) {
+    const fallback = await buildQuery(false);
+    data  = fallback.data;
+    error = fallback.error;
+  }
   const rows = (data ?? []) as ReceiptRow[];
 
   // Active jobwork parties for the filter dropdown.

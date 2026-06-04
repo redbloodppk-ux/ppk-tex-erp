@@ -89,16 +89,27 @@ export default async function FabricReceiptDetailPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [hdrRes, itemRes] = await Promise.all([
+  // Try with stock_snapshot. If migration 091 isn't applied yet that
+  // column doesn't exist - fall back to a select without it.
+  const baseHdrCols = `
+    id, code, receipt_date, receipt_type, party_dc_no, remarks,
+    total_metres, total_pieces, status,
+    party:party_id ( id, name, code, gstin ),
+    dc:dc_id ( id, code, dc_date )
+  `;
+  const tryHdr = async (includeSnapshot: boolean) =>
     sb.from('fabric_receipt')
-      .select(`
-        id, code, receipt_date, receipt_type, party_dc_no, remarks,
-        total_metres, total_pieces, status, stock_snapshot,
-        party:party_id ( id, name, code, gstin ),
-        dc:dc_id ( id, code, dc_date )
-      `)
+      .select(includeSnapshot ? baseHdrCols.replace('status,', 'status, stock_snapshot,') : baseHdrCols)
       .eq('id', numericId)
-      .maybeSingle(),
+      .maybeSingle();
+  const [hdrRes, itemRes] = await Promise.all([
+    (async () => {
+      const first = await tryHdr(true);
+      if (first.error && /stock_snapshot/i.test(first.error.message ?? '')) {
+        return await tryHdr(false);
+      }
+      return first;
+    })(),
     sb.from('fabric_receipt_item')
       .select(`
         id, sno, fabric_quality_id, ends_count_snapshot,
