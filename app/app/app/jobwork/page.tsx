@@ -724,6 +724,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WarpBeamRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
+  // Toggle for the inline add form. Mirrors the BobbinTab pattern so
+  // the page loads with the form hidden and the table front-and-centre.
+  const [showAdd, setShowAdd] = useState<boolean>(false);
   // Table filters (empty string = "All ...").
   const [filterQualityId, setFilterQualityId] = useState<string>('');
   const [filterPartyId, setFilterPartyId] = useState<string>('');
@@ -785,6 +788,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
       total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
     });
+    setShowAdd(false);
     onChanged();
   }
 
@@ -847,6 +851,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   return (
     <div>
+      <div className="flex justify-between items-center mb-3">
+        <p className="text-sm text-ink-mute">Warp beams issued to jobwork parties. Use Add to log a new beam; Restock to log a fresh batch.</p>
+        <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
+          {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {showAdd ? 'Cancel' : 'Add warp beam given'}
+        </button>
+      </div>
+
+      {showAdd && (
       <div className="card p-4 mb-4">
         <h3 className="font-display font-bold text-sm mb-3">Add warp beam</h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -893,6 +906,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </button>
         </div>
       </div>
+      )}
 
       {/* Filter bar — narrows the table + footer totals down to a single
           fabric quality and / or jobwork party. Empty selection = All. */}
@@ -1053,6 +1067,9 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WeftBagRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
+  // Toggle for the inline add form so the page loads with the form
+  // hidden and the table front-and-centre (matches BobbinTab pattern).
+  const [showAdd, setShowAdd] = useState<boolean>(false);
   void allPartyById;
 
   async function add() {
@@ -1075,6 +1092,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setForm({ given_date: todayISO(), jobwork_party_id: '', yarn_count_id: '', bag_count: '', total_kg: '', reference_no: '', notes: '', supplier_party_id: '' });
+    setShowAdd(false);
     onChanged();
   }
   async function del(id: number) {
@@ -1127,6 +1145,15 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
 
   return (
     <div>
+      <div className="flex justify-between items-center mb-3">
+        <p className="text-sm text-ink-mute">Weft bags issued to jobwork parties. Use Add to log a new bag; Restock to log a fresh batch.</p>
+        <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
+          {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {showAdd ? 'Cancel' : 'Add weft bag given'}
+        </button>
+      </div>
+
+      {showAdd && (
       <div className="card p-4 mb-4">
         <h3 className="font-display font-bold text-sm mb-3">Add weft bag</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1144,6 +1171,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
           <button type="button" onClick={add} disabled={busy} className="btn-primary">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add weft bag</button>
         </div>
       </div>
+      )}
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
