@@ -618,6 +618,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (!editForm) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+    // Sync original_metres = total_metres so the history display (which
+    // reads original_metres ?? total_metres) reflects the edit. Without
+    // this the user types a new value but the row keeps showing the
+    // old original until they re-load.
+    const editedMetres = editForm.total_metres;
     const { error } = await sb.from('jobwork_warp_beam').update({
       jobwork_party_id: editForm.jobwork_party_id,
       fabric_quality_id: editForm.fabric_quality_id,
@@ -625,7 +630,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       given_date: editForm.given_date,
       total_ends: editForm.total_ends,
       beam_count: editForm.beam_count,
-      total_metres: editForm.total_metres,
+      total_metres: editedMetres,
+      original_metres: editedMetres,
       reference_no: editForm.reference_no,
       notes: editForm.notes,
       supplier_party_id: editForm.supplier_party_id,
@@ -900,12 +906,16 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
     if (!editForm) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+    // Sync original_kg = total_kg so the history display (which reads
+    // original_kg ?? total_kg) reflects the edit.
+    const editedKg = editForm.total_kg;
     const { error } = await sb.from('jobwork_weft_bag').update({
       jobwork_party_id: editForm.jobwork_party_id,
       yarn_count_id: editForm.yarn_count_id,
       given_date: editForm.given_date,
       bag_count: editForm.bag_count,
-      total_kg: editForm.total_kg,
+      total_kg: editedKg,
+      original_kg: editedKg,
       reference_no: editForm.reference_no,
       notes: editForm.notes,
     }).eq('id', editForm.id);
