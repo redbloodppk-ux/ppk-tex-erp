@@ -13,7 +13,7 @@ import Link from 'next/link';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft } from 'lucide-react';
 
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
@@ -58,6 +58,19 @@ interface WeftBagRow {
    *  history list so reductions don't shrink the display. */
   original_kg: number | null;
 }
+
+/** One bobbin-return event. Each row is an empty-bobbin shipment back
+ *  to the supplier after weaving consumed the yarn. */
+interface BobbinReturnRow {
+  id: number;
+  bobbin_id: number;
+  supplier_party_id: number | null;
+  jobwork_party_id: number | null;
+  return_date: string;
+  quantity_pcs: number;
+  reference_no: string | null;
+  notes: string | null;
+}
 // (WarpYarnRow interface removed - Warp Yarn tab is no longer in this page.
 //  The jobwork_warp_yarn DB table still exists but is no longer surfaced.)
 
@@ -85,6 +98,7 @@ export default function JobworkPage(): React.ReactElement {
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [counts, setCounts] = useState<CountOpt[]>([]);
   const [bobbins, setBobbins] = useState<BobbinRow[]>([]);
+  const [bobbinReturns, setBobbinReturns] = useState<BobbinReturnRow[]>([]);
   const [warpBeams, setWarpBeams] = useState<WarpBeamRow[]>([]);
   const [weftBags, setWeftBags] = useState<WeftBagRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -107,7 +121,7 @@ export default function JobworkPage(): React.ReactElement {
     const bobbinSupplierTypeId = ptList.find((t) => t.name === 'Bobbin Supplier')?.id ?? null;
     const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
-    const [p, ap, bs, sp, q, c, b, w, wb] = await Promise.all([
+    const [p, ap, bs, sp, q, c, b, w, wb, br] = await Promise.all([
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
       bobbinSupplierTypeId === null
@@ -124,7 +138,13 @@ export default function JobworkPage(): React.ReactElement {
       sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, original_quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
+      // Bobbin returns - empty pieces sent back to the supplier after
+      // weaving consumed the yarn. We aggregate these per bobbin in
+      // BobbinTab to show "Returned" counts.
+      sb.from('bobbin_return').select('id, bobbin_id, supplier_party_id, jobwork_party_id, return_date, quantity_pcs, reference_no, notes').eq('status', 'active').order('return_date', { ascending: false }),
     ]);
+    // Don't propagate the bobbin_return error if migration 093 hasn't
+    // been applied yet - we just treat it as empty.
     const errObj = [p, ap, bs, sp, q, c, b, w, wb].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
@@ -160,6 +180,9 @@ export default function JobworkPage(): React.ReactElement {
       setBobbins((b.data ?? []) as BobbinRow[]);
       setWarpBeams((w.data ?? []) as WarpBeamRow[]);
       setWeftBags((wb.data ?? []) as WeftBagRow[]);
+      // bobbin_return table may not exist yet (migration 093). Tolerate
+      // missing data without breaking the page.
+      setBobbinReturns(((br?.data ?? []) as BobbinReturnRow[]) ?? []);
       setError(null);
     }
     setLoading(false);
@@ -201,7 +224,7 @@ export default function JobworkPage(): React.ReactElement {
       ) : tab === 'dc' ? (
         <JobworkDcTab parties={parties} qualities={qualities} />
       ) : tab === 'bobbin' ? (
-        <BobbinTab rows={bobbins} partyById={partyById} bobbinSuppliers={bobbinSuppliers} onChanged={load} />
+        <BobbinTab rows={bobbins} returns={bobbinReturns} partyById={partyById} bobbinSuppliers={bobbinSuppliers} allParties={allParties} onChanged={load} />
       ) : tab === 'warp_beam' ? (
         <WarpBeamTab
           rows={warpBeams} parties={parties} qualities={qualities} counts={counts}
@@ -290,13 +313,27 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
 }
 
 /* ===== Bobbin tab ===== */
-function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
-  rows: BobbinRow[]; partyById: Map<number, PartyOpt>; bobbinSuppliers: PartyOpt[]; onChanged: () => void;
+function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onChanged }: {
+  rows: BobbinRow[]; returns: BobbinReturnRow[];
+  partyById: Map<number, PartyOpt>; bobbinSuppliers: PartyOpt[]; allParties: PartyOpt[];
+  onChanged: () => void;
 }) {
   const supabase = createClient();
   const [restockId, setRestockId] = useState<number | null>(null);
+  const [returnId, setReturnId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<BobbinRow | null>(null);
+  // Total qty returned per bobbin_id - shown alongside the "given" qty
+  // so the operator sees the outstanding balance with the supplier.
+  const returnedByBobbinId = new Map<number, number>();
+  for (const r of returns) {
+    if (r.bobbin_id == null) continue;
+    returnedByBobbinId.set(
+      r.bobbin_id,
+      (returnedByBobbinId.get(r.bobbin_id) ?? 0) + Number(r.quantity_pcs ?? 0),
+    );
+  }
+  void allParties;
   // Add-new form state. The form panel only renders when showAdd=true so
   // the table isn't pushed down by an empty form on first load.
   const [showAdd, setShowAdd] = useState<boolean>(false);
@@ -442,6 +479,28 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
     onChanged();
   }
 
+  /** Log a return of empty bobbin pieces back to the supplier. */
+  async function logReturn(parent: BobbinRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const qty = Math.trunc(Number(data.qty.qty ?? 0));
+    if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
+    const payload = {
+      bobbin_id: parent.id,
+      supplier_party_id: data.supplier_party_id === '' ? (parent.supplier_party_id ?? null) : Number(data.supplier_party_id),
+      jobwork_party_id: parent.jobwork_party_id,
+      return_date: data.given_date,
+      quantity_pcs: qty,
+      reference_no: null,
+      notes: null,
+      status: 'active',
+    };
+    const { error } = await sb.from('bobbin_return').insert(payload);
+    if (error) { window.alert('Return failed: ' + error.message); return; }
+    setReturnId(null);
+    onChanged();
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
@@ -566,13 +625,15 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
               <th className="text-right px-3 py-3" title="Metres per piece">M/pc</th>
               <th className="text-right px-3 py-3">Qty (pcs)</th>
               <th className="text-right px-3 py-3" title="Qty × M/pc">Total m</th>
+              <th className="text-right px-3 py-3" title="Empty bobbin pcs returned to supplier">Returned</th>
+              <th className="text-right px-3 py-3" title="Qty issued - returned">Balance</th>
               <th className="text-left px-3 py-3">Purchased</th>
               <th className="text-right px-3 py-3"></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
             ) : rows.map((r) => {
               const isEditing = editingId === r.id;
               const ef = isEditing && editForm ? editForm : r;
@@ -580,6 +641,8 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
               const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
               const perPcForRow = Number(r.bobbin_metre ?? 0);
               const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
+              const returnedRow = returnedByBobbinId.get(r.id) ?? 0;
+              const balanceRow = qtyForRow - returnedRow;
               return (
                 <React.Fragment key={r.id}>
                   <tr className="border-t border-line/40">
@@ -640,6 +703,10 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                             return t > 0 ? t.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-';
                           })()}
                         </td>
+                        {/* Returned + Balance are derived from
+                            bobbin_return entries and aren't editable. */}
+                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">{returnedRow > 0 ? returnedRow : '-'}</td>
+                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">{balanceRow}</td>
                         <td className="px-2 py-2">
                           <input
                             type="date"
@@ -666,21 +733,32 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                             ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m'
                             : <span className="text-ink-mute">-</span>}
                         </td>
+                        <td className="px-3 py-2 text-right num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</td>
+                        <td className={`px-3 py-2 text-right num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</td>
                         <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                          <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 hover:text-amber-900 mr-2" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
                           <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
                         </td>
                       </>
                     )}
                   </tr>
                   {restockId === r.id && !isEditing && (
-                    <tr><td colSpan={9} className="p-0">
+                    <tr><td colSpan={11} className="p-0">
                       <RestockForm parties={bobbinSuppliers}
                         qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
                         onCancel={() => setRestockId(null)}
                         onSave={(data) => restock(r, data)} />
+                    </td></tr>
+                  )}
+                  {returnId === r.id && !isEditing && (
+                    <tr><td colSpan={11} className="p-0">
+                      <RestockForm parties={bobbinSuppliers}
+                        qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
+                        onCancel={() => setReturnId(null)}
+                        onSave={(data) => logReturn(r, data)} />
                     </td></tr>
                   )}
                 </React.Fragment>
@@ -696,6 +774,12 @@ function BobbinTab({ rows, partyById, bobbinSuppliers, onChanged }: {
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-indigo-700">
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                </td>
+                <td className="px-3 py-3 text-right num font-bold text-amber-700">
+                  {rows.reduce((s, r) => s + (returnedByBobbinId.get(r.id) ?? 0), 0).toLocaleString('en-IN')}
+                </td>
+                <td className="px-3 py-3 text-right num font-bold">
+                  {rows.reduce((s, r) => s + (Number((r.original_quantity ?? r.quantity) ?? 0) - (returnedByBobbinId.get(r.id) ?? 0)), 0).toLocaleString('en-IN')}
                 </td>
                 <td colSpan={2} />
               </tr>
