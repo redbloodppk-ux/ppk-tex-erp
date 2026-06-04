@@ -326,6 +326,188 @@ export async function reorganizeFabricReceipts(): Promise<ReorganizeResult> {
   return { duplicates_removed, renumbered, skipped };
 }
 
+// ─── Chronological ledger backfill ──────────────────────────────────────────
+// For every fabric receipt that has no stock_ledger entries yet, derive
+// the outflow rows directly from fabric_receipt_item + the fabric_quality
+// calc_snapshot. Each ledger row carries the receipt_date so the
+// warehouse pivot view can sort it chronologically against the inflows
+// (jobwork_warp_beam.given_date, jobwork_weft_bag.given_date, bobbin
+// .purchase_date) and compute a true running balance per column.
+
+export interface RebuildLedgerResult {
+  receipts_scanned: number;
+  receipts_rebuilt: number;
+  ledger_rows_inserted: number;
+  error?: string;
+}
+
+export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerResult> {
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+
+  // 1. Pull every receipt with its items + the receipt code (for
+  //    reference_no in ledger entries). Ordered by date ascending so
+  //    that, if multiple receipts touch the same pool, the ledger
+  //    inserts happen in chronological order.
+  const { data: receipts, error } = await sb
+    .from('fabric_receipt')
+    .select(`
+      id, code, receipt_date,
+      items:fabric_receipt_item (
+        fabric_quality_id, received_metres,
+        weft_yarn_count_id, weft_consumed_kg,
+        porvai_consumed_kg, bobbin_consumed_pcs
+      )
+    `)
+    .order('receipt_date', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) {
+    return { receipts_scanned: 0, receipts_rebuilt: 0, ledger_rows_inserted: 0, error: error.message };
+  }
+  const receiptList = (receipts ?? []) as Array<{
+    id: number; code: string; receipt_date: string;
+    items: Array<{
+      fabric_quality_id: number | null;
+      received_metres: number | string | null;
+      weft_yarn_count_id: number | null;
+      weft_consumed_kg: number | string | null;
+      porvai_consumed_kg: number | string | null;
+      bobbin_consumed_pcs: number | string | null;
+    }>;
+  }>;
+
+  // 2. Bulk-fetch fabric_quality master rows (calc_snapshot has the
+  //    porvai count id and bobbin id we need for outflow tagging).
+  const qIds = Array.from(new Set(
+    receiptList.flatMap((r) => r.items.map((it) => it.fabric_quality_id))
+      .filter((x): x is number => x != null),
+  ));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fqById = new Map<number, { calc_snapshot: any }>();
+  if (qIds.length > 0) {
+    const { data: fqRows } = await sb
+      .from('fabric_quality')
+      .select('id, calc_snapshot')
+      .in('id', qIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((fqRows ?? []) as Array<{ id: number; calc_snapshot: any }>)) {
+      fqById.set(r.id, r);
+    }
+  }
+
+  // 3. For each receipt, check if any stock_ledger rows already exist
+  //    for it. If yes, skip (don't double-count). If no, derive new
+  //    outflow rows from items.
+  let receipts_rebuilt = 0;
+  let ledger_rows_inserted = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allRows: any[] = [];
+
+  for (const r of receiptList) {
+    let existing = 0;
+    try {
+      const { count } = await sb
+        .from('stock_ledger')
+        .select('id', { count: 'exact', head: true })
+        .eq('source_kind', 'fabric_receipt')
+        .eq('source_id', r.id);
+      existing = Number(count ?? 0);
+    } catch {
+      // Ledger table may not exist - rebuild flow will fail gracefully
+      // when we try to insert; we still scan items.
+    }
+    if (existing > 0) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rowsForThis: any[] = [];
+    for (const it of r.items) {
+      const fqId = it.fabric_quality_id;
+      const snap = fqId != null ? fqById.get(fqId)?.calc_snapshot ?? null : null;
+      const metres = Number(it.received_metres ?? 0);
+      const weftKg = Number(it.weft_consumed_kg ?? 0);
+      const porvaiKg = Number(it.porvai_consumed_kg ?? 0);
+      const bobbinPcs = Number(it.bobbin_consumed_pcs ?? 0);
+
+      if (metres > 0 && fqId != null) {
+        rowsForThis.push({
+          bucket: 'warp_beam', direction: 'out',
+          fabric_quality_id: fqId,
+          quantity: Math.round(metres * 100) / 100, unit: 'm',
+          event_date: r.receipt_date,
+          source_kind: 'fabric_receipt', source_id: r.id,
+          reference_no: r.code, notes: 'Backfilled from receipt items',
+        });
+      }
+      if (weftKg > 0 && it.weft_yarn_count_id != null) {
+        rowsForThis.push({
+          bucket: 'weft_yarn', direction: 'out',
+          fabric_quality_id: fqId, yarn_count_id: it.weft_yarn_count_id,
+          quantity: Math.round(weftKg * 1000) / 1000, unit: 'kg',
+          event_date: r.receipt_date,
+          source_kind: 'fabric_receipt', source_id: r.id,
+          reference_no: r.code, notes: 'Backfilled from receipt items',
+        });
+      }
+      // Porvai yarn count id is not stored on the item, we resolve it
+      // from the fabric_quality's calc_snapshot.porvaiCountId.
+      if (porvaiKg > 0 && snap?.porvaiCountId != null && snap.porvaiCountId !== '') {
+        const porvaiCountId = Number(snap.porvaiCountId);
+        if (Number.isFinite(porvaiCountId) && porvaiCountId > 0) {
+          rowsForThis.push({
+            bucket: 'porvai_yarn', direction: 'out',
+            fabric_quality_id: fqId, yarn_count_id: porvaiCountId,
+            quantity: Math.round(porvaiKg * 1000) / 1000, unit: 'kg',
+            event_date: r.receipt_date,
+            source_kind: 'fabric_receipt', source_id: r.id,
+            reference_no: r.code, notes: 'Backfilled from receipt items',
+          });
+        }
+      }
+      // Bobbin outflow: ledger stores qty in PCS (bobbin_consumed_pcs),
+      // bobbin_id from fabric_quality.calc_snapshot.bobbinId.
+      if (bobbinPcs > 0 && snap?.bobbinId != null && snap.bobbinId !== '') {
+        const bobbinId = Number(snap.bobbinId);
+        if (Number.isFinite(bobbinId) && bobbinId > 0) {
+          rowsForThis.push({
+            bucket: 'bobbin', direction: 'out',
+            fabric_quality_id: fqId, bobbin_id: bobbinId,
+            quantity: Math.round(bobbinPcs * 100) / 100, unit: 'pcs',
+            event_date: r.receipt_date,
+            source_kind: 'fabric_receipt', source_id: r.id,
+            reference_no: r.code, notes: 'Backfilled from receipt items',
+          });
+        }
+      }
+    }
+    if (rowsForThis.length > 0) {
+      allRows.push(...rowsForThis);
+      receipts_rebuilt++;
+    }
+  }
+
+  if (allRows.length > 0) {
+    try {
+      const { error: insErr } = await sb.from('stock_ledger').insert(allRows);
+      if (insErr) {
+        return {
+          receipts_scanned: receiptList.length, receipts_rebuilt: 0, ledger_rows_inserted: 0,
+          error: /stock_ledger/i.test(insErr.message ?? '') && /does not exist/i.test(insErr.message ?? '')
+            ? 'Apply migration 090_stock_ledger.sql first.'
+            : insErr.message,
+        };
+      }
+      ledger_rows_inserted = allRows.length;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Insert failed.';
+      return { receipts_scanned: receiptList.length, receipts_rebuilt: 0, ledger_rows_inserted: 0, error: msg };
+    }
+  }
+
+  revalidatePath('/app/warehouse');
+  revalidatePath('/app/jobwork/fabric-receipt');
+  return { receipts_scanned: receiptList.length, receipts_rebuilt, ledger_rows_inserted };
+}
+
 /** Internal cancel helper used by reorganizeFabricReceipts. Mirrors
  *  cancelFabricReceipt's reversal logic but takes a flag for whether to
  *  also reset the source DC. When deduping we leave the DC pointing at

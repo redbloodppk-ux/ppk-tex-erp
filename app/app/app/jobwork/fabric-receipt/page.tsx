@@ -10,6 +10,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Eye } from 'lucide-react';
 import { BackfillSnapshotsButton } from './backfill-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
+import { RebuildLedgerButton } from './rebuild-ledger-button';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -141,6 +142,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ReorganizeReceiptsButton />
+            <RebuildLedgerButton />
             <BackfillSnapshotsButton />
             <Link href="/app/jobwork" className="btn-secondary text-xs">
               Pick a DC to receive

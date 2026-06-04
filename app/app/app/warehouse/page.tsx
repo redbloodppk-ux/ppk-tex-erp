@@ -823,6 +823,11 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
   if (data.events.length === 0 && data.columns.length === 0) {
     return <div className="card p-8 text-center text-ink-soft text-sm">{emptyMessage}</div>;
   }
+  // True chronological order: by event_date asc, then inflows before
+  // outflows on the same date (so the day's beam-given event appears
+  // before the day's fabric-receipt event), then by column id as a
+  // stable tiebreaker. This is what gives us an accurate per-event
+  // running balance below.
   const sorted = [...data.events].sort((a, b) => {
     if (a.event_date !== b.event_date) return a.event_date < b.event_date ? -1 : 1;
     if (a.direction !== b.direction) return a.direction === 'in' ? -1 : 1;
@@ -839,6 +844,23 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
   const grandClosing = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0), 0);
   const grandIn      = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0), 0);
   const grandOut     = data.columns.reduce((s, c) => s + (totals[c.id]?.out ?? 0), 0);
+
+  // Pre-compute the per-event running balance per column so each row
+  // can render the new balance INSIDE the active cell. Walking the
+  // sorted events once, we keep a Map<column_id, running_balance> and
+  // capture the snapshot of the active column AFTER applying that
+  // event. Rendering uses this lookup directly so the running balance
+  // stays in sync with the displayed order.
+  const runningByCol: Record<string, number> = {};
+  for (const col of data.columns) runningByCol[col.id] = 0;
+  const balanceAfterEvent: number[] = new Array(sorted.length).fill(0);
+  for (let i = 0; i < sorted.length; i++) {
+    const e = sorted[i]!;
+    const cur = runningByCol[e.column_id] ?? 0;
+    const next = e.direction === 'in' ? cur + e.quantity : cur - e.quantity;
+    runningByCol[e.column_id] = next;
+    balanceAfterEvent[i] = next;
+  }
 
   return (
     <>
@@ -873,13 +895,24 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
                   {e.reference}
                   {e.notes && <div className="text-[10px] text-ink-mute">{e.notes}</div>}
                 </td>
-                {data.columns.map(c => (
-                  <td key={c.id} className={`px-3 py-2 text-right num text-xs ${e.column_id === c.id ? (e.direction === 'in' ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-semibold') : ''}`}>
-                    {e.column_id === c.id
-                      ? (e.direction === 'in' ? '+ ' : '\u2212 ') + fmtUnit(e.quantity, data.unit)
-                      : ''}
-                  </td>
-                ))}
+                {data.columns.map(c => {
+                  const isActive = e.column_id === c.id;
+                  const newBalance = balanceAfterEvent[i] ?? 0;
+                  return (
+                    <td key={c.id} className={`px-3 py-2 text-right num text-xs ${isActive ? (e.direction === 'in' ? 'text-emerald-700' : 'text-rose-700') : ''}`}>
+                      {isActive ? (
+                        <>
+                          <div className="font-semibold">
+                            {(e.direction === 'in' ? '+ ' : '\u2212 ') + fmtUnit(e.quantity, data.unit)}
+                          </div>
+                          <div className={`text-[10px] mt-0.5 ${newBalance < 0 ? 'text-rose-700' : 'text-ink-mute'}`}>
+                            bal {fmtUnit(newBalance, data.unit)}
+                          </div>
+                        </>
+                      ) : ''}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
