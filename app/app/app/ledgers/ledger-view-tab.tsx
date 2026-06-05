@@ -47,6 +47,21 @@ interface PaymentRow {
   mode_ledger: { id: number; name: string } | null;
 }
 
+// Unified ledger-entry shape used by the table. Whether the row came
+// from a payment, a wage_entry, or an expense_entry, we project it
+// into this common shape so the table render is a single loop.
+interface LedgerEntry {
+  key:           string;          // unique row key
+  source:        'payment' | 'wage' | 'expense';
+  date:          string;
+  voucher:       string;          // payment_no for payments, "WAGE/N" / "EXP/N" otherwise
+  counterparty:  string;          // party / employee / category
+  mode:          string;          // Bank / Cash ledger name, or '-' for wages/expenses
+  reference:     string | null;
+  inflow:        number;
+  outflow:       number;
+}
+
 interface PartyByLedger {
   id: number;
   ledger_id: number;
@@ -86,12 +101,12 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   }
 
   const supabase = createClient();
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [entries,  setEntries]  = useState<LedgerEntry[]>([]);
   const [loading,  setLoading]  = useState<boolean>(false);
   const [error,    setError]    = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!ledgerId) { setPayments([]); return; }
+    if (!ledgerId) { setEntries([]); return; }
     setLoading(true);
     setError(null);
 
@@ -111,15 +126,14 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     const partyIds: number[] = ((matchingParties ?? []) as PartyByLedger[])
       .map((p) => p.id);
 
-    // Step 2: pull every payment where:
-    //   - mode_ledger_id == picked ledger (BANK/CASH side), OR
-    //   - party_id IN partyIds (party-side, e.g. CUSTOMER/SUPPLIER)
-    // Supabase's .or() lets us combine the two conditions in one query.
+    // Step 2: pull every payment that touches this ledger — either as
+    // the mode_ledger (BANK / CASH side) or via a matching party_id
+    // (party side, e.g. CUSTOMER / SUPPLIER).
     const orParts: string[] = [`mode_ledger_id.eq.${numericId}`];
     if (partyIds.length > 0) {
       orParts.push(`party_id.in.(${partyIds.join(',')})`);
     }
-    const { data, error: payErr } = await sb
+    const paymentsRes = await sb
       .from('payment')
       .select(`
         id, payment_no, payment_date, direction, amount, reference, notes,
@@ -128,12 +142,78 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         mode_ledger:mode_ledger_id ( id, name )
       `)
       .eq('status', 'active')
-      .or(orParts.join(','))
-      .order('payment_date', { ascending: true })
-      .order('id', { ascending: true });
+      .or(orParts.join(','));
 
-    if (payErr) { setError(payErr.message); setLoading(false); return; }
-    setPayments((data ?? []) as unknown as PaymentRow[]);
+    if (paymentsRes.error) { setError(paymentsRes.error.message); setLoading(false); return; }
+    const payments = (paymentsRes.data ?? []) as unknown as PaymentRow[];
+
+    // Step 3: pull wage_entries and expense_entries that target this
+    // ledger. These show up as OUTFLOWS (we paid wages / expenses).
+    // The target_ledger_id column was added by migration 107, with
+    // default WEAVER WAGES for wages and OFFICE EXPENSES for expenses.
+    const [wagesRes, expensesRes] = await Promise.all([
+      sb.from('wage_entry')
+        .select('id, pay_date, amount, kind, notes, employee:employee_id ( name )')
+        .eq('target_ledger_id', numericId),
+      sb.from('expense_entry')
+        .select('id, pay_date, amount, category, notes')
+        .eq('target_ledger_id', numericId),
+    ]);
+    if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
+    if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
+
+    // Step 4: project everything into LedgerEntry and sort chronologically.
+    const all: LedgerEntry[] = [];
+
+    for (const p of payments) {
+      const amt = Number(p.amount);
+      all.push({
+        key:          `pay-${p.id}`,
+        source:       'payment',
+        date:         p.payment_date,
+        voucher:      p.payment_no,
+        counterparty: p.party?.name ?? '-',
+        mode:         p.mode_ledger?.name ?? '-',
+        reference:    p.reference,
+        inflow:       p.direction === 'in'  ? amt : 0,
+        outflow:      p.direction === 'out' ? amt : 0,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const w of ((wagesRes.data ?? []) as any[])) {
+      all.push({
+        key:          `wage-${w.id}`,
+        source:       'wage',
+        date:         w.pay_date,
+        voucher:      `WAGE/${w.id}`,
+        counterparty: w.employee?.name ?? '-',
+        mode:         '-',
+        reference:    w.kind ?? null,
+        inflow:       0,
+        outflow:      Number(w.amount ?? 0),
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const x of ((expensesRes.data ?? []) as any[])) {
+      all.push({
+        key:          `exp-${x.id}`,
+        source:       'expense',
+        date:         x.pay_date,
+        voucher:      `EXP/${x.id}`,
+        counterparty: x.category ?? '-',
+        mode:         '-',
+        reference:    null,
+        inflow:       0,
+        outflow:      Number(x.amount ?? 0),
+      });
+    }
+
+    all.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.key.localeCompare(b.key);
+    });
+
+    setEntries(all);
     setLoading(false);
   }, [ledgerId, supabase]);
 
@@ -148,14 +228,11 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   //   and the bank-side view (a receipt is money INTO the bank).
   const ledger = useMemo(() => {
     let running = 0;
-    return payments.map((p) => {
-      const amt = Number(p.amount);
-      const inflow  = p.direction === 'in'  ? amt : 0;
-      const outflow = p.direction === 'out' ? amt : 0;
-      running += inflow - outflow;
-      return { ...p, inflow, outflow, balance: running };
+    return entries.map((e) => {
+      running += e.inflow - e.outflow;
+      return { ...e, balance: running };
     });
-  }, [payments]);
+  }, [entries]);
 
   const totals = useMemo(() => {
     const inflow  = ledger.reduce((s, r) => s + r.inflow,  0);
@@ -230,14 +307,25 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
               </thead>
               <tbody>
                 {ledger.map((r) => (
-                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-3 text-ink-soft">{fmtDate(r.payment_date)}</td>
-                    <td className="px-3 py-3 font-mono text-xs">{r.payment_no}</td>
+                  <tr key={r.key} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-3 text-ink-soft">{fmtDate(r.date)}</td>
+                    <td className="px-3 py-3 font-mono text-xs">
+                      {r.voucher}
+                      {r.source !== 'payment' && (
+                        <span className={cn(
+                          'ml-1 pill text-[9px]',
+                          r.source === 'wage'    ? 'bg-amber-50 text-amber-700'
+                                                 : 'bg-violet-50 text-violet-700',
+                        )}>
+                          {r.source}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-3 hidden md:table-cell text-ink-soft">
-                      {r.party?.name ?? '-'}
+                      {r.counterparty}
                     </td>
                     <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {r.mode_ledger?.name ?? '-'}
+                      {r.mode}
                     </td>
                     <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
                       {r.reference ?? '-'}

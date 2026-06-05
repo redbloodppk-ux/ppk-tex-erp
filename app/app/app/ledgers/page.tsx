@@ -144,35 +144,34 @@ export default async function LedgersPage({
         <LedgerViewTab ledgers={viewLedgers} />
       ) : (
         <>
-          {/* Filter strip — only on Master tab. */}
-          <div className="card p-3 mb-4 space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-ink-mute font-semibold uppercase">Type:</span>
-              <Link href={buildHref({ type: null })}
-                className={'pill ' + (typeFilter === '' ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
-                All
-              </Link>
-              {types.map((t) => (
-                <Link key={t.id} href={buildHref({ type: String(t.id) })}
-                  className={'pill ' + (typeFilter === String(t.id) ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
-                  {t.name}
-                </Link>
-              ))}
+          {/* Filter strip — Type + Group dropdowns. Forms with method=GET
+              submit the new query string back to /app/ledgers, which
+              re-runs the server component with the picked filters.
+              No JS needed — works as a plain HTML form. */}
+          <form method="GET" action="/app/ledgers" className="card p-3 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="label">Type</label>
+              <select name="type" defaultValue={typeFilter} className="input">
+                <option value="">All types</option>
+                {types.map((t) => (
+                  <option key={t.id} value={String(t.id)}>{t.name}</option>
+                ))}
+              </select>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-ink-mute font-semibold uppercase">Group:</span>
-              <Link href={buildHref({ group: null })}
-                className={'pill ' + (groupFilter === '' ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
-                All
-              </Link>
-              {groups.map((g) => (
-                <Link key={g.id} href={buildHref({ group: String(g.id) })}
-                  className={'pill ' + (groupFilter === String(g.id) ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
-                  {g.name}
-                </Link>
-              ))}
+            <div>
+              <label className="label">Group</label>
+              <select name="group" defaultValue={groupFilter} className="input">
+                <option value="">All groups</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={String(g.id)}>{g.name}</option>
+                ))}
+              </select>
             </div>
-          </div>
+            <div className="flex items-end gap-2">
+              <button type="submit" className="btn-primary">Apply</button>
+              <Link href="/app/ledgers" className="btn-ghost">Clear</Link>
+            </div>
+          </form>
 
           {listError && (
             <div className="card p-4 text-sm text-err mb-4">
