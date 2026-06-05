@@ -21,6 +21,10 @@ interface LedgerRow {
   pan_no: string | null;
   gstin: string | null;
   gstin_verified_at: string | null;
+  bank_name: string | null;
+  bank_account_no: string | null;
+  bank_ifsc: string | null;
+  bank_branch: string | null;
   area: string | null;
   active: boolean;
   notes: string | null;
@@ -64,6 +68,10 @@ export default async function EditLedgerPage({
     pan_no:   l.pan_no ?? '',
     gstin:    l.gstin ?? '',
     gstin_verified_at: l.gstin_verified_at ?? null,
+    bank_name:       l.bank_name       ?? '',
+    bank_account_no: l.bank_account_no ?? '',
+    bank_ifsc:       l.bank_ifsc       ?? '',
+    bank_branch:     l.bank_branch     ?? '',
     area:     l.area ?? '',
     active:   l.active,
     notes:    l.notes ?? '',

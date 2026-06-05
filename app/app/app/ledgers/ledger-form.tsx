@@ -109,6 +109,14 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     if (form.type_id === '') { setError('Ledger type is required.'); return; }
     if (form.group_id === ''){ setError('Account group is required.'); return; }
 
+    // Bank-type ledgers need the account details so payments can
+    // record where the money came from / went to.
+    if (isBankType) {
+      if (form.bank_name.trim()       === '') { setError('Bank name is required for BANK ledgers.');    return; }
+      if (form.bank_account_no.trim() === '') { setError('Account number is required for BANK ledgers.'); return; }
+      if (form.bank_ifsc.trim()       === '') { setError('IFSC code is required for BANK ledgers.');     return; }
+    }
+
     const payload = {
       name,
       type_id: Number(form.type_id),
@@ -127,6 +135,12 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       area:     form.area.trim() === '' ? null : form.area.trim(),
       active:   form.active,
       notes:    form.notes.trim() === '' ? null : form.notes.trim(),
+      // Bank account details — saved only for BANK type, cleared
+      // otherwise so a re-typed ledger doesn't carry stale bank data.
+      bank_name:       isBankType && form.bank_name.trim()       !== '' ? form.bank_name.trim()                  : null,
+      bank_account_no: isBankType && form.bank_account_no.trim() !== '' ? form.bank_account_no.trim()            : null,
+      bank_ifsc:       isBankType && form.bank_ifsc.trim()       !== '' ? form.bank_ifsc.trim().toUpperCase()    : null,
+      bank_branch:     isBankType && form.bank_branch.trim()     !== '' ? form.bank_branch.trim()                : null,
     };
 
     setBusy(true);
@@ -257,6 +271,43 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
             onChange={(e) => patch({ area: e.target.value })} />
         </div>
       </div>
+
+      {/* Bank account details — only shown when the picked ledger type
+          is BANK. Saved into ledger.bank_* columns (migration 106) and
+          referenced by the Payments page when listing accounts. */}
+      {isBankType && (
+        <div className="rounded-lg border-2 border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-indigo-900">🏦 Bank account details</span>
+            <span className="text-[11px] text-indigo-700">required for BANK-type ledgers</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Bank name *</label>
+              <input className="input w-full" placeholder="e.g. HDFC Bank"
+                value={form.bank_name} onChange={(e) => patch({ bank_name: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Branch</label>
+              <input className="input w-full" placeholder="e.g. Erode Main"
+                value={form.bank_branch} onChange={(e) => patch({ bank_branch: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Account number *</label>
+              <input className="input num w-full" placeholder="e.g. 50100123456789"
+                value={form.bank_account_no}
+                onChange={(e) => patch({ bank_account_no: e.target.value.replace(/\s+/g, '') })} />
+            </div>
+            <div>
+              <label className="label">IFSC code *</label>
+              <input className="input uppercase w-full" placeholder="e.g. HDFC0001234"
+                value={form.bank_ifsc}
+                onChange={(e) => patch({ bank_ifsc: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                maxLength={11} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
