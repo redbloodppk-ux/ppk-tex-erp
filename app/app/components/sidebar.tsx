@@ -61,14 +61,18 @@ const NAV: NavItem[] = [
   // page (entry below points at the yarn tab as the default).
   { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  // Job Work + Outsource Weaving are about buying weaving services
+  // from external parties (with their own stock-in / stock-out
+  // tracking), so they belong with inventory & purchases rather than
+  // in-house production routing.
+  { href: '/app/outsource',          label: 'Outsource Weaving',  icon: Truck,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
+  { href: '/app/jobwork',            label: 'Job Work',           icon: Hammer,          group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
 
   // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
   { href: '/app/pavu',          label: 'Pavu (Sized Beams)', icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
-  { href: '/app/outsource',     label: 'Outsource Weaving',  icon: Truck,           group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
 
