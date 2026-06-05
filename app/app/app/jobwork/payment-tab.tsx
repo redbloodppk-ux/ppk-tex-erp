@@ -40,6 +40,11 @@ interface LedgerOpt { id: number; name: string }
 
 interface JobworkPaymentTabProps {
   parties?: ReadonlyArray<PartyOpt>;
+  /** Route variant. `outsource` swaps the visible bill noun so the
+   *  table says "weaving bills" instead of "jobwork bills". The
+   *  underlying invoice doc_type stays `jobwork_invoice` because we
+   *  haven't split the bill type at the DB level. */
+  kind?: 'jobwork' | 'outsource';
 }
 
 function fmtDate(s: string | null): string {
@@ -61,7 +66,8 @@ function num(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function JobworkPaymentTab(_props: JobworkPaymentTabProps): React.ReactElement {
+export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactElement {
+  const billLabel: string = props.kind === 'outsource' ? 'weaving bill' : 'jobwork bill';
   const supabase = createClient();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError]     = useState<string | null>(null);
@@ -246,7 +252,7 @@ export function JobworkPaymentTab(_props: JobworkPaymentTabProps): React.ReactEl
         </div>
       ) : bills.length === 0 ? (
         <div className="card p-6 text-center text-ink-mute text-sm">
-          No jobwork bills yet. Create one from <span className="font-mono">/app/invoices/new/jobwork-bill</span>.
+          No {billLabel}s yet. Create one from <span className="font-mono">/app/invoices/new/jobwork-bill</span>.
         </div>
       ) : (
         <div className="card overflow-x-auto">

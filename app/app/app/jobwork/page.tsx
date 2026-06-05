@@ -28,6 +28,13 @@ interface PageVariant {
   subtitle: string;
   manageHref: string;
   manageLabel: string;
+  /** Label used wherever the form / table needs to refer to the party
+   *  this page targets — "Jobwork Party" on /app/jobwork,
+   *  "Outsourcing party" on /app/outsource. */
+  partyLabel: string;
+  /** Used in invoice / DC text (e.g. "Weaving Bill" vs "Job Work Bill"). */
+  billLabel: string;
+  dcLabel: string;
 }
 const VARIANTS: Record<PartyKind, PageVariant> = {
   jobwork: {
@@ -36,6 +43,9 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
     subtitle: 'Track bobbin / warp beam / weft bag issued to each jobwork party. Inline edit, delete, restock supported.',
     manageHref: '/app/parties?type=3',
     manageLabel: 'Manage Jobwork Parties',
+    partyLabel: 'Jobwork Party',
+    billLabel: 'Job Work Bill',
+    dcLabel: 'Job Work DC',
   },
   outsource: {
     kind: 'outsource',
@@ -43,6 +53,9 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
     subtitle: 'Track bobbin / warp beam / weft bag issued to each outsource weaver. Inline edit, delete, restock supported.',
     manageHref: '/app/parties?type=5',
     manageLabel: 'Manage Outsource Weavers',
+    partyLabel: 'Outsourcing party',
+    billLabel: 'Weaving Bill',
+    dcLabel: 'Outsource Weaving DC',
   },
 };
 
@@ -261,28 +274,42 @@ export default function JobworkPage(): React.ReactElement {
           <Loader2 className="w-4 h-4 animate-spin" /> Loading...
         </div>
       ) : tab === 'dc' ? (
-        <JobworkDcTab parties={parties} qualities={qualities} />
+        <JobworkDcTab parties={parties} qualities={qualities} kind={variant.kind} />
       ) : tab === 'bobbin' ? (
-        <BobbinTab rows={bobbins} returns={bobbinReturns} partyById={partyById} bobbinSuppliers={bobbinSuppliers} allParties={allParties} onChanged={load} />
+        <BobbinTab
+          rows={bobbins.filter((b) => b.jobwork_party_id != null && partyById.has(b.jobwork_party_id))}
+          returns={bobbinReturns}
+          partyById={partyById}
+          bobbinSuppliers={bobbinSuppliers}
+          allParties={allParties}
+          partyLabel={variant.partyLabel}
+          onChanged={load}
+        />
       ) : tab === 'warp_beam' ? (
         <WarpBeamTab
-          rows={warpBeams} parties={parties} qualities={qualities} counts={counts}
+          rows={warpBeams.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
+          parties={parties} qualities={qualities} counts={counts}
           sizingParties={sizingParties} fabricDefaults={fabricDefaults}
           partyById={partyById} qualityById={qualityById} countById={countById}
+          partyLabel={variant.partyLabel}
           onChanged={load}
         />
       ) : tab === 'weft_bag' ? (
         <WeftBagTab
-          rows={weftBags} parties={parties} counts={counts} allParties={allParties}
+          rows={weftBags.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
+          parties={parties} counts={counts} allParties={allParties}
           partyById={partyById} countById={countById} allPartyById={allPartyById}
+          partyLabel={variant.partyLabel}
           onChanged={load}
         />
       ) : tab === 'payment' ? (
-        <JobworkPaymentTab parties={parties} />
+        <JobworkPaymentTab parties={parties} kind={variant.kind} />
       ) : (
         <StatusTab
           parties={parties} qualities={qualities} counts={counts}
-          bobbins={bobbins} warpBeams={warpBeams} weftBags={weftBags}
+          bobbins={bobbins.filter((b) => b.jobwork_party_id != null && partyById.has(b.jobwork_party_id))}
+          warpBeams={warpBeams.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
+          weftBags={weftBags.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
           partyById={partyById}
         />
       )}
@@ -352,9 +379,13 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
 }
 
 /* ===== Bobbin tab ===== */
-function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onChanged }: {
+function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, partyLabel, onChanged }: {
   rows: BobbinRow[]; returns: BobbinReturnRow[];
   partyById: Map<number, PartyOpt>; bobbinSuppliers: PartyOpt[]; allParties: PartyOpt[];
+  /** Label for the dropdown that picks which party to give the bobbin
+   *  to — "Jobwork Party" on /app/jobwork, "Outsourcing party" on
+   *  /app/outsource. */
+  partyLabel: string;
   onChanged: () => void;
 }) {
   const supabase = createClient();
@@ -556,7 +587,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
       {showAdd && (
         <div className="card p-3 mb-3 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
-            <label className="label text-xs">Jobwork Party *</label>
+            <label className="label text-xs">{partyLabel} *</label>
             <select
               className="input h-9 text-sm"
               value={addForm.jobwork_party_id}
@@ -834,10 +865,12 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
 }
 
 /* ===== Warp Beam tab ===== */
-function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, onChanged }: {
+function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, partyLabel, onChanged }: {
   rows: WarpBeamRow[]; parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[];
   sizingParties: PartyOpt[]; fabricDefaults: Map<number, FabricDefaults>;
   partyById: Map<number, PartyOpt>; qualityById: Map<number, QualityOpt>; countById: Map<number, CountOpt>;
+  /** "Jobwork Party" or "Outsourcing party" depending on the route. */
+  partyLabel: string;
   onChanged: () => void;
 }) {
   const supabase = createClient();
@@ -991,7 +1024,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
-          <div><label className="label text-xs">Party *</label>
+          <div><label className="label text-xs">{partyLabel} *</label>
             <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
@@ -1179,9 +1212,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 }
 
 /* ===== Weft Bag tab ===== */
-function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, allPartyById, onChanged }: {
+function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, allPartyById, partyLabel, onChanged }: {
   rows: WeftBagRow[]; parties: PartyOpt[]; counts: CountOpt[]; allParties: PartyOpt[];
-  partyById: Map<number, PartyOpt>; countById: Map<number, CountOpt>; allPartyById: Map<number, PartyOpt>; onChanged: () => void;
+  partyById: Map<number, PartyOpt>; countById: Map<number, CountOpt>; allPartyById: Map<number, PartyOpt>;
+  /** "Jobwork Party" or "Outsourcing party" depending on the route. */
+  partyLabel: string;
+  onChanged: () => void;
 }) {
   const supabase = createClient();
   const [form, setForm] = useState({
@@ -1284,7 +1320,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
         <h3 className="font-display font-bold text-sm mb-3">Add weft bag</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
-          <div><label className="label text-xs">Party *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
+          <div><label className="label text-xs">{partyLabel} *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
           <div><label className="label text-xs">Yarn count</label><select className="input" value={form.yarn_count_id} onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</select></div>
           <div><label className="label text-xs">Bag count</label><input type="number" className="input num" value={form.bag_count} onChange={(e) => setForm({ ...form, bag_count: e.target.value })} /></div>
           <div><label className="label text-xs">Total kg</label><input type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>

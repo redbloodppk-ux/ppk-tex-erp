@@ -47,6 +47,10 @@ interface JobworkDcTabProps {
    */
   parties?: ReadonlyArray<PartyOpt>;
   qualities: ReadonlyArray<QualityOpt>;
+  /** Page route this tab is being shown on. `outsource` flips the
+   *  visible labels (DC / bill / party) but the underlying delivery
+   *  challan + invoice tables stay the same. */
+  kind?: 'jobwork' | 'outsource';
 }
 
 function fmtDate(s: string | null): string {
@@ -67,7 +71,11 @@ function statusPill(s: DcRow['status']): { label: string; cls: string } {
   }
 }
 
-export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactElement {
+export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps): React.ReactElement {
+  // Display strings — swap "jobwork bill / DC / weaver" wording when
+  // this tab is rendered inside /app/outsource.
+  const billLabel: string = kind === 'outsource' ? 'weaving bill' : 'jobwork bill';
+  const dcLabel:   string = kind === 'outsource' ? 'outsource weaving DC' : 'jobwork DC';
   const supabase = createClient();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -218,7 +226,7 @@ export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactEleme
             href="/app/invoices/new/jobwork-bill"
             className="btn-primary text-xs"
           >
-            <Receipt className="w-3.5 h-3.5" /> New Jobwork Bill
+            <Receipt className="w-3.5 h-3.5" /> New {kind === 'outsource' ? 'Weaving Bill' : 'Jobwork Bill'}
           </Link>
           <Link
             href="/app/delivery-challan/new"
@@ -276,8 +284,8 @@ export function JobworkDcTab({ qualities }: JobworkDcTabProps): React.ReactEleme
                 <tr>
                   <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
                     {rows.length === 0
-                      ? <>No jobwork DCs yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link></>
-                      : 'No jobwork DCs match the current filters.'}
+                      ? <>No {dcLabel}s yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link></>
+                      : `No ${dcLabel}s match the current filters.`}
                   </td>
                 </tr>
               ) : filtered.map((r) => {
