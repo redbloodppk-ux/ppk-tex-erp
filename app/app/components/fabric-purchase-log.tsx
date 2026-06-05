@@ -24,7 +24,9 @@ interface FabricRow {
   fabric_quality_id: number | null;
   supplier_party_id: number | null;
   received_date: string;
-  received_metres: number;
+  // Either metres or pieces is populated depending on rate_unit;
+  // both can be null (legacy rows or per-piece purchases).
+  received_metres: number | null;
   received_pieces: number | null;
   rate_unit: RateUnit;
   rate: number;
@@ -42,8 +44,11 @@ interface FormState {
   fabric_quality_id:    string;
   supplier_party_id:    string;
   received_date:        string;
-  received_metres:      string;
-  received_pieces:      string;
+  // Single quantity field. Interpreted as metres when rate_unit='m'
+  // and as pieces when rate_unit='pcs'. On save we route it into the
+  // matching DB column (received_metres or received_pieces) so the
+  // table never carries a fake 0 for the unused unit.
+  quantity:             string;
   rate_unit:            RateUnit;
   rate:                 string;
   gst_pct:              string;
@@ -56,8 +61,7 @@ const EMPTY: FormState = {
   fabric_quality_id:    '',
   supplier_party_id:    '',
   received_date:        '',
-  received_metres:      '',
-  received_pieces:      '',
+  quantity:             '',
   rate_unit:            'm',
   rate:                 '',
   gst_pct:              '5',
@@ -150,16 +154,15 @@ export function FabricPurchaseLog(): React.ReactElement {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Total preview matches the DB GENERATED column: qty × rate × (1 + gst/100),
-  // where qty is metres when rate_unit='m' or pieces when 'pcs'.
+  // Total preview matches the DB GENERATED column:
+  //   qty × rate × (1 + gst/100), where qty is whatever the operator
+  //   entered in the single Quantity field.
   const totalPreview = useMemo<number>(() => {
     const rate = toNumOrNull(form.rate) ?? 0;
     const gst  = toNumOrNull(form.gst_pct) ?? 0;
-    const qty  = form.rate_unit === 'm'
-      ? (toNumOrNull(form.received_metres) ?? 0)
-      : (toNumOrNull(form.received_pieces) ?? 0);
+    const qty  = toNumOrNull(form.quantity) ?? 0;
     return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
-  }, [form.received_metres, form.received_pieces, form.rate, form.gst_pct, form.rate_unit]);
+  }, [form.quantity, form.rate, form.gst_pct]);
 
   function openNewForm(): void {
     setEditingId(null);
@@ -171,12 +174,16 @@ export function FabricPurchaseLog(): React.ReactElement {
 
   function openEditForm(r: FabricRow): void {
     setEditingId(r.id);
+    // Hydrate the single Quantity field from whichever DB column is
+    // populated based on the saved rate_unit.
+    const qty = r.rate_unit === 'm'
+      ? (r.received_metres ?? 0)
+      : (r.received_pieces ?? 0);
     setForm({
       fabric_quality_id:    r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
       supplier_party_id:    r.supplier_party_id === null ? '' : String(r.supplier_party_id),
       received_date:        r.received_date,
-      received_metres:      String(r.received_metres),
-      received_pieces:      r.received_pieces === null ? '' : String(r.received_pieces),
+      quantity:             String(qty),
       rate_unit:            r.rate_unit,
       rate:                 String(r.rate),
       gst_pct:              String(r.gst_pct),
@@ -199,39 +206,36 @@ export function FabricPurchaseLog(): React.ReactElement {
     setError(null);
     setSavedMsg(null);
 
-    const qualityId    = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
-    const supplierId   = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
-    const metres       = toNumOrNull(form.received_metres);
-    const pieces       = toNumOrNull(form.received_pieces);
-    const rate         = toNumOrNull(form.rate);
-    const gst          = toNumOrNull(form.gst_pct) ?? 0;
+    const qualityId  = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
+    const supplierId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
+    const quantity   = toNumOrNull(form.quantity);
+    const rate       = toNumOrNull(form.rate);
+    const gst        = toNumOrNull(form.gst_pct) ?? 0;
 
-    if (qualityId === null)                       { setError('Fabric quality is required.'); return; }
-    if (supplierId === null)                      { setError('Supplier is required.'); return; }
-    if (form.received_date.trim() === '')         { setError('Purchase date is required.'); return; }
-    if (metres === null || metres <= 0)           { setError('Quantity in metres must be > 0.'); return; }
-    if (rate === null || rate < 0)                { setError('Rate is required.'); return; }
-    if (form.invoice_no.trim() === '')            { setError('Invoice number is required.'); return; }
-    if (form.rate_unit === 'pcs' && (pieces === null || pieces <= 0)) {
-      setError('When the rate is per piece, also enter the piece count.');
-      return;
-    }
+    if (qualityId === null)                  { setError('Fabric quality is required.'); return; }
+    if (supplierId === null)                 { setError('Supplier is required.'); return; }
+    if (form.received_date.trim() === '')    { setError('Purchase date is required.'); return; }
+    if (quantity === null || quantity <= 0)  { setError('Quantity must be greater than zero.'); return; }
+    if (rate === null || rate < 0)           { setError('Rate is required.'); return; }
+    if (form.invoice_no.trim() === '')       { setError('Invoice number is required.'); return; }
 
+    // Route the single Quantity field into the matching DB column.
+    // The other column stays NULL so reports never double-count.
+    const isMetres = form.rate_unit === 'm';
     const payload = {
       fabric_quality_id:    qualityId,
       supplier_party_id:    supplierId,
       received_date:        form.received_date,
-      received_metres:      metres,
-      received_pieces:      pieces,
+      received_metres:      isMetres ? quantity : null,
+      received_pieces:      isMetres ? null     : Math.round(quantity),
       rate_unit:            form.rate_unit,
       rate,
       gst_pct:              gst,
       invoice_no:           form.invoice_no.trim(),
       notes:                form.notes.trim() === '' ? null : form.notes.trim(),
       delivery_destination: form.delivery_destination,
-      // current_metres is auto-defaulted by a DB trigger to
-      // received_metres on insert.
-      ...(editingId === null ? { current_metres: metres } : {}),
+      // current_metres is meaningful only for metres-bought rows.
+      ...(editingId === null && isMetres ? { current_metres: quantity } : {}),
     };
 
     setBusy(true);
@@ -343,19 +347,22 @@ export function FabricPurchaseLog(): React.ReactElement {
             </div>
 
             <div>
-              <label className="label" htmlFor="fp-metres">Quantity (metres) *</label>
-              <input id="fp-metres" type="number" min={0} step="0.01" className="input num w-full"
-                value={form.received_metres}
-                onChange={(e) => setForm((f) => ({ ...f, received_metres: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label" htmlFor="fp-unit">Rate unit *</label>
+              <label className="label" htmlFor="fp-unit">Unit *</label>
               <select id="fp-unit" className="input w-full"
                 value={form.rate_unit}
                 onChange={(e) => setForm((f) => ({ ...f, rate_unit: e.target.value as RateUnit }))}>
-                <option value="m">Metres (per metre)</option>
-                <option value="pcs">Pieces (per piece)</option>
+                <option value="m">Metres</option>
+                <option value="pcs">Pieces</option>
               </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="fp-qty">
+                Quantity ({form.rate_unit === 'm' ? 'metres' : 'pcs'}) *
+              </label>
+              <input id="fp-qty" type="number" min={0} step={form.rate_unit === 'm' ? '0.01' : '1'}
+                className="input num w-full"
+                value={form.quantity}
+                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="fp-rate">
@@ -372,15 +379,6 @@ export function FabricPurchaseLog(): React.ReactElement {
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>
 
-            {form.rate_unit === 'pcs' && (
-              <div>
-                <label className="label" htmlFor="fp-pcs">Piece count *</label>
-                <input id="fp-pcs" type="number" min={0} step="1" className="input num w-full"
-                  value={form.received_pieces}
-                  onChange={(e) => setForm((f) => ({ ...f, received_pieces: e.target.value }))} />
-                <p className="text-[11px] text-ink-mute mt-1">Total = pieces &times; rate.</p>
-              </div>
-            )}
             <div>
               <label className="label">Total (auto)</label>
               <div className="input num bg-emerald-50 text-emerald-800 font-semibold select-none">
@@ -437,10 +435,9 @@ export function FabricPurchaseLog(): React.ReactElement {
                 <th className="text-left  px-3 py-3">Code</th>
                 <th className="text-left  px-3 py-3">Fabric quality</th>
                 <th className="text-left  px-3 py-3 hidden md:table-cell">Supplier</th>
-                <th className="text-right px-3 py-3">Metres</th>
-                <th className="text-right px-3 py-3">Pieces</th>
-                <th className="text-right px-3 py-3">Rate (Rs)</th>
+                <th className="text-right px-3 py-3">Quantity</th>
                 <th className="text-left  px-3 py-3">Unit</th>
+                <th className="text-right px-3 py-3">Rate (Rs)</th>
                 <th className="text-right px-3 py-3">GST %</th>
                 <th className="text-right px-3 py-3">Total Rs</th>
                 <th className="text-left  px-3 py-3">Delivery</th>
@@ -455,10 +452,13 @@ export function FabricPurchaseLog(): React.ReactElement {
                   <td className="px-3 py-3 font-mono text-xs">{r.code}</td>
                   <td className="px-3 py-3 font-semibold">{qualityLabel(r.fabric_quality_id)}</td>
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(r.supplier_party_id)}</td>
-                  <td className="px-3 py-3 text-right num">{fmtMoney(Number(r.received_metres))}</td>
-                  <td className="px-3 py-3 text-right num">{r.received_pieces ?? '-'}</td>
+                  <td className="px-3 py-3 text-right num">
+                    {r.rate_unit === 'm'
+                      ? (r.received_metres != null ? fmtMoney(Number(r.received_metres)) : '-')
+                      : (r.received_pieces ?? '-')}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-ink-soft">{r.rate_unit === 'm' ? 'metres' : 'pieces'}</td>
                   <td className="px-3 py-3 text-right num">{fmtMoney(Number(r.rate))}</td>
-                  <td className="px-3 py-3 text-xs text-ink-soft">{r.rate_unit === 'm' ? 'per metre' : 'per piece'}</td>
                   <td className="px-3 py-3 text-right num">{Number(r.gst_pct)}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(Number(r.total_amount))}</td>
                   <td className="px-3 py-3 text-ink-soft">{deliveryLabel(r.delivery_destination)}</td>
