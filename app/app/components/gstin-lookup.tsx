@@ -41,6 +41,13 @@ type Props = {
   defaultValue?: string;
   /** Called with the fetched record when verification succeeds. */
   onResolve: (data: GstinData) => void;
+  /** Called with a fresh ISO timestamp when verification succeeds.
+   *  Parent forms use this to persist `gstin_verified_at` on the row
+   *  so the green tick stays after the user saves and reloads. */
+  onVerified?: (verifiedAtIso: string) => void;
+  /** Initial verification timestamp from the DB. If present, the tick
+   *  shows immediately on mount (the GSTIN was verified earlier). */
+  initialVerifiedAt?: string | null;
   /** Label override. Default: "GSTIN". */
   label?: string;
   className?: string;
@@ -50,16 +57,24 @@ export function GstinLookup({
   name = 'gstin',
   defaultValue = '',
   onResolve,
+  onVerified,
+  initialVerifiedAt = null,
   label = 'GSTIN',
   className,
 }: Props) {
   const [value, setValue] = useState(defaultValue.toUpperCase());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `resolved` covers a verification done in THIS session (fresh lookup).
+  // `priorVerified` covers verifications saved earlier — we show the same
+  // green tick for both so the operator never has to wonder whether the
+  // GSTIN was checked.
   const [resolved, setResolved] = useState(false);
   const [mocked, setMocked] = useState(false);
+  const [priorVerified, setPriorVerified] = useState<boolean>(Boolean(initialVerifiedAt));
 
   const isValid = GSTIN_REGEX.test(value);
+  const verified = resolved || priorVerified;
 
   async function lookup() {
     if (!isValid) {
@@ -82,6 +97,11 @@ export function GstinLookup({
       onResolve(json.data as GstinData);
       setResolved(true);
       setMocked(Boolean(json.mocked));
+      // Notify parent so it can persist a verification timestamp on the
+      // row when the form is submitted.
+      if (onVerified) {
+        onVerified(new Date().toISOString());
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Network error');
     } finally {
@@ -98,7 +118,12 @@ export function GstinLookup({
     <div className={className}>
       <label className="label flex items-center gap-1.5">
         <span>{label}</span>
-        {resolved && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+        {verified && (
+          <span title="GSTIN verified" className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            verified
+          </span>
+        )}
       </label>
       <div className="flex gap-2">
         <input
@@ -106,9 +131,16 @@ export function GstinLookup({
           value={value}
           onChange={(e) => {
             // Force uppercase, strip anything that isn't A-Z or 0-9.
-            setValue(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+            const next = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            setValue(next);
             setResolved(false);
             setError(null);
+            // Typing into the field invalidates any prior verification —
+            // re-verify before the tick comes back.
+            if (priorVerified && next !== defaultValue.toUpperCase()) {
+              setPriorVerified(false);
+              if (onVerified) onVerified('');
+            }
           }}
           onKeyDown={(e) => {
             // Enter triggers verification instead of submitting the parent form.
@@ -167,6 +199,11 @@ export function GstinLookup({
           {mocked
             ? 'Details fetched (mock data — set GST_API_KEY in Vercel to use the live GST portal).'
             : 'Details fetched from live GST portal.'}
+        </p>
+      )}
+      {!resolved && priorVerified && !error && (
+        <p className="mt-1 text-xs text-emerald-700">
+          GSTIN was verified earlier — tick stays unless the number is changed.
         </p>
       )}
     </div>

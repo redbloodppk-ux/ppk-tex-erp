@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
-import { Plus, Phone, MapPin, Star } from 'lucide-react';
+import { Plus, Phone, MapPin, Star, CheckCircle2 } from 'lucide-react';
 
 export const metadata = { title: 'Customers' };
 
@@ -10,7 +10,7 @@ export default async function CustomersPage() {
   const supabase = await createClient();
   const { data: customers, error } = await supabase
     .from('customer')
-    .select('id, code, name, gstin, phone, email, city, credit_limit, payment_terms_days, status, is_vip')
+    .select('id, code, name, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status, is_vip')
     // VIP customers float to the top, then alphabetical within each group.
     .order('is_vip', { ascending: false })
     .order('name');
@@ -57,13 +57,29 @@ export default async function CustomersPage() {
                     <Link href={`/app/customers/${c.id}`} className="font-semibold text-ink hover:text-indigo">
                       {c.name}
                     </Link>
+                    {c.gstin_verified_at && (
+                      <span title="GSTIN verified" className="inline-flex">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
+                      </span>
+                    )}
                   </span>
                   {c.status !== 'active' && (
                     <span className="ml-2 pill bg-slate-100 text-slate-500">{c.status}</span>
                   )}
                   <div className="md:hidden text-xs text-ink-mute font-mono mt-0.5">{c.gstin ?? '—'}</div>
                 </td>
-                <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{c.gstin ?? '—'}</td>
+                <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">
+                  {c.gstin ? (
+                    <span className="inline-flex items-center gap-1">
+                      {c.gstin}
+                      {c.gstin_verified_at && (
+                        <span title={`Verified on ${new Date(c.gstin_verified_at).toLocaleDateString()}`}>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-label="verified" />
+                        </span>
+                      )}
+                    </span>
+                  ) : '—'}
+                </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">
                   <div className="flex items-center gap-1.5"><Phone className="w-3 h-3" /> {c.phone ?? '—'}</div>
                   {c.city && <div className="flex items-center gap-1.5 mt-0.5"><MapPin className="w-3 h-3" /> {c.city}</div>}

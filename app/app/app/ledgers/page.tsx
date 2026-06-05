@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, Pencil, CheckCircle2 } from 'lucide-react';
 import { LedgerDeleteButton } from './delete-button';
 
 export const metadata = { title: 'Ledgers' };
@@ -12,6 +12,7 @@ interface LedgerListRow {
   code: string;
   name: string;
   gstin: string | null;
+  gstin_verified_at: string | null;
   phone: string | null;
   area: string | null;
   active: boolean;
@@ -24,7 +25,7 @@ export default async function LedgersPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('ledger')
-    .select('id, code, name, gstin, phone, area, active, ledger_type:type_id(name), ledger_group:group_id(name)')
+    .select('id, code, name, gstin, gstin_verified_at, phone, area, active, ledger_type:type_id(name), ledger_group:group_id(name)')
     .order('name');
 
   const rows = (data ?? []) as unknown as LedgerListRow[];
@@ -69,10 +70,26 @@ export default async function LedgersPage() {
                   <Link href={`/app/ledgers/${r.id}`} className="font-semibold text-ink hover:text-indigo">
                     {r.name}
                   </Link>
+                  {r.gstin_verified_at && (
+                    <span className="inline-flex align-text-bottom ml-1.5" title="GSTIN verified">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{r.ledger_type?.name ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{r.ledger_group?.name ?? '-'}</td>
-                <td className="px-4 py-3 hidden lg:table-cell font-mono text-xs">{r.gstin ?? '-'}</td>
+                <td className="px-4 py-3 hidden lg:table-cell font-mono text-xs">
+                  {r.gstin ? (
+                    <span className="inline-flex items-center gap-1">
+                      {r.gstin}
+                      {r.gstin_verified_at && (
+                        <span title={`Verified on ${new Date(r.gstin_verified_at).toLocaleDateString()}`}>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-label="verified" />
+                        </span>
+                      )}
+                    </span>
+                  ) : '-'}
+                </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-ink-soft">{r.area ?? '-'}</td>
                 <td className="px-4 py-3 text-center">
                   {r.active

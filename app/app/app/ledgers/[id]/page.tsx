@@ -20,6 +20,7 @@ interface LedgerRow {
   email: string | null;
   pan_no: string | null;
   gstin: string | null;
+  gstin_verified_at: string | null;
   area: string | null;
   active: boolean;
   notes: string | null;
@@ -62,6 +63,7 @@ export default async function EditLedgerPage({
     email:    l.email ?? '',
     pan_no:   l.pan_no ?? '',
     gstin:    l.gstin ?? '',
+    gstin_verified_at: l.gstin_verified_at ?? null,
     area:     l.area ?? '',
     active:   l.active,
     notes:    l.notes ?? '',

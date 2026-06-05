@@ -26,6 +26,7 @@ interface PartyRow {
   is_vip: boolean;
   status: 'active' | 'inactive' | 'archived';
   notes: string | null;
+  gstin_verified_at: string | null;
 }
 
 export default async function EditPartyPage({
@@ -41,7 +42,7 @@ export default async function EditPartyPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('party')
-    .select('id, code, party_type_id, party_type_ids, name, gstin, contact_person, phone, email, billing_address, city, state, state_code, pincode, credit_limit, payment_terms_days, is_vip, status, notes')
+    .select('id, code, party_type_id, party_type_ids, name, gstin, gstin_verified_at, contact_person, phone, email, billing_address, city, state, state_code, pincode, credit_limit, payment_terms_days, is_vip, status, notes')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -55,6 +56,7 @@ export default async function EditPartyPage({
       : (c.party_type_id != null ? [String(c.party_type_id)] : []),
     name: c.name,
     gstin: c.gstin ?? '',
+    gstin_verified_at: c.gstin_verified_at ?? null,
     contact_person: c.contact_person ?? '',
     phone: c.phone ?? '',
     email: c.email ?? '',

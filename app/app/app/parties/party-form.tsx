@@ -22,6 +22,11 @@ export interface PartyFormValues {
   party_type_ids: string[];
   name: string;
   gstin: string;
+  /** ISO timestamp of the most recent successful GSTIN verification.
+   *  Empty string / null means unverified. Migration 099 wires a DB
+   *  trigger that auto-clears this column whenever gstin itself
+   *  changes, so re-verification is required to get the tick back. */
+  gstin_verified_at: string | null;
   contact_person: string;
   phone: string;
   email: string;
@@ -48,6 +53,7 @@ const EMPTY: PartyFormValues = {
   party_type_ids: [],
   name: '',
   gstin: '',
+  gstin_verified_at: null,
   contact_person: '',
   phone: '',
   email: '',
@@ -81,6 +87,10 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Verification timestamp tracked separately because it's set by a
+  // callback from <GstinLookup> (not a normal input). An empty string
+  // means "not verified in this session and not previously verified".
+  const [gstinVerifiedAt, setGstinVerifiedAt] = useState<string>(values.gstin_verified_at ?? '');
 
   function toggleType(idStr: string): void {
     setSelectedTypeIds((prev) => prev.includes(idStr)
@@ -145,6 +155,11 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       party_type_id: typeIdNums[0],
       name: String(fd.get('name') ?? '').trim(),
       gstin: String(fd.get('gstin') ?? '').trim().toUpperCase() || null,
+      // Persist verification timestamp from the lookup widget. An empty
+      // string means the user never clicked Verify (or cleared the field)
+      // so we save NULL. A DB trigger (migration 099) also clears this
+      // whenever gstin itself is edited, as a belt-and-braces safeguard.
+      gstin_verified_at: gstinVerifiedAt || null,
       contact_person: String(fd.get('contact_person') ?? '').trim() || null,
       phone: String(fd.get('phone') ?? '').trim() || null,
       email: String(fd.get('email') ?? '').trim() || null,
@@ -283,7 +298,12 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <GstinLookup onResolve={applyGst} defaultValue={values.gstin} />
+          <GstinLookup
+            onResolve={applyGst}
+            defaultValue={values.gstin}
+            initialVerifiedAt={values.gstin_verified_at ?? null}
+            onVerified={setGstinVerifiedAt}
+          />
         </div>
         <div>
           <label className="label">Status</label>

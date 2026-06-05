@@ -14,6 +14,9 @@ import { Loader2, Trash2, Archive } from 'lucide-react';
 export interface CustomerFormValues {
   name: string;
   gstin: string;
+  /** ISO timestamp of the most recent successful GSTIN verification.
+   *  See migration 099. NULL / empty means unverified. */
+  gstin_verified_at: string | null;
   contact_person: string;
   phone: string;
   email: string;
@@ -39,6 +42,7 @@ interface CustomerFormProps {
 const EMPTY: CustomerFormValues = {
   name: '',
   gstin: '',
+  gstin_verified_at: null,
   contact_person: '',
   phone: '',
   email: '',
@@ -61,6 +65,9 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // Verification timestamp from <GstinLookup>'s onVerified callback.
+  // Persisted to customer.gstin_verified_at on save.
+  const [gstinVerifiedAt, setGstinVerifiedAt] = useState<string>(values.gstin_verified_at ?? '');
 
   const nameRef = useRef<HTMLInputElement>(null);
   const billingRef = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +113,10 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
     const payload = {
       name: String(fd.get('name') ?? '').trim(),
       gstin: String(fd.get('gstin') ?? '').trim().toUpperCase() || null,
+      // Verification timestamp from the GST lookup widget. Empty = never
+      // verified. The DB trigger from migration 099 also clears this
+      // automatically when gstin itself is changed.
+      gstin_verified_at: gstinVerifiedAt || null,
       contact_person: String(fd.get('contact_person') ?? '').trim() || null,
       phone: String(fd.get('phone') ?? '').trim() || null,
       email: String(fd.get('email') ?? '').trim() || null,
@@ -201,7 +212,12 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
             </p>
           )}
         </div>
-        <GstinLookup onResolve={applyGst} defaultValue={values.gstin} />
+        <GstinLookup
+          onResolve={applyGst}
+          defaultValue={values.gstin}
+          initialVerifiedAt={values.gstin_verified_at ?? null}
+          onVerified={setGstinVerifiedAt}
+        />
       </div>
 
       <div>

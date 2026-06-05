@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
-import { Plus, Phone, MapPin, Pencil } from 'lucide-react';
+import { Plus, Phone, MapPin, Pencil, CheckCircle2 } from 'lucide-react';
 import { DeletePartyButton } from './delete-party-button';
 
 export const metadata = { title: 'Parties' };
@@ -15,6 +15,9 @@ interface PartyRow {
   party_type_id: number | null;
   party_type_ids: number[] | null;
   gstin: string | null;
+  /** ISO timestamp set by GstinLookup on successful verification.
+   *  Non-null means the green tick shows next to the GSTIN cell. */
+  gstin_verified_at: string | null;
   phone: string | null;
   email: string | null;
   city: string | null;
@@ -40,11 +43,11 @@ export default async function PartiesPage({
   const [typesRes, partiesRes] = await Promise.all([
     sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
     (typeFilter === ''
-      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, phone, email, city, credit_limit, payment_terms_days, status').order('name')
+      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').order('name')
       // Use array containment (`@>`) so the filter pill matches parties
       // whose party_type_ids includes the selected type. Supabase exposes
       // this via the .contains() filter.
-      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order('name')),
+      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order('name')),
   ]);
 
   const types = (typesRes.data ?? []) as TypeRow[];
@@ -105,6 +108,18 @@ export default async function PartiesPage({
                   <Link href={`/app/parties/${p.id}`} className="font-semibold text-ink hover:text-indigo">
                     {p.name}
                   </Link>
+                  {p.gstin_verified_at && (
+                    // Green tick = the GSTIN on this party was successfully
+                    // verified via the GST lookup widget. The tick is cleared
+                    // automatically by a DB trigger if the GSTIN changes
+                    // (migration 099).
+                    <span
+                      className="inline-flex align-text-bottom ml-1.5"
+                      title="GSTIN verified"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
+                    </span>
+                  )}
                   {p.status !== 'active' && (
                     <span className="ml-2 pill bg-slate-100 text-slate-500">{p.status}</span>
                   )}
@@ -124,7 +139,18 @@ export default async function PartiesPage({
                       .join(', ') || '-';
                   })()}
                 </td>
-                <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{p.gstin ?? '-'}</td>
+                <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">
+                  {p.gstin ? (
+                    <span className="inline-flex items-center gap-1">
+                      {p.gstin}
+                      {p.gstin_verified_at && (
+                        <span title={`Verified on ${new Date(p.gstin_verified_at).toLocaleDateString()}`}>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-label="verified" />
+                        </span>
+                      )}
+                    </span>
+                  ) : '-'}
+                </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">
                   <div className="flex items-center gap-1.5"><Phone className="w-3 h-3" /> {p.phone ?? '-'}</div>
                   {p.city && <div className="flex items-center gap-1.5 mt-0.5"><MapPin className="w-3 h-3" /> {p.city}</div>}

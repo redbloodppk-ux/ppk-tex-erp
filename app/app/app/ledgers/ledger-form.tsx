@@ -24,6 +24,9 @@ export interface LedgerFormValues {
   email: string;
   pan_no: string;
   gstin: string;
+  /** ISO timestamp of the most recent successful GSTIN verification.
+   *  See migration 099. NULL / empty means unverified. */
+  gstin_verified_at: string | null;
   area: string;
   active: boolean;
   notes: string;
@@ -40,7 +43,7 @@ interface LedgerFormProps {
 const EMPTY: LedgerFormValues = {
   name: '', type_id: '', group_id: '',
   address1: '', address2: '', address3: '', address4: '',
-  phone: '', email: '', pan_no: '', gstin: '', area: '',
+  phone: '', email: '', pan_no: '', gstin: '', gstin_verified_at: null, area: '',
   active: true, notes: '',
 };
 
@@ -103,6 +106,9 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       email:    form.email.trim() === '' ? null : form.email.trim(),
       pan_no:   form.pan_no.trim() === '' ? null : form.pan_no.trim().toUpperCase(),
       gstin:    form.gstin.trim() === '' ? null : form.gstin.trim().toUpperCase(),
+      // Verification timestamp from the GST lookup widget. The DB
+      // trigger from migration 099 auto-clears it when gstin changes.
+      gstin_verified_at: form.gstin_verified_at || null,
       area:     form.area.trim() === '' ? null : form.area.trim(),
       active:   form.active,
       notes:    form.notes.trim() === '' ? null : form.notes.trim(),
@@ -183,7 +189,12 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
           <input ref={nameRef} className="input w-full" value={form.name}
             onChange={(e) => patch({ name: e.target.value })} />
         </div>
-        <GstinLookup onResolve={applyGst} defaultValue={form.gstin} />
+        <GstinLookup
+          onResolve={applyGst}
+          defaultValue={form.gstin}
+          initialVerifiedAt={form.gstin_verified_at ?? null}
+          onVerified={(iso) => patch({ gstin_verified_at: iso })}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">

@@ -29,6 +29,7 @@ interface CustomerRow {
   credit_limit: number | string | null;
   payment_terms_days: number | null;
   status: 'active' | 'inactive' | 'archived';
+  gstin_verified_at: string | null;
 }
 
 export default async function EditCustomerPage({
@@ -44,7 +45,7 @@ export default async function EditCustomerPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('customer')
-    .select('id, code, name, gstin, contact_person, phone, email, billing_address, city, state, state_code, pincode, credit_limit, payment_terms_days, status')
+    .select('id, code, name, gstin, gstin_verified_at, contact_person, phone, email, billing_address, city, state, state_code, pincode, credit_limit, payment_terms_days, status')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -54,6 +55,7 @@ export default async function EditCustomerPage({
   const initial: CustomerFormValues = {
     name: c.name,
     gstin: c.gstin ?? '',
+    gstin_verified_at: c.gstin_verified_at ?? null,
     contact_person: c.contact_person ?? '',
     phone: c.phone ?? '',
     email: c.email ?? '',
