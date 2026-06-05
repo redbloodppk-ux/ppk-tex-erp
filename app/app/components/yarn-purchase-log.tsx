@@ -33,6 +33,9 @@ interface Lot {
   // mill table are gone.
   supplier_party_id: number | null;
   received_date: string;
+  /** Payment due date, computed as received_date + N days at save time
+   *  (migration 112). NULL when the lot doesn't have payment terms yet. */
+  due_date: string | null;
   received_kg: number;
   cost_per_kg: number;
   gst_pct: number;
@@ -55,6 +58,10 @@ interface FormState {
   yarn_count_id: string;
   supplier_party_id: string;
   received_date: string;
+  /** Number of days from received_date until payment is due. Empty =
+   *  no due date saved. The actual due_date column is computed at
+   *  save time so reports can sort / filter on it. */
+  due_days: string;
   received_kg: string;
   cost_per_kg: string;
   gst_pct: string;
@@ -70,6 +77,7 @@ const EMPTY: FormState = {
   yarn_count_id: '',
   supplier_party_id: '',
   received_date: '',
+  due_days: '30',
   received_kg: '',
   cost_per_kg: '',
   gst_pct: '5',
@@ -143,7 +151,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
     const [lotRes, countRes, suppRes, brokerRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
+        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -204,10 +212,22 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
   function openEditForm(l: Lot) {
     setEditingId(l.id);
+    // Recover the days-from-received from the stored due_date so the
+    // operator sees the same N they typed originally. If the lot has
+    // a due_date but no received_date (shouldn't happen), fall back
+    // to blank.
+    let dueDays = '';
+    if (l.due_date && l.received_date) {
+      const a = new Date(l.received_date + 'T00:00:00Z').getTime();
+      const b = new Date(l.due_date      + 'T00:00:00Z').getTime();
+      const diff = Math.round((b - a) / (1000 * 60 * 60 * 24));
+      if (Number.isFinite(diff) && diff >= 0) dueDays = String(diff);
+    }
     setForm({
       yarn_count_id:        String(l.yarn_count_id),
       supplier_party_id:    l.supplier_party_id === null ? '' : String(l.supplier_party_id),
       received_date:        l.received_date,
+      due_days:             dueDays,
       received_kg:          String(l.received_kg),
       cost_per_kg:          String(l.cost_per_kg),
       gst_pct:              String(l.gst_pct),
@@ -268,11 +288,21 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     if (costPerKg === null || costPerKg < 0)    { setError('Rate per kg is required.'); return; }
     if (form.invoice_no.trim() === '')          { setError('Invoice number is required.'); return; }
 
+    // due_date = received_date + N days. Empty days = no due date.
+    const dueDate: string | null = (() => {
+      const n = Number(form.due_days);
+      if (!Number.isFinite(n) || n <= 0 || !form.received_date) return null;
+      const d = new Date(form.received_date + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    })();
+
     const payload = {
       yarn_kind: yarnKind,
       yarn_count_id: yarnCountId,
       supplier_party_id: supplierId,
       received_date: form.received_date,
+      due_date: dueDate,
       received_kg: receivedKg,
       cost_per_kg: costPerKg,
       gst_pct: gst,
@@ -395,6 +425,22 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 value={form.received_date}
                 onChange={(e) => setForm((f) => ({ ...f, received_date: e.target.value }))} />
             </div>
+            <div>
+              <label className="label" htmlFor="y-due">Due in (days)</label>
+              <input id="y-due" type="number" min="0" step="1" className="input num w-full"
+                placeholder="e.g. 30"
+                value={form.due_days}
+                onChange={(e) => setForm((f) => ({ ...f, due_days: e.target.value }))} />
+              <p className="text-[11px] text-ink-mute mt-1">
+                {(() => {
+                  const n = Number(form.due_days);
+                  if (!Number.isFinite(n) || n <= 0 || !form.received_date) return 'No due date';
+                  const d = new Date(form.received_date + 'T00:00:00Z');
+                  d.setUTCDate(d.getUTCDate() + n);
+                  return 'Due on ' + d.toISOString().slice(0, 10);
+                })()}
+              </p>
+            </div>
 
             <div>
               <label className="label" htmlFor="y-qty">Quantity (kg) *</label>
@@ -512,6 +558,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <th className="text-right px-3 py-3">Bags</th>
                 <th className="text-right px-3 py-3">Brokerage Rs</th>
                 <th className="text-left px-3 py-3">Date</th>
+                <th className="text-left px-3 py-3">Due Date</th>
                 <th className="text-left px-3 py-3 hidden lg:table-cell">Invoice</th>
                 <th className="text-right px-3 py-3" />
               </tr>
@@ -531,6 +578,15 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   <td className="px-3 py-3 text-right num">{l.bag_count}</td>
                   <td className="px-3 py-3 text-right num text-amber-700">{fmtMoney(l.brokerage_amount)}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(l.received_date)}</td>
+                  <td className={
+                    'px-3 py-3 ' + (
+                      l.due_date && l.due_date < todayISO()
+                        ? 'text-rose-700 font-semibold'   // overdue
+                        : 'text-ink-soft'
+                    )
+                  }>
+                    {fmtDate(l.due_date)}
+                  </td>
                   <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{l.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center justify-end gap-1">
