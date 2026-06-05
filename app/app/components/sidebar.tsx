@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Calculator, Package, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
-  CreditCard, FileBarChart, ClockAlert, Bell, Settings, BookCheck,
+  FileBarChart, ClockAlert, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   Building2,
 } from 'lucide-react';
@@ -46,7 +46,10 @@ const NAV: NavItem[] = [
   { href: '/app/orders',            label: 'Sales Orders',     icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/delivery-challan',  label: 'Delivery Challan', icon: Truck,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',          label: 'Invoices',         icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
-  { href: '/app/pay-customer',  label: 'Customer Payments',  icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
+  // The old Customer Payments / Purchase Payments links were merged
+  // into one unified Payments page (Inventory & Purchases group). The
+  // old /app/pay-customer and /app/pay-purchase URLs still redirect
+  // there so bookmarks keep working.
 
   // Inventory
   // Mills moved into the unified Parties master under Admin (filter by
@@ -57,7 +60,11 @@ const NAV: NavItem[] = [
   { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/yarn',               label: 'Yarn Reports',       icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/pay-purchase',       label: 'Purchase Payments',  icon: CreditCard,      group: 'inventory',  roles: ['owner','accounts','auditor'] },
+  // Unified Payments — records receipts and payments for every party
+  // type (customer, supplier, sizing vendor, weaving vendor, etc.)
+  // and ships with a Status tab that shows a chronological ledger of
+  // inflow / outflow / running balance per party.
+  { href: '/app/payments',           label: 'Payments',           icon: Wallet,          group: 'inventory',  roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
