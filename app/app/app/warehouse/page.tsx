@@ -30,12 +30,18 @@ export const metadata = { title: 'Warehouse — Unified Stock' };
 // snapshot of the page and the operator sees stale inflows.
 export const dynamic = 'force-dynamic';
 
-type Mode = 'inhouse' | 'jobwork';
+type Mode = 'inhouse' | 'jobwork' | 'outsource';
 
 const MODE_TABS = [
-  { key: 'inhouse', label: 'In-house Stock', icon: Factory },
-  { key: 'jobwork', label: 'Job Work Stock', icon: Truck   },
+  { key: 'inhouse',   label: 'In-house Stock',          icon: Factory },
+  { key: 'jobwork',   label: 'Job Work Stock',          icon: Truck   },
+  { key: 'outsource', label: 'Outsource Weaving Stock', icon: Truck   },
 ] as const;
+
+// Outsource mode reuses the JOBWORK_TABS sub-tab list (defined just
+// below) because the underlying data tables (jobwork_warp_beam,
+// jobwork_weft_bag, bobbin, delivery_challan etc.) are shared; the
+// discriminator is the linked party's `jobwork_party.kind`.
 
 const INHOUSE_TABS = [
   { key: 'warp_metre',  label: 'Warp Metre (m)',   icon: Ruler   },
@@ -116,10 +122,18 @@ export default async function WarehousePage({
   searchParams: Promise<SP>;
 }) {
   const sp = await searchParams;
-  const mode: Mode = sp.mode === 'jobwork' ? 'jobwork' : 'inhouse';
-  // Pick a default sub-tab based on mode if none specified.
-  const defaultTab = mode === 'jobwork' ? 'warp_beam' : 'warp_metre';
+  const mode: Mode = sp.mode === 'jobwork' ? 'jobwork'
+                    : sp.mode === 'outsource' ? 'outsource'
+                    : 'inhouse';
+  // Jobwork and Outsource share the same pivot tabs; only Inhouse
+  // gets a different default sub-tab.
+  const defaultTab = mode === 'inhouse' ? 'warp_metre' : 'warp_beam';
   const tab = (sp.tab ?? defaultTab);
+  // Both jobwork-style modes pivot over the same data tables — the
+  // discriminator is the linked party's kind. Anywhere downstream
+  // that checks `mode === 'jobwork'` we treat outsource the same way.
+  const isJobworkLike = mode === 'jobwork' || mode === 'outsource';
+  const partyKind: 'jobwork' | 'outsource' = mode === 'outsource' ? 'outsource' : 'jobwork';
   const supabase = await createClient();
 
   // ─── Master data for filters (small tables, fetch all in parallel) ────────
@@ -152,7 +166,11 @@ export default async function WarehousePage({
     supabase.from('yarn_count').select('id, code, display_name, reorder_kg').eq('status', 'active').order('code'),
     supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('status', 'active').order('code'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
+    // Filter the party master to the kind that matches the active
+    // mode — jobwork-typed for /warehouse?mode=jobwork and
+    // outsource-typed for ?mode=outsource. Inhouse mode ignores this
+    // list entirely.
+    (supabase as any).from('jobwork_party').select('id, code, name, kind').eq('status', 'active').eq('kind', partyKind).order('name'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
   ]);
@@ -168,18 +186,23 @@ export default async function WarehousePage({
   // Both inhouse + jobwork now use the same pivot view. Inhouse
   // loaders read opening_stock entries as inflows; jobwork loaders
   // read jobwork_warp_beam / jobwork_weft_bag / bobbin + stock_ledger.
+  // Outsource mode reuses the jobwork loaders — the only difference
+  // is the party set we pre-filtered above (kind='outsource'). The
+  // loaders aggregate by party_id and discard rows whose party isn't
+  // in the passed-in set, so jobwork data never leaks into outsource
+  // and vice-versa.
   const fabricRows     = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
-  const warpBeamRows   = mode === 'jobwork' && tab === 'warp_beam'      ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
-  const weftYarnRows   = mode === 'jobwork' && tab === 'weft_yarn'      ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
-  const porvaiYarnRows = mode === 'jobwork' && tab === 'porvai_yarn'    ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
-  const jwBobbinRows   = mode === 'jobwork' && tab === 'bobbin'         ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
+  const warpBeamRows   = isJobworkLike && tab === 'warp_beam'           ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
+  const weftYarnRows   = isJobworkLike && tab === 'weft_yarn'           ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
+  const porvaiYarnRows = isJobworkLike && tab === 'porvai_yarn'         ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
+  const jwBobbinRows   = isJobworkLike && tab === 'bobbin'              ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
   const inWarpRows     = mode === 'inhouse' && tab === 'warp_metre'     ? await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const sizingRows     = mode === 'inhouse' && tab === 'sizing'         ? await loadSizingWarehouse(supabase, counts ?? []) : null;
 
-  const subTabs = mode === 'jobwork' ? JOBWORK_TABS : INHOUSE_TABS;
+  const subTabs = isJobworkLike ? JOBWORK_TABS : INHOUSE_TABS;
 
   return (
     <div>
@@ -333,18 +356,19 @@ export default async function WarehousePage({
           />
         )}
 
-        {/* Jobwork filters: party + yarn count / fabric quality depending
-            on tab. Party applies to all four jobwork sub-tabs. */}
-        {mode === 'jobwork' && (
+        {/* Jobwork / Outsource filters: party + yarn count / fabric
+            quality depending on tab. Party applies to all four
+            jobwork-style sub-tabs in either mode. */}
+        {isJobworkLike && (
           <FilterSelect
             name="party"
-            label="Jobwork Party"
+            label={mode === 'outsource' ? 'Outsourcing party' : 'Jobwork Party'}
             value={sp.party}
             options={(jobworkParties ?? []).map((p: { id: number; code: string; name: string }) => ({ value: String(p.id), label: `${p.name} (${p.code})` }))}
           />
         )}
 
-        {mode === 'jobwork' && (tab === 'warp_beam' || tab === 'fabric') && (
+        {isJobworkLike && (tab === 'warp_beam' || tab === 'fabric') && (
           <FilterSelect
             name="quality"
             label="Fabric Quality"
@@ -353,7 +377,7 @@ export default async function WarehousePage({
           />
         )}
 
-        {mode === 'jobwork' && (tab === 'warp_beam' || tab === 'weft_yarn' || tab === 'porvai_yarn') && (
+        {isJobworkLike && (tab === 'warp_beam' || tab === 'weft_yarn' || tab === 'porvai_yarn') && (
           <FilterSelect
             name="count"
             label="Yarn Count"
@@ -404,11 +428,11 @@ export default async function WarehousePage({
         />
       )}
       {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
-      {mode === 'jobwork' && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage="No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here." />}
-      {mode === 'jobwork' && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage="No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here." />}
-      {mode === 'jobwork' && tab === 'porvai_yarn' && <PivotView data={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
-      {mode === 'jobwork' && tab === 'bobbin'      && <PivotView data={jwBobbinRows!}   emptyMessage="No bobbin entries yet. Assign bobbins to jobwork parties to see them here." />}
-      {mode === 'jobwork' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
+      {isJobworkLike && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage={mode === 'outsource' ? 'No warp beam entries yet. Issue beams from Outsource Weaving → Warp Beam Given to see them here.' : 'No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here.'} />}
+      {isJobworkLike && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage={mode === 'outsource' ? 'No weft yarn entries yet. Issue yarn from Outsource Weaving → Weft Yarn Given to see them here.' : 'No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here.'} />}
+      {isJobworkLike && tab === 'porvai_yarn' && <PivotView data={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
+      {isJobworkLike && tab === 'bobbin'      && <PivotView data={jwBobbinRows!}   emptyMessage={mode === 'outsource' ? 'No bobbin entries yet. Assign bobbins to outsource weavers to see them here.' : 'No bobbin entries yet. Assign bobbins to jobwork parties to see them here.'} />}
+      {isJobworkLike && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
     </div>
   );
 }
@@ -756,9 +780,14 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
     .gt('metres_available', 0)
     .order('received_at', { ascending: false });
   // In-house fabric: inhouse + outsourced + resale (everything we own).
-  // Jobwork fabric: only fabric received against jobwork DCs.
+  // Jobwork fabric:   only fabric received against jobwork DCs.
+  // Outsource fabric: fabric received against outsource DCs.
+  //   (fabric_stock.source_type 'outsourced' is the historical alias —
+  //    both warehouse modes that came from external weavers map to it.)
   if (mode === 'jobwork') {
     q = q.eq('source_type', 'jobwork');
+  } else if (mode === 'outsource') {
+    q = q.eq('source_type', 'outsourced');
   } else {
     q = q.in('source_type', ['inhouse', 'outsourced', 'resale']);
   }
@@ -1235,6 +1264,14 @@ async function loadSizingWarehouse(
 async function loadJobworkWarpBeam(
   supabase: any, sp: SP, parties: any[], qualities: any[], counts: any[],
 ): Promise<PivotData> {
+  // Restrict the query to the party set the caller passed in. The
+  // caller pre-filters jobwork_party by kind (jobwork vs outsource)
+  // so this filter keeps the warehouse data segregated between the
+  // two warehouse modes.
+  const partyIdSet: number[] = (parties as Array<{ id: number }>).map((p) => p.id);
+  if (partyIdSet.length === 0) {
+    return { unit: 'm', columns: [], events: [] };
+  }
   // Read merge metadata for every fabric_quality we may encounter so we
   // can collapse merged siblings into a single column.
   const fqMergeById = new Map<number, { code: string; name: string; is_merged: boolean; merged_name: string | null }>();
@@ -1266,7 +1303,8 @@ async function loadJobworkWarpBeam(
     (() => {
       let q = supabase
         .from('jobwork_warp_beam')
-        .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count');
+        .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count')
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
       if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
       if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
@@ -1279,7 +1317,8 @@ async function loadJobworkWarpBeam(
       (() => {
         let q = supabase
           .from('jobwork_warp_beam')
-          .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, given_date, reference_no, beam_count');
+          .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, given_date, reference_no, beam_count')
+          .in('jobwork_party_id', partyIdSet);
         if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
         if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
         if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
@@ -1297,7 +1336,8 @@ async function loadJobworkWarpBeam(
       let q = supabase
         .from('stock_ledger')
         .select('fabric_quality_id, quantity, event_date, reference_no, notes')
-        .eq('bucket', 'warp_beam');
+        .eq('bucket', 'warp_beam')
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
       if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
       return q;
@@ -1365,9 +1405,15 @@ async function loadJobworkWarpBeam(
 // consumption (outflow). All quantities expressed in METRES (inflow:
 // quantity × bobbin_metre per piece; outflow: ledger qty pcs ×
 // bobbin_metre of the consumed bobbin).
+// Outsource mode uses the same loader via the partyIdSet filter (see
+// loadJobworkWarpBeam above for the pattern).
 async function loadJobworkBobbin(
   supabase: any, sp: SP, parties: any[], _bobbinMasters: any[],
 ): Promise<PivotData> {
+  const partyIdSet: number[] = (parties as Array<{ id: number }>).map((p) => p.id);
+  if (partyIdSet.length === 0) {
+    return { unit: 'm', columns: [], events: [] };
+  }
   let bobs = await safeSelect<{
     id: number; code: string; description: string | null;
     jobwork_party_id: number | null; quantity: number | string | null;
@@ -1379,7 +1425,8 @@ async function loadJobworkBobbin(
       let q = supabase
         .from('bobbin')
         .select('id, code, description, jobwork_party_id, quantity, original_quantity, bobbin_metre, ends_per_bobbin, purchase_date')
-        .eq('production_mode', 'jobwork');
+        .eq('production_mode', 'jobwork')
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       return q;
     })(),
@@ -1390,7 +1437,8 @@ async function loadJobworkBobbin(
         let q = supabase
           .from('bobbin')
           .select('id, code, description, jobwork_party_id, quantity, bobbin_metre, ends_per_bobbin, purchase_date')
-          .eq('production_mode', 'jobwork');
+          .eq('production_mode', 'jobwork')
+          .in('jobwork_party_id', partyIdSet);
         if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
         return q;
       })(),
@@ -1405,7 +1453,8 @@ async function loadJobworkBobbin(
       let q = supabase
         .from('stock_ledger')
         .select('bobbin_id, quantity, event_date, reference_no, notes')
-        .eq('bucket', 'bobbin');
+        .eq('bucket', 'bobbin')
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       return q;
     })(),
@@ -1471,6 +1520,13 @@ async function loadJobworkBobbin(
 async function loadJobworkYarn(
   supabase: any, sp: SP, parties: any[], counts: any[], kind: 'weft' | 'porvai',
 ): Promise<PivotData> {
+  // Restrict to the caller's party set (filtered by jobwork_party.kind
+  // at the page level) so jobwork rows don't leak into the outsource
+  // warehouse view and vice-versa.
+  const partyIdSet: number[] = (parties as Array<{ id: number }>).map((p) => p.id);
+  if (partyIdSet.length === 0) {
+    return { unit: 'kg', columns: [], events: [] };
+  }
   const fqRows = await safeSelect<{ calc_snapshot: { porvaiCountId?: number | string } | null }>(
     supabase.from('fabric_quality').select('calc_snapshot'),
   );
@@ -1491,7 +1547,8 @@ async function loadJobworkYarn(
     (() => {
       let q = supabase
         .from('jobwork_weft_bag')
-        .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count');
+        .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count')
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
       return q;
@@ -1502,7 +1559,8 @@ async function loadJobworkYarn(
       (() => {
         let q = supabase
           .from('jobwork_weft_bag')
-          .select('id, jobwork_party_id, yarn_count_id, total_kg, given_date, reference_no, bag_count');
+          .select('id, jobwork_party_id, yarn_count_id, total_kg, given_date, reference_no, bag_count')
+          .in('jobwork_party_id', partyIdSet);
         if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
         if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
         return q;
@@ -1519,7 +1577,8 @@ async function loadJobworkYarn(
       let q = supabase
         .from('stock_ledger')
         .select('yarn_count_id, quantity, event_date, reference_no, notes')
-        .eq('bucket', bucket);
+        .eq('bucket', bucket)
+        .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
       return q;
