@@ -190,7 +190,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     // Step 3: wage + expense entries targeting this ledger, narrowed
     // by the same date range.
     let wagesQ = sb.from('wage_entry')
-      .select('id, pay_date, amount, kind, notes, employee:employee_id ( name )')
+      .select('id, pay_date, amount, kind, notes, employee:employee_id ( full_name )')
       .eq('target_ledger_id', numericId);
     if (startDate) wagesQ = wagesQ.gte('pay_date', startDate);
     if (endDate)   wagesQ = wagesQ.lte('pay_date', endDate);
@@ -228,7 +228,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         source:       'wage',
         date:         w.pay_date,
         voucher:      `WAGE/${w.id}`,
-        counterparty: w.employee?.name ?? '-',
+        counterparty: w.employee?.full_name ?? '-',
         mode:         '-',
         reference:    w.kind ?? null,
         inflow:       0,
