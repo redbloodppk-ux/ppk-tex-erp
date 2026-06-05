@@ -622,6 +622,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
+              {/* Date is the leftmost column so each transaction's
+                  given-date is immediately visible — matches the Warp
+                  Beam / Weft Bag tabs. */}
+              <th className="text-left px-3 py-3">Date</th>
               <th className="text-left px-3 py-3">Code</th>
               <th className="text-left px-3 py-3">Party</th>
               <th className="text-left px-3 py-3">Description</th>
@@ -631,7 +635,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
               <th className="text-right px-3 py-3" title="Qty × M/pc">Total m</th>
               <th className="text-right px-3 py-3" title="Empty bobbin pcs returned to supplier">Returned</th>
               <th className="text-right px-3 py-3" title="Qty issued - returned">Balance</th>
-              <th className="text-left px-3 py-3">Purchased</th>
               <th className="text-right px-3 py-3"></th>
             </tr>
           </thead>
@@ -652,6 +655,14 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
                   <tr className="border-t border-line/40">
                     {isEditing ? (
                       <>
+                        <td className="px-2 py-2">
+                          <input
+                            type="date"
+                            className="input h-8 text-xs"
+                            value={ef.purchase_date ?? ''}
+                            onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })}
+                          />
+                        </td>
                         <td className="px-3 py-2 font-mono text-xs text-ink-mute">{r.code}</td>
                         <td className="px-2 py-2">
                           <select
@@ -711,14 +722,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
                             bobbin_return entries and aren't editable. */}
                         <td className="px-3 py-2 text-right num text-xs text-ink-mute">{returnedRow > 0 ? returnedRow : '-'}</td>
                         <td className="px-3 py-2 text-right num text-xs text-ink-mute">{balanceRow}</td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="date"
-                            className="input h-8 text-xs"
-                            value={ef.purchase_date ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })}
-                          />
-                        </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
                           <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
@@ -726,6 +729,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
                       </>
                     ) : (
                       <>
+                        <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{fmtDate(r.purchase_date)}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
                         <td className="px-3 py-2">{r.jobwork_party_id ? (partyById.get(r.jobwork_party_id)?.name ?? '-') : '-'}</td>
                         <td className="px-3 py-2 text-ink-soft">{r.description}</td>
@@ -739,7 +743,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, onCh
                         </td>
                         <td className="px-3 py-2 text-right num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</td>
                         <td className={`px-3 py-2 text-right num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</td>
-                        <td className="px-3 py-2 text-ink-soft">{fmtDate(r.purchase_date)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
