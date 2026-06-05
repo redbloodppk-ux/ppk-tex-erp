@@ -1,81 +1,11 @@
-/**
- * Edit mill.
- *
- * Loads the row by id and hydrates the shared MillForm with delete and
- * archive controls. Returns 404 if the id is missing or the row was
- * deleted.
- */
-import { notFound } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
-import { PageHeader } from '@/app/components/page-header';
-import { MillForm, type MillFormValues } from '../mill-form';
+// The Mill master is retired (migration 098). There's no underlying
+// mill row anymore; instead, every former mill is a party with
+// party_type = 'Mill / Yarn Supplier'. Old /app/mills/[id] bookmarks
+// redirect to the parties list filtered by that type.
+import { redirect } from 'next/navigation';
 
-export const metadata = { title: 'Edit Mill' };
-export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Mill (moved)' };
 
-interface MillRow {
-  id: number;
-  code: string;
-  name: string;
-  gstin: string | null;
-  contact_person: string | null;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  state_code: string | null;
-  is_preferred: boolean;
-  notes: string | null;
-  status: 'active' | 'inactive' | 'archived';
-}
-
-export default async function EditMillPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const numericId = Number(id);
-  if (!Number.isInteger(numericId) || numericId <= 0) notFound();
-
-  const supabase = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any)
-    .from('mill')
-    .select('id, code, name, gstin, contact_person, phone, email, address, city, state, state_code, is_preferred, notes, status')
-    .eq('id', numericId)
-    .maybeSingle();
-
-  const m = data as unknown as MillRow | null;
-  if (!m) notFound();
-
-  const initial: MillFormValues = {
-    name: m.name,
-    gstin: m.gstin ?? '',
-    contact_person: m.contact_person ?? '',
-    phone: m.phone ?? '',
-    email: m.email ?? '',
-    address: m.address ?? '',
-    city: m.city ?? '',
-    state: m.state ?? 'Tamil Nadu',
-    state_code: m.state_code ?? '',
-    is_preferred: m.is_preferred,
-    notes: m.notes ?? '',
-    status: m.status,
-  };
-
-  return (
-    <div className="max-w-2xl">
-      <PageHeader
-        title={m.name}
-        subtitle={`${m.code} — edit mill details`}
-        crumbs={[
-          { label: 'Mills', href: '/app/mills' },
-          { label: m.name },
-        ]}
-      />
-      <MillForm millId={m.id} initial={initial} code={m.code} />
-    </div>
-  );
+export default function EditMillRedirectPage(): never {
+  redirect('/app/parties?type=Mill+%2F+Yarn+Supplier');
 }

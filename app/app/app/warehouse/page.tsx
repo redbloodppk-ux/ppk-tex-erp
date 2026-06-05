@@ -131,7 +131,23 @@ export default async function WarehousePage({
     { data: jobworkParties },
     { data: fabricQualities },
   ] = await Promise.all([
-    supabase.from('mill').select('id, name').eq('status', 'active').order('name'),
+    // Yarn suppliers come from the party table now (migration 098). We
+    // resolve the "Mill / Yarn Supplier" party_type id inline and filter
+    // by it so the dropdown stays focused on yarn-supplying parties.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pt = await (supabase as any).from('party_type_master')
+        .select('id').eq('name', 'Mill / Yarn Supplier').maybeSingle();
+      const typeId = pt.data?.id as number | undefined;
+      if (!typeId) return { data: [] as Array<{ id: number; name: string }> };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return await (supabase as any).from('party')
+        .select('id, name')
+        .contains('party_type_ids', [typeId])
+        .eq('status', 'active')
+        .order('name');
+    })(),
     supabase.from('customer').select('id, name').eq('status', 'active').order('name'),
     supabase.from('yarn_count').select('id, code, display_name, reorder_kg').eq('status', 'active').order('code'),
     supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('status', 'active').order('code'),
@@ -280,9 +296,10 @@ export default async function WarehousePage({
         {mode === 'inhouse' && (tab === 'yarn' || tab === 'bobbin') && (
           <FilterSelect
             name="mill"
-            label={tab === 'yarn' ? 'Mill (yarn supplier)' : 'Vendor (bobbin supplier)'}
+            label={tab === 'yarn' ? 'Yarn supplier' : 'Vendor (bobbin supplier)'}
             value={sp.mill}
-            options={(mills ?? []).map(m => ({ value: String(m.id), label: m.name }))}
+            // `mills` here is the party-backed yarn-supplier list (see top of file).
+            options={(mills ?? []).map((m: { id: number; name: string }) => ({ value: String(m.id), label: m.name }))}
           />
         )}
 
@@ -425,8 +442,10 @@ function FilterSelect({
 
 // ─── Yarn ────────────────────────────────────────────────────────────────────
 type YarnRow = {
-  mill_id: number;
-  mill_name: string;
+  // Renamed from mill_* to supplier_* after migration 098 (yarn
+  // suppliers moved into the unified party table).
+  supplier_id: number;
+  supplier_name: string;
   yarn_count_id: number;
   count_code: string;
   count_name: string;
@@ -436,16 +455,19 @@ type YarnRow = {
   used_in_batches: number;
 };
 
-async function loadYarn(supabase: any, sp: SP, mills: any[], counts: any[]): Promise<YarnRow[]> {
+async function loadYarn(supabase: any, sp: SP, suppliers: any[], counts: any[]): Promise<YarnRow[]> {
   // Pull all yarn_lot rows with current stock > 0; aggregate in JS so we can
-  // also count how many production batches consumed each (mill, count) pair.
+  // also count how many production batches consumed each (supplier, count) pair.
+  // After migration 098 the lot is FK'd to party.supplier_party_id (was mill_id).
   let q = supabase
     .from('yarn_lot')
-    .select('id, mill_id, yarn_count_id, current_kg, cost_per_kg')
+    .select('id, supplier_party_id, yarn_count_id, current_kg, cost_per_kg')
     .gt('current_kg', 0);
 
-  if (sp.mill)  q = q.eq('mill_id',       Number(sp.mill));
-  if (sp.count) q = q.eq('yarn_count_id', Number(sp.count));
+  // ?mill=N is kept as the search-param name for back-compat with existing
+  // bookmarks; it now filters on supplier_party_id under the hood.
+  if (sp.mill)  q = q.eq('supplier_party_id', Number(sp.mill));
+  if (sp.count) q = q.eq('yarn_count_id',     Number(sp.count));
 
   const { data: lots } = await q;
 
@@ -462,20 +484,20 @@ async function loadYarn(supabase: any, sp: SP, mills: any[], counts: any[]): Pro
     });
   });
 
-  const millById  = new Map(mills.map(m  => [m.id, m]));
-  const countById = new Map(counts.map(c => [c.id, c]));
+  const supplierById = new Map(suppliers.map(s => [s.id, s]));
+  const countById    = new Map(counts.map(c => [c.id, c]));
 
-  // Group lots by (mill_id, yarn_count_id)
+  // Group lots by (supplier_party_id, yarn_count_id)
   const grouped = new Map<string, YarnRow>();
   (lots ?? []).forEach((l: any) => {
-    const key = `${l.mill_id}|${l.yarn_count_id}`;
-    const m = millById.get(l.mill_id);
+    const key = `${l.supplier_party_id ?? 0}|${l.yarn_count_id}`;
+    const s = supplierById.get(l.supplier_party_id);
     const c = countById.get(l.yarn_count_id);
     let row = grouped.get(key);
     if (!row) {
       row = {
-        mill_id: l.mill_id,
-        mill_name: m?.name ?? '—',
+        supplier_id: l.supplier_party_id ?? 0,
+        supplier_name: s?.name ?? '—',
         yarn_count_id: l.yarn_count_id,
         count_code: c?.code ?? '—',
         count_name: c?.display_name ?? '',
@@ -513,14 +535,14 @@ function YarnView({ rows }: { rows: YarnRow[] }) {
       <div className="grid sm:grid-cols-3 gap-3 mb-4">
         <Kpi label="Total Yarn On Hand" value={formatKg(totalKg, 1)} icon={Boxes} />
         <Kpi label="Stock Value (weighted)" value={formatRupee(totalValue, { compact: true })} icon={Coins} />
-        <Kpi label="Distinct (Mill × Count)" value={String(rows.length)} icon={TrendingDown} />
+        <Kpi label="Distinct (Supplier × Count)" value={String(rows.length)} icon={TrendingDown} />
       </div>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Count</th>
-              <th className="text-left px-4 py-3">Mill</th>
+              <th className="text-left px-4 py-3">Supplier</th>
               <th className="text-right px-4 py-3">On Hand</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Avg ₹/kg</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Stock Value</th>
@@ -530,12 +552,12 @@ function YarnView({ rows }: { rows: YarnRow[] }) {
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={`${r.mill_id}-${r.yarn_count_id}`} className="border-t border-line/40 hover:bg-haze/60">
+              <tr key={`${r.supplier_id}-${r.yarn_count_id}`} className="border-t border-line/40 hover:bg-haze/60">
                 <td className="px-4 py-3">
                   <div className="font-semibold">{r.count_code}</div>
                   <div className="text-[11px] text-ink-soft">{r.count_name}</div>
                 </td>
-                <td className="px-4 py-3">{r.mill_name}</td>
+                <td className="px-4 py-3">{r.supplier_name}</td>
                 <td className="px-4 py-3 text-right num font-semibold">{formatKg(r.available_kg, 1)}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.weighted_avg_cost, { decimals: 2 })}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.available_kg * r.weighted_avg_cost, { compact: true })}</td>

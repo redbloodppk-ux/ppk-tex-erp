@@ -72,7 +72,10 @@ interface YarnLot {
   current_kg: number;
   cost_per_kg: number;
   yarn_count_id: number;
-  mill_id: number;
+  // Renamed from mill_id by migration 098 — yarn suppliers now live in
+  // the unified party table. Nullable because legacy lots may not have
+  // been backfilled if the matching party row was missing.
+  supplier_party_id: number | null;
 }
 
 interface Bobbin {
@@ -201,7 +204,7 @@ export default function NewFabricReceiptPage() {
         supabase.from('loom').select('id, loom_code, status').order('loom_code'),
         supabase
           .from('yarn_lot')
-          .select('id, lot_code, current_kg, cost_per_kg, yarn_count_id, mill_id')
+          .select('id, lot_code, current_kg, cost_per_kg, yarn_count_id, supplier_party_id')
           .gt('current_kg', 0)
           .order('received_date', { ascending: false })
           .limit(200),

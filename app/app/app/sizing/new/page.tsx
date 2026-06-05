@@ -27,10 +27,12 @@ type SizingJobInsert = Database['public']['Tables']['sizing_job']['Insert'];
 type PavuInsert      = Database['public']['Tables']['pavu']['Insert'];
 
 interface Vendor      { id: number; code: string; name: string; vendor_type: string }
-interface Mill        { id: number; code: string; name: string }
+// "Supplier" is a yarn-supplying party (party_type = 'Mill / Yarn Supplier').
+// Sourced from the unified party table — the old `mill` table is gone (098).
+interface Supplier    { id: number; code: string; name: string }
 interface YarnCount   { id: number; code: string; display_name: string }
 interface YarnLot     { id: number; lot_code: string; current_kg: number;
-                        yarn_count_id: number; mill_id: number }
+                        yarn_count_id: number; supplier_party_id: number | null }
 
 type ProdMode = 'in_house' | 'outsource';
 type DefaultMode = ProdMode | 'mixed';
@@ -54,7 +56,7 @@ export default function NewSizingJobPage() {
   // ── master data ───────────────────────────────────────────────────────────
   const [sizingVendors, setSizingVendors] = useState<Vendor[]>([]);
   const [weavingVendors, setWeavingVendors] = useState<Vendor[]>([]);
-  const [mills, setMills]   = useState<Mill[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [counts, setCounts] = useState<YarnCount[]>([]);
   const [lots,   setLots]   = useState<YarnLot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +64,9 @@ export default function NewSizingJobPage() {
   // ── header form state ─────────────────────────────────────────────────────
   const [setNo,     setSetNo]     = useState('');
   const [sizingVendorId, setSizingVendorId] = useState('');
-  const [yarnMillId,     setYarnMillId]     = useState('');
+  // Renamed from yarnMillId after migration 098 — yarn suppliers now come
+  // from the unified party table, not the dropped mill table.
+  const [yarnSupplierId, setYarnSupplierId] = useState('');
   const [warpCountId,    setWarpCountId]    = useState('');
   const [avgCount,       setAvgCount]       = useState('');
 
@@ -96,6 +100,15 @@ export default function NewSizingJobPage() {
   // ── load master data ──────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
+      // Resolve the "Mill / Yarn Supplier" party_type id once so we can
+      // filter the party table to just yarn suppliers in the dropdown.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ptRes = await (supabase as any).from('party_type_master')
+        .select('id')
+        .eq('name', 'Mill / Yarn Supplier')
+        .maybeSingle();
+      const supplierTypeId = ptRes.data?.id as number | undefined;
+
       const [sv, wv, m, c, l] = await Promise.all([
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('ledger')
@@ -105,29 +118,43 @@ export default function NewSizingJobPage() {
         (supabase as any).from('ledger')
           .select('id, code, name, ledger_type:type_id\!inner(name)')
           .eq('active', true).eq('ledger_type.name', 'WEAVING(VENDOR)').order('name'),
-        supabase.from('mill').select('id, code, name').eq('status', 'active').order('name'),
+        // Yarn suppliers come from the party table. We filter by
+        // party_type_ids containing the "Mill / Yarn Supplier" id so a
+        // single party that's both a Customer AND a Supplier still
+        // shows up here. The query gracefully returns nothing if the
+        // type id wasn't resolved.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        supplierTypeId
+          ? (supabase as any).from('party')
+              .select('id, code, name')
+              .contains('party_type_ids', [supplierTypeId])
+              .eq('status', 'active')
+              .order('name')
+          : Promise.resolve({ data: [] as Supplier[] }),
         supabase.from('yarn_count').select('id, code, display_name')
           .eq('yarn_type', 'cotton').eq('status', 'active').order('code'),
-        supabase.from('yarn_lot').select('id, lot_code, current_kg, yarn_count_id, mill_id')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('yarn_lot')
+          .select('id, lot_code, current_kg, yarn_count_id, supplier_party_id')
           .gt('current_kg', 0).order('received_date', { ascending: false }).limit(200),
       ]);
       setSizingVendors(sv.data ?? []);
       setWeavingVendors(wv.data ?? []);
-      setMills(m.data ?? []);
+      setSuppliers((m.data ?? []) as Supplier[]);
       setCounts(c.data ?? []);
-      setLots(l.data ?? []);
+      setLots((l.data ?? []) as YarnLot[]);
       setLoading(false);
     })();
   }, [supabase]);
 
-  // Filter lots to matching count + mill — keeps the dropdown short.
+  // Filter lots to matching count + supplier — keeps the dropdown short.
   const matchingLots = useMemo(() => {
-    if (!warpCountId || !yarnMillId) return lots;
+    if (!warpCountId || !yarnSupplierId) return lots;
     return lots.filter(l =>
-      l.yarn_count_id === Number(warpCountId) &&
-      l.mill_id       === Number(yarnMillId)
+      l.yarn_count_id     === Number(warpCountId) &&
+      l.supplier_party_id === Number(yarnSupplierId)
     );
-  }, [lots, warpCountId, yarnMillId]);
+  }, [lots, warpCountId, yarnSupplierId]);
 
   // ── billing math ──────────────────────────────────────────────────────────
   const billing = useMemo(() => {
@@ -191,7 +218,11 @@ export default function NewSizingJobPage() {
     const headerPayload = {
       set_no:           setNo.trim() || null,
       sizing_ledger_id: Number(sizingVendorId),
-      yarn_mill_id:     Number(yarnMillId),
+      // Column renamed from yarn_mill_id to yarn_supplier_party_id by
+      // migration 098 (yarn suppliers now live in the party table).
+      // The Supabase types haven't been regenerated yet, so we cast to
+      // satisfy the SizingJobInsert shape.
+      yarn_supplier_party_id: Number(yarnSupplierId),
       warp_count_id:    Number(warpCountId),
       avg_count:        avgCount ? Number(avgCount) : null,
       yarn_source:      yarnSource,
@@ -213,9 +244,11 @@ export default function NewSizingJobPage() {
       notes:            notes.trim() || null,
     };
 
+    // Cast via unknown because the regenerated Supabase types haven't
+    // caught up to the yarn_supplier_party_id rename (migration 098).
     const { data: job, error: jobErr } = await supabase
       .from('sizing_job')
-      .insert(headerPayload as SizingJobInsert)
+      .insert(headerPayload as unknown as SizingJobInsert)
       .select('id')
       .single();
 
@@ -282,10 +315,10 @@ export default function NewSizingJobPage() {
                 </select>
               </div>
               <div>
-                <label className="label">Yarn Mill (brand) *</label>
-                <select required value={yarnMillId} onChange={e => setYarnMillId(e.target.value)} className="input">
-                  <option value="" disabled>Select yarn mill…</option>
-                  {mills.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                <label className="label">Yarn Supplier *</label>
+                <select required value={yarnSupplierId} onChange={e => setYarnSupplierId(e.target.value)} className="input">
+                  <option value="" disabled>Select yarn supplier…</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>

@@ -24,9 +24,10 @@ type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return
 interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null; is_vip?: boolean | null; ledger_type_name?: string | null }
 interface Vendor   { id: number; name: string; gstin: string | null; ledger_type?: { name: string } | null }
 interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_kg: number;
-                     yarn_count_id: number; mill_id: number;
+                     yarn_count_id: number; supplier_party_id: number | null;
                      yarn_count?: { display_name: string } | null;
-                     mill?: { name: string } | null }
+                     // Joined party row (party_type = 'Mill / Yarn Supplier') — was previously joined as mill.
+                     supplier?: { name: string } | null }
 interface SalesOrder { id: number; so_number: string; customer_id: number; total: number; status: string }
 interface SoLine { id: number; so_id: number; quantity_m: number; rate_per_m: number; delivered_m: number;
                    costing?: { quality_code: string; quality_name: string } | null }
@@ -154,10 +155,12 @@ export default function NewInvoicePage() {
           id, metres_available, cost_per_m_frozen,
           costing:costing_id ( quality_code, quality_name )
         `).gt('metres_available', 0).order('received_at', { ascending: false }).limit(100),
+        // Yarn suppliers now live in the unified party table (migration 098).
+        // The old yarn_lot.mill_id FK is gone — supplier_party_id replaces it.
         supabase.from('yarn_lot').select(`
-          id, lot_code, current_kg, cost_per_kg, yarn_count_id, mill_id,
+          id, lot_code, current_kg, cost_per_kg, yarn_count_id, supplier_party_id,
           yarn_count:yarn_count_id ( display_name ),
-          mill:mill_id ( name )
+          supplier:supplier_party_id ( name )
         `).gt('current_kg', 0).order('received_date', { ascending: false }).limit(100),
         supabase.from('invoice').select('id, invoice_no, doc_type, customer_id, total, party_state, is_interstate')
           .in('doc_type', ['tax_invoice','yarn_sale','general_sale']).order('invoice_date', { ascending: false }).limit(100),
@@ -301,7 +304,7 @@ export default function NewInvoicePage() {
     if (!lot) { updateRow(rowId, { yarn_lot_id: lotId }); return; }
     updateRow(rowId, {
       yarn_lot_id: lotId,
-      description: `${lot.yarn_count?.display_name ?? ''} ${lot.mill?.name ?? ''} (${lot.lot_code})`.trim(),
+      description: `${lot.yarn_count?.display_name ?? ''} ${lot.supplier?.name ?? ''} (${lot.lot_code})`.trim(),
       hsn_sac: YARN_HSN,
       uom: 'kg',
       rate: String(lot.cost_per_kg),

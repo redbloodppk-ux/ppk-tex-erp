@@ -28,7 +28,10 @@ interface Lot {
   id: number;
   lot_code: string;
   yarn_count_id: number;
-  mill_id: number;
+  // After migration 098 the FK lives on supplier_party_id (referencing
+  // party.id, party_type = 'Mill / Yarn Supplier'). The old mill_id /
+  // mill table are gone.
+  supplier_party_id: number | null;
   received_date: string;
   received_kg: number;
   cost_per_kg: number;
@@ -43,13 +46,14 @@ interface Lot {
   brokerage_amount: number;
 }
 
-interface CountOption  { id: number; code: string; display_name: string; }
-interface MillOption   { id: number; code: string; name: string; }
-interface BrokerOption { id: number; code: string; name: string; brokerage_per_bag: number | null; }
+interface CountOption    { id: number; code: string; display_name: string; }
+// Yarn suppliers come from the unified party table.
+interface SupplierOption { id: number; code: string; name: string; }
+interface BrokerOption   { id: number; code: string; name: string; brokerage_per_bag: number | null; }
 
 interface FormState {
   yarn_count_id: string;
-  mill_id: string;
+  supplier_party_id: string;
   received_date: string;
   received_kg: string;
   cost_per_kg: string;
@@ -64,7 +68,7 @@ interface FormState {
 
 const EMPTY: FormState = {
   yarn_count_id: '',
-  mill_id: '',
+  supplier_party_id: '',
   received_date: '',
   received_kg: '',
   cost_per_kg: '',
@@ -114,7 +118,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
   const [rows, setRows] = useState<Lot[]>([]);
   const [counts, setCounts] = useState<CountOption[]>([]);
-  const [mills, setMills] = useState<MillOption[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [brokers, setBrokers] = useState<BrokerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,14 +133,29 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const [lotRes, countRes, millRes, brokerRes] = await Promise.all([
+
+    // Resolve the "Mill / Yarn Supplier" party_type id so we can filter
+    // the party table down to yarn-supplying parties (this used to be
+    // the mill table — see migration 098).
+    const ptRes = await sb.from('party_type_master')
+      .select('id').eq('name', 'Mill / Yarn Supplier').maybeSingle();
+    const supplierTypeId = ptRes.data?.id as number | undefined;
+
+    const [lotRes, countRes, suppRes, brokerRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, mill_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
+        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
-      sb.from('mill').select('id, code, name').neq('status', 'archived').order('name'),
+      // Suppliers = parties tagged "Mill / Yarn Supplier".
+      supplierTypeId
+        ? sb.from('party')
+            .select('id, code, name')
+            .contains('party_type_ids', [supplierTypeId])
+            .eq('status', 'active')
+            .order('name')
+        : Promise.resolve({ data: [] as SupplierOption[], error: null }),
       // Brokers are AGENT-type ledgers since migration 053. Query the ledger
       // master joined with ledger_type so the broker dropdown stays in sync
       // with the Ledgers screen.
@@ -148,12 +167,12 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     ]);
     if (lotRes.error)         setError(lotRes.error.message);
     else if (countRes.error)  setError(countRes.error.message);
-    else if (millRes.error)   setError(millRes.error.message);
+    else if (suppRes.error)   setError(suppRes.error.message);
     else if (brokerRes.error) setError(brokerRes.error.message);
     else {
       setRows((lotRes.data ?? []) as unknown as Lot[]);
       setCounts((countRes.data ?? []) as unknown as CountOption[]);
-      setMills((millRes.data ?? []) as unknown as MillOption[]);
+      setSuppliers((suppRes.data ?? []) as unknown as SupplierOption[]);
       setBrokers((brokerRes.data ?? []) as unknown as BrokerOption[]);
       setError(null);
     }
@@ -187,7 +206,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setEditingId(l.id);
     setForm({
       yarn_count_id:        String(l.yarn_count_id),
-      mill_id:              String(l.mill_id),
+      supplier_party_id:    l.supplier_party_id === null ? '' : String(l.supplier_party_id),
       received_date:        l.received_date,
       received_kg:          String(l.received_kg),
       cost_per_kg:          String(l.cost_per_kg),
@@ -234,7 +253,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setSavedMsg(null);
 
     const yarnCountId = form.yarn_count_id === '' ? null : Number(form.yarn_count_id);
-    const millId      = form.mill_id === '' ? null : Number(form.mill_id);
+    const supplierId  = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
     const receivedKg  = toNumOrNull(form.received_kg);
     const costPerKg   = toNumOrNull(form.cost_per_kg);
     const gst         = toNumOrNull(form.gst_pct) ?? 0;
@@ -243,7 +262,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const brokerRate  = toNumOrNull(form.brokerage_per_bag) ?? 0;
 
     if (yarnCountId === null) { setError('Yarn count is required.'); return; }
-    if (millId === null)      { setError('Supplier mill is required.'); return; }
+    if (supplierId === null)  { setError('Supplier is required.'); return; }
     if (form.received_date.trim() === '') { setError('Purchase date is required.'); return; }
     if (receivedKg === null || receivedKg <= 0) { setError('Quantity (kg) is required.'); return; }
     if (costPerKg === null || costPerKg < 0)    { setError('Rate per kg is required.'); return; }
@@ -252,7 +271,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const payload = {
       yarn_kind: yarnKind,
       yarn_count_id: yarnCountId,
-      mill_id: millId,
+      supplier_party_id: supplierId,
       received_date: form.received_date,
       received_kg: receivedKg,
       cost_per_kg: costPerKg,
@@ -301,9 +320,10 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const c = counts.find((x) => x.id === id);
     return c ? c.code + ' - ' + c.display_name : '#' + String(id);
   }
-  function millLabel(id: number): string {
-    const m = mills.find((x) => x.id === id);
-    return m ? m.code + ' - ' + m.name : '#' + String(id);
+  function supplierLabel(id: number | null): string {
+    if (id === null) return '-';
+    const s = suppliers.find((x) => x.id === id);
+    return s ? s.code + ' - ' + s.name : '#' + String(id);
   }
   function brokerLabel(id: number | null): string {
     if (id === null) return '-';
@@ -359,13 +379,13 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="y-mill">Mill (supplier) *</label>
-              <select id="y-mill" className="input w-full"
-                value={form.mill_id}
-                onChange={(e) => setForm((f) => ({ ...f, mill_id: e.target.value }))}>
+              <label className="label" htmlFor="y-supplier">Supplier *</label>
+              <select id="y-supplier" className="input w-full"
+                value={form.supplier_party_id}
+                onChange={(e) => setForm((f) => ({ ...f, supplier_party_id: e.target.value }))}>
                 <option value="">--- pick ---</option>
-                {mills.map((m) => (
-                  <option key={m.id} value={String(m.id)}>{m.code} - {m.name}</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={String(s.id)}>{s.code} - {s.name}</option>
                 ))}
               </select>
             </div>
@@ -482,7 +502,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
               <tr>
                 <th className="text-left px-3 py-3">Lot</th>
                 <th className="text-left px-3 py-3">Yarn count</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Mill</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Supplier</th>
                 <th className="text-right px-3 py-3">Qty (kg)</th>
                 <th className="text-right px-3 py-3">Rate Rs/kg</th>
                 <th className="text-right px-3 py-3">GST %</th>
@@ -501,7 +521,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <tr key={l.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 font-mono text-xs">{l.lot_code}</td>
                   <td className="px-3 py-3 font-semibold">{countLabel(l.yarn_count_id)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{millLabel(l.mill_id)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(l.supplier_party_id)}</td>
                   <td className="px-3 py-3 text-right num">{l.received_kg}</td>
                   <td className="px-3 py-3 text-right num">{fmtMoney(l.cost_per_kg)}</td>
                   <td className="px-3 py-3 text-right num">{l.gst_pct}</td>

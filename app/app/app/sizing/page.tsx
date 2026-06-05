@@ -27,7 +27,7 @@ export default async function SizingListPage() {
       id, job_code, set_no, status, date_sent, date_received,
       yarn_sent_kg, yarn_used_kg, no_of_paavu,
       sizing_vendor:sizing_ledger_id ( name ),
-      yarn_mill:yarn_mill_id          ( name ),
+      yarn_supplier:yarn_supplier_party_id ( name ),
       warp_count:warp_count_id        ( code )
     `)
     .order('created_at', { ascending: false })
@@ -59,7 +59,7 @@ export default async function SizingListPage() {
                 <th className="text-left  px-4 py-3">Job</th>
                 <th className="text-left  px-4 py-3 hidden md:table-cell">Set No</th>
                 <th className="text-left  px-4 py-3">Sizing Mill</th>
-                <th className="text-left  px-4 py-3 hidden md:table-cell">Yarn Mill</th>
+                <th className="text-left  px-4 py-3 hidden md:table-cell">Yarn Supplier</th>
                 <th className="text-left  px-4 py-3 hidden lg:table-cell">Count</th>
                 <th className="text-right px-4 py-3">Beams</th>
                 <th className="text-right px-4 py-3">Yarn (sent → bal)</th>
@@ -82,7 +82,7 @@ export default async function SizingListPage() {
                     </td>
                     <td className="px-4 py-3">{j.sizing_vendor?.name ?? '—'}</td>
                     <td className="px-4 py-3 hidden md:table-cell text-ink-soft">
-                      {j.yarn_mill?.name ?? '—'}
+                      {j.yarn_supplier?.name ?? '—'}
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-ink-soft">
                       {j.warp_count?.code ?? '—'}
