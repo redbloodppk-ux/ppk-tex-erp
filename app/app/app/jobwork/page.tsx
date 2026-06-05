@@ -11,9 +11,40 @@
  */
 import Link from 'next/link';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft } from 'lucide-react';
+
+// This page services TWO routes: /app/jobwork and /app/outsource. The
+// only difference is which `jobwork_party.kind` rows it filters to —
+// 'jobwork' for Job Work parties, 'outsource' for Outsource Weavers
+// (migration 113 added the `kind` column + sync trigger). Page title,
+// subtitle, and the "Manage" link all switch accordingly.
+type PartyKind = 'jobwork' | 'outsource';
+interface PageVariant {
+  kind: PartyKind;
+  title: string;
+  subtitle: string;
+  manageHref: string;
+  manageLabel: string;
+}
+const VARIANTS: Record<PartyKind, PageVariant> = {
+  jobwork: {
+    kind: 'jobwork',
+    title: 'Job Work',
+    subtitle: 'Track bobbin / warp beam / weft bag issued to each jobwork party. Inline edit, delete, restock supported.',
+    manageHref: '/app/parties?type=3',
+    manageLabel: 'Manage Jobwork Parties',
+  },
+  outsource: {
+    kind: 'outsource',
+    title: 'Outsource Weaving',
+    subtitle: 'Track bobbin / warp beam / weft bag issued to each outsource weaver. Inline edit, delete, restock supported.',
+    manageHref: '/app/parties?type=5',
+    manageLabel: 'Manage Outsource Weavers',
+  },
+};
 
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
@@ -93,6 +124,8 @@ function fmtDate(s: string | null): string {
 
 export default function JobworkPage(): React.ReactElement {
   const supabase = createClient();
+  const pathname = usePathname();
+  const variant: PageVariant = pathname.startsWith('/app/outsource') ? VARIANTS.outsource : VARIANTS.jobwork;
   const [tab, setTab] = useState<Tab>('dc');
   const [parties, setParties] = useState<PartyOpt[]>([]);
   const [allParties, setAllParties] = useState<PartyOpt[]>([]);
@@ -126,7 +159,9 @@ export default function JobworkPage(): React.ReactElement {
     const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
     const [p, ap, bs, sp, q, c, b, w, wb, br] = await Promise.all([
-      sb.from('jobwork_party').select('id, code, name').eq('status', 'active').order('name'),
+      // Filter jobwork_party by kind so the same code services both
+      // /app/jobwork (kind='jobwork') and /app/outsource (kind='outsource').
+      sb.from('jobwork_party').select('id, code, name').eq('status', 'active').eq('kind', variant.kind).order('name'),
       sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
       bobbinSupplierTypeId === null
         ? Promise.resolve({ data: [], error: null })
@@ -190,7 +225,7 @@ export default function JobworkPage(): React.ReactElement {
       setError(null);
     }
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, variant.kind]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -202,11 +237,11 @@ export default function JobworkPage(): React.ReactElement {
   return (
     <div>
       <PageHeader
-        title="Job Work"
-        subtitle="Track bobbin / warp beam / weft bag issued to each jobwork party. Inline edit, delete, restock supported."
+        title={variant.title}
+        subtitle={variant.subtitle}
         actions={
-          <Link href="/app/parties?type=3" className="btn-ghost">
-            Manage Jobwork Parties
+          <Link href={variant.manageHref} className="btn-ghost">
+            {variant.manageLabel}
           </Link>
         }
       />
