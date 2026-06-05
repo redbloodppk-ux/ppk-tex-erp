@@ -2,8 +2,12 @@
 /**
  * New Sizing Job — matches the real Shri Nithiya report.
  *
- * Header captures: sizing vendor, yarn mill, warp count, avg count (optional),
- * yarn source (warehouse lot or purchase_direct), yarn sent/used, rate + GST.
+ * Header captures: sizing vendor, yarn supplier, warp count, avg count
+ * (optional), yarn source (in-house warehouse vs sizing warehouse — both
+ * draw from a real yarn lot which gets decremented on save), yarn
+ * sent/used, rate + GST. Status is no longer manual — it defaults to
+ * 'received' on create and flips to 'assigned' via a DB trigger when
+ * any pavu from this job is mounted on a loom.
  *
  * Beams (pavu) are entered as rows. Each beam has its own beam_no, ends and
  * metres — because the same job can have two different end counts on different
@@ -32,7 +36,12 @@ interface Vendor      { id: number; code: string; name: string; vendor_type: str
 interface Supplier    { id: number; code: string; name: string }
 interface YarnCount   { id: number; code: string; display_name: string }
 interface YarnLot     { id: number; lot_code: string; current_kg: number;
-                        yarn_count_id: number; supplier_party_id: number | null }
+                        yarn_count_id: number; supplier_party_id: number | null;
+                        /** Which physical warehouse this lot was delivered to.
+                         *  'in_house' = our own warehouse, 'sizing' = the
+                         *  sizing mill's warehouse. Picked when the yarn was
+                         *  purchased and stored on the lot. */
+                        delivery_destination: 'in_house' | 'sizing' | null }
 
 type ProdMode = 'in_house' | 'outsource';
 type DefaultMode = ProdMode | 'mixed';
@@ -70,8 +79,10 @@ export default function NewSizingJobPage() {
   const [warpCountId,    setWarpCountId]    = useState('');
   const [avgCount,       setAvgCount]       = useState('');
 
-  // yarn source
-  const [yarnSource, setYarnSource] = useState<'warehouse' | 'purchase_direct'>('warehouse');
+  // yarn source = which physical warehouse the yarn is coming out of.
+  // Maps directly to yarn_lot.delivery_destination so the picker can be
+  // filtered to lots that actually live in that warehouse.
+  const [yarnSource, setYarnSource] = useState<'in_house' | 'sizing'>('in_house');
   const [yarnLotId,  setYarnLotId]  = useState('');
 
   // quantities + rate
@@ -80,10 +91,11 @@ export default function NewSizingJobPage() {
   const [rate,    setRate]    = useState('26');
   const [gstPct,  setGstPct]  = useState('5');
 
-  // dates / status
-  const [dateSent,     setDateSent]     = useState('');
-  const [dateReceived, setDateReceived] = useState('');
-  const [status,       setStatus]       = useState<'draft'|'sent'|'in_process'|'received'>('received');
+  // Free-text notes only. Status is auto-managed by a DB trigger:
+  //   - created     → 'received'
+  //   - pavu assigned → 'assigned'  (see migration 100)
+  // The old "Status & dates" section was removed in favour of those
+  // automatic transitions.
   const [notes,        setNotes]        = useState('');
 
   // production routing
@@ -135,7 +147,7 @@ export default function NewSizingJobPage() {
           .eq('yarn_type', 'cotton').eq('status', 'active').order('code'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('yarn_lot')
-          .select('id, lot_code, current_kg, yarn_count_id, supplier_party_id')
+          .select('id, lot_code, current_kg, yarn_count_id, supplier_party_id, delivery_destination')
           .gt('current_kg', 0).order('received_date', { ascending: false }).limit(200),
       ]);
       setSizingVendors(sv.data ?? []);
@@ -147,14 +159,26 @@ export default function NewSizingJobPage() {
     })();
   }, [supabase]);
 
-  // Filter lots to matching count + supplier — keeps the dropdown short.
+  // Filter lots to matching count + supplier + warehouse — keeps the
+  // dropdown focused on what's actually pickable for this job. The
+  // warehouse filter is the key one: switching the radio between
+  // In-house / Sizing instantly changes the lot list to the right
+  // physical bucket.
   const matchingLots = useMemo(() => {
-    if (!warpCountId || !yarnSupplierId) return lots;
-    return lots.filter(l =>
-      l.yarn_count_id     === Number(warpCountId) &&
-      l.supplier_party_id === Number(yarnSupplierId)
-    );
-  }, [lots, warpCountId, yarnSupplierId]);
+    return lots.filter(l => {
+      if (l.delivery_destination !== yarnSource) return false;
+      if (warpCountId && l.yarn_count_id !== Number(warpCountId)) return false;
+      if (yarnSupplierId && l.supplier_party_id !== Number(yarnSupplierId)) return false;
+      return true;
+    });
+  }, [lots, warpCountId, yarnSupplierId, yarnSource]);
+
+  // When the warehouse choice changes, clear any stale yarn-lot selection
+  // so the operator can't accidentally submit a lot from the wrong
+  // warehouse (the dropdown now only shows valid options).
+  useEffect(() => {
+    setYarnLotId('');
+  }, [yarnSource]);
 
   // ── billing math ──────────────────────────────────────────────────────────
   const billing = useMemo(() => {
@@ -208,26 +232,42 @@ export default function NewSizingJobPage() {
         return setError(`Beam ${b.beam_no}: outsource vendor missing.`);
       }
     }
-    if (yarnSource === 'warehouse' && !yarnLotId) {
-      return setError('Pick a yarn lot, or switch source to "Direct from purchase".');
+    if (!yarnLotId) {
+      return setError('Pick a yarn lot. If no lots are listed, check the warehouse / count / supplier choices above.');
+    }
+
+    // Find the lot we're drawing from so we can validate the kg balance
+    // and decrement its current_kg after the job is saved.
+    const sourceLot = lots.find(l => l.id === Number(yarnLotId));
+    if (!sourceLot) {
+      return setError('Selected yarn lot is no longer available — reload the page and try again.');
+    }
+
+    const sentKg = Number(yarnSentKg) || 0;
+    if (sentKg > Number(sourceLot.current_kg)) {
+      return setError(
+        `Yarn sent (${sentKg.toFixed(3)} kg) is more than what's in lot ` +
+        `${sourceLot.lot_code} (${Number(sourceLot.current_kg).toFixed(3)} kg available).`,
+      );
     }
 
     setBusy(true);
 
-    // 1. Insert the job header
+    // 1. Insert the job header. yarn_source is stored as 'warehouse' for
+    //    both options because both flow through a yarn lot — the choice
+    //    of physical warehouse is captured by the lot's
+    //    delivery_destination column, not by yarn_source.
     const headerPayload = {
       set_no:           setNo.trim() || null,
       sizing_ledger_id: Number(sizingVendorId),
       // Column renamed from yarn_mill_id to yarn_supplier_party_id by
       // migration 098 (yarn suppliers now live in the party table).
-      // The Supabase types haven't been regenerated yet, so we cast to
-      // satisfy the SizingJobInsert shape.
       yarn_supplier_party_id: Number(yarnSupplierId),
       warp_count_id:    Number(warpCountId),
       avg_count:        avgCount ? Number(avgCount) : null,
-      yarn_source:      yarnSource,
-      yarn_lot_id:      yarnSource === 'warehouse' ? Number(yarnLotId) : null,
-      yarn_sent_kg:     Number(yarnSentKg) || 0,
+      yarn_source:      'warehouse',
+      yarn_lot_id:      Number(yarnLotId),
+      yarn_sent_kg:     sentKg,
       yarn_used_kg:     Number(yarnUsedKg) || 0,
       no_of_paavu:      beams.length,
       sizing_rate_per_kg: Number(rate) || 0,
@@ -238,9 +278,13 @@ export default function NewSizingJobPage() {
       default_outsource_ledger_id:
         defaultMode === 'outsource' && defaultOutsourceVendorId
           ? Number(defaultOutsourceVendorId) : null,
-      status,
-      date_sent:        dateSent     || null,
-      date_received:    dateReceived || null,
+      // Status is auto-managed (migration 100): defaults to 'received'
+      // on insert, then a trigger flips it to 'assigned' the moment a
+      // pavu is assigned to a loom. date_sent is stamped to today since
+      // the yarn leaves our warehouse the moment the job is created.
+      status:           'received',
+      date_sent:        new Date().toISOString().slice(0, 10),
+      date_received:    new Date().toISOString().slice(0, 10),
       notes:            notes.trim() || null,
     };
 
@@ -271,6 +315,22 @@ export default function NewSizingJobPage() {
     if (beamErr) {
       setBusy(false);
       return setError(`Job created but beams failed: ${beamErr.message}`);
+    }
+
+    // 3. Decrement the source yarn lot's current_kg. The warehouse views
+    //    read current_kg directly, so this makes the outflow visible
+    //    immediately. We compute the new value client-side because
+    //    there's no atomic decrement RPC for this column yet — race
+    //    conditions are vanishingly rare given a single-operator workflow.
+    const newKg = Math.max(0, Number(sourceLot.current_kg) - sentKg);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: lotErr } = await (supabase as any)
+      .from('yarn_lot')
+      .update({ current_kg: newKg })
+      .eq('id', sourceLot.id);
+    if (lotErr) {
+      setBusy(false);
+      return setError(`Job ${job.id} created but yarn lot stock did not update: ${lotErr.message}`);
     }
 
     router.push('/app/sizing');
@@ -346,37 +406,38 @@ export default function NewSizingJobPage() {
             <div>
               <label className="label">Where did the yarn come from?</label>
               <div className="grid sm:grid-cols-2 gap-2">
-                <label className={`card p-3 cursor-pointer ${yarnSource === 'warehouse' ? 'ring-2 ring-indigo' : ''}`}>
-                  <input type="radio" name="src" checked={yarnSource==='warehouse'} onChange={() => setYarnSource('warehouse')} className="mr-2" />
-                  <span className="font-semibold">From our warehouse</span>
-                  <p className="text-xs text-ink-mute mt-1">Pick a yarn lot we have in stock.</p>
+                <label className={`card p-3 cursor-pointer ${yarnSource === 'in_house' ? 'ring-2 ring-indigo' : ''}`}>
+                  <input type="radio" name="src" checked={yarnSource==='in_house'} onChange={() => setYarnSource('in_house')} className="mr-2" />
+                  <span className="font-semibold">In-house warehouse</span>
+                  <p className="text-xs text-ink-mute mt-1">Yarn lot sitting in our own warehouse will be reduced.</p>
                 </label>
-                <label className={`card p-3 cursor-pointer ${yarnSource === 'purchase_direct' ? 'ring-2 ring-indigo' : ''}`}>
-                  <input type="radio" name="src" checked={yarnSource==='purchase_direct'} onChange={() => setYarnSource('purchase_direct')} className="mr-2" />
-                  <span className="font-semibold">Direct from purchase</span>
-                  <p className="text-xs text-ink-mute mt-1">Yarn was delivered straight to the sizing mill.</p>
+                <label className={`card p-3 cursor-pointer ${yarnSource === 'sizing' ? 'ring-2 ring-indigo' : ''}`}>
+                  <input type="radio" name="src" checked={yarnSource==='sizing'} onChange={() => setYarnSource('sizing')} className="mr-2" />
+                  <span className="font-semibold">Sizing warehouse</span>
+                  <p className="text-xs text-ink-mute mt-1">Yarn lot already with the sizing mill will be reduced.</p>
                 </label>
               </div>
             </div>
 
-            {yarnSource === 'warehouse' && (
-              <div>
-                <label className="label">Yarn Lot *</label>
-                <select required value={yarnLotId} onChange={e => setYarnLotId(e.target.value)} className="input">
-                  <option value="" disabled>
-                    {matchingLots.length ? 'Select a lot…' : 'No matching lots — change count/mill or switch source'}
+            <div>
+              <label className="label">Yarn Lot *</label>
+              <select required value={yarnLotId} onChange={e => setYarnLotId(e.target.value)} className="input">
+                <option value="" disabled>
+                  {matchingLots.length
+                    ? 'Select a lot…'
+                    : `No ${yarnSource === 'in_house' ? 'in-house' : 'sizing'} warehouse lots match — change the count, supplier, or switch warehouse`}
+                </option>
+                {matchingLots.map(l => (
+                  <option key={l.id} value={l.id}>
+                    {l.lot_code} — {Number(l.current_kg).toFixed(1)} kg in stock
                   </option>
-                  {matchingLots.map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.lot_code} — {Number(l.current_kg).toFixed(1)} kg in stock
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-ink-mute mt-1">
-                  Filtered by the count and mill you picked above.
-                </p>
-              </div>
-            )}
+                ))}
+              </select>
+              <p className="text-[11px] text-ink-mute mt-1">
+                Showing lots in the <b>{yarnSource === 'in_house' ? 'In-house' : 'Sizing'} warehouse</b> that match the chosen count and supplier.
+                The lot&apos;s <b>current_kg</b> will be reduced by the yarn-sent amount on save.
+              </p>
+            </div>
 
             <div className="grid sm:grid-cols-3 gap-4">
               <div>
@@ -536,30 +597,15 @@ export default function NewSizingJobPage() {
             </div>
           </div>
 
-          {/* ─── Flow ──────────────────────────────────────────────────── */}
+          {/* ─── Notes ─────────────────────────────────────────────────── */}
           <div className="card p-6 space-y-3">
-            <h3 className="text-sm font-bold text-ink">Status & dates</h3>
-            <div className="grid sm:grid-cols-3 gap-4">
-              <div>
-                <label className="label">Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value as any)} className="input">
-                  <option value="draft">Draft</option>
-                  <option value="sent">Sent to vendor</option>
-                  <option value="in_process">In process</option>
-                  <option value="received">Received</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Date Sent</label>
-                <input type="date" value={dateSent} onChange={e => setDateSent(e.target.value)} className="input" />
-              </div>
-              <div>
-                <label className="label">Date Received</label>
-                <input type="date" value={dateReceived} onChange={e => setDateReceived(e.target.value)} className="input" />
-              </div>
-            </div>
+            <h3 className="text-sm font-bold text-ink">Notes</h3>
+            <p className="text-[11px] text-ink-mute">
+              Status is set automatically: <b>Received</b> on create, then
+              <b> Assigned</b> the moment any beam from this job is mounted
+              on a loom.
+            </p>
             <div>
-              <label className="label">Notes</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="input" placeholder="Optional remarks" />
             </div>
           </div>
