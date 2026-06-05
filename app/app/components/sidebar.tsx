@@ -58,7 +58,6 @@ const NAV: NavItem[] = [
   // entries; they now live as TABS inside a single "In-house Stock"
   // page (entry below points at the yarn tab as the default).
   { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/yarn',               label: 'Yarn Reports',       icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   // Unified Payments — records receipts and payments for every party
   // type (customer, supplier, sizing vendor, weaving vendor, etc.)
@@ -85,6 +84,7 @@ const NAV: NavItem[] = [
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
+  { href: '/app/yarn',          label: 'Yarn Reports',       icon: Boxes,           group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/alerts',        label: 'Stale Alerts',       icon: ClockAlert,      group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
