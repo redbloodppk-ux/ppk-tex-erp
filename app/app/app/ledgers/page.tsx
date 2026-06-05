@@ -16,19 +16,57 @@ interface LedgerListRow {
   phone: string | null;
   area: string | null;
   active: boolean;
+  type_id: number | null;
+  group_id: number | null;
   ledger_type: { name: string } | null;
   ledger_group: { name: string } | null;
 }
 
-export default async function LedgersPage() {
+interface TypeOpt  { id: number; name: string; }
+interface GroupOpt { id: number; name: string; }
+
+export default async function LedgersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ type?: string; group?: string }>;
+}) {
+  const sp = await searchParams;
+  const typeFilter  = sp.type  ?? '';
+  const groupFilter = sp.group ?? '';
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
-    .from('ledger')
-    .select('id, code, name, gstin, gstin_verified_at, phone, area, active, ledger_type:type_id(name), ledger_group:group_id(name)')
-    .order('name');
+  const sb = supabase as any;
 
-  const rows = (data ?? []) as unknown as LedgerListRow[];
+  // Pull all types / groups for the filter dropdowns. Plus the ledger
+  // list itself, narrowed by the active filters.
+  const [typesRes, groupsRes] = await Promise.all([
+    sb.from('ledger_type').select('id, name').eq('active', true).order('name'),
+    sb.from('ledger_group').select('id, name').eq('active', true).order('name'),
+  ]);
+
+  let query = sb
+    .from('ledger')
+    .select('id, code, name, gstin, gstin_verified_at, phone, area, active, type_id, group_id, ledger_type:type_id(name), ledger_group:group_id(name)')
+    .order('name');
+  if (typeFilter)  query = query.eq('type_id',  Number(typeFilter));
+  if (groupFilter) query = query.eq('group_id', Number(groupFilter));
+
+  const { data, error } = await query;
+  const rows  = (data ?? []) as unknown as LedgerListRow[];
+  const types  = (typesRes.data  ?? []) as TypeOpt[];
+  const groups = (groupsRes.data ?? []) as GroupOpt[];
+
+  // Helper to build filter links that preserve the other filter.
+  function filterHref(next: { type?: string | null; group?: string | null }): string {
+    const params = new URLSearchParams();
+    const t = next.type !== undefined ? next.type : typeFilter;
+    const g = next.group !== undefined ? next.group : groupFilter;
+    if (t) params.set('type',  t);
+    if (g) params.set('group', g);
+    const qs = params.toString();
+    return qs ? `/app/ledgers?${qs}` : '/app/ledgers';
+  }
 
   return (
     <div>
@@ -41,6 +79,37 @@ export default async function LedgersPage() {
           </Link>
         }
       />
+
+      {/* Filter strip — pills for Type and Group. Selecting one keeps the
+          other in place via filterHref(). Clear filter via the "All" pill. */}
+      <div className="card p-3 mb-4 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-ink-mute font-semibold uppercase">Type:</span>
+          <Link href={filterHref({ type: null })}
+            className={'pill ' + (typeFilter === '' ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
+            All
+          </Link>
+          {types.map((t) => (
+            <Link key={t.id} href={filterHref({ type: String(t.id) })}
+              className={'pill ' + (typeFilter === String(t.id) ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
+              {t.name}
+            </Link>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-ink-mute font-semibold uppercase">Group:</span>
+          <Link href={filterHref({ group: null })}
+            className={'pill ' + (groupFilter === '' ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
+            All
+          </Link>
+          {groups.map((g) => (
+            <Link key={g.id} href={filterHref({ group: String(g.id) })}
+              className={'pill ' + (groupFilter === String(g.id) ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
+              {g.name}
+            </Link>
+          ))}
+        </div>
+      </div>
 
       {error && (
         <div className="card p-4 text-sm text-err mb-4">
@@ -108,7 +177,7 @@ export default async function LedgersPage() {
             )) : (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
-                  No ledgers yet. <Link href="/app/ledgers/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
+                  No ledgers match the current filter. <Link href="/app/ledgers" className="text-indigo font-semibold">Clear filters →</Link>
                 </td>
               </tr>
             )}

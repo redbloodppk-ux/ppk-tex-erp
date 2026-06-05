@@ -30,7 +30,6 @@ import { cn } from '@/lib/utils';
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type Direction = 'in' | 'out';
-type Mode = 'cash' | 'cheque' | 'bank_transfer' | 'upi' | 'card' | 'other';
 
 interface PartyTypeOpt {
   id: number;
@@ -42,6 +41,16 @@ interface PartyOpt {
   name: string;
   party_type_ids: number[] | null;
 }
+// A real BANK or CASH ledger that the payment can be drawn from /
+// received into. Sourced from the ledger master (filtered by type
+// CASH or BANK) so the dropdown matches the operator's own chart of
+// accounts.
+interface ModeLedgerOpt {
+  id: number;
+  code: string;
+  name: string;
+  type_name: 'BANK' | 'CASH';
+}
 interface PaymentRow {
   id: number;
   payment_no: string;
@@ -49,18 +58,11 @@ interface PaymentRow {
   direction: Direction;
   amount: number | string;
   mode: string | null;
+  mode_ledger_id: number | null;
+  mode_ledger?: { id: number; name: string } | null;
   reference: string | null;
   notes: string | null;
 }
-
-const MODES: { value: Mode; label: string }[] = [
-  { value: 'cash',          label: 'Cash' },
-  { value: 'cheque',        label: 'Cheque' },
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'upi',           label: 'UPI' },
-  { value: 'card',          label: 'Card' },
-  { value: 'other',         label: 'Other' },
-];
 
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }
 
@@ -140,31 +142,46 @@ function NewPaymentTab(): React.ReactElement {
   const [partyId,      setPartyId]     = useState<string>('');
   const [date,         setDate]        = useState<string>(todayISO());
   const [amount,       setAmount]      = useState<string>('');
-  const [mode,         setMode]        = useState<Mode>('bank_transfer');
+  // Replaces the old free-text Mode enum. The picked ledger is what
+  // gets saved; the legacy `mode` text column is auto-derived by a DB
+  // trigger from the ledger's type ('cash' / 'bank_transfer').
+  const [modeLedgerId, setModeLedgerId] = useState<string>('');
   const [reference,    setReference]   = useState<string>('');
   const [notes,        setNotes]       = useState<string>('');
 
-  const [partyTypes, setPartyTypes] = useState<PartyTypeOpt[]>([]);
-  const [parties,    setParties]    = useState<PartyOpt[]>([]);
-  const [loading,    setLoading]    = useState<boolean>(true);
-  const [busy,       setBusy]       = useState<boolean>(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const [savedMsg,   setSavedMsg]   = useState<string | null>(null);
+  const [partyTypes,   setPartyTypes]   = useState<PartyTypeOpt[]>([]);
+  const [parties,      setParties]      = useState<PartyOpt[]>([]);
+  const [modeLedgers,  setModeLedgers]  = useState<ModeLedgerOpt[]>([]);
+  const [loading,      setLoading]      = useState<boolean>(true);
+  const [busy,         setBusy]         = useState<boolean>(false);
+  const [error,        setError]        = useState<string | null>(null);
+  const [savedMsg,     setSavedMsg]     = useState<string | null>(null);
 
-  // ── Load party types and parties ──────────────────────────────────────────
+  // ── Load party types, parties, and mode (BANK / CASH) ledgers ───────────
   useEffect(() => {
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [ptRes, pRes] = await Promise.all([
+      const [ptRes, pRes, mRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
         sb.from('party')
           .select('id, code, name, party_type_ids')
           .eq('status', 'active')
           .order('name'),
+        // Only BANK and CASH ledgers can be a payment source/destination.
+        sb.from('ledger')
+          .select('id, code, name, ledger_type:type_id!inner(name)')
+          .eq('active', true)
+          .in('ledger_type.name', ['BANK', 'CASH'])
+          .order('name'),
       ]);
       setPartyTypes((ptRes.data ?? []) as PartyTypeOpt[]);
       setParties((pRes.data ?? []) as PartyOpt[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setModeLedgers(((mRes.data ?? []) as any[]).map((l) => ({
+        id: l.id, code: l.code, name: l.name,
+        type_name: l.ledger_type?.name as 'BANK' | 'CASH',
+      })));
       setLoading(false);
     })();
   }, [supabase]);
@@ -194,16 +211,23 @@ function NewPaymentTab(): React.ReactElement {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) { setError('Amount must be greater than zero.'); return; }
     if (!date) { setError('Pick a payment date.'); return; }
+    if (!modeLedgerId) {
+      setError('Pick a Bank / Cash ledger. Add one from the Ledgers page if the dropdown is empty.');
+      return;
+    }
 
     setBusy(true);
     const payload = {
       direction,
-      party_id:     Number(partyId),
-      payment_date: date,
-      amount:       amt,
-      mode,
-      reference:    reference.trim() || null,
-      notes:        notes.trim() || null,
+      party_id:       Number(partyId),
+      payment_date:   date,
+      amount:         amt,
+      // The legacy `mode` text column is auto-derived from the picked
+      // ledger's type by a DB trigger (migration 104), so we don't
+      // need to send it here.
+      mode_ledger_id: Number(modeLedgerId),
+      reference:      reference.trim() || null,
+      notes:          notes.trim() || null,
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error: err } = await (supabase as any)
@@ -302,10 +326,29 @@ function NewPaymentTab(): React.ReactElement {
         </div>
 
         <div>
-          <label className="label">Mode *</label>
-          <select required className="input" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-            {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          <label className="label">Mode (Bank / Cash ledger) *</label>
+          <select
+            required
+            className="input"
+            value={modeLedgerId}
+            onChange={(e) => setModeLedgerId(e.target.value)}
+          >
+            <option value="" disabled>
+              {modeLedgers.length
+                ? 'Select Bank or Cash ledger…'
+                : 'No Bank / Cash ledgers — add one in the Ledgers page first'}
+            </option>
+            {modeLedgers.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.type_name === 'CASH' ? '💵' : '🏦'} {l.name}
+              </option>
+            ))}
           </select>
+          {modeLedgers.length === 0 && (
+            <p className="text-[11px] text-amber-700 mt-1">
+              No Bank / Cash ledgers exist yet. <a className="underline font-semibold" href="/app/ledgers/new">Add one</a> with type CASH (for cash drawers) or BANK (for each bank account).
+            </p>
+          )}
         </div>
         <div>
           <label className="label">Reference</label>
@@ -431,7 +474,7 @@ function StatusTab(): React.ReactElement {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
       const { data, error: err } = await sb.from('payment')
-        .select('id, payment_no, payment_date, direction, amount, mode, reference, notes')
+        .select('id, payment_no, payment_date, direction, amount, mode, mode_ledger_id, mode_ledger:mode_ledger_id ( id, name ), reference, notes')
         .eq('party_id', Number(partyId))
         .eq('status', 'active')
         .order('payment_date', { ascending: true })
@@ -521,7 +564,7 @@ function StatusTab(): React.ReactElement {
                 <tr>
                   <th className="text-left  px-3 py-3">Date</th>
                   <th className="text-left  px-3 py-3">Voucher</th>
-                  <th className="text-left  px-3 py-3 hidden md:table-cell">Mode</th>
+                  <th className="text-left  px-3 py-3 hidden md:table-cell">Bank / Cash</th>
                   <th className="text-left  px-3 py-3 hidden md:table-cell">Reference</th>
                   <th className="text-right px-3 py-3">Inflow (₹)</th>
                   <th className="text-right px-3 py-3">Outflow (₹)</th>
@@ -534,7 +577,12 @@ function StatusTab(): React.ReactElement {
                     <td className="px-3 py-3 text-ink-soft">{fmtDate(r.payment_date)}</td>
                     <td className="px-3 py-3 font-mono text-xs">{r.payment_no}</td>
                     <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {(r.mode ?? '').replace('_', ' ')}
+                      {/* Prefer the ledger name (e.g. "HDFC Current",
+                          "Petty Cash") since that's what the operator
+                          actually picked. Fall back to the raw mode
+                          text for legacy rows that have no
+                          mode_ledger_id stamped. */}
+                      {r.mode_ledger?.name ?? (r.mode ?? '').replace('_', ' ')}
                     </td>
                     <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
                       {r.reference ?? '-'}

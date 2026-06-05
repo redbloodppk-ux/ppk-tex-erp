@@ -30,6 +30,12 @@ export interface LedgerFormValues {
   area: string;
   active: boolean;
   notes: string;
+  /** Bank account details — only shown / required when this ledger's
+   *  type is BANK (migration 106). NULL on every non-bank ledger. */
+  bank_name: string;
+  bank_account_no: string;
+  bank_ifsc: string;
+  bank_branch: string;
 }
 
 interface LedgerFormProps {
@@ -45,6 +51,7 @@ const EMPTY: LedgerFormValues = {
   address1: '', address2: '', address3: '', address4: '',
   phone: '', email: '', pan_no: '', gstin: '', gstin_verified_at: null, area: '',
   active: true, notes: '',
+  bank_name: '', bank_account_no: '', bank_ifsc: '', bank_branch: '',
 };
 
 export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFormProps) {
@@ -57,6 +64,14 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  // Is the currently picked ledger type BANK? Bank-account fields
+  // only show / validate when this is true.
+  const isBankType: boolean = (() => {
+    if (!form.type_id) return false;
+    const t = types.find((x) => String(x.id) === String(form.type_id));
+    return t?.name === 'BANK';
+  })();
 
   const nameRef = useRef<HTMLInputElement>(null);
   const addr1Ref = useRef<HTMLInputElement>(null);
