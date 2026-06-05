@@ -20,8 +20,11 @@ export default async function SizingListPage() {
 
   // Pull each job plus the foreign-key labels we want to show. PostgREST
   // resolves the joins for us. We also pull the pavu count so the user can
-  // see how many beams came back per job.
-  const { data: jobs, error } = await supabase
+  // see how many beams came back per job. Cast to any because the
+  // regenerated Supabase types haven't caught up to the
+  // yarn_mill_id → yarn_supplier_party_id rename from migration 098.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: jobs, error } = await (supabase as any)
     .from('sizing_job')
     .select(`
       id, job_code, set_no, status, date_sent, date_received,

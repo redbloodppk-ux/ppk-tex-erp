@@ -202,7 +202,11 @@ export default function NewFabricReceiptPage() {
           .order('start_date', { ascending: false })
           .limit(50),
         supabase.from('loom').select('id, loom_code, status').order('loom_code'),
-        supabase
+        // Cast to any because the regenerated Supabase types haven't
+        // caught up to the yarn_lot.mill_id → supplier_party_id rename
+        // from migration 098. Runtime is correct; the type checker is stale.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any)
           .from('yarn_lot')
           .select('id, lot_code, current_kg, cost_per_kg, yarn_count_id, supplier_party_id')
           .gt('current_kg', 0)
@@ -222,7 +226,7 @@ export default function NewFabricReceiptPage() {
       setCostings(c.data ?? []);
       setAssigns((a.data as unknown as ActivePavuAssign[]) ?? []);
       setLooms(l.data ?? []);
-      setLots(y.data ?? []);
+      setLots((y.data ?? []) as YarnLot[]);
       setBobbins(b.data ?? []);
       setSoLines((s.data as unknown as SalesOrderLine[]) ?? []);
       setLoading(false);

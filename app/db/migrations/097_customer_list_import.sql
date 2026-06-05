@@ -222,4 +222,50 @@ BEGIN
   );
 END $$;
 
+-- Backfill ledger_id for any Customer-tagged party that ended up
+-- without one. This is needed because the BEFORE INSERT trigger
+-- `trg_party_link_ledger` (072) checks NEW.party_type_id, but on
+-- multi-type inserts that field gets populated by a sibling BEFORE
+-- INSERT trigger (`trg_party_sync_legacy_type` from 081) that may
+-- fire after the link trigger — so the link trigger bails out and
+-- leaves ledger_id NULL. Updating party.ledger_id here then triggers
+-- `fn_party_to_customer_sync` (096) which creates the customer row.
+DO $$
+DECLARE
+  r record;
+  v_type_id  bigint;
+  v_group_id bigint;
+  v_ledger_id bigint;
+BEGIN
+  SELECT pt.ledger_type_id, pt.ledger_group_id
+    INTO v_type_id, v_group_id
+  FROM public.party_type_master pt
+  WHERE pt.name = 'Customer';
+
+  IF v_type_id IS NULL OR v_group_id IS NULL THEN
+    RAISE EXCEPTION 'Customer party_type_master missing ledger_type_id/ledger_group_id wiring';
+  END IF;
+
+  FOR r IN
+    SELECT p.id, p.name, p.billing_address, p.phone, p.email, p.gstin
+    FROM public.party p
+    JOIN public.party_type_master pt ON pt.id = ANY(p.party_type_ids)
+    WHERE pt.name = 'Customer'
+      AND p.ledger_id IS NULL
+  LOOP
+    SELECT id INTO v_ledger_id
+    FROM public.ledger
+    WHERE name = r.name AND type_id = v_type_id AND group_id = v_group_id
+    LIMIT 1;
+
+    IF v_ledger_id IS NULL THEN
+      INSERT INTO public.ledger (name, type_id, group_id, address1, phone, email, gstin)
+      VALUES (r.name, v_type_id, v_group_id, r.billing_address, r.phone, r.email, r.gstin)
+      RETURNING id INTO v_ledger_id;
+    END IF;
+
+    UPDATE public.party SET ledger_id = v_ledger_id WHERE id = r.id;
+  END LOOP;
+END $$;
+
 COMMIT;

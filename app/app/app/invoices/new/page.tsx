@@ -157,7 +157,11 @@ export default function NewInvoicePage() {
         `).gt('metres_available', 0).order('received_at', { ascending: false }).limit(100),
         // Yarn suppliers now live in the unified party table (migration 098).
         // The old yarn_lot.mill_id FK is gone — supplier_party_id replaces it.
-        supabase.from('yarn_lot').select(`
+        // Cast to any because the regenerated Supabase types haven't caught
+        // up to that rename yet; runtime is correct but the type checker
+        // would otherwise see the column as missing.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('yarn_lot').select(`
           id, lot_code, current_kg, cost_per_kg, yarn_count_id, supplier_party_id,
           yarn_count:yarn_count_id ( display_name ),
           supplier:supplier_party_id ( name )
