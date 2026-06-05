@@ -46,10 +46,12 @@ const NAV: NavItem[] = [
   { href: '/app/orders',            label: 'Sales Orders',     icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/delivery-challan',  label: 'Delivery Challan', icon: Truck,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',          label: 'Invoices',         icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
-  // The old Customer Payments / Purchase Payments links were merged
-  // into one unified Payments page (Inventory & Purchases group). The
-  // old /app/pay-customer and /app/pay-purchase URLs still redirect
-  // there so bookmarks keep working.
+  // Unified Payments — records receipts and payments for every party
+  // type (customer, supplier, sizing vendor, weaving vendor, etc.)
+  // and ships with a Status tab that shows a chronological ledger of
+  // inflow / outflow / running balance per party. Old
+  // /app/pay-customer and /app/pay-purchase URLs redirect here.
+  { href: '/app/payments',          label: 'Payments',         icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Inventory
   // Mills moved into the unified Parties master under Admin (filter by
@@ -59,11 +61,6 @@ const NAV: NavItem[] = [
   // page (entry below points at the yarn tab as the default).
   { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
-  // Unified Payments — records receipts and payments for every party
-  // type (customer, supplier, sizing vendor, weaving vendor, etc.)
-  // and ships with a Status tab that shows a chronological ledger of
-  // inflow / outflow / running balance per party.
-  { href: '/app/payments',           label: 'Payments',           icon: Wallet,          group: 'inventory',  roles: ['owner','accounts','sales_manager','auditor'] },
 
   // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
