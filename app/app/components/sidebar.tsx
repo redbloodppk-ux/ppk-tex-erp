@@ -14,7 +14,7 @@ import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
-type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'inhouse_production' | 'people' | 'insights' | 'admin';
+type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'people' | 'insights' | 'admin';
 
 interface NavItem {
   href: string;
@@ -51,9 +51,10 @@ const NAV: NavItem[] = [
   // Inventory
   // Mills moved into the unified Parties master under Admin (filter by
   // Mill / Yarn Supplier). Old /app/mills route still works for bookmarks.
-  // Yarn / Porvai / Bobbin stock pages now sit under In-house Production
-  // (see group below) since they're really raw-material trackers for the
-  // in-house weaving line, not generic purchasing.
+  // The yarn / porvai / bobbin stock pages were three separate sidebar
+  // entries; they now live as TABS inside a single "In-house Stock"
+  // page (entry below points at the yarn tab as the default).
+  { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/yarn',               label: 'Yarn Reports',       icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/pay-purchase',       label: 'Purchase Payments',  icon: CreditCard,      group: 'inventory',  roles: ['owner','accounts','auditor'] },
@@ -67,13 +68,6 @@ const NAV: NavItem[] = [
   { href: '/app/jobwork',       label: 'Job Work',           icon: Hammer,          group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-
-  // In-house Production — raw-material stock pages used by the in-house
-  // weaving line. Grouped together so the floor manager has a single
-  // place to see what's on hand for in-house runs.
-  { href: '/app/yarn-stock',        label: 'Yarn Stock',         icon: Boxes,   group: 'inhouse_production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/porvai-yarn-stock', label: 'Porvai Yarn Stock',  icon: Boxes,   group: 'inhouse_production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/bobbin',            label: 'Bobbin Stock',       icon: Package, group: 'inhouse_production', roles: ['owner','mill_manager','auditor'] },
 
   // People (HR)
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
@@ -96,19 +90,17 @@ const NAV: NavItem[] = [
 ];
 
 const GROUP_ORDER: readonly GroupKey[] = [
-  'overview', 'sales', 'inventory', 'production', 'inhouse_production',
-  'people', 'insights', 'admin',
+  'overview', 'sales', 'inventory', 'production', 'people', 'insights', 'admin',
 ];
 
 const GROUP_LABEL: Record<GroupKey, string> = {
-  overview:           'Overview',
-  sales:              'Sales & Customers',
-  inventory:          'Inventory & Purchases',
-  production:         'Production',
-  inhouse_production: 'In-house Production',
-  people:             'People & Payroll',
-  insights:           'Reports & Alerts',
-  admin:              'Admin',
+  overview:   'Overview',
+  sales:      'Sales & Customers',
+  inventory:  'Inventory & Purchases',
+  production: 'Production',
+  people:     'People & Payroll',
+  insights:   'Reports & Alerts',
+  admin:      'Admin',
 };
 
 function NavBody({

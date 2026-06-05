@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 type RecordStatus = 'active' | 'inactive' | 'archived';
@@ -331,6 +332,7 @@ export default function BobbinPage() {
 
   return (
     <div className="space-y-6">
+      <InhouseStockTabs />
       <PageHeader
         title="Bobbin Stock"
         subtitle="Log of every bobbin batch purchased. Code, display name and total auto-calculate."
