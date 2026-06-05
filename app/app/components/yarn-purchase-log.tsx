@@ -542,8 +542,13 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
           No purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+        // The history table has 15 columns; `overflow-hidden` was
+        // clipping the rightmost Actions cell so the Edit / Delete
+        // buttons appeared half-cut on narrow viewports. Switching
+        // to `overflow-x-auto` lets the user scroll horizontally
+        // while still keeping the card's rounded corners.
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
                 <th className="text-left px-3 py-3">Lot</th>
@@ -560,7 +565,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <th className="text-left px-3 py-3">Date</th>
                 <th className="text-left px-3 py-3">Due Date</th>
                 <th className="text-left px-3 py-3 hidden lg:table-cell">Invoice</th>
-                <th className="text-right px-3 py-3" />
+                <th className="text-right px-3 py-3 w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -588,13 +593,13 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                     {fmtDate(l.due_date)}
                   </td>
                   <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{l.invoice_no ?? '-'}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1">
-                      <button type="button" className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
+                      <button type="button" className="p-1.5 rounded hover:bg-indigo-50 text-indigo-600"
                         title="Edit this purchase" onClick={() => openEditForm(l)}>
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
+                      <button type="button" className="p-1.5 rounded hover:bg-red-50 text-red-600"
                         title="Delete this purchase" onClick={() => deleteRow(l.id, l.lot_code)}>
                         <Trash2 className="w-4 h-4" />
                       </button>
