@@ -21,6 +21,7 @@ const TABS: readonly TabDef[] = [
   { href: '/app/yarn-stock',        label: 'Yarn Stock' },
   { href: '/app/porvai-yarn-stock', label: 'Porvai Yarn Stock' },
   { href: '/app/bobbin',            label: 'Bobbin Stock' },
+  { href: '/app/fabric-stock',      label: 'Fabric Stock' },
 ];
 
 export function InhouseStockTabs(): React.ReactElement {

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Calculator, Package, PackageCheck, Boxes, ShoppingCart, Receipt,
-  Truck, Hammer, RefreshCw, ClipboardList, BadgeIndianRupee, Wallet,
+  Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, ClockAlert, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   Building2,
@@ -74,7 +74,8 @@ const NAV: NavItem[] = [
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/resale',        label: 'Resale',             icon: RefreshCw,       group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
+  // Resale page retired — fabric stock now lives as a tab inside
+  // In-house Stock (/app/fabric-stock). Old /app/resale URL redirects.
 
   // People (HR)
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
