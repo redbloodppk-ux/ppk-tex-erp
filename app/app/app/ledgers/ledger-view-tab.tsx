@@ -2,32 +2,30 @@
 /**
  * LedgerViewTab — chronological transaction view for a single ledger.
  *
- * The operator picks a ledger by name from the dropdown, and we list
- * every payment that touches that ledger in date order with a running
- * balance column. A payment touches the ledger in one of two ways:
+ * Filter flow:
+ *   1. Type dropdown   (CUSTOMER / SUPPLIER / BANK / CASH / WAGES / …)
+ *   2. Ledger dropdown — cascades from the picked type
+ *   3. Start date + End date (optional; empty = unbounded)
+ *   4. Show button     — runs the query
  *
- *   1. The payment's party is the ledger's owner (e.g. picking a
- *      CUSTOMER ledger shows every receipt from that customer; picking
- *      a SUPPLIER ledger shows every payment to that supplier).
+ * The result table merges three sources in date order with a running
+ * balance column:
  *
- *   2. The payment's mode (Bank / Cash ledger) is this ledger (e.g.
- *      picking the "HDFC Current A/C" BANK ledger shows every receipt
- *      or payment that flowed through that bank account).
- *
- * Running balance convention:
- *   inflow  → +
- *   outflow → -
+ *   - payment         — receipts / payments to / from parties or via
+ *                       BANK / CASH ledgers
+ *   - wage_entry      — wages tagged to a WAGES-type ledger
+ *   - expense_entry   — expenses tagged to an EXPENSES-type ledger
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface LedgerOpt {
   id: number;
   code: string;
   name: string;
+  type_id: number | null;
   type_name: string | null;
 }
 
@@ -41,9 +39,7 @@ interface PaymentRow {
   notes: string | null;
   party_id: number | null;
   mode_ledger_id: number | null;
-  // Joined party (for the "Counterparty" column)
   party: { id: number; code: string; name: string } | null;
-  // Joined mode ledger (for the "Bank / Cash" column)
   mode_ledger: { id: number; name: string } | null;
 }
 
@@ -51,12 +47,12 @@ interface PaymentRow {
 // from a payment, a wage_entry, or an expense_entry, we project it
 // into this common shape so the table render is a single loop.
 interface LedgerEntry {
-  key:           string;          // unique row key
+  key:           string;
   source:        'payment' | 'wage' | 'expense';
   date:          string;
-  voucher:       string;          // payment_no for payments, "WAGE/N" / "EXP/N" otherwise
-  counterparty:  string;          // party / employee / category
-  mode:          string;          // Bank / Cash ledger name, or '-' for wages/expenses
+  voucher:       string;
+  counterparty:  string;
+  mode:          string;
   reference:     string | null;
   inflow:        number;
   outflow:       number;
@@ -68,8 +64,8 @@ interface PartyByLedger {
 }
 
 interface Props {
-  /** Pre-loaded ledger list (id, code, name, type) sourced server-side
-   *  so the dropdown renders without an extra round-trip. */
+  /** Pre-loaded ledger list (id, code, name, type_id, type_name)
+   *  sourced server-side so the cascading dropdowns render instantly. */
   ledgers: LedgerOpt[];
 }
 
@@ -88,36 +84,80 @@ function fmtDate(s: string | null): string {
 }
 
 export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const ledgerId = searchParams.get('ledger') ?? '';
-
-  function pickLedger(next: string): void {
-    const sp = new URLSearchParams(searchParams.toString());
-    if (next) sp.set('ledger', next);
-    else      sp.delete('ledger');
-    router.push(`${pathname}?${sp.toString()}`);
-  }
-
   const supabase = createClient();
+
+  // Cascading filter state — picked by the operator, only acted on
+  // when they click Show (so changing a dropdown doesn't fire a query
+  // and waste a round-trip). End date defaults to today so the
+  // operator only has to pick the start date for the common "last N
+  // days" question.
+  const [typeId,    setTypeId]    = useState<string>('');
+  const [ledgerId,  setLedgerId]  = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate,   setEndDate]   = useState<string>(() => new Date().toISOString().slice(0, 10));
+
+  // Result state — populated only after Show is clicked.
   const [entries,  setEntries]  = useState<LedgerEntry[]>([]);
   const [loading,  setLoading]  = useState<boolean>(false);
   const [error,    setError]    = useState<string | null>(null);
+  // Snapshot of the ledger that produced the visible results, so the
+  // header doesn't shift if the operator changes the dropdown without
+  // clicking Show.
+  const [shownLedger, setShownLedger] = useState<LedgerOpt | null>(null);
+  const [hasShown, setHasShown] = useState<boolean>(false);
 
-  const load = useCallback(async () => {
-    if (!ledgerId) { setEntries([]); return; }
-    setLoading(true);
+  // Distinct types present in the ledger list (drives the first
+  // dropdown). Excluding NULL types so the operator only sees real
+  // categories.
+  const types = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const l of ledgers) {
+      if (l.type_id != null && l.type_name) {
+        map.set(l.type_id, l.type_name);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [ledgers]);
+
+  // Cascading: ledger list filtered by the picked type.
+  const filteredLedgers = useMemo(() => {
+    if (!typeId) return ledgers;
+    const id = Number(typeId);
+    return ledgers.filter((l) => l.type_id === id);
+  }, [ledgers, typeId]);
+
+  // Drop the picked ledger when the type filter narrows it out of view.
+  function onTypeChange(next: string): void {
+    setTypeId(next);
+    if (next) {
+      const id = Number(next);
+      if (ledgerId && !ledgers.some((l) => String(l.id) === ledgerId && l.type_id === id)) {
+        setLedgerId('');
+      }
+    }
+  }
+
+  async function handleShow(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
     setError(null);
+    if (!ledgerId) { setError('Pick a ledger first.'); return; }
+    if (startDate && endDate && startDate > endDate) {
+      setError('Start date is after end date.');
+      return;
+    }
+
+    setLoading(true);
+    setHasShown(true);
 
     const numericId = Number(ledgerId);
+    const picked = ledgers.find((l) => l.id === numericId) ?? null;
+    setShownLedger(picked);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    // Step 1: find every party whose ledger_id == picked ledger. Their
-    // payment rows count as activity against this ledger via the
-    // party-side. Most parties only have one ledger; a few share (e.g.
-    // joint ventures) — we union all matching party ids.
+    // Step 1: find every party whose ledger_id == picked ledger.
     const { data: matchingParties, error: partyErr } = await sb
       .from('party')
       .select('id, ledger_id')
@@ -126,14 +166,12 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     const partyIds: number[] = ((matchingParties ?? []) as PartyByLedger[])
       .map((p) => p.id);
 
-    // Step 2: pull every payment that touches this ledger — either as
-    // the mode_ledger (BANK / CASH side) or via a matching party_id
-    // (party side, e.g. CUSTOMER / SUPPLIER).
+    // Step 2: pull every payment that touches this ledger.
     const orParts: string[] = [`mode_ledger_id.eq.${numericId}`];
     if (partyIds.length > 0) {
       orParts.push(`party_id.in.(${partyIds.join(',')})`);
     }
-    const paymentsRes = await sb
+    let paymentsQ = sb
       .from('payment')
       .select(`
         id, payment_no, payment_date, direction, amount, reference, notes,
@@ -143,28 +181,32 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       `)
       .eq('status', 'active')
       .or(orParts.join(','));
-
+    if (startDate) paymentsQ = paymentsQ.gte('payment_date', startDate);
+    if (endDate)   paymentsQ = paymentsQ.lte('payment_date', endDate);
+    const paymentsRes = await paymentsQ;
     if (paymentsRes.error) { setError(paymentsRes.error.message); setLoading(false); return; }
     const payments = (paymentsRes.data ?? []) as unknown as PaymentRow[];
 
-    // Step 3: pull wage_entries and expense_entries that target this
-    // ledger. These show up as OUTFLOWS (we paid wages / expenses).
-    // The target_ledger_id column was added by migration 107, with
-    // default WEAVER WAGES for wages and OFFICE EXPENSES for expenses.
-    const [wagesRes, expensesRes] = await Promise.all([
-      sb.from('wage_entry')
-        .select('id, pay_date, amount, kind, notes, employee:employee_id ( name )')
-        .eq('target_ledger_id', numericId),
-      sb.from('expense_entry')
-        .select('id, pay_date, amount, category, notes')
-        .eq('target_ledger_id', numericId),
-    ]);
+    // Step 3: wage + expense entries targeting this ledger, narrowed
+    // by the same date range.
+    let wagesQ = sb.from('wage_entry')
+      .select('id, pay_date, amount, kind, notes, employee:employee_id ( name )')
+      .eq('target_ledger_id', numericId);
+    if (startDate) wagesQ = wagesQ.gte('pay_date', startDate);
+    if (endDate)   wagesQ = wagesQ.lte('pay_date', endDate);
+
+    let expensesQ = sb.from('expense_entry')
+      .select('id, pay_date, amount, category, notes')
+      .eq('target_ledger_id', numericId);
+    if (startDate) expensesQ = expensesQ.gte('pay_date', startDate);
+    if (endDate)   expensesQ = expensesQ.lte('pay_date', endDate);
+
+    const [wagesRes, expensesRes] = await Promise.all([wagesQ, expensesQ]);
     if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
     if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
 
-    // Step 4: project everything into LedgerEntry and sort chronologically.
+    // Step 4: project into LedgerEntry, sort, store.
     const all: LedgerEntry[] = [];
-
     for (const p of payments) {
       const amt = Number(p.amount);
       all.push({
@@ -207,7 +249,6 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         outflow:      Number(x.amount ?? 0),
       });
     }
-
     all.sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.key.localeCompare(b.key);
@@ -215,17 +256,9 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
 
     setEntries(all);
     setLoading(false);
-  }, [ledgerId, supabase]);
+  }
 
-  useEffect(() => { void load(); }, [load]);
-
-  // Compute running balance. Sign convention:
-  //   - For the SELECTED ledger:
-  //     - 'in'  payments increase the running balance (money flowing in)
-  //     - 'out' payments decrease it
-  //   This holds true for both the party-side view (e.g. a customer's
-  //   inflow is money coming IN to us = customer's account decreases)
-  //   and the bank-side view (a receipt is money INTO the bank).
+  // Compute running balance per row + grand totals.
   const ledger = useMemo(() => {
     let running = 0;
     return entries.map((e) => {
@@ -240,37 +273,72 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     return { inflow, outflow, balance: inflow - outflow };
   }, [ledger]);
 
-  const pickedLedger = useMemo(
-    () => ledgers.find((l) => String(l.id) === ledgerId) ?? null,
-    [ledgers, ledgerId],
-  );
-
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <label className="label">Ledger *</label>
-        <select
-          className="input"
-          value={ledgerId}
-          onChange={(e) => pickLedger(e.target.value)}
-        >
-          <option value="">— Pick a ledger to see its transaction history —</option>
-          {ledgers.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}{l.type_name ? ` (${l.type_name})` : ''}
+      {/* ── Cascading filter form ─────────────────────────────────────── */}
+      <form onSubmit={handleShow} className="card p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div>
+          <label className="label">Ledger type *</label>
+          <select
+            className="input"
+            value={typeId}
+            onChange={(e) => onTypeChange(e.target.value)}
+          >
+            <option value="">All types</option>
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Ledger *</label>
+          <select
+            className="input"
+            value={ledgerId}
+            onChange={(e) => setLedgerId(e.target.value)}
+          >
+            <option value="">
+              {filteredLedgers.length
+                ? (typeId ? 'Select ledger…' : 'Pick a type first or select…')
+                : 'No ledgers under this type'}
             </option>
-          ))}
-        </select>
-        <p className="text-[11px] text-ink-mute mt-2">
-          Shows every payment that touches the chosen ledger — whether it&apos;s the party (customer / supplier / vendor) or the bank / cash account the money moved through.
-        </p>
-      </div>
+            {filteredLedgers.map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Start date</label>
+          <input
+            type="date"
+            className="input"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">End date</label>
+          <input
+            type="date"
+            className="input"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+        </div>
+        <div className="flex items-end">
+          <button type="submit" className="btn-primary w-full" disabled={loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Show
+          </button>
+        </div>
+      </form>
 
       {error && <div className="card p-3 text-sm text-err">{error}</div>}
 
-      {!ledgerId ? (
+      {/* ── Results ──────────────────────────────────────────────────── */}
+      {!hasShown ? (
         <div className="card p-6 text-sm text-ink-soft">
-          Pick a ledger above to see its inflow / outflow history.
+          Pick a type, then a ledger, optionally narrow by date, and click <b>Show</b>.
         </div>
       ) : loading ? (
         <div className="card p-6 flex items-center gap-2 text-sm text-ink-mute">
@@ -278,16 +346,22 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         </div>
       ) : ledger.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">
-          No payments recorded yet for <span className="font-semibold">{pickedLedger?.name ?? 'this ledger'}</span>.
+          No transactions for <span className="font-semibold">{shownLedger?.name ?? 'this ledger'}</span>
+          {startDate || endDate ? ' in the chosen date range' : ''}.
         </div>
       ) : (
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-line/40 bg-cloud/40">
             <div className="text-xs uppercase tracking-wider text-ink-mute">Transaction ledger for</div>
-            <div className="font-semibold text-ink">
-              {pickedLedger?.name}
-              {pickedLedger?.type_name && (
-                <span className="ml-2 pill bg-indigo-50 text-indigo-700">{pickedLedger.type_name}</span>
+            <div className="font-semibold text-ink flex flex-wrap items-center gap-2">
+              {shownLedger?.name}
+              {shownLedger?.type_name && (
+                <span className="pill bg-indigo-50 text-indigo-700">{shownLedger.type_name}</span>
+              )}
+              {(startDate || endDate) && (
+                <span className="text-[11px] text-ink-mute font-normal">
+                  · {startDate ? fmtDate(startDate) : 'beginning'} → {endDate ? fmtDate(endDate) : 'today'}
+                </span>
               )}
             </div>
           </div>
@@ -321,15 +395,9 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft">
-                      {r.counterparty}
-                    </td>
-                    <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {r.mode}
-                    </td>
-                    <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
-                      {r.reference ?? '-'}
-                    </td>
+                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{r.counterparty}</td>
+                    <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">{r.mode}</td>
+                    <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">{r.reference ?? '-'}</td>
                     <td className="px-3 py-3 text-right num text-emerald-700">
                       {r.inflow > 0 ? fmtINR(r.inflow) : '-'}
                     </td>
@@ -361,7 +429,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
-            Sorted oldest → newest. Inflows are payments received; outflows are payments paid out. The running balance is the cumulative inflow minus outflow.
+            Sorted oldest → newest. Inflows are payments received; outflows are payments paid out (including wages and expenses tagged to this ledger).
           </div>
         </div>
       )}

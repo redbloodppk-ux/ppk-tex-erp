@@ -28,12 +28,13 @@ interface LedgerListRow {
 interface TypeOpt  { id: number; name: string; }
 interface GroupOpt { id: number; name: string; }
 
-// Row shape passed into <LedgerViewTab>. Includes the joined type
-// name so the dropdown can show "Name (TYPE)".
+// Row shape passed into <LedgerViewTab>. type_id drives the cascading
+// Type → Ledger dropdown; type_name is for display.
 interface LedgerOpt {
   id: number;
   code: string;
   name: string;
+  type_id: number | null;
   type_name: string | null;
 }
 
@@ -79,7 +80,7 @@ export default async function LedgersPage({
   } else {
     const res = await sb
       .from('ledger')
-      .select('id, code, name, ledger_type:type_id(name)')
+      .select('id, code, name, type_id, ledger_type:type_id(name)')
       .eq('active', true)
       .order('name');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,6 +88,7 @@ export default async function LedgersPage({
       id: l.id,
       code: l.code,
       name: l.name,
+      type_id: l.type_id ?? null,
       type_name: l.ledger_type?.name ?? null,
     }));
     listError = res.error;
