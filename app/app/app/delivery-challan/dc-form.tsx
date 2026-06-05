@@ -26,7 +26,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
 
-export type ProductionMode = 'inhouse' | 'jobwork';
+export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
 export interface PartyOpt {
   id: number;
@@ -187,8 +187,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const [form, setForm] = useState<DcFormValues>({ ...EMPTY_DC, ...(initial ?? {}) });
   const [allParties, setAllParties]         = useState<PartyOpt[]>([]);
   const [qualities,  setQualities]          = useState<QualityOpt[]>([]);
-  const [customerTypeId, setCustomerTypeId] = useState<number | null>(null);
-  const [jobworkTypeId,  setJobworkTypeId]  = useState<number | null>(null);
+  const [customerTypeId,  setCustomerTypeId]  = useState<number | null>(null);
+  const [jobworkTypeId,   setJobworkTypeId]   = useState<number | null>(null);
+  const [outsourceTypeId, setOutsourceTypeId] = useState<number | null>(null);
   const [busy,  setBusy]  = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,29 +199,39 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
       const [ptRes, partyRes, fqRes] = await Promise.all([
-        sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party']),
+        sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
         sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
       setJobworkTypeId(types.find((t) => t.name === 'Jobwork Party')?.id ?? null);
+      setOutsourceTypeId(types.find((t) => t.name === 'Outsource Weaver')?.id ?? null);
       setAllParties((partyRes.data ?? []) as PartyOpt[]);
       setQualities((fqRes.data ?? []) as QualityOpt[]);
     })();
   }, [supabase]);
 
   // ---- Party dropdown filtered by mode ----
+  // Each production mode targets a specific party type:
+  //   inhouse   → Customer
+  //   jobwork   → Jobwork Party
+  //   outsource → Outsource Weaver
   const filteredParties = useMemo<PartyOpt[]>(() => {
     if (form.production_mode === 'jobwork') {
       return jobworkTypeId === null
         ? allParties
         : allParties.filter((p) => (p.party_type_ids ?? []).includes(jobworkTypeId));
     }
+    if (form.production_mode === 'outsource') {
+      return outsourceTypeId === null
+        ? allParties
+        : allParties.filter((p) => (p.party_type_ids ?? []).includes(outsourceTypeId));
+    }
     return customerTypeId === null
       ? allParties
       : allParties.filter((p) => (p.party_type_ids ?? []).includes(customerTypeId));
-  }, [allParties, form.production_mode, customerTypeId, jobworkTypeId]);
+  }, [allParties, form.production_mode, customerTypeId, jobworkTypeId, outsourceTypeId]);
 
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
 
@@ -469,10 +480,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       dcId = form.id;
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
     } else {
-      // On create, jobwork DCs may set a custom code (e.g. to match a
-      // paper book number). In-house DCs always use the auto-generated
-      // DC/26-27/NNNN. When code is left blank the autogen trigger fires.
-      const createPayload = form.production_mode === 'jobwork' && (form.code ?? '').trim() !== ''
+      // On create, jobwork + outsource DCs may set a custom code
+      // (e.g. to match a paper book number). In-house DCs always use
+      // the auto-generated DC/26-27/NNNN. Blank code falls through to
+      // the autogen trigger (which picks DC / JDC / ODC by
+      // production_mode — see migration 114b).
+      const customCodeAllowed = form.production_mode === 'jobwork' || form.production_mode === 'outsource';
+      const createPayload = customCodeAllowed && (form.code ?? '').trim() !== ''
         ? { ...headerPayload, code: (form.code ?? '').trim() }
         : headerPayload;
       const { data, error: err } = await sb.from('delivery_challan').insert(createPayload).select('id').single();
@@ -526,11 +540,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             numbering matters most.
           */}
           {(() => {
-            const editable = isEdit || form.production_mode === 'jobwork';
+            const canCustomise = form.production_mode === 'jobwork' || form.production_mode === 'outsource';
+            const editable = isEdit || canCustomise;
             const hint = isEdit
               ? '(editable)'
-              : (form.production_mode === 'jobwork' ? '(optional - leave blank for auto)' : '');
-            const placeholder = form.production_mode === 'jobwork' ? 'JDC/26-27/0001' : 'DC/26-27/0001';
+              : (canCustomise ? '(optional - leave blank for auto)' : '');
+            const placeholder = form.production_mode === 'jobwork'
+              ? 'JDC/26-27/0001'
+              : form.production_mode === 'outsource'
+                ? 'ODC/26-27/0001'
+                : 'DC/26-27/0001';
             return (
               <>
                 <label className="label">
@@ -598,6 +617,12 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                 (form.production_mode === 'jobwork'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Job-work</button>
+            <button type="button"
+              onClick={() => setForm({ ...form, production_mode: 'outsource', party_id: '' })}
+              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+                (form.production_mode === 'outsource'
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Outsource</button>
           </div>
         </div>
       </div>
@@ -647,11 +672,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       <div className="rounded-lg border border-line bg-cloud/20 p-4 space-y-3">
         <div>
           <label className="label">
-            {form.production_mode === 'jobwork' ? 'Jobwork Party *' : 'Customer *'}
+            {form.production_mode === 'jobwork'   ? 'Jobwork Party *'
+             : form.production_mode === 'outsource' ? 'Outsource party *'
+             : 'Customer *'}
           </label>
           <select className="input w-full" required value={form.party_id}
             onChange={(e) => pickParty(e.target.value)}>
-            <option value="">--- pick a {form.production_mode === 'jobwork' ? 'jobwork party' : 'customer'} ---</option>
+            <option value="">--- pick a {form.production_mode === 'jobwork' ? 'jobwork party' : form.production_mode === 'outsource' ? 'outsource party' : 'customer'} ---</option>
             {filteredParties.map((p) => (
               <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
             ))}

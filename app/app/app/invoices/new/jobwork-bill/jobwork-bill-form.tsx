@@ -233,7 +233,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       const { data: hdrs, error: hdrErr } = await sb
         .from('delivery_challan')
         .select('id, code, dc_date, party_id, total_metres, total_pieces, total_bundles, fabric_receipt_id')
-        .eq('production_mode', 'jobwork')
+        .in('production_mode', ['jobwork', 'outsource'])
         .eq('party_id', Number(partyId))
         .in('status', ['draft', 'confirmed'])
         .is('invoice_id', null)
@@ -470,7 +470,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
 
   async function handleSave(): Promise<void> {
     setError(null);
-    if (party === null) { setError('Pick a jobwork party.'); return; }
+    if (party === null) { setError('Pick an outsource party.'); return; }
     if (pickedDcIds.size === 0) { setError('Pick at least one DC.'); return; }
     if (lines.length === 0) { setError('Selected DCs have no fabric quality lines.'); return; }
     if (missingRateQualities.length > 0) {
@@ -587,7 +587,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
             </div>
           </div>
           <div>
-            <label className="label">Jobwork Party *</label>
+            <label className="label">Outsource party *</label>
             <select
               value={partyId}
               onChange={(e) => setPartyId(e.target.value)}
@@ -645,7 +645,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           )}
         </div>
         {partyId === '' ? (
-          <div className="p-6 text-center text-ink-mute text-sm">Pick a jobwork party first.</div>
+          <div className="p-6 text-center text-ink-mute text-sm">Pick an outsource party first.</div>
         ) : loadingDcs ? (
           <div className="p-6 text-ink-mute text-sm flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading DCs...
@@ -831,7 +831,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       <div className="flex items-center gap-2">
         <button type="submit" disabled={busy} className="btn-primary">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save jobwork bill
+          Save weave bill
         </button>
         <button
           type="button"

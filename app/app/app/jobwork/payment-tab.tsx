@@ -68,6 +68,8 @@ function num(s: string): number {
 
 export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactElement {
   const billLabel: string = props.kind === 'outsource' ? 'weaving bill' : 'jobwork bill';
+  const partyTypeName: 'Outsource Weaver' | 'Jobwork Party' =
+    props.kind === 'outsource' ? 'Outsource Weaver' : 'Jobwork Party';
   const supabase = createClient();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError]     = useState<string | null>(null);
@@ -90,6 +92,31 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
+    // Step 1: resolve party_type_id for the active page so we can
+    // narrow the bills to those whose jobwork_party_id belongs to a
+    // party of the right type (Jobwork Party or Outsource Weaver).
+    const ptRes = await sb.from('party_type_master').select('id').eq('name', partyTypeName).maybeSingle();
+    const partyTypeId: number | null = ptRes.data?.id ?? null;
+    let allowedPartyIds: number[] = [];
+    if (partyTypeId != null) {
+      const apRes = await sb.from('party')
+        .select('id, party_type_ids, party_type_id')
+        .eq('status', 'active');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const partyRows = (apRes.data ?? []) as Array<{ id: number; party_type_ids: number[] | null; party_type_id: number | null }>;
+      allowedPartyIds = partyRows
+        .filter((p) => {
+          const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
+          const single = p.party_type_id != null ? Number(p.party_type_id) : null;
+          return ids.includes(partyTypeId) || single === partyTypeId;
+        })
+        .map((p) => p.id);
+    }
+
+    // Step 2: fetch bills, then filter client-side to those whose
+    // jobwork_party_id is in the allowed set. We do the filter
+    // client-side because PostgREST .in() with a large id list is
+    // awkward and the bill counts on a textile-mill scale are small.
     const [billRes, payRes, partyRes, ledgerRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, total, status, jobwork_party_id')
@@ -107,7 +134,15 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
 
     if (billRes.error) { setError(billRes.error.message); setLoading(false); return; }
 
-    setBills((billRes.data ?? []) as BillRow[]);
+    // Step 3: narrow bills to the allowed party set. If the party
+    // type couldn't be resolved (e.g. fresh DB) we show everything
+    // so the page isn't accidentally empty.
+    const allowedSet = new Set<number>(allowedPartyIds);
+    const rawBills = (billRes.data ?? []) as BillRow[];
+    const filteredBills = partyTypeId == null
+      ? rawBills
+      : rawBills.filter((b) => b.jobwork_party_id != null && allowedSet.has(b.jobwork_party_id));
+    setBills(filteredBills);
     setPayments((payRes.data ?? []) as PaymentRow[]);
     const pMap = new Map<number, string>();
     for (const p of ((partyRes.data ?? []) as PartyOpt[])) pMap.set(p.id, p.name);
@@ -117,7 +152,7 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
       .map((l) => ({ id: l.id, name: l.name }));
     setBankLedgers(banks);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, partyTypeName]);
 
   useEffect(() => { void load(); }, [load]);
 

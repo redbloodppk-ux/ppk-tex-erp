@@ -95,20 +95,26 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
 
-      // Resolve the Jobwork Party type id so we can scope the dropdown to
-      // jobwork parties only (delivery_challan.party_id references the
-      // unified party master).
+      // Resolve the party-type id matching the active page (Jobwork
+      // Party on /app/jobwork, Outsource Weaver on /app/outsource)
+      // and use it to scope the party dropdown + the DC list.
+      const partyTypeName = kind === 'outsource' ? 'Outsource Weaver' : 'Jobwork Party';
       const ptRes = await sb
         .from('party_type_master')
         .select('id')
-        .eq('name', 'Jobwork Party')
+        .eq('name', partyTypeName)
         .maybeSingle();
       const jobworkTypeId: number | null = ptRes.data?.id ?? null;
+
+      // DC production_mode column stores 'jobwork' or 'outsource'.
+      // Filter to the active page's mode so jobwork DCs never appear
+      // on the outsource page and vice-versa.
+      const dcProductionMode: 'jobwork' | 'outsource' = kind === 'outsource' ? 'outsource' : 'jobwork';
 
       const [hdrRes, itemRes, partyRes] = await Promise.all([
         sb.from('delivery_challan')
           .select('id, code, dc_date, status, party_id, bill_to_name, total_metres, total_pieces, total_bundles, invoice_id, fabric_receipt_id, vehicle_no')
-          .eq('production_mode', 'jobwork')
+          .eq('production_mode', dcProductionMode)
           .order('dc_date', { ascending: false })
           .order('id', { ascending: false }),
         sb.from('delivery_challan_item')
@@ -135,7 +141,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
     };
     void load();
     return () => { cancelled = true; };
-  }, [supabase]);
+  }, [supabase, kind]);
 
   // Build a map of dc_id -> set of fabric_quality_ids it uses (for the
   // quality filter).

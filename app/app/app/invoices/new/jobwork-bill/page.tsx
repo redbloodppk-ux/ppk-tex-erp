@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { JobworkBillForm } from './jobwork-bill-form';
 
-export const metadata = { title: 'New Jobwork Bill' };
+export const metadata = { title: 'New Weaving Bill' };
 export const dynamic = 'force-dynamic';
 
 interface PartyRow {
@@ -28,14 +28,19 @@ export default async function NewJobworkBillPage(): Promise<React.ReactElement> 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Look up the Jobwork Party type id so we can show only jobwork parties
-  // in the dropdown.
+  // Look up the Jobwork Party + Outsource Weaver type ids so the
+  // dropdown shows BOTH categories — a single Weaving Bill flow now
+  // covers jobwork and outsource activity.
   const { data: ptRows } = await sb
     .from('party_type_master')
     .select('id, name')
-    .eq('name', 'Jobwork Party')
-    .maybeSingle();
-  const jobworkTypeId: number | null = ptRows?.id ?? null;
+    .in('name', ['Jobwork Party', 'Outsource Weaver']);
+  const ptList = (ptRows ?? []) as Array<{ id: number; name: string }>;
+  const jobworkTypeId:   number | null = ptList.find((t) => t.name === 'Jobwork Party')?.id ?? null;
+  const outsourceTypeId: number | null = ptList.find((t) => t.name === 'Outsource Weaver')?.id ?? null;
+  const allowedTypeIds: Set<number> = new Set<number>();
+  if (jobworkTypeId   != null) allowedTypeIds.add(jobworkTypeId);
+  if (outsourceTypeId != null) allowedTypeIds.add(outsourceTypeId);
 
   // Fetch every active party - cheap on a textile-mill scale (max few
   // hundred rows). Then filter in JS by party_type_ids OR the legacy
@@ -50,22 +55,23 @@ export default async function NewJobworkBillPage(): Promise<React.ReactElement> 
   const allActiveParties = (partyData ?? []) as Array<PartyRow & { party_type_id: number | null }>;
 
   let parties: PartyRow[] = allActiveParties;
-  if (jobworkTypeId != null) {
+  if (allowedTypeIds.size > 0) {
     parties = allActiveParties.filter((p) => {
       const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
       const single = p.party_type_id != null ? Number(p.party_type_id) : null;
-      return ids.includes(jobworkTypeId) || single === jobworkTypeId;
+      return ids.some((id) => allowedTypeIds.has(id))
+          || (single != null && allowedTypeIds.has(single));
     });
   }
 
   return (
     <div>
       <PageHeader
-        title="New Jobwork Bill"
-        subtitle="Combine one or more confirmed jobwork DCs from a single party into one billable invoice (JB/...)."
+        title="New Weaving Bill"
+        subtitle="Combine one or more confirmed DCs from a single jobwork / outsource party into one billable invoice (JB/...)."
         crumbs={[
           { label: 'Invoices', href: '/app/invoices' },
-          { label: 'New Jobwork Bill' },
+          { label: 'New Weaving Bill' },
         ]}
       />
       <JobworkBillForm parties={parties} />
