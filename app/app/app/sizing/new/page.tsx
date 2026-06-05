@@ -143,8 +143,12 @@ export default function NewSizingJobPage() {
               .eq('status', 'active')
               .order('name')
           : Promise.resolve({ data: [] as Supplier[] }),
+        // Warp yarn count dropdown — show every active yarn count, not
+        // just cotton. Mills run polyester / blended warps too and the
+        // older `yarn_type='cotton'` filter was hiding valid options
+        // from the operator.
         supabase.from('yarn_count').select('id, code, display_name')
-          .eq('yarn_type', 'cotton').eq('status', 'active').order('code'),
+          .eq('status', 'active').order('code'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('yarn_lot')
           .select('id, lot_code, current_kg, yarn_count_id, supplier_party_id, delivery_destination')
@@ -172,6 +176,20 @@ export default function NewSizingJobPage() {
       return true;
     });
   }, [lots, warpCountId, yarnSupplierId, yarnSource]);
+
+  // Lookup maps for enriching the Yarn Lot dropdown labels with the
+  // yarn count code and supplier (mill) name. Computed once whenever
+  // the master lists arrive.
+  const countById = useMemo(() => {
+    const m = new Map<number, YarnCount>();
+    for (const c of counts) m.set(c.id, c);
+    return m;
+  }, [counts]);
+  const supplierById = useMemo(() => {
+    const m = new Map<number, Supplier>();
+    for (const s of suppliers) m.set(s.id, s);
+    return m;
+  }, [suppliers]);
 
   // When the warehouse choice changes, clear any stale yarn-lot selection
   // so the operator can't accidentally submit a lot from the wrong
@@ -427,11 +445,23 @@ export default function NewSizingJobPage() {
                     ? 'Select a lot…'
                     : `No ${yarnSource === 'in_house' ? 'in-house' : 'sizing'} warehouse lots match — change the count, supplier, or switch warehouse`}
                 </option>
-                {matchingLots.map(l => (
-                  <option key={l.id} value={l.id}>
-                    {l.lot_code} — {Number(l.current_kg).toFixed(1)} kg in stock
-                  </option>
-                ))}
+                {matchingLots.map(l => {
+                  // Append the yarn count + supplier (mill) name to the
+                  // label so the operator can disambiguate lots at a
+                  // glance — same lot code series across counts and
+                  // mills is common.
+                  const countLabel = countById.get(l.yarn_count_id)?.code ?? '';
+                  const millLabel  = l.supplier_party_id != null
+                    ? supplierById.get(l.supplier_party_id)?.name ?? ''
+                    : '';
+                  const suffixParts = [countLabel, millLabel].filter((s) => s !== '');
+                  const suffix = suffixParts.length > 0 ? ` · ${suffixParts.join(' · ')}` : '';
+                  return (
+                    <option key={l.id} value={l.id}>
+                      {l.lot_code}{suffix} — {Number(l.current_kg).toFixed(1)} kg in stock
+                    </option>
+                  );
+                })}
               </select>
               <p className="text-[11px] text-ink-mute mt-1">
                 Showing lots in the <b>{yarnSource === 'in_house' ? 'In-house' : 'Sizing'} warehouse</b> that match the chosen count and supplier.

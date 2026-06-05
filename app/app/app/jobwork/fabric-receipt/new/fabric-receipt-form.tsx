@@ -38,6 +38,9 @@ export interface DcInfo {
   party_id: number | null;
   party_name: string;
   party_code: string;
+  /** 'inhouse' | 'jobwork' | 'outsource' - drives the post-save
+   *  redirect so the operator lands on the correct fabric receipt tab. */
+  production_mode: 'inhouse' | 'jobwork' | 'outsource';
   total_metres: number;
   total_pieces: number;
   total_bundles: number;
@@ -322,7 +325,14 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       // Don't navigate away - let the operator read the warnings.
       return;
     }
-    router.push('/app/jobwork');
+    // Land back on the matching Fabric Receipts tab so the operator
+    // sees the row they just created in context.
+    const tab = dc.production_mode === 'inhouse'
+      ? 'inhouse'
+      : dc.production_mode === 'outsource'
+      ? 'outsource'
+      : 'jobwork';
+    router.push(`/app/jobwork/fabric-receipt?tab=${tab}`);
     router.refresh();
   }
 

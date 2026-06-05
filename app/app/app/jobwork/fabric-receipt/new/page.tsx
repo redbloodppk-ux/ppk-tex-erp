@@ -22,7 +22,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   const sp = await searchParams;
   const dcId = sp.dc ? Number(sp.dc) : NaN;
   if (!Number.isInteger(dcId) || dcId <= 0) {
-    redirect('/app/jobwork');
+    redirect('/app/outsource');
   }
 
   const supabase = await createClient();
@@ -30,10 +30,16 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   const sb = supabase as any;
 
   const [dcRes, itemsRes] = await Promise.all([
+    // Fabric receipt now supports all three production modes:
+    // in-house (DC), jobwork (JDC) and outsource (ODC). The list page
+    // segregates them into separate tabs; the form behaves identically
+    // for all three and the linked DC's production_mode propagates
+    // straight onto fabric_receipt so downstream views (Receipt tabs,
+    // bill flow, stock-source filters) can route correctly.
     sb.from('delivery_challan')
       .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, vehicle_no, total_metres, total_pieces, total_bundles, fabric_receipt_id, party:party_id ( id, name, code )')
       .eq('id', dcId)
-      .eq('production_mode', 'jobwork')
+      .in('production_mode', ['inhouse', 'jobwork', 'outsource'])
       .maybeSingle(),
     sb.from('delivery_challan_item')
       .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles')
@@ -44,9 +50,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   const dc = dcRes.data;
   if (!dc) notFound();
 
-  // Already received? Redirect back to the jobwork DC tab.
+  // Already received? Redirect back to the outsource DC tab.
   if (dc.fabric_receipt_id !== null) {
-    redirect(`/app/jobwork?already_received=${dc.code}`);
+    redirect(`/app/outsource?already_received=${dc.code}`);
   }
 
   const items = (itemsRes.data ?? []) as Array<{
@@ -331,7 +337,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       const { data: bobs } = await sb
         .from('bobbin')
         .select('quantity, bobbin_metre')
-        .eq('production_mode', 'jobwork')
+        .eq('production_mode', 'outsource')
         .eq('ends_per_bobbin', spec.ends_per_bobbin)
         .eq('bobbin_metre', spec.bobbin_metre)
         .gt('quantity', 0);
@@ -379,6 +385,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     party_id: dc.party_id,
     party_name: dc.party?.name ?? dc.bill_to_name ?? '',
     party_code: dc.party?.code ?? '',
+    production_mode: (dc.production_mode === 'inhouse' || dc.production_mode === 'outsource'
+      ? dc.production_mode
+      : 'jobwork') as 'inhouse' | 'jobwork' | 'outsource',
     total_metres: Number(dc.total_metres ?? 0),
     total_pieces: dc.total_pieces ?? 0,
     total_bundles: dc.total_bundles ?? 0,
@@ -396,7 +405,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
         title="New Fabric Receipt"
         subtitle={`From DC ${dc.code} \u00b7 ${dcInfo.party_name}`}
         crumbs={[
-          { label: 'Job Work', href: '/app/jobwork' },
+          { label: 'Outsource Weaving', href: '/app/outsource' },
           { label: 'Fabric Receipt' },
         ]}
       />

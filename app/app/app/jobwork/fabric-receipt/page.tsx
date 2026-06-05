@@ -1,8 +1,15 @@
 /**
- * Fabric Receipt list. Shows every receipt raised so far, newest first,
- * with date / party / source-DC / totals filters at the top. From here
- * the user can drill into a specific receipt to see the saved totals
- * and consumption snapshot.
+ * Fabric Receipt list.
+ *
+ * Three tabs — In-house / Job Work / Outsource Weaving — segregate
+ * receipts by the production_mode of the source delivery challan they
+ * were created against. Each tab is a self-contained list with its
+ * own KPI strip; filters (party / date range) apply within the tab.
+ *
+ * Tabs are driven by the `?tab=` query parameter (inhouse | jobwork |
+ * outsource). We hard-INNER-join the delivery_challan to filter on
+ * production_mode so the SQL stays cheap even on large receipt
+ * histories.
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
@@ -14,6 +21,44 @@ import { RebuildLedgerButton } from './rebuild-ledger-button';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
+
+type TabKind = 'inhouse' | 'jobwork' | 'outsource';
+
+interface TabConfig {
+  kind: TabKind;
+  label: string;
+  productionMode: string;
+  partyTypeName: string | null;
+  pickDcHref: string;
+  pickDcLabel: string;
+}
+
+const TABS: ReadonlyArray<TabConfig> = [
+  {
+    kind: 'inhouse',
+    label: 'In-house',
+    productionMode: 'inhouse',
+    partyTypeName: null,
+    pickDcHref: '/app/delivery-challan',
+    pickDcLabel: 'Pick an in-house DC',
+  },
+  {
+    kind: 'jobwork',
+    label: 'Job Work',
+    productionMode: 'jobwork',
+    partyTypeName: 'Jobwork Party',
+    pickDcHref: '/app/jobwork',
+    pickDcLabel: 'Pick a jobwork DC',
+  },
+  {
+    kind: 'outsource',
+    label: 'Outsource Weaving',
+    productionMode: 'outsource',
+    partyTypeName: 'Outsource Weaver',
+    pickDcHref: '/app/outsource',
+    pickDcLabel: 'Pick an outsource DC',
+  },
+];
 
 interface StockSnapshotJson {
   warp_beam?:   { before_m?: number;  consumed_m?: number;  after_m?: number  };
@@ -34,11 +79,12 @@ interface ReceiptRow {
   remarks: string | null;
   stock_snapshot: StockSnapshotJson | null;
   party: { id: number; name: string; code: string } | null;
-  dc: { id: number; code: string } | null;
+  dc: { id: number; code: string; production_mode: string | null } | null;
 }
 
 interface PageProps {
   searchParams: Promise<{
+    tab?: string;
     party?: string;
     from?: string;
     to?: string;
@@ -57,8 +103,14 @@ function fmtMetres(v: unknown): string {
   return Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+function resolveTab(raw: string | undefined): TabConfig {
+  const match = TABS.find((t) => t.kind === raw);
+  return match ?? TABS[1]; // default to Job Work (legacy behaviour)
+}
+
 export default async function FabricReceiptListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
+  const tab = resolveTab(sp.tab);
   const partyId = sp.party && /^\d+$/.test(sp.party) ? Number(sp.party) : null;
   const fromDate = sp.from && /^\d{4}-\d{2}-\d{2}$/.test(sp.from) ? sp.from : null;
   const toDate   = sp.to   && /^\d{4}-\d{2}-\d{2}$/.test(sp.to)   ? sp.to   : null;
@@ -67,18 +119,20 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Try the full SELECT first (with stock_snapshot). If migration 091
-  // hasn't been applied yet that column doesn't exist - fall back to a
-  // SELECT without it so the page still renders.
+  // Inner-join delivery_challan so we can filter by its production_mode.
+  // The `!inner` hint forces PostgREST to make the join mandatory
+  // (excluding receipts with no DC link) and embeds the filter into the
+  // parent query.
   const baseCols = `
     id, code, receipt_date, receipt_type, party_dc_no,
     total_metres, total_pieces, status, remarks,
     party:party_id ( id, name, code ),
-    dc:dc_id ( id, code )
+    dc:dc_id!inner ( id, code, production_mode )
   `;
   const buildQuery = (includeSnapshot: boolean) => {
     let q = sb.from('fabric_receipt')
       .select(includeSnapshot ? baseCols.replace('remarks,', 'remarks, stock_snapshot,') : baseCols)
+      .eq('dc.production_mode', tab.productionMode)
       .order('receipt_date', { ascending: false })
       .order('id', { ascending: false })
       .limit(200);
@@ -96,13 +150,18 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
   }
   const rows = (data ?? []) as ReceiptRow[];
 
-  // Active jobwork parties for the filter dropdown.
-  const { data: ptRow } = await sb
-    .from('party_type_master')
-    .select('id')
-    .eq('name', 'Jobwork Party')
-    .maybeSingle();
-  const jobworkTypeId: number | null = ptRow?.id ?? null;
+  // Party filter dropdown. We narrow the list to the party type that
+  // matches this tab (Jobwork Party / Outsource Weaver). In-house has
+  // no fixed type, so we show every active party.
+  let partyTypeId: number | null = null;
+  if (tab.partyTypeName !== null) {
+    const { data: ptRow } = await sb
+      .from('party_type_master')
+      .select('id')
+      .eq('name', tab.partyTypeName)
+      .maybeSingle();
+    partyTypeId = ptRow?.id ?? null;
+  }
 
   const { data: partyData } = await sb
     .from('party')
@@ -114,11 +173,11 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
     party_type_ids: Array<number | string> | null;
     party_type_id: number | null;
   }>;
-  const parties = jobworkTypeId == null
+  const parties = partyTypeId == null
     ? allParties
     : allParties.filter((p) => {
         const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
-        return ids.includes(jobworkTypeId) || Number(p.party_type_id) === jobworkTypeId;
+        return ids.includes(partyTypeId) || Number(p.party_type_id) === partyTypeId;
       });
 
   // KPI totals across the filtered rows.
@@ -130,11 +189,14 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
     { m: 0, p: 0 },
   );
 
+  const baseHref = '/app/jobwork/fabric-receipt';
+  const tabHref = (kind: TabKind): string => `${baseHref}?tab=${kind}`;
+
   return (
     <div>
       <PageHeader
         title="Fabric Receipts"
-        subtitle="Inbound fabric from jobwork DCs. Click View to see the captured consumption snapshot."
+        subtitle="Inbound fabric, segregated by production mode. Pick a tab to see only receipts of that kind."
         crumbs={[
           { label: 'Job Work', href: '/app/jobwork' },
           { label: 'Fabric Receipts' },
@@ -144,15 +206,38 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
             <ReorganizeReceiptsButton />
             <RebuildLedgerButton />
             <BackfillSnapshotsButton />
-            <Link href="/app/jobwork" className="btn-secondary text-xs">
-              Pick a DC to receive
+            <Link href={tab.pickDcHref} className="btn-secondary text-xs">
+              {tab.pickDcLabel}
             </Link>
           </div>
         }
       />
 
+      {/* Tab strip */}
+      <div className="flex flex-wrap gap-1 mb-4 border-b border-line/60">
+        {TABS.map((t) => {
+          const active = t.kind === tab.kind;
+          return (
+            <Link
+              key={t.kind}
+              href={tabHref(t.kind)}
+              className={
+                'px-4 py-2 text-sm font-medium rounded-t -mb-px border-b-2 transition ' +
+                (active
+                  ? 'border-indigo text-indigo bg-indigo-50/60'
+                  : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze/60')
+              }
+            >
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
+
       {/* Filter card */}
-      <form action="/app/jobwork/fabric-receipt" method="get" className="card p-3 mb-4 flex flex-wrap items-end gap-3">
+      <form action={baseHref} method="get" className="card p-3 mb-4 flex flex-wrap items-end gap-3">
+        {/* Preserve tab across submits */}
+        <input type="hidden" name="tab" value={tab.kind} />
         <div className="flex flex-col">
           <label htmlFor="party" className="text-[10px] uppercase tracking-wide text-ink-mute">Party</label>
           <select id="party" name="party" defaultValue={partyId !== null ? String(partyId) : ''} className="input py-1 text-xs min-w-[200px]">
@@ -172,7 +257,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         </div>
         <button type="submit" className="btn-secondary text-xs py-1 px-3">Apply</button>
         {(partyId !== null || fromDate !== null || toDate !== null) && (
-          <Link href="/app/jobwork/fabric-receipt" className="text-xs text-ink-mute hover:text-ink underline self-center">
+          <Link href={tabHref(tab.kind)} className="text-xs text-ink-mute hover:text-ink underline self-center">
             Clear filters
           </Link>
         )}
@@ -222,7 +307,8 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
-                  No fabric receipts yet. <Link href="/app/jobwork" className="text-indigo font-semibold">Pick a confirmed DC to receive &rarr;</Link>
+                  No {tab.label.toLowerCase()} fabric receipts yet.{' '}
+                  <Link href={tab.pickDcHref} className="text-indigo font-semibold">{tab.pickDcLabel} &rarr;</Link>
                 </td>
               </tr>
             ) : rows.map((r) => {

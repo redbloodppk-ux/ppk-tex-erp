@@ -30,12 +30,13 @@ export const metadata = { title: 'Warehouse — Unified Stock' };
 // snapshot of the page and the operator sees stale inflows.
 export const dynamic = 'force-dynamic';
 
-type Mode = 'inhouse' | 'jobwork' | 'outsource';
+type Mode = 'inhouse' | 'jobwork' | 'outsource' | 'sizing';
 
 const MODE_TABS = [
   { key: 'inhouse',   label: 'In-house Stock',          icon: Factory },
   { key: 'jobwork',   label: 'Job Work Stock',          icon: Truck   },
   { key: 'outsource', label: 'Outsource Weaving Stock', icon: Truck   },
+  { key: 'sizing',    label: 'Sizing Warehouse',        icon: Boxes   },
 ] as const;
 
 // Outsource mode reuses the JOBWORK_TABS sub-tab list (defined just
@@ -43,13 +44,18 @@ const MODE_TABS = [
 // jobwork_weft_bag, bobbin, delivery_challan etc.) are shared; the
 // discriminator is the linked party's `jobwork_party.kind`.
 
+// Sizing is now its own top-level mode (Sizing Warehouse) so we no
+// longer surface it here as an in-house sub-tab.
 const INHOUSE_TABS = [
   { key: 'warp_metre',  label: 'Warp Metre (m)',   icon: Ruler   },
   { key: 'weft_yarn',   label: 'Weft Yarn (kg)',   icon: Boxes   },
   { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes   },
-  { key: 'sizing',      label: 'Sizing (kg)',      icon: Boxes   },
   { key: 'bobbin',      label: 'Bobbins (m)',      icon: Package },
   { key: 'fabric',      label: 'Fabric (m)',       icon: Layers  },
+] as const;
+
+const SIZING_TABS = [
+  { key: 'yarn',        label: 'Yarn by Count (kg)', icon: Boxes },
 ] as const;
 
 const JOBWORK_TABS = [
@@ -124,10 +130,14 @@ export default async function WarehousePage({
   const sp = await searchParams;
   const mode: Mode = sp.mode === 'jobwork' ? 'jobwork'
                     : sp.mode === 'outsource' ? 'outsource'
+                    : sp.mode === 'sizing' ? 'sizing'
                     : 'inhouse';
-  // Jobwork and Outsource share the same pivot tabs; only Inhouse
-  // gets a different default sub-tab.
-  const defaultTab = mode === 'inhouse' ? 'warp_metre' : 'warp_beam';
+  // Default sub-tab per mode. Sizing has one sub-tab ('yarn'); jobwork
+  // and outsource share the warp_beam default; inhouse defaults to
+  // warp_metre.
+  const defaultTab = mode === 'inhouse' ? 'warp_metre'
+                   : mode === 'sizing'  ? 'yarn'
+                   : 'warp_beam';
   const tab = (sp.tab ?? defaultTab);
   // Both jobwork-style modes pivot over the same data tables — the
   // discriminator is the linked party's kind. Anywhere downstream
@@ -200,9 +210,16 @@ export default async function WarehousePage({
   const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
-  const sizingRows     = mode === 'inhouse' && tab === 'sizing'         ? await loadSizingWarehouse(supabase, counts ?? []) : null;
+  // Sizing warehouse — its own top-level mode. The loader pivots
+  // yarn_lot inflows (delivery_destination='sizing') and sizing_job
+  // outflows by yarn count, one column per count.
+  const sizingRows     = mode === 'sizing'  && tab === 'yarn'           ? await loadSizingWarehouse(supabase, counts ?? [], sp) : null;
 
-  const subTabs = isJobworkLike ? JOBWORK_TABS : INHOUSE_TABS;
+  const subTabs = isJobworkLike
+    ? JOBWORK_TABS
+    : mode === 'sizing'
+    ? SIZING_TABS
+    : INHOUSE_TABS;
 
   return (
     <div>
@@ -356,6 +373,17 @@ export default async function WarehousePage({
           />
         )}
 
+        {/* Sizing warehouse — single yarn-count filter so the operator
+            can drill into a specific count column. */}
+        {mode === 'sizing' && tab === 'yarn' && (
+          <FilterSelect
+            name="count"
+            label="Yarn Count"
+            value={sp.count}
+            options={(counts ?? []).map(c => ({ value: String(c.id), label: c.code }))}
+          />
+        )}
+
         {/* Jobwork / Outsource filters: party + yarn count / fabric
             quality depending on tab. Party applies to all four
             jobwork-style sub-tabs in either mode. */}
@@ -421,7 +449,7 @@ export default async function WarehousePage({
           <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
         </>
       )}
-      {mode === 'inhouse' && tab === 'sizing'      && (
+      {mode === 'sizing' && tab === 'yarn'         && (
         <PivotView
           data={sizingRows!}
           emptyMessage="No sizing-warehouse activity yet. Yarn purchases with delivery = 'sizing' appear here as inflows; sizing jobs that consume them appear as outflows."
@@ -1098,15 +1126,24 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
 // consumed event (outflow), in date order. Cell = +metres for inflow,
 // -metres for outflow.
 // ─── In-house pivot loader ──────────────────────────────────────────────────
-// Reads opening_stock entries for the given bucket+mode=inhouse and
-// shapes them into the PivotData the warehouse view expects.
+// Aggregates inflows AND outflows for the requested in-house bucket
+// and shapes them into the PivotData the warehouse view expects.
 //   - warp_beam   → columns = fabric quality (or merged_name)
 //   - weft_yarn   → columns = yarn count
 //   - porvai_yarn → columns = yarn count
 //   - bobbin      → columns = ends_per_bobbin
-// Outflows for in-house are not yet tracked, so this loader only
-// surfaces inflow events. Outflow integration will come once we wire
-// up an in-house consumption ledger.
+//
+// Inflows are sourced from:
+//   1. opening_stock rows for this bucket (mode='inhouse', status='active')
+//   2. For weft_yarn / porvai_yarn: yarn_lot purchases whose
+//      delivery_destination='in_house' (the operator's warehouse, not
+//      the sizing mill). The bucket discriminator is the yarn_count's
+//      yarn_kind ('weft' vs 'porvai').
+//   3. For bobbin: bobbin master rows with production_mode='inhouse'.
+//
+// Outflows are sourced from production_batch consumption (warp / weft /
+// porvai lot usage) for the matching bucket. Without those events the
+// in-house tabs render as "nil" even when stock physically exists.
 async function loadInhouseOpeningStock(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
@@ -1118,7 +1155,7 @@ async function loadInhouseOpeningStock(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   bobbinMasters: any[],
 ): Promise<PivotData> {
-  const rows = await safeSelect<{
+  const openingRows = await safeSelect<{
     id: number; fabric_quality_id: number | null; yarn_count_id: number | null;
     bobbin_id: number | null; ends_per_bobbin: number | null;
     quantity: number | string | null; open_date: string | null;
@@ -1140,7 +1177,27 @@ async function loadInhouseOpeningStock(
 
   const unit: LedgerUnit = bucket === 'warp_beam' ? 'm' : (bucket === 'bobbin' ? 'm' : 'kg');
 
-  for (const r of rows) {
+  const ensureCountCol = (countId: number): string => {
+    const id = `yc:${countId}`;
+    if (!colMap.has(id)) {
+      const c = countById.get(countId);
+      colMap.set(id, {
+        id,
+        label: c?.code ?? `Count #${countId}`,
+        sublabel: c?.display_name ?? '',
+      });
+    }
+    return id;
+  };
+
+  const ensureEndsCol = (ends: number): string => {
+    const id = `ends:${ends}`;
+    if (!colMap.has(id)) colMap.set(id, { id, label: `${ends} ends`, sublabel: '' });
+    return id;
+  };
+
+  // ── 1. Opening stock inflows ────────────────────────────────────
+  for (const r of openingRows) {
     let colId = 'unknown';
     let label = '(no key)';
     let sublabel = '';
@@ -1150,15 +1207,29 @@ async function loadInhouseOpeningStock(
       label = fq?.code ?? fq?.name ?? `FQ #${r.fabric_quality_id}`;
       sublabel = fq?.name ?? '';
     } else if ((bucket === 'weft_yarn' || bucket === 'porvai_yarn') && r.yarn_count_id != null) {
-      const c = countById.get(r.yarn_count_id);
-      colId = `yc:${r.yarn_count_id}`;
-      label = c?.code ?? `Count #${r.yarn_count_id}`;
-      sublabel = c?.display_name ?? '';
+      colId = ensureCountCol(r.yarn_count_id);
+      events.push({
+        event_date: r.open_date ?? '',
+        column_id: colId,
+        direction: 'in',
+        quantity: Number(r.quantity ?? 0),
+        reference: r.reference_no ?? 'Opening stock',
+        notes: r.notes ?? '',
+      });
+      continue;
     } else if (bucket === 'bobbin') {
       const ends = r.ends_per_bobbin ?? (r.bobbin_id != null ? bobMasterById.get(r.bobbin_id)?.ends_per_bobbin : null);
       if (ends != null) {
-        colId = `ends:${ends}`;
-        label = `${ends} ends`;
+        colId = ensureEndsCol(Number(ends));
+        events.push({
+          event_date: r.open_date ?? '',
+          column_id: colId,
+          direction: 'in',
+          quantity: Number(r.quantity ?? 0),
+          reference: r.reference_no ?? 'Opening stock',
+          notes: r.notes ?? '',
+        });
+        continue;
       }
     }
     if (!colMap.has(colId)) colMap.set(colId, { id: colId, label, sublabel });
@@ -1171,6 +1242,52 @@ async function loadInhouseOpeningStock(
       notes: r.notes ?? '',
     });
   }
+
+  // ── 2. Yarn purchase inflows (weft / porvai only) ───────────────
+  // Pulls yarn_lot rows whose delivery_destination = 'in_house' so
+  // every kilogram physically delivered into the operator's
+  // warehouse is reflected as an inflow on the matching count
+  // column. Without this, the tab was rendering empty even when
+  // yarn had clearly been purchased.
+  if (bucket === 'weft_yarn' || bucket === 'porvai_yarn') {
+    // yarn_lot.yarn_kind discriminates 'yarn' (= warp / weft) from
+    // 'porvai' (= selvedge). The warp warehouse already has its own
+    // tab (warp_metre), so the weft_yarn tab here surfaces the
+    // remaining 'yarn'-kind lots that aren't tied to a specific warp
+    // beam. Old rows without a yarn_kind value default to 'yarn'.
+    const wantedKind = bucket === 'weft_yarn' ? 'yarn' : 'porvai';
+    const lotRows = await safeSelect<{
+      id: number; lot_code: string | null; yarn_count_id: number | null;
+      received_date: string | null; received_kg: number | string | null;
+      delivery_destination: string | null; yarn_kind: string | null;
+    }>(
+      supabase.from('yarn_lot')
+        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination, yarn_kind')
+        .eq('delivery_destination', 'in_house')
+        .eq('yarn_kind', wantedKind),
+    );
+    for (const l of lotRows) {
+      if (l.yarn_count_id == null) continue;
+      const colId = ensureCountCol(l.yarn_count_id);
+      events.push({
+        event_date: l.received_date ?? '',
+        column_id: colId,
+        direction: 'in',
+        quantity: Number(l.received_kg ?? 0),
+        reference: l.lot_code ?? `Lot #${l.id}`,
+        notes: 'Yarn purchase (delivery=in_house)',
+      });
+    }
+
+    // ── 3. Outflows ───────────────────────────────────────────────
+    // production_batch only stores cost-per-metre (not kg consumed),
+    // so there's no straight outflow column to read from. Once an
+    // in-house consumption ledger is wired up (or kg-consumed columns
+    // are added to production_batch) this is where the outflow events
+    // would be appended. Until then, the in-house tabs show inflows
+    // only, plus any opening-stock entries.
+  }
+
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   return { unit, columns, events };
 }
@@ -1189,15 +1306,21 @@ async function loadSizingWarehouse(
   supabase: any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   counts: any[],
+  sp: SP,
 ): Promise<PivotData> {
+  const countFilter = sp.count && /^\d+$/.test(sp.count) ? Number(sp.count) : null;
   const lots = await safeSelect<{
     id: number; lot_code: string; yarn_count_id: number | null;
     received_date: string | null; received_kg: number | string | null;
     delivery_destination: string | null;
   }>(
-    supabase.from('yarn_lot')
-      .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination')
-      .eq('delivery_destination', 'sizing'),
+    (() => {
+      let q = supabase.from('yarn_lot')
+        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination')
+        .eq('delivery_destination', 'sizing');
+      if (countFilter !== null) q = q.eq('yarn_count_id', countFilter);
+      return q;
+    })(),
   );
 
   const lotById = new Map(lots.map((l) => [l.id, l]));

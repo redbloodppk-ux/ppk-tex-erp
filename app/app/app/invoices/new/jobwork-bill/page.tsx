@@ -21,6 +21,9 @@ interface PartyRow {
   state: string | null;
   state_code: string | null;
   party_type_ids: number[] | string[] | null;
+  /** 'jobwork' = Jobwork Party (bills go to JB/26-27/NNNN),
+   *  'outsource' = Outsource Weaver (bills go to WB/26-27/NNNN). */
+  kind: 'jobwork' | 'outsource';
 }
 
 export default async function NewJobworkBillPage(): Promise<React.ReactElement> {
@@ -54,13 +57,26 @@ export default async function NewJobworkBillPage(): Promise<React.ReactElement> 
     .order('name');
   const allActiveParties = (partyData ?? []) as Array<PartyRow & { party_type_id: number | null }>;
 
-  let parties: PartyRow[] = allActiveParties;
+  // Tag each surviving party with its kind so the form can route the
+  // bill to the right sequence (JB for jobwork parties, WB for
+  // outsource weavers).
+  function resolveKind(p: PartyRow & { party_type_id: number | null }): 'jobwork' | 'outsource' {
+    const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
+    const single = p.party_type_id != null ? Number(p.party_type_id) : null;
+    const isOutsource = (outsourceTypeId != null) && (
+      ids.includes(outsourceTypeId) || single === outsourceTypeId
+    );
+    return isOutsource ? 'outsource' : 'jobwork';
+  }
+
+  let parties: PartyRow[] = allActiveParties.map((p) => ({ ...p, kind: resolveKind(p) }));
   if (allowedTypeIds.size > 0) {
-    parties = allActiveParties.filter((p) => {
+    parties = parties.filter((p) => {
       const ids = Array.isArray(p.party_type_ids) ? p.party_type_ids.map((x) => Number(x)) : [];
-      const single = p.party_type_id != null ? Number(p.party_type_id) : null;
+      const single = (p as PartyRow & { party_type_id: number | null }).party_type_id;
+      const singleNum = single != null ? Number(single) : null;
       return ids.some((id) => allowedTypeIds.has(id))
-          || (single != null && allowedTypeIds.has(single));
+          || (singleNum != null && allowedTypeIds.has(singleNum));
     });
   }
 
