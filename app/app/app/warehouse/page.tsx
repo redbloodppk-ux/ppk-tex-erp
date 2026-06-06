@@ -1288,6 +1288,92 @@ async function loadInhouseOpeningStock(
     // only, plus any opening-stock entries.
   }
 
+  // ── Warp Metre — pavu inflows + in-house fabric receipt outflows ─
+  // Every pavu routed to in-house production (Pavu Master / pavu list
+  // editor / bulk routing form) shows up here as an inflow on the
+  // matching ends column. Outflows come from in-house fabric receipts
+  // (DCs whose production_mode='inhouse'): the metres received become
+  // an outflow against the warp metre stock.
+  if (bucket === 'warp_beam') {
+    // Pavu inflows — in-house, assigned, with a real meters value.
+    const inhousePavus = await safeSelect<{
+      id: number; pavu_code: string | null; ends: number | null;
+      meters: number | string | null;
+      sizing_job_id: number | null;
+      created_at: string | null;
+    }>(
+      supabase.from('pavu')
+        .select('id, pavu_code, ends, meters, sizing_job_id, created_at')
+        .eq('production_mode', 'in_house')
+        .eq('status', 'assigned'),
+    );
+    // Resolve each pavu's date from its sizing job's date_sent
+    // (fallback: pavu.created_at). One query for the sizing job set.
+    const sizingJobIds = Array.from(new Set(
+      inhousePavus.map((p) => p.sizing_job_id).filter((x): x is number => x != null),
+    ));
+    const dateBySizingJob = new Map<number, string | null>();
+    if (sizingJobIds.length > 0) {
+      const jobs = await safeSelect<{ id: number; date_sent: string | null }>(
+        supabase.from('sizing_job').select('id, date_sent').in('id', sizingJobIds),
+      );
+      for (const j of jobs) dateBySizingJob.set(j.id, j.date_sent);
+    }
+    for (const p of inhousePavus) {
+      const ends = Number(p.ends ?? 0);
+      const meters = Number(p.meters ?? 0);
+      if (ends <= 0 || meters <= 0) continue;
+      const colId = ensureEndsCol(ends);
+      const eventDate = (p.sizing_job_id != null ? dateBySizingJob.get(p.sizing_job_id) ?? null : null)
+        ?? (p.created_at ?? '').slice(0, 10);
+      events.push({
+        event_date: eventDate,
+        column_id: colId,
+        direction: 'in',
+        quantity: meters,
+        reference: p.pavu_code ?? `Pavu #${p.id}`,
+        notes: 'Pavu assigned to in-house',
+      });
+    }
+
+    // In-house fabric receipt outflows. Each fabric_receipt row that
+    // sits against a DC with production_mode='inhouse' represents
+    // warp metres consumed from this stock. We use received_metres so
+    // even pcs-mode receipts (which store pieces) get the resolved
+    // metre count.
+    const receipts = await safeSelect<{
+      id: number; code: string | null; receipt_date: string | null;
+      total_metres: number | string | null;
+      dc: { id: number; code: string | null; production_mode: string | null } | null;
+      items: Array<{ fabric_quality_id: number | null; ends_count_snapshot: number | null; received_metres: number | string | null }>;
+    }>(
+      supabase.from('fabric_receipt')
+        .select(`
+          id, code, receipt_date, total_metres,
+          dc:dc_id!inner ( id, code, production_mode ),
+          items:fabric_receipt_item ( fabric_quality_id, ends_count_snapshot, received_metres )
+        `)
+        .eq('dc.production_mode', 'inhouse'),
+    );
+    for (const r of receipts) {
+      const items = Array.isArray(r.items) ? r.items : [];
+      for (const it of items) {
+        const ends = Number(it.ends_count_snapshot ?? 0);
+        const m    = Number(it.received_metres ?? 0);
+        if (ends <= 0 || m <= 0) continue;
+        const colId = ensureEndsCol(ends);
+        events.push({
+          event_date: r.receipt_date ?? '',
+          column_id: colId,
+          direction: 'out',
+          quantity: m,
+          reference: r.code ?? `Receipt #${r.id}`,
+          notes: 'In-house fabric receipt',
+        });
+      }
+    }
+  }
+
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   return { unit, columns, events };
 }
