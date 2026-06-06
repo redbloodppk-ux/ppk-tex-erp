@@ -104,12 +104,13 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     }>;
   }>;
   const bulkJobs: BulkJobRow[] = rawJobs
-    .filter((j) => j.pavu_rows.length > 0)
+    .filter((j) => Array.isArray(j.pavu_rows) && j.pavu_rows.length > 0)
     .map((j) => {
-      const totalMetres = j.pavu_rows.reduce((s, r) => s + Number(r.meters ?? 0), 0);
-      const beamCount   = j.pavu_rows.length;
-      const modesSet    = new Set(j.pavu_rows.map((r) => r.production_mode ?? 'in_house'));
-      const vendorsSet  = new Set(j.pavu_rows.map((r) => r.outsource_ledger_id ?? null));
+      const rows        = Array.isArray(j.pavu_rows) ? j.pavu_rows : [];
+      const totalMetres = rows.reduce((s, r) => s + Number(r.meters ?? 0), 0);
+      const beamCount   = rows.length;
+      const modesSet    = new Set(rows.map((r) => r.production_mode ?? 'in_house'));
+      const vendorsSet  = new Set(rows.map((r) => r.outsource_ledger_id ?? null));
       let current_mode: BulkJobRow['current_mode'] = null;
       let current_vendor_id:   number | null = null;
       let current_vendor_name: string | null = null;
@@ -121,8 +122,8 @@ export default async function PavuListPage({ searchParams }: PageProps) {
           current_mode = 'in_house';
         } else if (vendorsSet.size === 1) {
           current_mode = 'outsource';
-          current_vendor_id = j.pavu_rows[0]!.outsource_ledger_id;
-          current_vendor_name = j.pavu_rows[0]!.outsource_vendor?.name ?? null;
+          current_vendor_id = rows[0]?.outsource_ledger_id ?? null;
+          current_vendor_name = rows[0]?.outsource_vendor?.name ?? null;
         } else {
           current_mode = 'mixed';
         }
@@ -136,7 +137,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         current_mode,
         current_vendor_id,
         current_vendor_name,
-        beams: j.pavu_rows.map((r) => ({
+        beams: rows.map((r) => ({
           id: r.id,
           beam_no: r.beam_no,
           ends: Number(r.ends ?? 0),

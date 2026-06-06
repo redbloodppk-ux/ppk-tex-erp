@@ -74,10 +74,34 @@ function fmtMetres(v: number): string {
  *  are routed to two or more different outsource vendors. */
 function deriveInitialScope(job: BulkJobRow): Scope {
   const vendors = new Set<number | null>();
-  for (const b of job.beams) {
+  const beams = Array.isArray(job.beams) ? job.beams : [];
+  for (const b of beams) {
     if (b.production_mode === 'outsource') vendors.add(b.outsource_ledger_id ?? null);
   }
   return vendors.size > 1 ? 'beam_wise' : 'whole';
+}
+
+// Initial RowState derivation lifted to module scope so the function
+// is guaranteed to exist before the useState initializer runs.
+function deriveInitialState(j: BulkJobRow): RowState {
+  const scope = deriveInitialScope(j);
+  const beamVendorIds: Record<number, string> = {};
+  const beams = Array.isArray(j.beams) ? j.beams : [];
+  for (const b of beams) {
+    if (b.outsource_ledger_id != null) {
+      beamVendorIds[b.id] = String(b.outsource_ledger_id);
+    }
+  }
+  return {
+    mode:           j.current_mode === 'outsource' ? 'outsource' : 'in_house',
+    scope,
+    vendorId:       j.current_vendor_id != null ? String(j.current_vendor_id) : '',
+    beamVendorIds,
+    expanded:       scope === 'beam_wise',
+    saving:         false,
+    error:          null,
+    saved:          false,
+  };
 }
 
 export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
@@ -92,26 +116,6 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
     return init;
   });
 
-  function deriveInitialState(j: BulkJobRow): RowState {
-    const scope = deriveInitialScope(j);
-    const beamVendorIds: Record<number, string> = {};
-    for (const b of j.beams) {
-      if (b.outsource_ledger_id != null) {
-        beamVendorIds[b.id] = String(b.outsource_ledger_id);
-      }
-    }
-    return {
-      mode:           j.current_mode === 'outsource' ? 'outsource' : 'in_house',
-      scope,
-      vendorId:       j.current_vendor_id != null ? String(j.current_vendor_id) : '',
-      beamVendorIds,
-      expanded:       scope === 'beam_wise',
-      saving:         false,
-      error:          null,
-      saved:          false,
-    };
-  }
-
   function patch(jobId: number, patch: Partial<RowState>) {
     setState((prev) => {
       const job = jobs.find((j) => j.id === jobId);
@@ -123,7 +127,9 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
 
   function setBeamVendor(jobId: number, beamId: number, vendorId: string) {
     setState((prev) => {
-      const cur = prev[jobId]!;
+      const job = jobs.find((j) => j.id === jobId);
+      const cur = prev[jobId] ?? (job ? deriveInitialState(job) : undefined);
+      if (!cur) return prev;
       return {
         ...prev,
         [jobId]: {

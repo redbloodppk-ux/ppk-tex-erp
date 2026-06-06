@@ -62,6 +62,19 @@ const STATUS_STYLE: Record<string, string> = {
   scrapped: 'bg-rose-50 text-rose-700',
 };
 
+// Lifted to module scope so it's defined before the component's
+// useState initializer runs, regardless of hoisting subtleties.
+function defaultStateFor(r: PavuRow): RowState {
+  return {
+    mode:     r.production_mode,
+    vendorId: r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
+    saving:   false,
+    error:    null,
+    saved:    false,
+    dirty:    false,
+  };
+}
+
 export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
@@ -69,28 +82,10 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
   const [state, setState] = useState<Record<number, RowState>>(() => {
     const init: Record<number, RowState> = {};
     for (const r of rows) {
-      init[r.id] = {
-        mode:     r.production_mode,
-        vendorId: r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
-        saving:   false,
-        error:    null,
-        saved:    false,
-        dirty:    false,
-      };
+      init[r.id] = defaultStateFor(r);
     }
     return init;
   });
-
-  function defaultStateFor(r: PavuRow): RowState {
-    return {
-      mode:     r.production_mode,
-      vendorId: r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
-      saving:   false,
-      error:    null,
-      saved:    false,
-      dirty:    false,
-    };
-  }
 
   function patch(rowId: number, patch: Partial<RowState>) {
     setState((prev) => {
