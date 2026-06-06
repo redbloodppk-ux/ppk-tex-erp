@@ -802,7 +802,10 @@ export default function NewInvoicePage() {
               )}
               <div className="flex justify-between text-ink-mute"><span>Round off</span><span className="num">{totals.roundOff.toFixed(2)}</span></div>
               <div className="flex justify-between border-t border-line pt-2 text-base font-bold">
-                <span>Grand total</span><span className="num">₹ {totals.total.toFixed(2)}</span>
+                {/* Grand total is the rounded whole-rupee figure that
+                    matches what gets stored as `total` and printed on
+                    the bill. */}
+                <span>Grand total</span><span className="num">₹ {totals.total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
               </div>
             </div>
           </div>

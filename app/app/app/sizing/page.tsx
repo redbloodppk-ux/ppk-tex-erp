@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
+import { SizingJobDeleteButton } from './sizing-job-delete-button';
 
 export const metadata = { title: 'Sizing Jobs' };
 
@@ -75,7 +76,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
         .from('sizing_job')
         .select(`
           id, job_code, set_no, status, date_sent, date_received,
-          yarn_sent_kg, yarn_used_kg, no_of_paavu,
+          yarn_sent_kg, yarn_used_kg, no_of_paavu, yarn_lot_id,
           sizing_vendor:sizing_ledger_id ( name ),
           yarn_supplier:yarn_supplier_party_id ( name ),
           warp_count:warp_count_id        ( code )
@@ -162,6 +163,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   <th className="text-right px-4 py-3">Yarn (sent → bal)</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Recv</th>
                   <th className="text-left  px-4 py-3">Status</th>
+                  <th className="text-right px-4 py-3 w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,11 +202,27 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                           {j.status.replace('_', ' ')}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <Link
+                          href={`/app/sizing/${j.id}`}
+                          className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex mr-1"
+                          title={`Edit ${j.job_code}`}
+                          aria-label={`Edit ${j.job_code}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Link>
+                        <SizingJobDeleteButton
+                          jobId={j.id}
+                          jobCode={j.job_code}
+                          yarnSentKg={Number(j.yarn_sent_kg ?? 0)}
+                          yarnLotId={j.yarn_lot_id ?? null}
+                        />
+                      </td>
                     </tr>
                   );
                 }) : (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
                       No sizing jobs yet.{' '}
                       <Link href="/app/sizing/new" className="text-indigo font-semibold">
                         Create the first one →
@@ -240,13 +258,14 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   <th className="text-right px-4 py-3">Charges (₹)</th>
                   <th className="text-right px-4 py-3 hidden md:table-cell">GST %</th>
                   <th className="text-right px-4 py-3">Total (₹)</th>
+                  <th className="text-right px-4 py-3 w-16">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {billsRes.data?.length ? billsRes.data.map((b: any) => (
                   <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs">
-                      <Link href={`/app/sizing/${b.id}`} className="text-indigo hover:underline">
+                      <Link href={`/app/sizing/${b.id}/bill`} className="text-indigo hover:underline">
                         {b.bill_no}
                       </Link>
                     </td>
@@ -273,10 +292,24 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                     <td className="px-4 py-3 text-right num font-semibold">
                       ₹ {fmtMoney(b.total_amount)}
                     </td>
+                    {/* Edit only — bills can't be deleted standalone.
+                        Removing a bill is done by deleting the parent
+                        job from the Jobs tab, which drops the whole
+                        row this bill lives on. */}
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link
+                        href={`/app/sizing/${b.id}/bill`}
+                        className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
+                        title={`Edit bill ${b.bill_no}`}
+                        aria-label={`Edit bill ${b.bill_no}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Link>
+                    </td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
+                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-ink-soft">
                       No sizing bills yet. Bills are recorded when a job is
                       saved with an invoice number and date — <Link
                         href="/app/sizing/new"

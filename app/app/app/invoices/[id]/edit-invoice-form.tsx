@@ -134,8 +134,15 @@ export function EditInvoiceForm({
     || isInterstate !== initial.is_interstate;
 
   function recomputeTotal(): void {
-    const t = round2(num(taxable) + num(cgst) + num(sgst) + num(igst) + num(roundOff));
-    setTotal(String(t));
+    // Round the bill grand total to the nearest whole rupee and let
+    // round_off absorb the paise swing. The operator can still
+    // overwrite either field manually after this if a specific bill
+    // really needs a non-rounded figure.
+    const raw      = round2(num(taxable) + num(cgst) + num(sgst) + num(igst));
+    const rounded  = Math.round(raw);
+    const newRound = round2(rounded - raw);
+    setRoundOff(String(newRound));
+    setTotal(String(rounded));
   }
 
   async function handleSave(): Promise<void> {
@@ -289,7 +296,7 @@ export function EditInvoiceForm({
                 type="button"
                 onClick={recomputeTotal}
                 className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1 text-xs text-ink-soft hover:bg-haze/60"
-                title="Set total = taxable + CGST + SGST + IGST + round-off"
+                title="Round total to the nearest rupee. Sets round-off automatically."
               >
                 <Calculator className="w-3 h-3" /> Recompute total
               </button>
