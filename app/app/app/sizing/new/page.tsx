@@ -35,7 +35,14 @@ interface Vendor      { id: number; code: string; name: string; vendor_type: str
 // Sourced from the unified party table — the old `mill` table is gone (098).
 interface Supplier    { id: number; code: string; name: string }
 interface YarnCount   { id: number; code: string; display_name: string }
-interface YarnLot     { id: number; lot_code: string; current_kg: number;
+interface YarnLot     { id: number; lot_code: string;
+                        current_kg: number;
+                        /** Original receipt quantity captured at yarn
+                         *  purchase. Used to auto-fill "Yarn Sent to
+                         *  Sizing (kg)" when the operator picks the
+                         *  lot — the assumption is they're sending the
+                         *  full received quantity to the sizing mill. */
+                        received_kg: number;
                         yarn_count_id: number; supplier_party_id: number | null;
                         /** Which physical warehouse this lot was delivered to.
                          *  'in_house' = our own warehouse, 'sizing' = the
@@ -90,6 +97,10 @@ export default function NewSizingJobPage() {
   const [yarnUsedKg, setYarnUsedKg] = useState('');
   const [rate,    setRate]    = useState('26');
   const [gstPct,  setGstPct]  = useState('5');
+  // Sizing-mill invoice details — mandatory in the UI, captured at
+  // job creation so the job itself acts as a sizing bill record.
+  const [billNo,   setBillNo]   = useState('');
+  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   // Free-text notes only. Status is auto-managed by a DB trigger:
   //   - created     → 'received'
@@ -151,7 +162,7 @@ export default function NewSizingJobPage() {
           .eq('status', 'active').order('code'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('yarn_lot')
-          .select('id, lot_code, current_kg, yarn_count_id, supplier_party_id, delivery_destination')
+          .select('id, lot_code, current_kg, received_kg, yarn_count_id, supplier_party_id, delivery_destination')
           .gt('current_kg', 0).order('received_date', { ascending: false }).limit(200),
       ]);
       setSizingVendors(sv.data ?? []);
@@ -191,6 +202,30 @@ export default function NewSizingJobPage() {
     return m;
   }, [suppliers]);
 
+  // The Yarn Supplier dropdown only lists suppliers who actually
+  // shipped yarn to the sizing warehouse — i.e. there's at least one
+  // yarn_lot for them with delivery_destination = 'sizing' (still in
+  // stock). Suppliers without sizing-warehouse stock would have no
+  // pickable yarn lot downstream so they're filtered out up front.
+  const sizingSupplierIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const l of lots) {
+      if (l.delivery_destination === 'sizing' && l.supplier_party_id != null) {
+        s.add(l.supplier_party_id);
+      }
+    }
+    return s;
+  }, [lots]);
+  const eligibleSuppliers = useMemo(() => {
+    // When sizing mill is empty, we still narrow to suppliers with at
+    // least one sizing-warehouse lot. The user explicitly asked for
+    // this filter to apply once a sizing mill is in play; for the
+    // initial page state where no mill is picked yet, showing the
+    // narrowed list is the safer default — every visible supplier is
+    // guaranteed to yield at least one pickable yarn lot below.
+    return suppliers.filter((s) => sizingSupplierIds.has(s.id));
+  }, [suppliers, sizingSupplierIds]);
+
   // When the warehouse choice changes, clear any stale yarn-lot selection
   // so the operator can't accidentally submit a lot from the wrong
   // warehouse (the dropdown now only shows valid options).
@@ -198,15 +233,30 @@ export default function NewSizingJobPage() {
     setYarnLotId('');
   }, [yarnSource]);
 
+  // When a yarn lot is picked, pre-fill "Yarn Sent to Sizing (kg)"
+  // with the lot's received_kg. The operator can still override the
+  // value — this is just a sensible default so the common "send the
+  // whole lot" case is one click instead of a manual re-type.
+  useEffect(() => {
+    if (yarnLotId === '') return;
+    const lot = lots.find((l) => l.id === Number(yarnLotId));
+    if (lot && lot.received_kg != null) {
+      setYarnSentKg(String(lot.received_kg));
+    }
+  }, [yarnLotId, lots]);
+
   // ── billing math ──────────────────────────────────────────────────────────
+  // Sizing charges multiply against Yarn Used (kg), not Yarn Sent.
+  // Mills bill for what they actually sized, not for what was handed
+  // over — sent quantity stays as a stock-movement record only.
   const billing = useMemo(() => {
-    const kg = Number(yarnSentKg) || 0;
+    const kg = Number(yarnUsedKg) || 0;
     const r  = Number(rate) || 0;
     const g  = Number(gstPct) || 0;
     const charges = kg * r;
     const total   = +(charges * (1 + g / 100)).toFixed(2);
     return { charges: +charges.toFixed(2), total };
-  }, [yarnSentKg, rate, gstPct]);
+  }, [yarnUsedKg, rate, gstPct]);
 
   const balance = useMemo(() => {
     return (Number(yarnSentKg) || 0) - (Number(yarnUsedKg) || 0);
@@ -253,6 +303,14 @@ export default function NewSizingJobPage() {
     if (!yarnLotId) {
       return setError('Pick a yarn lot. If no lots are listed, check the warehouse / count / supplier choices above.');
     }
+    // Sizing-bill validation. Both fields are required by the new
+    // sizing-bill workflow (migration 116).
+    if (!billNo.trim()) {
+      return setError('Enter the sizing mill\u2019s bill / invoice number.');
+    }
+    if (!billDate) {
+      return setError('Enter the sizing bill / invoice date.');
+    }
 
     // Find the lot we're drawing from so we can validate the kg balance
     // and decrement its current_kg after the job is saved.
@@ -292,6 +350,9 @@ export default function NewSizingJobPage() {
       charges_amount:   billing.charges,
       gst_pct:          Number(gstPct) || 0,
       total_amount:     billing.total,
+      // Sizing-bill fields (migration 116). Both mandatory in the UI.
+      bill_no:          billNo.trim(),
+      bill_date:        billDate,
       default_production_mode: defaultMode === 'mixed' ? null : defaultMode,
       default_outsource_ledger_id:
         defaultMode === 'outsource' && defaultOutsourceVendorId
@@ -396,8 +457,19 @@ export default function NewSizingJobPage() {
                 <label className="label">Yarn Supplier *</label>
                 <select required value={yarnSupplierId} onChange={e => setYarnSupplierId(e.target.value)} className="input">
                   <option value="" disabled>Select yarn supplier…</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {eligibleSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+                <p className="text-[11px] text-ink-mute mt-1">
+                  Showing only suppliers who have shipped yarn to the
+                  sizing warehouse (delivery&nbsp;=&nbsp;sizing).
+                  {eligibleSuppliers.length === 0 && (
+                    <span className="block text-amber-700 mt-0.5">
+                      No supplier has yarn in the sizing warehouse yet.
+                      Record a yarn purchase with delivery destination
+                      = sizing first.
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <label className="label">Warp Yarn Count *</label>
@@ -598,9 +670,31 @@ export default function NewSizingJobPage() {
             </div>
           </div>
 
-          {/* ─── Billing ───────────────────────────────────────────────── */}
+          {/* ─── Sizing Bill ───────────────────────────────────────────── */}
+          {/* The whole sizing-charges section now doubles as the sizing
+              bill record. Invoice no + date are mandatory, and charges
+              multiply against Yarn Used (kg) — the quantity actually
+              sized by the mill. */}
           <div className="card p-6 space-y-3">
-            <h3 className="text-sm font-bold text-ink">Sizing charges</h3>
+            <h3 className="text-sm font-bold text-ink">Sizing Bill</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Bill / Invoice No *</label>
+                <input
+                  type="text" required value={billNo}
+                  onChange={e => setBillNo(e.target.value)}
+                  className="input" placeholder="e.g. SZ/26-27/0012"
+                />
+              </div>
+              <div>
+                <label className="label">Bill / Invoice Date *</label>
+                <input
+                  type="date" required value={billDate}
+                  onChange={e => setBillDate(e.target.value)}
+                  className="input"
+                />
+              </div>
+            </div>
             <div className="grid sm:grid-cols-4 gap-4">
               <div>
                 <label className="label">Rate (₹/kg)</label>
@@ -625,6 +719,10 @@ export default function NewSizingJobPage() {
                 </div>
               </div>
             </div>
+            <p className="text-[11px] text-ink-mute">
+              Charges = Yarn Used (kg) × Rate. Update Yarn Used above to
+              recalculate.
+            </p>
           </div>
 
           {/* ─── Notes ─────────────────────────────────────────────────── */}
