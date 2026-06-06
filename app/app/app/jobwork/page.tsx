@@ -1107,10 +1107,18 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
+  // Description string adapts to the active variant. On the
+  // outsource page we also flag the Pavu Master flow because that's
+  // where most warp-given entries arrive from once the bulk routing
+  // form is in use.
+  const tabBlurb = kind === 'outsource'
+    ? 'Warp beams sent to outsource weavers. Beams routed via Pavu Master appear automatically below; use Add to log a manual entry.'
+    : 'Warp beams issued to jobwork parties. Use Add to log a new beam; Restock to log a fresh batch.';
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
-        <p className="text-sm text-ink-mute">Warp beams issued to jobwork parties. Use Add to log a new beam; Restock to log a fresh batch.</p>
+        <p className="text-sm text-ink-mute">{tabBlurb}</p>
         <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
           {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showAdd ? 'Cancel' : 'Add warp beam given'}
