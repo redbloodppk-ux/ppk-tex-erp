@@ -153,7 +153,7 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
       patch(job.id, { saving: true, error: null, saved: false });
       const { error: updErr } = await sb
         .from('pavu')
-        .update({ production_mode: 'in_house', outsource_ledger_id: null })
+        .update({ production_mode: 'in_house', outsource_ledger_id: null, status: 'assigned' })
         .eq('sizing_job_id', job.id);
       if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
       // Sync — any mirrored warp-beam-given rows get cleaned up.
@@ -176,6 +176,7 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
         .update({
           production_mode:     'outsource',
           outsource_ledger_id: Number(s.vendorId),
+          status:              'assigned',
         })
         .eq('sizing_job_id', job.id);
       if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
@@ -196,8 +197,8 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
       const raw      = s.beamVendorIds[b.id] ?? '';
       const vendorId = raw === '' ? null : Number(raw);
       const payload  = vendorId === null
-        ? { production_mode: 'in_house',  outsource_ledger_id: null     }
-        : { production_mode: 'outsource', outsource_ledger_id: vendorId };
+        ? { production_mode: 'in_house',  outsource_ledger_id: null,     status: 'assigned' }
+        : { production_mode: 'outsource', outsource_ledger_id: vendorId, status: 'assigned' };
       const { error: updErr } = await sb.from('pavu').update(payload).eq('id', b.id);
       if (updErr) {
         patch(job.id, { saving: false, error: `Beam ${b.beam_no}: ${updErr.message}` });

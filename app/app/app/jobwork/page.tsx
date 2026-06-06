@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock } from 'lucide-react';
 
 // This page services TWO routes: /app/jobwork and /app/outsource. The
 // only difference is which `jobwork_party.kind` rows it filters to —
@@ -95,6 +95,13 @@ interface WarpBeamRow {
   /** Original issued metres preserved from migration 090. Used on the
    *  history list so reductions don't shrink the display. */
   original_metres: number | null;
+  /** Pavu link — singular FK on 1-to-1 mirror rows created by the
+   *  Pavu Master sync; null on aggregate rows. */
+  pavu_id: number | null;
+  /** Pavu ids on aggregate rows created by the Add warp beam given
+   *  form; null on mirror rows. The Release action reverts whichever
+   *  set is non-null. */
+  pavu_ids: number[] | null;
 }
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
@@ -188,7 +195,7 @@ export default function JobworkPage(): React.ReactElement {
       sb.from('fabric_quality').select('id, code, name, calc_snapshot').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, original_quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
-      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
@@ -1079,6 +1086,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       // Auto totals are derived from the picked beams. We send the
       // numeric values into the table — the operator never touches
       // these fields, so there's no validation to do beyond > 0.
+      const beamIds = Array.from(selectedPavuIds);
       const payload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
         fabric_quality_id: null,
@@ -1091,19 +1099,20 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         reference_no:      form.reference_no.trim() || null,
         notes:             form.notes.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
-        // Aggregate row — no single pavu link. Per-pavu mirror rows
-        // (created by Pavu Master inline edits) are wiped below
-        // since this aggregate now represents them.
+        // Aggregate row — no single pavu link. pavu_ids records the
+        // exact set of pavus this row represents so the Release
+        // action can revert just those beams.
         pavu_id:           null,
+        pavu_ids:          beamIds,
       };
       const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
       if (insErr) { setBusy(false); setErr(insErr.message); return; }
 
-      // Update each selected pavu to the outsource routing.
-      const beamIds = Array.from(selectedPavuIds);
+      // Update each selected pavu — flip routing AND mark assigned
+      // so the Pavu Master editor locks them out.
       const { error: pavuErr } = await sb
         .from('pavu')
-        .update({ production_mode: 'outsource', outsource_ledger_id: newLedgerId })
+        .update({ production_mode: 'outsource', outsource_ledger_id: newLedgerId, status: 'assigned' })
         .in('id', beamIds);
       if (pavuErr) { setBusy(false); setErr(`Warp-given saved but pavu update failed: ${pavuErr.message}`); return; }
 
@@ -1156,6 +1165,33 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     const sb = supabase as any;
     const { error } = await sb.from('jobwork_warp_beam').delete().eq('id', id);
     if (error) { setErr(error.message); return; }
+    onChanged();
+  }
+
+  // Release reverts every pavu represented by this warp-given row so
+  // Pavu Master can edit them again. Works for both aggregate rows
+  // (pavu_ids array) and 1-to-1 mirror rows (pavu_id singular).
+  // Aggregate rows store pavu_ids as a JSONB array (migration 120).
+  async function release(r: WarpBeamRow) {
+    const ids: number[] = Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0
+      ? r.pavu_ids.map((x) => Number(x)).filter((n) => Number.isFinite(n))
+      : (r.pavu_id != null ? [r.pavu_id] : []);
+    if (ids.length === 0) {
+      window.alert('No pavu link on this warp beam entry to release.');
+      return;
+    }
+    if (!window.confirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? Pavu Master will be editable again for these beams.`)) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    // Revert the pavu rows.
+    const { error: pavuErr } = await sb
+      .from('pavu')
+      .update({ production_mode: 'in_house', outsource_ledger_id: null, status: 'in_stock' })
+      .in('id', ids);
+    if (pavuErr) { setErr(`Release failed: ${pavuErr.message}`); return; }
+    // Drop the warp-given row itself.
+    const { error: delErr } = await sb.from('jobwork_warp_beam').delete().eq('id', r.id);
+    if (delErr) { setErr(`Pavu released but row delete failed: ${delErr.message}`); return; }
     onChanged();
   }
 
@@ -1470,6 +1506,19 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                          {/* Release — only meaningful when this row
+                              has a pavu link; reverts the linked
+                              pavus to in-stock so Pavu Master can
+                              edit them again, then deletes the row. */}
+                          {(r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0)) && (
+                            <button
+                              onClick={() => void release(r)}
+                              className="text-amber-700 hover:text-amber-900 mr-2"
+                              title="Release pavus back to in-stock"
+                            >
+                              <Unlock className="w-4 h-4 inline" />
+                            </button>
+                          )}
                           <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
                         </td>
                       </>

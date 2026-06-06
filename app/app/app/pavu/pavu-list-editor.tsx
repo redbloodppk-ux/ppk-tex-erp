@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, Lock } from 'lucide-react';
 import { syncWarpBeamFromPavu } from './sync-warp-beam';
 
 type ProdMode = 'in_house' | 'outsource';
@@ -111,9 +111,14 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
     const sb = supabase as any;
 
     // 1. Update the pavu row first.
+    // Setting a routing on either side flips status to 'assigned' —
+    // the operator has now committed to in-house or outsource. The
+    // sync helper below also sets it for outsource, but for in-house
+    // we need to handle it here because the helper deletes the
+    // mirror row and returns without touching pavu.status.
     const payload = s.mode === 'in_house'
-      ? { production_mode: 'in_house',  outsource_ledger_id: null }
-      : { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId) };
+      ? { production_mode: 'in_house',  outsource_ledger_id: null,            status: 'assigned' }
+      : { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId), status: 'assigned' };
     const { error: updErr } = await sb.from('pavu').update(payload).eq('id', row.id);
     if (updErr) { patch(row.id, { saving: false, error: updErr.message }); return; }
 
@@ -157,10 +162,13 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
         </thead>
         <tbody>
           {rows.map((r) => {
-            // Fall back to a freshly-derived default if state wasn't
-            // initialised for this row id (can happen when rows arrive
-            // from a router.refresh() after the initial mount).
             const s = state[r.id] ?? defaultStateFor(r);
+            // Outsource-assigned pavus are locked: the routing
+            // decision has already gone out to the weaver and
+            // reversing it has to happen through a release on the
+            // Outsource → Warp Beam Given page so the audit trail
+            // (and the warp-given table) stay consistent.
+            const isLocked = r.production_mode === 'outsource' && r.status === 'assigned';
             return (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60 align-middle">
                 <td className="px-4 py-2 font-mono text-xs font-semibold text-ink">{r.pavu_code}</td>
@@ -170,23 +178,33 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                 <td className="px-4 py-2 text-right num">{r.ends}</td>
                 <td className="px-4 py-2 text-right num">{Number(r.meters).toFixed(0)}</td>
                 <td className="px-4 py-2">
-                  <select
-                    value={s.mode}
-                    onChange={(e) => patch(r.id, {
-                      mode: e.target.value as ProdMode,
-                      vendorId: e.target.value === 'outsource' ? s.vendorId : '',
-                      saved: false,
-                      dirty: true,
-                    })}
-                    className="input py-1 text-xs min-w-[110px]"
-                  >
-                    <option value="in_house">In-house</option>
-                    <option value="outsource">Outsource</option>
-                  </select>
+                  {isLocked ? (
+                    <div className="input py-1 text-xs min-w-[110px] bg-cloud/40 text-ink-mute select-none flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Outsource
+                    </div>
+                  ) : (
+                    <select
+                      value={s.mode}
+                      onChange={(e) => patch(r.id, {
+                        mode: e.target.value as ProdMode,
+                        vendorId: e.target.value === 'outsource' ? s.vendorId : '',
+                        saved: false,
+                        dirty: true,
+                      })}
+                      className="input py-1 text-xs min-w-[110px]"
+                    >
+                      <option value="in_house">In-house</option>
+                      <option value="outsource">Outsource</option>
+                    </select>
+                  )}
                 </td>
                 {scope === 'outsource' && (
                   <td className="px-4 py-2">
-                    {s.mode === 'outsource' ? (
+                    {isLocked ? (
+                      <div className="input py-1 text-xs min-w-[160px] bg-cloud/40 text-ink-mute select-none">
+                        {r.outsource_vendor_name ?? '—'}
+                      </div>
+                    ) : s.mode === 'outsource' ? (
                       <select
                         value={s.vendorId}
                         onChange={(e) => patch(r.id, { vendorId: e.target.value, saved: false, dirty: true })}
@@ -206,18 +224,29 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {s.error && (
-                    <div className="text-rose-700 text-[10px] mb-1" title={s.error}>{s.error}</div>
+                  {isLocked ? (
+                    <span
+                      className="text-[10px] text-ink-mute inline-flex items-center gap-1"
+                      title="Release this beam from /app/outsource → Warp Beam Given before editing"
+                    >
+                      <Lock className="w-3 h-3" /> Locked
+                    </span>
+                  ) : (
+                    <>
+                      {s.error && (
+                        <div className="text-rose-700 text-[10px] mb-1" title={s.error}>{s.error}</div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleSave(r)}
+                        disabled={s.saving || !s.dirty}
+                        className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1 disabled:opacity-40"
+                      >
+                        {s.saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        {s.saved ? 'Saved' : 'Save'}
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void handleSave(r)}
-                    disabled={s.saving || !s.dirty}
-                    className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1 disabled:opacity-40"
-                  >
-                    {s.saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                    {s.saved ? 'Saved' : 'Save'}
-                  </button>
                 </td>
               </tr>
             );

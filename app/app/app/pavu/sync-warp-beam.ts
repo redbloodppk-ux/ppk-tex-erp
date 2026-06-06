@@ -58,6 +58,12 @@ export async function syncWarpBeamFromPavu(sb: Sb, pavuId: number): Promise<Sync
     return { ok: true, action: 'deleted' };
   }
 
+  // Mark the pavu as assigned the moment it gets routed to outsource —
+  // status drives the lock on the Pavu Master inline editor so the
+  // operator can't accidentally re-route a pavu that's already with a
+  // weaver. The lock is released from /app/outsource → warp beam given.
+  await sb.from('pavu').update({ status: 'assigned' }).eq('id', pavuId);
+
   // 3. Resolve the outsource weaver party from the ledger link. Pavu
   //    Master stores party.ledger_id as the outsource_ledger_id value,
   //    so the reverse lookup gets us back to the party row.
