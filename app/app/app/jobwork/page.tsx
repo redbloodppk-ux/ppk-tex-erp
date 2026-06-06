@@ -1030,9 +1030,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   }, [outsourceRoutings, selectedOutsourceLedgerId]);
 
   // Sizing parties that have a job going to the selected outsource
-  // party. Filtered against the existing sizingParties prop.
+  // party. The cascade is strict: until both an outsource party is
+  // picked AND we have its ledger_id resolved, the dropdown stays
+  // empty — otherwise the operator would see every Sizing Party in
+  // the master, which defeats the point of the filter.
   const eligibleSizingParties = useMemo(() => {
-    if (selectedOutsourceLedgerId == null) return sizingParties;
+    if (form.jobwork_party_id === '' || selectedOutsourceLedgerId == null) return [];
     const allowedLedgers = new Set<number>();
     for (const j of sizingJobs) {
       if (sizingJobIdsForOutsource.has(j.id) && j.sizing_ledger_id != null) {
@@ -1043,7 +1046,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       const lid = sizingPartyLedger.get(p.id);
       return lid != null && allowedLedgers.has(lid);
     });
-  }, [sizingParties, sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, selectedOutsourceLedgerId]);
+  }, [form.jobwork_party_id, sizingParties, sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, selectedOutsourceLedgerId]);
 
   // Sizing jobs filtered by both outsource party and (when set)
   // sizing party. Empty until at least the outsource party is picked.
