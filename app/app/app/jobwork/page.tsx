@@ -259,10 +259,16 @@ export default function JobworkPage(): React.ReactElement {
         }
       />
 
+      {/* Warp beam given is OUTSOURCE-ONLY now — jobwork parties no
+          longer receive warp beams. The tab is suppressed when
+          variant.kind === 'jobwork', and we redirect the active tab
+          off it if the operator was already viewing it. */}
       <div className="border-b border-line mb-4 flex gap-1 flex-wrap">
         <TabButton active={tab === 'dc'}        onClick={() => setTab('dc')}>DC</TabButton>
         <TabButton active={tab === 'bobbin'}    onClick={() => setTab('bobbin')}>Bobbin given</TabButton>
-        <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
+        {variant.kind === 'outsource' && (
+          <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
+        )}
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
         <TabButton active={tab === 'status'}    onClick={() => setTab('status')}>Status</TabButton>
         <TabButton active={tab === 'payment'}   onClick={() => setTab('payment')}>Payment</TabButton>
@@ -285,7 +291,7 @@ export default function JobworkPage(): React.ReactElement {
           partyLabel={variant.partyLabel}
           onChanged={load}
         />
-      ) : tab === 'warp_beam' ? (
+      ) : tab === 'warp_beam' && variant.kind === 'outsource' ? (
         <WarpBeamTab
           rows={warpBeams.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
           parties={parties} qualities={qualities} counts={counts}
@@ -866,20 +872,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
 }
 
 /* ===== Warp Beam tab ===== */
-interface PavuFromMaster {
-  id: number;
-  pavu_code: string;
-  beam_no: string;
-  ends: number;
-  meters: number;
-  given_date: string;          // sizing_job.date_sent (or pavu.created_at fallback)
-  job_code: string | null;
-  set_no: string | null;
-  warp_count_code: string | null;
-  party_id: number | null;     // resolved via party.ledger_id = pavu.outsource_ledger_id
-  party_name: string | null;
-}
-
 function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, partyLabel, kind, onChanged }: {
   rows: WarpBeamRow[]; parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[];
   sizingParties: PartyOpt[]; fabricDefaults: Map<number, FabricDefaults>;
@@ -910,84 +902,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [filterQualityId, setFilterQualityId] = useState<string>('');
   const [filterPartyId, setFilterPartyId] = useState<string>('');
 
-  // Pavu rows routed as outsource via Pavu Master. Only loaded when
-  // this tab is rendered inside /app/outsource. Each row is shown in a
-  // read-only section above the legacy jobwork_warp_beam list so the
-  // operator sees "warp given via Pavu Master" in the same place they
-  // see manual warp-given entries.
-  const [pavuFromMaster, setPavuFromMaster] = useState<PavuFromMaster[]>([]);
-  useEffect(() => {
-    if (kind !== 'outsource') { setPavuFromMaster([]); return; }
-    let cancelled = false;
-    void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const { data: pavus } = await sb
-        .from('pavu')
-        .select(`
-          id, pavu_code, beam_no, ends, meters, production_mode,
-          outsource_ledger_id, created_at,
-          sizing_job:sizing_job_id (
-            job_code, set_no, date_sent,
-            warp_count:warp_count_id ( code )
-          )
-        `)
-        .eq('production_mode', 'outsource')
-        .order('created_at', { ascending: false })
-        .limit(200);
-      const ledgerIds = Array.from(new Set(
-        ((pavus ?? []) as Array<{ outsource_ledger_id: number | null }>)
-          .map((p) => p.outsource_ledger_id)
-          .filter((x): x is number => x != null),
-      ));
-      // Map outsource_ledger_id → party (Outsource Weaver) via
-      // party.ledger_id. The Pavu Master bulk-routing form stores the
-      // party's ledger_id, so this reverse lookup gets us back to the
-      // operator-facing party name.
-      const partyByLedgerId = new Map<number, { id: number; name: string }>();
-      if (ledgerIds.length > 0) {
-        const { data: pps } = await sb
-          .from('party')
-          .select('id, name, ledger_id')
-          .in('ledger_id', ledgerIds);
-        for (const p of (pps ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>) {
-          if (p.ledger_id != null) partyByLedgerId.set(p.ledger_id, { id: p.id, name: p.name });
-        }
-      }
-      if (cancelled) return;
-      const shaped: PavuFromMaster[] = ((pavus ?? []) as Array<{
-        id: number; pavu_code: string; beam_no: string;
-        ends: number; meters: number | string | null;
-        outsource_ledger_id: number | null; created_at: string | null;
-        sizing_job: { job_code: string | null; set_no: string | null; date_sent: string | null; warp_count: { code: string | null } | null } | null;
-      }>).map((p) => {
-        const linked = p.outsource_ledger_id != null ? partyByLedgerId.get(p.outsource_ledger_id) ?? null : null;
-        return {
-          id: p.id,
-          pavu_code: p.pavu_code,
-          beam_no: p.beam_no,
-          ends: Number(p.ends ?? 0),
-          meters: Number(p.meters ?? 0),
-          given_date: p.sizing_job?.date_sent ?? (p.created_at ?? '').slice(0, 10),
-          job_code: p.sizing_job?.job_code ?? null,
-          set_no:   p.sizing_job?.set_no   ?? null,
-          warp_count_code: p.sizing_job?.warp_count?.code ?? null,
-          party_id: linked?.id ?? null,
-          party_name: linked?.name ?? null,
-        };
-      });
-      setPavuFromMaster(shaped);
-    })();
-    return () => { cancelled = true; };
-  }, [kind, supabase]);
-
-  // Apply the existing party filter to the Pavu Master section too,
-  // so flipping the dropdown narrows both lists in sync.
-  const filteredPavus = pavuFromMaster.filter((p) => {
-    if (filterPartyId !== '' && String(p.party_id ?? '') !== filterPartyId) return false;
-    return true;
-  });
-  const pavusTotal = filteredPavus.reduce((s, p) => s + p.meters, 0);
+  // Per-operator decision: the Pavu Master assignments live on the
+  // pavu rows themselves; this tab now shows only what's been
+  // captured via the Add warp beam given form. No extra pavu
+  // fetch happens here.
 
   // Rows after applying the on-screen filters. We keep `rows` (the full
   // list) for the table body filter check and the footer's totals so the
@@ -1107,13 +1025,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
-  // Description string adapts to the active variant. On the
-  // outsource page we also flag the Pavu Master flow because that's
-  // where most warp-given entries arrive from once the bulk routing
-  // form is in use.
-  const tabBlurb = kind === 'outsource'
-    ? 'Warp beams sent to outsource weavers. Beams routed via Pavu Master appear automatically below; use Add to log a manual entry.'
-    : 'Warp beams issued to jobwork parties. Use Add to log a new beam; Restock to log a fresh batch.';
+  // Outsource-only blurb (this tab is no longer rendered on the
+  // jobwork variant — warp beams aren't issued to jobwork parties).
+  const tabBlurb = 'Warp beams sent to outsource weavers. Add captures each issue; the table reflects only what\u2019s been logged here.';
 
   return (
     <div>
@@ -1125,67 +1039,22 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         </button>
       </div>
 
-      {/* From Pavu Master — read-only list of pavu rows routed to
-          outsource via Pavu Master's bulk-routing form. Shown only on
-          /app/outsource and only when there's something to display.
-          The operator can switch the party filter above to narrow
-          both lists at once. */}
-      {kind === 'outsource' && pavuFromMaster.length > 0 && (
-        <section className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-sm">
-              From Pavu Master <span className="text-ink-mute">· sized beams assigned to outsource</span>
-            </h3>
-            <span className="text-xs text-ink-mute">
-              {filteredPavus.length} beam{filteredPavus.length === 1 ? '' : 's'} ·{' '}
-              {pavusTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
-            </span>
-          </div>
-          <div className="card overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px]">
-              <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-                <tr>
-                  <th className="text-left  px-3 py-2">Pavu</th>
-                  <th className="text-left  px-3 py-2">Beam No</th>
-                  <th className="text-left  px-3 py-2 hidden md:table-cell">Sizing Job</th>
-                  <th className="text-left  px-3 py-2 hidden md:table-cell">Set No</th>
-                  <th className="text-left  px-3 py-2 hidden lg:table-cell">Count</th>
-                  <th className="text-left  px-3 py-2">Outsource Party</th>
-                  <th className="text-right px-3 py-2">Ends</th>
-                  <th className="text-right px-3 py-2">Metres</th>
-                  <th className="text-left  px-3 py-2 hidden lg:table-cell">Given Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPavus.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-ink-soft text-sm">
-                      No pavu rows match the active party filter.
-                    </td>
-                  </tr>
-                ) : filteredPavus.map((p) => (
-                  <tr key={p.id} className="border-t border-line/40">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold">{p.pavu_code}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{p.beam_no}</td>
-                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-ink-soft">{p.job_code ?? '—'}</td>
-                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-ink-soft">{p.set_no ?? '—'}</td>
-                    <td className="px-3 py-2 hidden lg:table-cell text-ink-soft">{p.warp_count_code ?? '—'}</td>
-                    <td className="px-3 py-2">{p.party_name ?? <span className="text-ink-mute">—</span>}</td>
-                    <td className="px-3 py-2 text-right num">{p.ends}</td>
-                    <td className="px-3 py-2 text-right num">{p.meters.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 hidden lg:table-cell text-xs text-ink-soft">{p.given_date || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+{/* The "From Pavu Master" preview block was removed — the operator
+          asked for the warp-given table to reflect only what's been
+          logged via the Add warp beam given form. Pavu Master's
+          routing assignments live on the pavu rows themselves and
+          surface in the Pavu list, not here. */}
 
       {showAdd && (
       <div className="card p-4 mb-4">
-        <h3 className="font-display font-bold text-sm mb-3">Add warp beam</h3>
+        <h3 className="font-display font-bold text-sm mb-3">Add warp beam given</h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div><label className="label text-xs">ID</label>
+            {/* Auto-issued on save — uses the new row's numeric id.
+                The format WBG-NNNN keeps the column compact while
+                staying unique per warp-beam-given entry. */}
+            <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
+          </div>
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label>
@@ -1278,15 +1147,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-3 py-3">Date</th>
-              <th className="text-left px-3 py-3">Party</th>
-              <th className="text-left px-3 py-3">Quality</th>
-              <th className="text-left px-3 py-3">Warp count</th>
+              <th className="text-left  px-3 py-3">ID</th>
+              <th className="text-left  px-3 py-3">Date</th>
+              <th className="text-left  px-3 py-3">Party</th>
+              <th className="text-left  px-3 py-3">Quality</th>
+              <th className="text-left  px-3 py-3">Warp count</th>
               <th className="text-right px-3 py-3">Ends</th>
-              <th className="text-right px-3 py-3">Beams</th>
+              <th className="text-right px-3 py-3" title="Total number of beams issued">Beams</th>
               <th className="text-right px-3 py-3">Metres</th>
-              <th className="text-left px-3 py-3">Sizing party</th>
-              <th className="text-left px-3 py-3">DC #</th>
+              <th className="text-left  px-3 py-3">Sizing party</th>
               <th className="text-right px-3 py-3"></th>
             </tr>
           </thead>
@@ -1303,6 +1172,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   <tr className="border-t border-line/40">
                     {isEditing ? (
                       <>
+                        {/* ID — auto-issued, never editable. */}
+                        <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                         <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
@@ -1317,7 +1188,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                             {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
                           </select>
                         </td>
-                        <td className="px-2 py-2"><input className="input h-8 text-xs w-24" value={ef.reference_no ?? ''} onChange={(e) => setEditForm({ ...ef, reference_no: e.target.value || null })} /></td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
                           <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
                           <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
@@ -1325,6 +1195,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                       </>
                     ) : (
                       <>
+                        {/* Auto-issued ID derived from the row's
+                            numeric primary key — short, sortable, and
+                            unique without a schema change. */}
+                        <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                         <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
                         <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
                         <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
@@ -1333,7 +1207,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
                         <td className="px-3 py-2 text-right num">{(r.original_metres ?? r.total_metres) ?? '-'}</td>
                         <td className="px-3 py-2 text-ink-soft">{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '-'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>

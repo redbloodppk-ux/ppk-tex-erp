@@ -166,24 +166,17 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
     }
 
     // ── Outsource, beam-wise ──
-    const missing = job.beams.find((b) => !s.beamVendorIds[b.id]);
-    if (missing) {
-      patch(job.id, { error: `Beam ${missing.beam_no}: pick a weaver.` });
-      return;
-    }
+    // A blank weaver on a beam means "keep this beam in-house" —
+    // the operator can split a set across an outsource weaver and
+    // their own loom without having to flip the parent row's mode.
     patch(job.id, { saving: true, error: null, saved: false });
-    // One update per beam — Postgres has no straight UPSERT for the
-    // (id, ledger) pair, and this loop is small (typically <= 20 beams
-    // per job), so the round-trip cost is negligible.
     for (const b of job.beams) {
-      const vendorId = Number(s.beamVendorIds[b.id]);
-      const { error: updErr } = await sb
-        .from('pavu')
-        .update({
-          production_mode:     'outsource',
-          outsource_ledger_id: vendorId,
-        })
-        .eq('id', b.id);
+      const raw      = s.beamVendorIds[b.id] ?? '';
+      const vendorId = raw === '' ? null : Number(raw);
+      const payload  = vendorId === null
+        ? { production_mode: 'in_house',  outsource_ledger_id: null     }
+        : { production_mode: 'outsource', outsource_ledger_id: vendorId };
+      const { error: updErr } = await sb.from('pavu').update(payload).eq('id', b.id);
       if (updErr) {
         patch(job.id, { saving: false, error: `Beam ${b.beam_no}: ${updErr.message}` });
         return;
@@ -319,7 +312,7 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
                               onChange={(e) => setBeamVendor(j.id, b.id, e.target.value)}
                               className="input py-1 text-xs flex-1 min-w-[180px]"
                             >
-                              <option value="">Select weaver…</option>
+                              <option value="">Keep in-house</option>
                               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                             </select>
                           </div>
