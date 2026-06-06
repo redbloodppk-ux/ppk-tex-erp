@@ -292,6 +292,7 @@ export default function JobworkPage(): React.ReactElement {
           sizingParties={sizingParties} fabricDefaults={fabricDefaults}
           partyById={partyById} qualityById={qualityById} countById={countById}
           partyLabel={variant.partyLabel}
+          kind={variant.kind}
           onChanged={load}
         />
       ) : tab === 'weft_bag' ? (
@@ -865,12 +866,31 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
 }
 
 /* ===== Warp Beam tab ===== */
-function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, partyLabel, onChanged }: {
+interface PavuFromMaster {
+  id: number;
+  pavu_code: string;
+  beam_no: string;
+  ends: number;
+  meters: number;
+  given_date: string;          // sizing_job.date_sent (or pavu.created_at fallback)
+  job_code: string | null;
+  set_no: string | null;
+  warp_count_code: string | null;
+  party_id: number | null;     // resolved via party.ledger_id = pavu.outsource_ledger_id
+  party_name: string | null;
+}
+
+function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDefaults, partyById, qualityById, countById, partyLabel, kind, onChanged }: {
   rows: WarpBeamRow[]; parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[];
   sizingParties: PartyOpt[]; fabricDefaults: Map<number, FabricDefaults>;
   partyById: Map<number, PartyOpt>; qualityById: Map<number, QualityOpt>; countById: Map<number, CountOpt>;
   /** "Jobwork Party" or "Outsourcing party" depending on the route. */
   partyLabel: string;
+  /** Tab is rendered inside /app/jobwork or /app/outsource. The
+   *  outsource variant pulls in pavu rows assigned to outsource via
+   *  Pavu Master and shows them as a read-only section above the
+   *  jobwork_warp_beam entries. */
+  kind: 'jobwork' | 'outsource';
   onChanged: () => void;
 }) {
   const supabase = createClient();
@@ -889,6 +909,85 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // Table filters (empty string = "All ...").
   const [filterQualityId, setFilterQualityId] = useState<string>('');
   const [filterPartyId, setFilterPartyId] = useState<string>('');
+
+  // Pavu rows routed as outsource via Pavu Master. Only loaded when
+  // this tab is rendered inside /app/outsource. Each row is shown in a
+  // read-only section above the legacy jobwork_warp_beam list so the
+  // operator sees "warp given via Pavu Master" in the same place they
+  // see manual warp-given entries.
+  const [pavuFromMaster, setPavuFromMaster] = useState<PavuFromMaster[]>([]);
+  useEffect(() => {
+    if (kind !== 'outsource') { setPavuFromMaster([]); return; }
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data: pavus } = await sb
+        .from('pavu')
+        .select(`
+          id, pavu_code, beam_no, ends, meters, production_mode,
+          outsource_ledger_id, created_at,
+          sizing_job:sizing_job_id (
+            job_code, set_no, date_sent,
+            warp_count:warp_count_id ( code )
+          )
+        `)
+        .eq('production_mode', 'outsource')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      const ledgerIds = Array.from(new Set(
+        ((pavus ?? []) as Array<{ outsource_ledger_id: number | null }>)
+          .map((p) => p.outsource_ledger_id)
+          .filter((x): x is number => x != null),
+      ));
+      // Map outsource_ledger_id → party (Outsource Weaver) via
+      // party.ledger_id. The Pavu Master bulk-routing form stores the
+      // party's ledger_id, so this reverse lookup gets us back to the
+      // operator-facing party name.
+      const partyByLedgerId = new Map<number, { id: number; name: string }>();
+      if (ledgerIds.length > 0) {
+        const { data: pps } = await sb
+          .from('party')
+          .select('id, name, ledger_id')
+          .in('ledger_id', ledgerIds);
+        for (const p of (pps ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>) {
+          if (p.ledger_id != null) partyByLedgerId.set(p.ledger_id, { id: p.id, name: p.name });
+        }
+      }
+      if (cancelled) return;
+      const shaped: PavuFromMaster[] = ((pavus ?? []) as Array<{
+        id: number; pavu_code: string; beam_no: string;
+        ends: number; meters: number | string | null;
+        outsource_ledger_id: number | null; created_at: string | null;
+        sizing_job: { job_code: string | null; set_no: string | null; date_sent: string | null; warp_count: { code: string | null } | null } | null;
+      }>).map((p) => {
+        const linked = p.outsource_ledger_id != null ? partyByLedgerId.get(p.outsource_ledger_id) ?? null : null;
+        return {
+          id: p.id,
+          pavu_code: p.pavu_code,
+          beam_no: p.beam_no,
+          ends: Number(p.ends ?? 0),
+          meters: Number(p.meters ?? 0),
+          given_date: p.sizing_job?.date_sent ?? (p.created_at ?? '').slice(0, 10),
+          job_code: p.sizing_job?.job_code ?? null,
+          set_no:   p.sizing_job?.set_no   ?? null,
+          warp_count_code: p.sizing_job?.warp_count?.code ?? null,
+          party_id: linked?.id ?? null,
+          party_name: linked?.name ?? null,
+        };
+      });
+      setPavuFromMaster(shaped);
+    })();
+    return () => { cancelled = true; };
+  }, [kind, supabase]);
+
+  // Apply the existing party filter to the Pavu Master section too,
+  // so flipping the dropdown narrows both lists in sync.
+  const filteredPavus = pavuFromMaster.filter((p) => {
+    if (filterPartyId !== '' && String(p.party_id ?? '') !== filterPartyId) return false;
+    return true;
+  });
+  const pavusTotal = filteredPavus.reduce((s, p) => s + p.meters, 0);
 
   // Rows after applying the on-screen filters. We keep `rows` (the full
   // list) for the table body filter check and the footer's totals so the
@@ -1017,6 +1116,63 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           {showAdd ? 'Cancel' : 'Add warp beam given'}
         </button>
       </div>
+
+      {/* From Pavu Master — read-only list of pavu rows routed to
+          outsource via Pavu Master's bulk-routing form. Shown only on
+          /app/outsource and only when there's something to display.
+          The operator can switch the party filter above to narrow
+          both lists at once. */}
+      {kind === 'outsource' && pavuFromMaster.length > 0 && (
+        <section className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-display font-bold text-sm">
+              From Pavu Master <span className="text-ink-mute">· sized beams assigned to outsource</span>
+            </h3>
+            <span className="text-xs text-ink-mute">
+              {filteredPavus.length} beam{filteredPavus.length === 1 ? '' : 's'} ·{' '}
+              {pavusTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
+            </span>
+          </div>
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="text-left  px-3 py-2">Pavu</th>
+                  <th className="text-left  px-3 py-2">Beam No</th>
+                  <th className="text-left  px-3 py-2 hidden md:table-cell">Sizing Job</th>
+                  <th className="text-left  px-3 py-2 hidden md:table-cell">Set No</th>
+                  <th className="text-left  px-3 py-2 hidden lg:table-cell">Count</th>
+                  <th className="text-left  px-3 py-2">Outsource Party</th>
+                  <th className="text-right px-3 py-2">Ends</th>
+                  <th className="text-right px-3 py-2">Metres</th>
+                  <th className="text-left  px-3 py-2 hidden lg:table-cell">Given Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPavus.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-3 py-6 text-center text-ink-soft text-sm">
+                      No pavu rows match the active party filter.
+                    </td>
+                  </tr>
+                ) : filteredPavus.map((p) => (
+                  <tr key={p.id} className="border-t border-line/40">
+                    <td className="px-3 py-2 font-mono text-xs font-semibold">{p.pavu_code}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{p.beam_no}</td>
+                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-ink-soft">{p.job_code ?? '—'}</td>
+                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-ink-soft">{p.set_no ?? '—'}</td>
+                    <td className="px-3 py-2 hidden lg:table-cell text-ink-soft">{p.warp_count_code ?? '—'}</td>
+                    <td className="px-3 py-2">{p.party_name ?? <span className="text-ink-mute">—</span>}</td>
+                    <td className="px-3 py-2 text-right num">{p.ends}</td>
+                    <td className="px-3 py-2 text-right num">{p.meters.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 hidden lg:table-cell text-xs text-ink-soft">{p.given_date || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {showAdd && (
       <div className="card p-4 mb-4">
