@@ -39,8 +39,8 @@ export default async function YarnPage() {
       {!lots?.length ? (
         <ComingSoon note="No yarn lots yet. Use the Yarn Purchase form to enter incoming bales." />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
                 <th className="text-left px-4 py-3">Lot No</th>

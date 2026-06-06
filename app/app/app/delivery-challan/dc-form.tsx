@@ -602,24 +602,29 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             );
           })()}
         </div>
-        <div>
+        <div className="col-span-2 md:col-span-1">
           <label className="label">Production Mode *</label>
-          <div className="flex gap-1.5">
+          {/* Grid so the three buttons share the row width evenly on
+              mobile instead of one overflowing off-screen. The parent
+              cell spans both columns on mobile (col-span-2 in the
+              grid-cols-2 viewport) so all three options fit on one line
+              without truncating. */}
+          <div className="grid grid-cols-3 gap-1.5">
             <button type="button"
               onClick={() => setForm({ ...form, production_mode: 'inhouse', party_id: '' })}
-              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+              className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'inhouse'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>In-house</button>
             <button type="button"
               onClick={() => setForm({ ...form, production_mode: 'jobwork', party_id: '' })}
-              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+              className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'jobwork'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Job-work</button>
             <button type="button"
               onClick={() => setForm({ ...form, production_mode: 'outsource', party_id: '' })}
-              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+              className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'outsource'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Outsource</button>

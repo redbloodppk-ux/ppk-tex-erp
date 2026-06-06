@@ -323,8 +323,12 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
         <div className="p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{savedMsg}</div>
       )}
 
-      <div className="flex justify-between gap-2 pt-2">
-        <div className="flex gap-2">
+      {/* Action bar — wraps onto two rows on mobile so the primary Save
+          button stays inside the viewport. On wider screens it stays
+          as one row, archive/delete on the left, cancel/save on the
+          right. */}
+      <div className="flex flex-wrap justify-between gap-2 pt-2">
+        <div className="flex flex-wrap gap-2">
           {isEdit && (
             <>
               <button
@@ -348,11 +352,11 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
             </>
           )}
         </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => router.back()} className="btn-ghost">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <button type="button" onClick={() => router.back()} className="btn-ghost flex-1 sm:flex-none justify-center">
             Cancel
           </button>
-          <button type="submit" disabled={busy} className="btn-primary">
+          <button type="submit" disabled={busy} className="btn-primary flex-1 sm:flex-none justify-center">
             {busy && <Loader2 className="w-4 h-4 animate-spin" />}
             {isEdit ? 'Save Changes' : 'Create Customer'}
           </button>

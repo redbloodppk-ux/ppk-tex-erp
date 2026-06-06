@@ -143,8 +143,8 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
         {error && <p className="text-sm text-err mt-2">{error}</p>}
       </div>
 
-      <div className="card overflow-hidden max-w-xl">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto max-w-xl">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Name</th>

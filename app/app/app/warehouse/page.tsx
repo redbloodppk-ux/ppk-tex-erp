@@ -589,8 +589,8 @@ function YarnView({ rows }: { rows: YarnRow[] }) {
         <Kpi label="Stock Value (weighted)" value={formatRupee(totalValue, { compact: true })} icon={Coins} />
         <Kpi label="Distinct (Supplier × Count)" value={String(rows.length)} icon={TrendingDown} />
       </div>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Count</th>
@@ -750,8 +750,8 @@ function BobbinView({ rows }: { rows: BobbinRow[] }) {
         <Kpi label="At Main Godown" value={(byLocation.main_godown ?? 0).toFixed(2)} icon={Boxes} />
         <Kpi label="With Outsiders" value={((byLocation.at_vendor ?? 0) + (byLocation.customer_owned ?? 0)).toFixed(2)} icon={TrendingDown} />
       </div>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Bobbin</th>
@@ -865,8 +865,8 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
         <Kpi label="Stock Value" value={formatRupee(totalValue, { compact: true })} icon={Coins} />
         <Kpi label="Distinct (Quality × Source)" value={String(rows.length)} icon={TrendingDown} />
       </div>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Quality</th>

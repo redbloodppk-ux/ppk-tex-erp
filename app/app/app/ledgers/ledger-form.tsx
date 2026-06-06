@@ -327,8 +327,10 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       {error && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{error}</div>}
       {savedMsg && <div className="p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{savedMsg}</div>}
 
-      <div className="flex justify-between gap-2 pt-2">
-        <div className="flex gap-2">
+      {/* Action bar — wraps onto two rows on mobile so the primary Save
+          button stays inside the viewport. */}
+      <div className="flex flex-wrap justify-between gap-2 pt-2">
+        <div className="flex flex-wrap gap-2">
           {isEdit && (
             <>
               <button type="button" onClick={handleArchive} disabled={busy}
@@ -342,9 +344,9 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
             </>
           )}
         </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => router.back()} className="btn-ghost">Cancel</button>
-          <button type="button" onClick={handleSave} disabled={busy} className="btn-primary">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <button type="button" onClick={() => router.back()} className="btn-ghost flex-1 sm:flex-none justify-center">Cancel</button>
+          <button type="button" onClick={handleSave} disabled={busy} className="btn-primary flex-1 sm:flex-none justify-center">
             {busy && <Loader2 className="w-4 h-4 animate-spin" />}
             {isEdit ? 'Save Changes' : 'Create Ledger'}
           </button>

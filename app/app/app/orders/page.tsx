@@ -130,8 +130,8 @@ export default async function OrdersPage() {
       {!orders?.length ? (
         <ComingSoon note="No sales orders yet. Once you create one, it appears here with delivery date and invoiced status." />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
                 <th className="text-left px-4 py-3">Doc No</th>
