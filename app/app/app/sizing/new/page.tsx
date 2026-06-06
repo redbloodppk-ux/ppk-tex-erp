@@ -336,6 +336,13 @@ export default function NewSizingJobPage() {
     return (Number(yarnSentKg) || 0) - (Number(yarnUsedKg) || 0);
   }, [yarnSentKg, yarnUsedKg]);
 
+  // Total metres across all beams in this job. Surfaced under the
+  // beam rows so the operator can sanity-check the lot total at a
+  // glance instead of tallying mentally.
+  const totalMetres = useMemo(() => {
+    return beams.reduce((sum, b) => sum + (Number(b.meters) || 0), 0);
+  }, [beams]);
+
   // ── beam row helpers ──────────────────────────────────────────────────────
   function patchBeam(idx: number, patch: Partial<BeamRow>) {
     setBeams(prev => prev.map((b, i) => i === idx ? { ...b, ...patch } : b));
@@ -823,6 +830,18 @@ export default function NewSizingJobPage() {
                   )}
                 </div>
               ))}
+            </div>
+
+            {/* Total metres footer — sum of metres across every beam.
+                Updates live as the operator types per-beam metres or
+                changes the beam count. */}
+            <div className="flex items-center justify-between rounded-lg border border-line/60 bg-indigo-50/40 px-4 py-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                Total metres
+              </span>
+              <span className="num font-bold text-indigo text-lg">
+                {totalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
+              </span>
             </div>
           </div>
 
