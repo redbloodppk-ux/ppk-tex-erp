@@ -945,7 +945,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // dropdowns (party → sizing party → sizing job) read from this.
   const [outsourceRoutings,    setOutsourceRoutings]    = useState<OutsourceRouting[]>([]);
   const [outsourcePartyLedger, setOutsourcePartyLedger] = useState<Map<number, number>>(new Map());
-  const [sizingPartyLedger,    setSizingPartyLedger]    = useState<Map<number, number>>(new Map());
+  // Sizing vendor ledger directory — keyed by ledger_id. We source
+  // the sizing-party dropdown from this instead of the sizingParties
+  // prop because sizing_job.sizing_ledger_id is a ledger id, not a
+  // party id, and there's no reliable bridge to "Sizing Party" type
+  // parties.
+  const [sizingVendorLedgerName, setSizingVendorLedgerName] = useState<Map<number, string>>(new Map());
+  // Reverse lookup ledger_id → party_id so we can still populate the
+  // supplier_party_id FK on save when a Sizing Party party exists
+  // for the selected ledger.
+  const [sizingPartyByLedger,    setSizingPartyByLedger]    = useState<Map<number, number>>(new Map());
 
   // Load every piece of routing context the cascading dropdowns
   // need: outsource-routed pavu rows (with their outsource_ledger_id
@@ -963,14 +972,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [pavuRes, sizingPartyLedgerRes, outsourcePartyLedgerRes] = await Promise.all([
+      const [pavuRes, outsourcePartyLedgerRes] = await Promise.all([
         sb.from('pavu')
           .select('outsource_ledger_id, sizing_job_id')
           .eq('production_mode', 'outsource')
           .not('sizing_job_id', 'is', null),
-        sizingParties.length > 0
-          ? sb.from('party').select('id, ledger_id').in('id', sizingParties.map((p) => p.id))
-          : Promise.resolve({ data: [] }),
         parties.length > 0
           ? sb.from('party').select('id, ledger_id').in('id', parties.map((p) => p.id))
           : Promise.resolve({ data: [] }),
@@ -981,25 +987,45 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
       // Sizing job lookup — only the jobs referenced by an outsource
       // routing, with their sizing_ledger_id so the cascade can
-      // match against the picked sizing party.
+      // group by sizing vendor.
       const jobIds = Array.from(new Set(routings.map((r) => r.sizing_job_id).filter((x): x is number => x != null)));
-      if (jobIds.length === 0) {
-        if (!cancelled) setSizingJobs([]);
-      } else {
+      let loadedJobs: SizingJobOpt[] = [];
+      if (jobIds.length > 0) {
         const { data: jobs } = await sb
           .from('sizing_job')
           .select('id, job_code, set_no, warp_count_id, sizing_ledger_id')
           .in('id', jobIds)
           .order('created_at', { ascending: false })
           .limit(200);
-        if (!cancelled) setSizingJobs(((jobs ?? []) as SizingJobOpt[]));
+        loadedJobs = ((jobs ?? []) as SizingJobOpt[]);
       }
+      if (!cancelled) setSizingJobs(loadedJobs);
 
-      const sizingMap = new Map<number, number>();
-      for (const p of (sizingPartyLedgerRes.data ?? []) as Array<{ id: number; ledger_id: number | null }>) {
-        if (p.ledger_id != null) sizingMap.set(p.id, p.ledger_id);
+      // Resolve sizing vendor ledger names for the dropdown plus a
+      // reverse map back to "Sizing Party" type parties (so we can
+      // still write supplier_party_id when the operator has one
+      // configured for that ledger).
+      const sizingLedgerIds = Array.from(new Set(
+        loadedJobs.map((j) => j.sizing_ledger_id).filter((x): x is number => x != null),
+      ));
+      const vendorMap     = new Map<number, string>();
+      const partyByLedger = new Map<number, number>();
+      if (sizingLedgerIds.length > 0) {
+        const [ledgerRes, partyRes] = await Promise.all([
+          sb.from('ledger').select('id, name').in('id', sizingLedgerIds),
+          sb.from('party').select('id, name, ledger_id').in('ledger_id', sizingLedgerIds),
+        ]);
+        for (const l of (ledgerRes.data ?? []) as Array<{ id: number; name: string }>) {
+          vendorMap.set(l.id, l.name);
+        }
+        for (const p of (partyRes.data ?? []) as Array<{ id: number; ledger_id: number | null }>) {
+          if (p.ledger_id != null) partyByLedger.set(p.ledger_id, p.id);
+        }
       }
-      if (!cancelled) setSizingPartyLedger(sizingMap);
+      if (!cancelled) {
+        setSizingVendorLedgerName(vendorMap);
+        setSizingPartyByLedger(partyByLedger);
+      }
 
       const outsourceMap = new Map<number, number>();
       for (const p of (outsourcePartyLedgerRes.data ?? []) as Array<{ id: number; ledger_id: number | null }>) {
@@ -1008,7 +1034,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       if (!cancelled) setOutsourcePartyLedger(outsourceMap);
     })();
     return () => { cancelled = true; };
-  }, [showAdd, kind, supabase, parties, sizingParties]);
+  }, [showAdd, kind, supabase, parties]);
 
   // ── Cascade memos ──────────────────────────────────────────────
   const selectedOutsourceLedgerId = form.jobwork_party_id === ''
@@ -1029,38 +1055,39 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return out;
   }, [outsourceRoutings, selectedOutsourceLedgerId]);
 
-  // Sizing parties that have a job going to the selected outsource
-  // party. The cascade is strict: until both an outsource party is
-  // picked AND we have its ledger_id resolved, the dropdown stays
-  // empty — otherwise the operator would see every Sizing Party in
-  // the master, which defeats the point of the filter.
-  const eligibleSizingParties = useMemo(() => {
+  // Sizing vendors (ledger-backed) eligible for the selected
+  // outsource party. We dedupe by sizing_ledger_id across the
+  // matching sizing jobs and resolve the ledger name from
+  // sizingVendorLedgerName loaded above. The dropdown stays empty
+  // until an outsource party is picked AND its ledger is resolved.
+  const eligibleSizingVendors = useMemo<Array<{ ledger_id: number; name: string }>>(() => {
     if (form.jobwork_party_id === '' || selectedOutsourceLedgerId == null) return [];
-    const allowedLedgers = new Set<number>();
+    const seen = new Set<number>();
+    const out: Array<{ ledger_id: number; name: string }> = [];
     for (const j of sizingJobs) {
-      if (sizingJobIdsForOutsource.has(j.id) && j.sizing_ledger_id != null) {
-        allowedLedgers.add(j.sizing_ledger_id);
-      }
+      if (!sizingJobIdsForOutsource.has(j.id)) continue;
+      const lid = j.sizing_ledger_id;
+      if (lid == null || seen.has(lid)) continue;
+      seen.add(lid);
+      out.push({ ledger_id: lid, name: sizingVendorLedgerName.get(lid) ?? `Ledger #${lid}` });
     }
-    return sizingParties.filter((p) => {
-      const lid = sizingPartyLedger.get(p.id);
-      return lid != null && allowedLedgers.has(lid);
-    });
-  }, [form.jobwork_party_id, sizingParties, sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, selectedOutsourceLedgerId]);
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, sizingVendorLedgerName, selectedOutsourceLedgerId]);
 
   // Sizing jobs filtered by both outsource party and (when set)
-  // sizing party. Empty until at least the outsource party is picked.
+  // sizing vendor. form.supplier_party_id now stores the selected
+  // sizing-vendor *ledger_id* (the dropdown value); on save we map
+  // it back to a party_id where possible.
   const eligibleSizingJobs = useMemo(() => {
     if (selectedOutsourceLedgerId == null) return [];
-    const supplierLedgerId = form.supplier_party_id === ''
-      ? null
-      : sizingPartyLedger.get(Number(form.supplier_party_id)) ?? null;
+    const supplierLedgerId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
     return sizingJobs.filter((j) => {
       if (!sizingJobIdsForOutsource.has(j.id)) return false;
       if (supplierLedgerId !== null && j.sizing_ledger_id !== supplierLedgerId) return false;
       return true;
     });
-  }, [sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, form.supplier_party_id, selectedOutsourceLedgerId]);
+  }, [sizingJobs, sizingJobIdsForOutsource, form.supplier_party_id, selectedOutsourceLedgerId]);
 
   // When the outsource party changes, clear stale sizing-party and
   // sizing-job selections so the cascade doesn't get confused.
@@ -1185,6 +1212,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       // numeric values into the table — the operator never touches
       // these fields, so there's no validation to do beyond > 0.
       const beamIds = Array.from(selectedPavuIds);
+      // form.supplier_party_id now stores the picked sizing-vendor
+      // ledger_id (the dropdown is ledger-backed). Translate back to
+      // a party_id when a matching "Sizing Party" party exists for
+      // that ledger; otherwise leave the FK null. The warp-given row
+      // still records the sizing vendor through its linked sizing
+      // job, so no info is lost on the receipt side.
+      const supplierLedgerId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
+      const supplierPartyId  = supplierLedgerId != null
+        ? sizingPartyByLedger.get(supplierLedgerId) ?? null
+        : null;
       const payload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
         fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -1196,7 +1233,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         original_metres:   autoTotalMetres > 0 ? autoTotalMetres : null,
         reference_no:      form.reference_no.trim() || null,
         notes:             form.notes.trim() || null,
-        supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+        supplier_party_id: supplierPartyId,
         // Aggregate row — no single pavu link. pavu_ids records the
         // exact set of pavus this row represents so the Release
         // action can revert just those beams.
@@ -1391,11 +1428,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">
                 {form.jobwork_party_id === ''
                   ? 'Pick outsource party first…'
-                  : eligibleSizingParties.length === 0
-                    ? 'No sizing parties for this party'
+                  : eligibleSizingVendors.length === 0
+                    ? 'No sizing vendors used for this party'
                     : '--- pick ---'}
               </option>
-              {eligibleSizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+              {eligibleSizingVendors.map((v) => (
+                <option key={v.ledger_id} value={v.ledger_id}>{v.name}</option>
+              ))}
             </select></div>
           <div><label className="label text-xs">Sizing job *</label>
             <select
