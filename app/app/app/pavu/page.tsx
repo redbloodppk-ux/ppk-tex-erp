@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Factory } from 'lucide-react';
+import { Factory, Shuffle, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { BulkRoutingForm, type BulkJobRow, type WeavingVendor } from './bulk-routing-form';
@@ -11,12 +11,16 @@ export const dynamic = 'force-dynamic';
 type Tab = 'inhouse' | 'outsource';
 
 interface PageProps {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; bulk?: string }>;
 }
 
 export default async function PavuListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'outsource' ? 'outsource' : 'inhouse';
+  // The bulk-routing form is hidden by default and toggled via a
+  // header button. We use a URL search param so the toggle survives
+  // page refreshes and back/forward navigation.
+  const bulkOpen = sp.bulk === 'open';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,6 +154,11 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     });
 
   const tabLink = (next: Tab): string => `/app/pavu?tab=${next}`;
+  // Bulk-routing toggle preserves the active tab so flipping the
+  // form open / closed doesn't bounce the operator back to In-house.
+  const bulkToggleHref = bulkOpen
+    ? `/app/pavu?tab=${tab}`
+    : `/app/pavu?tab=${tab}&bulk=open`;
 
   return (
     <div>
@@ -157,9 +166,24 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         title="Pavu Master"
         subtitle="Every sized warp beam in the mill. Switch tabs to see in-house vs outsource routing; the table itself is editable."
         actions={
-          <Link href="/app/pavu/assign" className="btn-ghost">
-            <Factory className="w-4 h-4" /> Loom View
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Bulk-routing toggle — only useful on the Outsource tab.
+                Hidden on In-house to keep the header uncluttered. */}
+            {tab === 'outsource' && (
+              <Link
+                href={bulkToggleHref}
+                className={bulkOpen ? 'btn-ghost' : 'btn-secondary'}
+                scroll={false}
+              >
+                {bulkOpen
+                  ? <><X className="w-4 h-4" /> Hide bulk routing</>
+                  : <><Shuffle className="w-4 h-4" /> Bulk routing</>}
+              </Link>
+            )}
+            <Link href="/app/pavu/assign" className="btn-ghost">
+              <Factory className="w-4 h-4" /> Loom View
+            </Link>
+          </div>
         }
       />
 
@@ -189,8 +213,9 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         </Link>
       </div>
 
-      {/* Bulk routing form — only useful on the Outsource tab */}
-      {tab === 'outsource' && (
+      {/* Bulk routing form — only on Outsource tab AND only when the
+          header toggle is on (?bulk=open). */}
+      {tab === 'outsource' && bulkOpen && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-display font-bold text-sm">
