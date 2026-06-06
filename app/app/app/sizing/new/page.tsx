@@ -113,6 +113,15 @@ export default function NewSizingJobPage() {
   const [defaultMode, setDefaultMode] = useState<DefaultMode>('in_house');
   const [defaultOutsourceVendorId, setDefaultOutsourceVendorId] = useState('');
 
+  // Bulk beam-generation controls. The operator types a starting
+  // beam number, how many beams, and the ends value, and we
+  // generate the per-beam rows automatically with auto-incremented
+  // beam_no and the shared ends. Meters stays per-beam because each
+  // beam comes back with its own length.
+  const [firstBeamNo, setFirstBeamNo] = useState<string>('1');
+  const [beamCount,   setBeamCount]   = useState<string>('1');
+  const [commonEnds,  setCommonEnds]  = useState<string>('');
+
   // beams (one row per physical beam)
   const [beams, setBeams] = useState<BeamRow[]>([emptyBeam('in_house')]);
 
@@ -245,6 +254,38 @@ export default function NewSizingJobPage() {
     }
   }, [yarnLotId, lots]);
 
+  // Whenever the bulk controls (first beam no / count / common ends)
+  // change, regenerate the beams array so the per-row state matches.
+  // Existing meters are preserved by index — if the operator already
+  // typed metres for beam #1 and then bumps the count from 1 to 3,
+  // beam #1 keeps its metres and the new rows start blank. Decreasing
+  // the count truncates from the tail.
+  useEffect(() => {
+    const start = Math.max(0, Math.floor(Number(firstBeamNo) || 0));
+    const count = Math.max(1, Math.floor(Number(beamCount)   || 1));
+    setBeams((prev) => {
+      const next: BeamRow[] = [];
+      for (let i = 0; i < count; i++) {
+        const existing = prev[i];
+        const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
+        next.push({
+          beam_no: String(start + i),
+          ends:    commonEnds,
+          meters:  existing?.meters ?? '',
+          production_mode: existing?.production_mode ?? mode,
+          outsource_vendor_id:
+            existing?.outsource_vendor_id
+            ?? (mode === 'outsource' ? defaultOutsourceVendorId : ''),
+        });
+      }
+      return next;
+    });
+    // defaultMode / defaultOutsourceVendorId aren't in deps on purpose:
+    // applyDefaultMode below handles those changes separately so we
+    // don't fight with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstBeamNo, beamCount, commonEnds]);
+
   // ── billing math ──────────────────────────────────────────────────────────
   // Sizing charges multiply against Yarn Used (kg), not Yarn Sent.
   // Mills bill for what they actually sized, not for what was handed
@@ -275,11 +316,22 @@ export default function NewSizingJobPage() {
     setBeams(prev => prev.map((b, i) => i === idx ? { ...b, ...patch } : b));
   }
   function addBeam() {
-    const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
-    setBeams(prev => [...prev, emptyBeam(mode)]);
+    // Adding a beam manually bumps the bulk Count input by one — the
+    // useEffect that regenerates `beams` will then append a row with
+    // an auto-incremented beam number and the shared ends value.
+    setBeamCount((c) => String((Math.floor(Number(c) || 0) || 0) + 1));
   }
   function removeBeam(idx: number) {
-    setBeams(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx));
+    // Same idea for removal — drop the count by one. The regenerate
+    // effect truncates from the tail, so we pop the row regardless
+    // of which idx was clicked; the operator typically removes the
+    // last row when reducing count, and this keeps the auto-numbered
+    // beam_no series contiguous.
+    void idx;
+    setBeamCount((c) => {
+      const n = Math.max(1, Math.floor(Number(c) || 1) - 1);
+      return String(n);
+    });
   }
 
   // When the user changes the "default routing", apply it to all rows
@@ -587,6 +639,54 @@ export default function NewSizingJobPage() {
               </button>
             </div>
 
+            {/* Bulk beam-generation controls — instead of clicking "Add
+                beam" for every pavu, the operator types: the first
+                beam number, how many beams in the lot, and the ends
+                value common to all of them. The rows below regenerate
+                automatically with auto-incremented beam_no and the
+                shared ends. Metres stays per-row because each beam
+                comes back with its own length. */}
+            <div className="rounded-lg border border-line/60 bg-cloud/30 p-3">
+              <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">
+                Quick fill
+              </div>
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">First Beam No</label>
+                  <input
+                    type="number" min={0} step={1}
+                    value={firstBeamNo}
+                    onChange={(e) => setFirstBeamNo(e.target.value)}
+                    className="input num"
+                    placeholder="5715"
+                  />
+                </div>
+                <div>
+                  <label className="label">No. of Beams</label>
+                  <input
+                    type="number" min={1} step={1}
+                    value={beamCount}
+                    onChange={(e) => setBeamCount(e.target.value)}
+                    className="input num"
+                  />
+                </div>
+                <div>
+                  <label className="label">Ends (applies to all)</label>
+                  <input
+                    type="number" min={0} step={1}
+                    value={commonEnds}
+                    onChange={(e) => setCommonEnds(e.target.value)}
+                    className="input num"
+                    placeholder="2400"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-ink-mute mt-2">
+                Beam numbers auto-increment from the first. Ends value
+                copies to every beam. Edit individual metres below.
+              </p>
+            </div>
+
             {/* Production routing chooser */}
             <div>
               <label className="label">Default production routing</label>
@@ -629,15 +729,22 @@ export default function NewSizingJobPage() {
                   </div>
                   <div className="grid sm:grid-cols-3 gap-2">
                     <div>
-                      <label className="label">Beam No *</label>
-                      <input value={b.beam_no} onChange={e => patchBeam(idx, { beam_no: e.target.value })}
-                        className="input num" placeholder="e.g. 5715" />
+                      <label className="label">Beam No</label>
+                      {/* Auto-incremented from "First Beam No" in the
+                          Quick fill panel above. Locked so the series
+                          stays contiguous; edit Quick fill to renumber. */}
+                      <div className="input num bg-cloud/40 text-ink-mute select-none">
+                        {b.beam_no || '—'}
+                      </div>
                     </div>
                     <div>
-                      <label className="label">Ends *</label>
-                      <input type="number" min={1} value={b.ends}
-                        onChange={e => patchBeam(idx, { ends: e.target.value })}
-                        className="input num" placeholder="2400" />
+                      <label className="label">Ends</label>
+                      {/* Shared across all beams — set once in Quick
+                          fill above. Read-only here so the operator
+                          can't accidentally desync one row. */}
+                      <div className="input num bg-cloud/40 text-ink-mute select-none">
+                        {b.ends || '—'}
+                      </div>
                     </div>
                     <div>
                       <label className="label">Metres *</label>
