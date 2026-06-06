@@ -889,6 +889,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [form, setForm] = useState({
     given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
     total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
+    // New (outsource flow): the sizing job the operator is sourcing
+    // beams from. When set we list its pavu rows below and the
+    // operator ticks the ones to include.
+    sizing_job_id: '',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -902,10 +906,89 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [filterQualityId, setFilterQualityId] = useState<string>('');
   const [filterPartyId, setFilterPartyId] = useState<string>('');
 
-  // Per-operator decision: the Pavu Master assignments live on the
-  // pavu rows themselves; this tab now shows only what's been
-  // captured via the Add warp beam given form. No extra pavu
-  // fetch happens here.
+  // Pavu-driven Add form state. Sizing jobs are loaded once when the
+  // Add form opens; the selected job's pavu rows are loaded
+  // independently so the checkbox list narrows the moment the
+  // operator picks a job.
+  interface SizingJobOpt {
+    id: number;
+    job_code: string;
+    set_no: string | null;
+    warp_count_id: number | null;
+  }
+  interface PavuOpt {
+    id: number;
+    pavu_code: string;
+    beam_no: string;
+    ends: number;
+    meters: number;
+    production_mode: 'in_house' | 'outsource' | null;
+    outsource_ledger_id: number | null;
+  }
+  const [sizingJobs,       setSizingJobs]       = useState<SizingJobOpt[]>([]);
+  const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
+  const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
+
+  // Load sizing jobs once when the form opens.
+  useEffect(() => {
+    if (!showAdd || kind !== 'outsource') return;
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('sizing_job')
+        .select('id, job_code, set_no, warp_count_id')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (cancelled) return;
+      setSizingJobs((data ?? []) as SizingJobOpt[]);
+    })();
+    return () => { cancelled = true; };
+  }, [showAdd, kind, supabase]);
+
+  // Load pavu rows when the sizing job picker changes.
+  useEffect(() => {
+    if (form.sizing_job_id === '') { setPavusForJob([]); setSelectedPavuIds(new Set()); return; }
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('pavu')
+        .select('id, pavu_code, beam_no, ends, meters, production_mode, outsource_ledger_id')
+        .eq('sizing_job_id', Number(form.sizing_job_id))
+        .order('beam_no');
+      if (cancelled) return;
+      setPavusForJob((data ?? []) as PavuOpt[]);
+      setSelectedPavuIds(new Set());
+    })();
+    return () => { cancelled = true; };
+  }, [form.sizing_job_id, supabase]);
+
+  function toggleSelectedPavu(id: number) {
+    setSelectedPavuIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Auto-totals derived from the selected pavu rows. These drive the
+  // read-only "auto" fields on the form; the operator can't override
+  // them — to change the figure they pick / unpick a beam.
+  const selectedPavus = pavusForJob.filter((p) => selectedPavuIds.has(p.id));
+  const autoBeamCount = selectedPavus.length;
+  const autoTotalMetres = selectedPavus.reduce((s, p) => s + Number(p.meters ?? 0), 0);
+  // Total ends = the ends value of the selected beams. We show the
+  // distinct values when the selection spans multiple ends specs.
+  const autoEndsValues = Array.from(new Set(selectedPavus.map((p) => Number(p.ends ?? 0))));
+  const autoEndsDisplay = autoEndsValues.length === 1 ? String(autoEndsValues[0]) : autoEndsValues.join(', ');
+  const autoWarpCountId = (() => {
+    const job = sizingJobs.find((j) => j.id === Number(form.sizing_job_id));
+    return job?.warp_count_id ?? null;
+  })();
+  const autoWarpCountLabel = autoWarpCountId != null ? countById.get(autoWarpCountId)?.display_name ?? `#${autoWarpCountId}` : '—';
 
   // Rows after applying the on-screen filters. We keep `rows` (the full
   // list) for the table body filter check and the footer's totals so the
@@ -941,10 +1024,85 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   async function add() {
     setErr(null);
-    if (form.jobwork_party_id === '') { setErr('Pick a jobwork party.'); return; }
+    if (form.jobwork_party_id === '') { setErr('Pick an outsource party.'); return; }
+    if (kind === 'outsource') {
+      // Pavu-driven flow on the outsource page. Sizing job + selected
+      // pavu beams are mandatory; the totals are auto-derived from
+      // the picked beams, never typed.
+      if (form.sizing_job_id === '') { setErr('Pick a sizing job.'); return; }
+      if (selectedPavuIds.size === 0) { setErr('Select at least one pavu beam.'); return; }
+    }
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    if (kind === 'outsource') {
+      // Resolve the selected outsource party's ledger_id so we can
+      // update the pavu rows with the correct foreign key. The party
+      // dropdown stores party.id; pavu.outsource_ledger_id stores
+      // party.ledger_id.
+      const { data: party } = await sb
+        .from('party')
+        .select('ledger_id')
+        .eq('id', Number(form.jobwork_party_id))
+        .maybeSingle();
+      if (!party?.ledger_id) {
+        setBusy(false);
+        setErr('Selected party has no linked ledger. Set it up on the party form first.');
+        return;
+      }
+      const newLedgerId = Number(party.ledger_id);
+
+      // Auto totals are derived from the picked beams. We send the
+      // numeric values into the table — the operator never touches
+      // these fields, so there's no validation to do beyond > 0.
+      const payload = {
+        jobwork_party_id:  Number(form.jobwork_party_id),
+        fabric_quality_id: null,
+        warp_count_id:     autoWarpCountId,
+        given_date:        form.given_date,
+        total_ends:        autoEndsValues.length === 1 ? autoEndsValues[0] : null,
+        beam_count:        autoBeamCount,
+        total_metres:      autoTotalMetres > 0 ? autoTotalMetres : null,
+        original_metres:   autoTotalMetres > 0 ? autoTotalMetres : null,
+        reference_no:      form.reference_no.trim() || null,
+        notes:             form.notes.trim() || null,
+        supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+        // Aggregate row — no single pavu link. Per-pavu mirror rows
+        // (created by Pavu Master inline edits) are wiped below
+        // since this aggregate now represents them.
+        pavu_id:           null,
+      };
+      const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
+      if (insErr) { setBusy(false); setErr(insErr.message); return; }
+
+      // Update each selected pavu to the outsource routing.
+      const beamIds = Array.from(selectedPavuIds);
+      const { error: pavuErr } = await sb
+        .from('pavu')
+        .update({ production_mode: 'outsource', outsource_ledger_id: newLedgerId })
+        .in('id', beamIds);
+      if (pavuErr) { setBusy(false); setErr(`Warp-given saved but pavu update failed: ${pavuErr.message}`); return; }
+
+      // Drop any 1-to-1 mirror rows for the selected pavus — they're
+      // represented by the aggregate row now.
+      await sb.from('jobwork_warp_beam').delete().in('pavu_id', beamIds);
+
+      setBusy(false);
+      setForm({
+        given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
+        total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
+        sizing_job_id: '',
+      });
+      setSelectedPavuIds(new Set());
+      setPavusForJob([]);
+      setShowAdd(false);
+      onChanged();
+      return;
+    }
+
+    // Legacy flat-form path (jobwork variant — kept for back-compat
+    // even though that tab is no longer rendered by default).
     const payload = {
       jobwork_party_id: Number(form.jobwork_party_id),
       fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -963,6 +1121,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setForm({
       given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
       total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
+      sizing_job_id: '',
     });
     setShowAdd(false);
     onChanged();
@@ -1046,13 +1205,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           surface in the Pavu list, not here. */}
 
       {showAdd && (
-      <div className="card p-4 mb-4">
-        <h3 className="font-display font-bold text-sm mb-3">Add warp beam given</h3>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="card p-4 mb-4 space-y-4">
+        <h3 className="font-display font-bold text-sm">Add warp beam given</h3>
+
+        {/* Step 1 — pick date, party, sizing job. The sizing-job picker
+            drives the pavu list below; the totals downstream are then
+            auto-derived from whichever pavu beams the operator ticks. */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><label className="label text-xs">ID</label>
-            {/* Auto-issued on save — uses the new row's numeric id.
-                The format WBG-NNNN keeps the column compact while
-                staying unique per warp-beam-given entry. */}
             <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
           </div>
           <div><label className="label text-xs">Date *</label>
@@ -1062,20 +1222,96 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
-          <div><label className="label text-xs">Fabric quality</label>
-            <select className="input" value={form.fabric_quality_id} onChange={(e) => onFabricChange(e.target.value)}>
-              <option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+          <div><label className="label text-xs">Sizing job *</label>
+            <select className="input" value={form.sizing_job_id} onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}>
+              <option value="">--- pick ---</option>
+              {sizingJobs.map((j) => (
+                <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' · Set ' + j.set_no : ''}</option>
+              ))}
             </select></div>
+        </div>
+
+        {/* Step 2 — pavu beam checklist. Visible once a sizing job is
+            picked. Each row tells the operator the beam no, ends and
+            metres so they can confirm before ticking; the per-beam
+            current routing pill is shown on the right. */}
+        {form.sizing_job_id !== '' && (
+          <div className="rounded-lg border border-line/60 bg-cloud/30 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                Pavu beams in this set
+              </span>
+              <div className="flex items-center gap-3 text-xs">
+                <button
+                  type="button"
+                  className="text-indigo underline"
+                  onClick={() => setSelectedPavuIds(new Set(pavusForJob.map((p) => p.id)))}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  className="text-ink-mute underline"
+                  onClick={() => setSelectedPavuIds(new Set())}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            {pavusForJob.length === 0 ? (
+              <div className="text-xs text-ink-mute py-2">No pavu beams in this sizing job.</div>
+            ) : (
+              <ul className="space-y-1">
+                {pavusForJob.map((p) => {
+                  const checked = selectedPavuIds.has(p.id);
+                  const isOutsource = p.production_mode === 'outsource';
+                  return (
+                    <li key={p.id} className="flex items-center gap-3 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectedPavu(p.id)}
+                        className="cursor-pointer"
+                      />
+                      <span className="font-mono w-24 inline-block">{p.pavu_code}</span>
+                      <span className="font-mono w-16 inline-block">#{p.beam_no}</span>
+                      <span className="text-ink-mute w-24 inline-block">{p.ends} ends</span>
+                      <span className="text-ink-mute w-24 inline-block">{Number(p.meters).toFixed(0)} m</span>
+                      <span className={
+                        'ml-auto pill text-[10px] ' +
+                        (isOutsource ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700')
+                      }>
+                        {isOutsource ? 'Outsource' : 'In-house'}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Step 3 — auto fields. Read-only; values change only when
+            the operator picks / unpicks beams above. */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><label className="label text-xs">Warp count <span className="text-ink-mute">(auto)</span></label>
-            <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
-              <option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
-            </select></div>
-          <div><label className="label text-xs">No. of beams</label>
-            <input type="number" min={1} className="input num" value={form.beam_count} onChange={(e) => setForm({ ...form, beam_count: e.target.value })} /></div>
+            <div className="input bg-cloud/40 text-ink-mute select-none">{autoWarpCountLabel}</div>
+          </div>
+          <div><label className="label text-xs">No. of beams <span className="text-ink-mute">(auto)</span></label>
+            <div className="input num bg-cloud/40 text-ink-mute select-none">{autoBeamCount}</div>
+          </div>
           <div><label className="label text-xs">Total ends <span className="text-ink-mute">(auto)</span></label>
-            <input type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
-          <div><label className="label text-xs">Total metres</label>
-            <input type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
+            <div className="input num bg-cloud/40 text-ink-mute select-none">{autoEndsDisplay || '—'}</div>
+          </div>
+          <div><label className="label text-xs">Total metres <span className="text-ink-mute">(auto)</span></label>
+            <div className="input num bg-cloud/40 text-ink-mute select-none">
+              {autoTotalMetres > 0 ? autoTotalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
+            </div>
+          </div>
+        </div>
+
+        {/* Optional extras */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div><label className="label text-xs">Sizing party</label>
             <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
@@ -1088,11 +1324,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </div>
           <div><label className="label text-xs">Reference / DC no</label>
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
-          <div className="md:col-span-2"><label className="label text-xs">Notes</label>
+          <div><label className="label text-xs">Notes</label>
             <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
-        {err && <div className="mt-3 text-sm text-err">{err}</div>}
-        <div className="mt-3 flex justify-end">
+
+        {err && <div className="text-sm text-err">{err}</div>}
+        <div className="flex justify-end">
           <button type="button" onClick={add} disabled={busy} className="btn-primary">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp beam
           </button>
