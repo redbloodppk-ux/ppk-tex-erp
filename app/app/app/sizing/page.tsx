@@ -86,6 +86,24 @@ export default async function SizingListPage({ searchParams }: PageProps) {
         .limit(100)
     : { data: [], error: null };
 
+  // Per-job total warp metres = sum of pavu.meters across every beam
+  // on the job. We pull the pavu rows once and aggregate in JS — the
+  // mill rarely has more than a few hundred jobs in the visible page,
+  // and Postgres has no straight aggregation view for this yet.
+  const warpMetresByJob = new Map<number, number>();
+  if (tab === 'jobs' && (jobsRes.data?.length ?? 0) > 0) {
+    const jobIds = (jobsRes.data as Array<{ id: number }>).map((j) => j.id);
+    const { data: pavuRows } = await sb
+      .from('pavu')
+      .select('sizing_job_id, meters')
+      .in('sizing_job_id', jobIds);
+    for (const p of (pavuRows ?? []) as Array<{ sizing_job_id: number; meters: number | string | null }>) {
+      const id = p.sizing_job_id;
+      const m  = Number(p.meters ?? 0);
+      warpMetresByJob.set(id, (warpMetresByJob.get(id) ?? 0) + m);
+    }
+  }
+
   // Bills tab — every sizing_job row that has a bill_no captured,
   // ordered newest-bill-first.
   const billsRes = tab === 'bills'
@@ -160,6 +178,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   <th className="text-left  px-4 py-3 hidden md:table-cell">Yarn Supplier</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Count</th>
                   <th className="text-right px-4 py-3">Beams</th>
+                  <th className="text-right px-4 py-3">Total Warp (m)</th>
                   <th className="text-right px-4 py-3">Yarn (sent → bal)</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Recv</th>
                   <th className="text-left  px-4 py-3">Status</th>
@@ -187,6 +206,9 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                         {j.warp_count?.code ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-right num">{j.no_of_paavu}</td>
+                      <td className="px-4 py-3 text-right num">
+                        {(warpMetresByJob.get(j.id) ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </td>
                       <td className="px-4 py-3 text-right num text-xs">
                         {Number(j.yarn_sent_kg).toFixed(1)}
                         <span className="text-ink-mute"> → </span>
@@ -222,7 +244,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
+                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-ink-soft">
                       No sizing jobs yet.{' '}
                       <Link href="/app/sizing/new" className="text-indigo font-semibold">
                         Create the first one →

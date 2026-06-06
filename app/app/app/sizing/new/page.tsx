@@ -113,17 +113,26 @@ export default function NewSizingJobPage() {
   const [defaultMode, setDefaultMode] = useState<DefaultMode>('in_house');
   const [defaultOutsourceVendorId, setDefaultOutsourceVendorId] = useState('');
 
-  // Bulk beam-generation controls. The operator types a starting
-  // beam number, how many beams, and the ends value, and we
-  // generate the per-beam rows automatically with auto-incremented
-  // beam_no and the shared ends. Meters stays per-beam because each
-  // beam comes back with its own length.
-  const [firstBeamNo, setFirstBeamNo] = useState<string>('1');
-  const [beamCount,   setBeamCount]   = useState<string>('1');
-  const [commonEnds,  setCommonEnds]  = useState<string>('');
-
-  // beams (one row per physical beam)
-  const [beams, setBeams] = useState<BeamRow[]>([emptyBeam('in_house')]);
+  // The Beams (Pavu) section is structured as N "ends groups" — one
+  // per warp-ends spec the job uses. Each group has its own
+  // First Beam No / No. of Beams / Ends Quick-fill controls and its
+  // own list of beam rows. When the operator types "No of ends" = 2,
+  // the section splits into two sub-sections so they can size, e.g.,
+  // 2400-end beams in group 1 and 1800-end beams in group 2.
+  //
+  // On save we flatten every group's beams into a single pavu row
+  // list — pavu carries its own `ends` column so the grouping is
+  // implicit in the data after that.
+  interface EndsGroup {
+    ends:        string;
+    firstBeamNo: string;
+    beamCount:   string;
+    beams:       BeamRow[];
+  }
+  const [noOfEnds,   setNoOfEnds]   = useState<string>('1');
+  const [endsGroups, setEndsGroups] = useState<EndsGroup[]>([{
+    ends: '', firstBeamNo: '1', beamCount: '1', beams: [emptyBeam('in_house')],
+  }]);
 
   // ui state
   const [busy, setBusy] = useState(false);
@@ -279,23 +288,48 @@ export default function NewSizingJobPage() {
     }
   }, [yarnLotId, lots]);
 
-  // Whenever the bulk controls (first beam no / count / common ends)
-  // change, regenerate the beams array so the per-row state matches.
-  // Existing meters are preserved by index — if the operator already
-  // typed metres for beam #1 and then bumps the count from 1 to 3,
-  // beam #1 keeps its metres and the new rows start blank. Decreasing
-  // the count truncates from the tail.
+  // Resize endsGroups whenever "No of ends" changes. Appending
+  // groups gives them sensible defaults (next-available beam no,
+  // 1 beam, empty ends). Reducing the count truncates from the tail.
   useEffect(() => {
-    const start = Math.max(0, Math.floor(Number(firstBeamNo) || 0));
-    const count = Math.max(1, Math.floor(Number(beamCount)   || 1));
-    setBeams((prev) => {
-      const next: BeamRow[] = [];
-      for (let i = 0; i < count; i++) {
-        const existing = prev[i];
-        const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
+    const want = Math.max(1, Math.floor(Number(noOfEnds) || 1));
+    setEndsGroups((prev) => {
+      if (want === prev.length) return prev;
+      if (want < prev.length) return prev.slice(0, want);
+      const next = prev.slice();
+      // Auto-suggest the next group's First Beam No based on the last
+      // group's first + count, so the series stays contiguous out of
+      // the box.
+      const last = next[next.length - 1]!;
+      const lastFirst = Math.max(0, Math.floor(Number(last.firstBeamNo) || 0));
+      const lastCount = Math.max(1, Math.floor(Number(last.beamCount)   || 1));
+      let nextFirst = lastFirst + lastCount;
+      while (next.length < want) {
         next.push({
+          ends: '', firstBeamNo: String(nextFirst), beamCount: '1',
+          beams: [emptyBeam(defaultMode === 'outsource' ? 'outsource' : 'in_house')],
+        });
+        nextFirst += 1;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noOfEnds]);
+
+  // Whenever any group's First Beam No / count / ends changes,
+  // regenerate that group's beam rows. Existing per-beam metres /
+  // routing are preserved by index.
+  useEffect(() => {
+    setEndsGroups((prev) => prev.map((g) => {
+      const start = Math.max(0, Math.floor(Number(g.firstBeamNo) || 0));
+      const count = Math.max(1, Math.floor(Number(g.beamCount)   || 1));
+      const newBeams: BeamRow[] = [];
+      for (let i = 0; i < count; i++) {
+        const existing = g.beams[i];
+        const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
+        newBeams.push({
           beam_no: String(start + i),
-          ends:    commonEnds,
+          ends:    g.ends !== '' ? g.ends : (existing?.ends ?? ''),
           meters:  existing?.meters ?? '',
           production_mode: existing?.production_mode ?? mode,
           outsource_vendor_id:
@@ -303,13 +337,17 @@ export default function NewSizingJobPage() {
             ?? (mode === 'outsource' ? defaultOutsourceVendorId : ''),
         });
       }
-      return next;
-    });
-    // defaultMode / defaultOutsourceVendorId aren't in deps on purpose:
-    // applyDefaultMode below handles those changes separately so we
-    // don't fight with it.
+      return { ...g, beams: newBeams };
+    }));
+    // Trigger re-run when any group's Quick-fill controls change. We
+    // serialise them into a single key so the effect runs once per
+    // commit instead of N times.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstBeamNo, beamCount, commonEnds]);
+  }, [endsGroups.map((g) => g.firstBeamNo + '|' + g.beamCount + '|' + g.ends).join(';;')]);
+
+  // Flat list of every beam across every group — used for validation,
+  // total-metres display, and submit payload.
+  const allBeams = useMemo(() => endsGroups.flatMap((g) => g.beams), [endsGroups]);
 
   // ── billing math ──────────────────────────────────────────────────────────
   // Sizing charges multiply against Yarn Used (kg), not Yarn Sent.
@@ -336,45 +374,53 @@ export default function NewSizingJobPage() {
     return (Number(yarnSentKg) || 0) - (Number(yarnUsedKg) || 0);
   }, [yarnSentKg, yarnUsedKg]);
 
-  // Total metres across all beams in this job. Surfaced under the
-  // beam rows so the operator can sanity-check the lot total at a
-  // glance instead of tallying mentally.
+  // Total metres across every beam in every group. Surfaced under
+  // the beam rows so the operator can sanity-check the lot total at
+  // a glance instead of tallying mentally.
   const totalMetres = useMemo(() => {
-    return beams.reduce((sum, b) => sum + (Number(b.meters) || 0), 0);
-  }, [beams]);
+    return allBeams.reduce((sum, b) => sum + (Number(b.meters) || 0), 0);
+  }, [allBeams]);
 
   // ── beam row helpers ──────────────────────────────────────────────────────
-  function patchBeam(idx: number, patch: Partial<BeamRow>) {
-    setBeams(prev => prev.map((b, i) => i === idx ? { ...b, ...patch } : b));
+  // Group-scoped versions: every operation takes the ends-group index
+  // so a Quick fill change or beam edit in group 2 doesn't disturb
+  // group 1.
+  function patchGroup(gIdx: number, patch: Partial<EndsGroup>) {
+    setEndsGroups((prev) => prev.map((g, i) => i === gIdx ? { ...g, ...patch } : g));
   }
-  function addBeam() {
-    // Adding a beam manually bumps the bulk Count input by one — the
-    // useEffect that regenerates `beams` will then append a row with
-    // an auto-incremented beam number and the shared ends value.
-    setBeamCount((c) => String((Math.floor(Number(c) || 0) || 0) + 1));
+  function patchBeam(gIdx: number, bIdx: number, patch: Partial<BeamRow>) {
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beams: g.beams.map((b, j) => j === bIdx ? { ...b, ...patch } : b) };
+    }));
   }
-  function removeBeam(idx: number) {
-    // Same idea for removal — drop the count by one. The regenerate
-    // effect truncates from the tail, so we pop the row regardless
-    // of which idx was clicked; the operator typically removes the
-    // last row when reducing count, and this keeps the auto-numbered
-    // beam_no series contiguous.
-    void idx;
-    setBeamCount((c) => {
-      const n = Math.max(1, Math.floor(Number(c) || 1) - 1);
-      return String(n);
-    });
+  function addBeamToGroup(gIdx: number) {
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beamCount: String((Math.floor(Number(g.beamCount) || 0) || 0) + 1) };
+    }));
+  }
+  function removeBeamFromGroup(gIdx: number, bIdx: number) {
+    void bIdx; // regenerate effect truncates from the tail
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beamCount: String(Math.max(1, Math.floor(Number(g.beamCount) || 1) - 1)) };
+    }));
   }
 
-  // When the user changes the "default routing", apply it to all rows
-  // (unless they're already in mixed mode and have customised per beam).
+  // When the user changes the "default routing", apply it to every
+  // beam in every ends group (unless we're entering mixed mode and
+  // the operator wants per-beam control).
   function applyDefaultMode(mode: DefaultMode) {
     setDefaultMode(mode);
     if (mode === 'mixed') return;
-    setBeams(prev => prev.map(b => ({
-      ...b,
-      production_mode: mode,
-      outsource_vendor_id: mode === 'outsource' ? (b.outsource_vendor_id || defaultOutsourceVendorId) : '',
+    setEndsGroups((prev) => prev.map((g) => ({
+      ...g,
+      beams: g.beams.map((b) => ({
+        ...b,
+        production_mode: mode,
+        outsource_vendor_id: mode === 'outsource' ? (b.outsource_vendor_id || defaultOutsourceVendorId) : '',
+      })),
     })));
   }
 
@@ -383,8 +429,8 @@ export default function NewSizingJobPage() {
     e.preventDefault();
     setError(null);
 
-    // Validate beams
-    for (const b of beams) {
+    // Validate beams across every ends group.
+    for (const b of allBeams) {
       if (!b.beam_no.trim()) return setError('Every beam needs a beam number.');
       if (!Number(b.ends))   return setError('Every beam needs ends > 0.');
       if (!Number(b.meters)) return setError('Every beam needs metres > 0.');
@@ -437,7 +483,7 @@ export default function NewSizingJobPage() {
       yarn_lot_id:      Number(yarnLotId),
       yarn_sent_kg:     sentKg,
       yarn_used_kg:     Number(yarnUsedKg) || 0,
-      no_of_paavu:      beams.length,
+      no_of_paavu:      allBeams.length,
       sizing_rate_per_kg: Number(rate) || 0,
       charges_amount:   billing.charges,
       gst_pct:          Number(gstPct) || 0,
@@ -472,8 +518,8 @@ export default function NewSizingJobPage() {
       return setError(jobErr?.message ?? 'Could not create job.');
     }
 
-    // 2. Insert all beam rows
-    const beamRows = beams.map(b => ({
+    // 2. Insert all beam rows — flattened across every ends group.
+    const beamRows = allBeams.map(b => ({
       sizing_job_id:       job.id,
       beam_no:             b.beam_no.trim(),
       ends:                Number(b.ends),
@@ -673,62 +719,31 @@ export default function NewSizingJobPage() {
 
           {/* ─── Beams ─────────────────────────────────────────────────── */}
           <div className="card p-6 space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h3 className="text-sm font-bold text-ink">Beams (Pavu)</h3>
-              <button type="button" onClick={addBeam} className="btn-ghost text-xs">
-                <Plus className="w-3.5 h-3.5" /> Add beam
-              </button>
+            <h3 className="text-sm font-bold text-ink">Beams (Pavu)</h3>
+
+            {/* "No of ends" controls how many ends-groups the section is
+                split into. Each group has its own ends value and its
+                own beam list, so a job that uses two different ends
+                specs (e.g. 2400 ends + 1800 ends) sizes both in one
+                go. Default 1 keeps the form looking like a single
+                group, identical to the legacy flow. */}
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="label">No of ends</label>
+                <input
+                  type="number" min={1} step={1}
+                  value={noOfEnds}
+                  onChange={(e) => setNoOfEnds(e.target.value)}
+                  className="input num"
+                />
+                <p className="text-[11px] text-ink-mute mt-1">
+                  Splits the beam section into N groups, one per
+                  ends spec.
+                </p>
+              </div>
             </div>
 
-            {/* Bulk beam-generation controls — instead of clicking "Add
-                beam" for every pavu, the operator types: the first
-                beam number, how many beams in the lot, and the ends
-                value common to all of them. The rows below regenerate
-                automatically with auto-incremented beam_no and the
-                shared ends. Metres stays per-row because each beam
-                comes back with its own length. */}
-            <div className="rounded-lg border border-line/60 bg-cloud/30 p-3">
-              <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">
-                Quick fill
-              </div>
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="label">First Beam No</label>
-                  <input
-                    type="number" min={0} step={1}
-                    value={firstBeamNo}
-                    onChange={(e) => setFirstBeamNo(e.target.value)}
-                    className="input num"
-                    placeholder="5715"
-                  />
-                </div>
-                <div>
-                  <label className="label">No. of Beams</label>
-                  <input
-                    type="number" min={1} step={1}
-                    value={beamCount}
-                    onChange={(e) => setBeamCount(e.target.value)}
-                    className="input num"
-                  />
-                </div>
-                <div>
-                  <label className="label">Ends (applies to all)</label>
-                  <input
-                    type="number" min={0} step={1}
-                    value={commonEnds}
-                    onChange={(e) => setCommonEnds(e.target.value)}
-                    className="input num"
-                    placeholder="2400"
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-ink-mute mt-2">
-                Beam numbers auto-increment from the first. Ends value
-                copies to every beam. Edit individual metres below.
-              </p>
-            </div>
-
-            {/* Production routing chooser */}
+            {/* Production routing chooser — applies across every group. */}
             <div>
               <label className="label">Default production routing</label>
               <div className="grid sm:grid-cols-3 gap-2">
@@ -747,7 +762,10 @@ export default function NewSizingJobPage() {
                   <label className="label">Outsource Weaver (applies to all beams)</label>
                   <select value={defaultOutsourceVendorId} onChange={e => {
                     setDefaultOutsourceVendorId(e.target.value);
-                    setBeams(prev => prev.map(b => ({ ...b, outsource_vendor_id: e.target.value })));
+                    setEndsGroups((prev) => prev.map((g) => ({
+                      ...g,
+                      beams: g.beams.map((b) => ({ ...b, outsource_vendor_id: e.target.value })),
+                    })));
                   }} className="input">
                     <option value="">— Choose later per beam —</option>
                     {weavingVendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -756,85 +774,143 @@ export default function NewSizingJobPage() {
               )}
             </div>
 
-            {/* Beam rows */}
-            <div className="space-y-2">
-              {beams.map((b, idx) => (
-                <div key={idx} className="rounded-lg border border-line/60 p-3 space-y-2 bg-cloud/30">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-ink-soft">Beam #{idx + 1}</span>
-                    {beams.length > 1 && (
-                      <button type="button" onClick={() => removeBeam(idx)} className="text-rose-600 hover:text-rose-700">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+            {/* Per-group sub-sections */}
+            {endsGroups.map((g, gIdx) => (
+              <div key={gIdx} className="rounded-lg border border-indigo/30 bg-indigo-50/20 p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold text-indigo uppercase tracking-wide">
+                    Ends Group {gIdx + 1}
+                    {g.ends !== '' && (
+                      <span className="ml-2 text-ink-soft normal-case font-medium">
+                        · {g.ends} ends
+                      </span>
                     )}
-                  </div>
-                  <div className="grid sm:grid-cols-3 gap-2">
+                  </span>
+                  <button type="button" onClick={() => addBeamToGroup(gIdx)} className="btn-ghost text-xs">
+                    <Plus className="w-3.5 h-3.5" /> Add beam
+                  </button>
+                </div>
+
+                {/* Per-group Quick fill */}
+                <div className="rounded-md border border-line/60 bg-paper p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">Quick fill</div>
+                  <div className="grid sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="label">Beam No</label>
-                      {/* Auto-incremented from "First Beam No" in the
-                          Quick fill panel above. Locked so the series
-                          stays contiguous; edit Quick fill to renumber. */}
-                      <div className="input num bg-cloud/40 text-ink-mute select-none">
-                        {b.beam_no || '—'}
-                      </div>
+                      <label className="label">First Beam No</label>
+                      <input
+                        type="number" min={0} step={1}
+                        value={g.firstBeamNo}
+                        onChange={(e) => patchGroup(gIdx, { firstBeamNo: e.target.value })}
+                        className="input num"
+                        placeholder="5715"
+                      />
                     </div>
                     <div>
-                      <label className="label">Ends *</label>
-                      {/* Auto-filled from Quick fill above, but
-                          editable per beam — the operator can
-                          override a single row when one beam has a
-                          different ends count. Changing the Quick
-                          fill Ends afterwards will overwrite all
-                          rows again. */}
+                      <label className="label">No. of Beams</label>
                       <input
-                        type="number" min={1}
-                        value={b.ends}
-                        onChange={(e) => patchBeam(idx, { ends: e.target.value })}
+                        type="number" min={1} step={1}
+                        value={g.beamCount}
+                        onChange={(e) => patchGroup(gIdx, { beamCount: e.target.value })}
+                        className="input num"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Ends (applies to this group)</label>
+                      <input
+                        type="number" min={0} step={1}
+                        value={g.ends}
+                        onChange={(e) => patchGroup(gIdx, { ends: e.target.value })}
                         className="input num"
                         placeholder="2400"
                       />
                     </div>
-                    <div>
-                      <label className="label">Metres *</label>
-                      <input type="number" step="0.01" min={0.01} value={b.meters}
-                        onChange={e => patchBeam(idx, { meters: e.target.value })}
-                        className="input num" placeholder="1240" />
-                    </div>
                   </div>
-                  {defaultMode === 'mixed' && (
-                    <div className="grid sm:grid-cols-2 gap-2 pt-1">
-                      <div>
-                        <label className="label">Routing</label>
-                        <select value={b.production_mode}
-                          onChange={e => patchBeam(idx, {
-                            production_mode: e.target.value as ProdMode,
-                            outsource_vendor_id: e.target.value === 'outsource' ? b.outsource_vendor_id : '',
-                          })}
-                          className="input">
-                          <option value="in_house">In-house</option>
-                          <option value="outsource">Outsource</option>
-                        </select>
+                </div>
+
+                {/* Beam rows for this group */}
+                <div className="space-y-2">
+                  {g.beams.map((b, bIdx) => (
+                    <div key={bIdx} className="rounded-lg border border-line/60 p-3 space-y-2 bg-cloud/30">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-ink-soft">Beam #{bIdx + 1}</span>
+                        {g.beams.length > 1 && (
+                          <button type="button" onClick={() => removeBeamFromGroup(gIdx, bIdx)} className="text-rose-600 hover:text-rose-700">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
-                      {b.production_mode === 'outsource' && (
+                      <div className="grid sm:grid-cols-3 gap-2">
                         <div>
-                          <label className="label">Outsource Weaver *</label>
-                          <select value={b.outsource_vendor_id}
-                            onChange={e => patchBeam(idx, { outsource_vendor_id: e.target.value })}
-                            className="input">
-                            <option value="">Select weaver…</option>
-                            {weavingVendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                          </select>
+                          <label className="label">Beam No</label>
+                          <div className="input num bg-cloud/40 text-ink-mute select-none">{b.beam_no || '—'}</div>
+                        </div>
+                        <div>
+                          <label className="label">Ends *</label>
+                          <input
+                            type="number" min={1}
+                            value={b.ends}
+                            onChange={(e) => patchBeam(gIdx, bIdx, { ends: e.target.value })}
+                            className="input num"
+                            placeholder="2400"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">Metres *</label>
+                          <input
+                            type="number" step="0.01" min={0.01}
+                            value={b.meters}
+                            onChange={(e) => patchBeam(gIdx, bIdx, { meters: e.target.value })}
+                            className="input num"
+                            placeholder="1240"
+                          />
+                        </div>
+                      </div>
+                      {defaultMode === 'mixed' && (
+                        <div className="grid sm:grid-cols-2 gap-2 pt-1">
+                          <div>
+                            <label className="label">Routing</label>
+                            <select
+                              value={b.production_mode}
+                              onChange={(e) => patchBeam(gIdx, bIdx, {
+                                production_mode: e.target.value as ProdMode,
+                                outsource_vendor_id: e.target.value === 'outsource' ? b.outsource_vendor_id : '',
+                              })}
+                              className="input"
+                            >
+                              <option value="in_house">In-house</option>
+                              <option value="outsource">Outsource</option>
+                            </select>
+                          </div>
+                          {b.production_mode === 'outsource' && (
+                            <div>
+                              <label className="label">Outsource Weaver *</label>
+                              <select
+                                value={b.outsource_vendor_id}
+                                onChange={(e) => patchBeam(gIdx, bIdx, { outsource_vendor_id: e.target.value })}
+                                className="input"
+                              >
+                                <option value="">Select weaver…</option>
+                                {weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                              </select>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            {/* Total metres footer — sum of metres across every beam.
-                Updates live as the operator types per-beam metres or
-                changes the beam count. */}
+                {/* Per-group sub-total */}
+                <div className="flex items-center justify-end gap-3 text-xs text-ink-soft">
+                  <span>Group {gIdx + 1} total:</span>
+                  <span className="num font-semibold text-ink">
+                    {g.beams.reduce((s, b) => s + (Number(b.meters) || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {/* Grand total across every group */}
             <div className="flex items-center justify-between rounded-lg border border-line/60 bg-indigo-50/40 px-4 py-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
                 Total metres

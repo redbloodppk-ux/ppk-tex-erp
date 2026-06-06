@@ -139,32 +139,50 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
     seed.default_outsource_ledger_id != null ? String(seed.default_outsource_ledger_id) : '',
   );
 
-  // Beams — initialised from seed. Quick-fill controls derive sensible
-  // defaults from the seed (first beam number, count, common ends if
-  // every beam shares the same ends value).
-  const seedBeams: BeamRow[] = useMemo(() => {
-    if (seed.beams.length === 0) return [emptyBeam(seed.default_production_mode === 'outsource' ? 'outsource' : 'in_house')];
-    return seed.beams.map((b) => ({
-      pavu_id: b.pavu_id,
-      beam_no: b.beam_no,
-      ends:    String(b.ends),
-      meters:  String(b.meters),
-      production_mode: b.production_mode,
-      outsource_vendor_id: b.outsource_ledger_id != null ? String(b.outsource_ledger_id) : '',
-    }));
+  // Beams are stored as N "ends groups" — one per distinct ends spec
+  // the job uses. On load we group the seed beams by their `ends`
+  // value (preserving the original order of first appearance), so a
+  // job that has, say, ten beams at 2400 ends plus four beams at
+  // 1800 ends shows as two groups.
+  interface EndsGroup {
+    ends:        string;
+    firstBeamNo: string;
+    beamCount:   string;
+    beams:       BeamRow[];
+  }
+  const seedEndsGroups: EndsGroup[] = useMemo(() => {
+    if (seed.beams.length === 0) {
+      return [{
+        ends: '', firstBeamNo: '1', beamCount: '1',
+        beams: [emptyBeam(seed.default_production_mode === 'outsource' ? 'outsource' : 'in_house')],
+      }];
+    }
+    const groups = new Map<string, BeamRow[]>();
+    const order: string[] = [];
+    for (const b of seed.beams) {
+      const key = String(b.ends);
+      if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+      groups.get(key)!.push({
+        pavu_id: b.pavu_id,
+        beam_no: b.beam_no,
+        ends:    key,
+        meters:  String(b.meters),
+        production_mode: b.production_mode,
+        outsource_vendor_id: b.outsource_ledger_id != null ? String(b.outsource_ledger_id) : '',
+      });
+    }
+    return order.map((key) => {
+      const rows = groups.get(key)!;
+      return {
+        ends: key,
+        firstBeamNo: rows[0]!.beam_no,
+        beamCount:   String(rows.length),
+        beams:       rows,
+      };
+    });
   }, [seed.beams, seed.default_production_mode]);
-  const [beams, setBeams] = useState<BeamRow[]>(seedBeams);
-
-  // Quick-fill controls
-  const seedFirstBeamNo = seed.beams.length > 0 ? seed.beams[0]!.beam_no : '1';
-  const seedCount       = seed.beams.length > 0 ? String(seed.beams.length) : '1';
-  const seedEnds        = seed.beams.length > 0
-    && seed.beams.every((b) => b.ends === seed.beams[0]!.ends)
-      ? String(seed.beams[0]!.ends)
-      : '';
-  const [firstBeamNo, setFirstBeamNo] = useState<string>(seedFirstBeamNo);
-  const [beamCount,   setBeamCount]   = useState<string>(seedCount);
-  const [commonEnds,  setCommonEnds]  = useState<string>(seedEnds);
+  const [noOfEnds, setNoOfEnds] = useState<string>(String(seedEndsGroups.length));
+  const [endsGroups, setEndsGroups] = useState<EndsGroup[]>(seedEndsGroups);
 
   // UI
   const [busy,  setBusy]  = useState<boolean>(false);
@@ -227,21 +245,42 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
     });
   }, [masters.lots, warpCountId, yarnSupplierId, yarnSource, yarnLotId]);
 
-  // Bulk-regenerate beams when first beam no / count / common ends
-  // change. Existing per-beam state (metres, routing, pavu_id) is
-  // preserved by index.
+  // Resize endsGroups when "No of ends" changes.
   useEffect(() => {
-    const start = Math.max(0, Math.floor(Number(firstBeamNo) || 0));
-    const count = Math.max(1, Math.floor(Number(beamCount)   || 1));
-    setBeams((prev) => {
-      const next: BeamRow[] = [];
-      for (let i = 0; i < count; i++) {
-        const existing = prev[i];
-        const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
+    const want = Math.max(1, Math.floor(Number(noOfEnds) || 1));
+    setEndsGroups((prev) => {
+      if (want === prev.length) return prev;
+      if (want < prev.length) return prev.slice(0, want);
+      const next = prev.slice();
+      const last = next[next.length - 1]!;
+      const lastFirst = Math.max(0, Math.floor(Number(last.firstBeamNo) || 0));
+      const lastCount = Math.max(1, Math.floor(Number(last.beamCount)   || 1));
+      let nextFirst = lastFirst + lastCount;
+      while (next.length < want) {
         next.push({
+          ends: '', firstBeamNo: String(nextFirst), beamCount: '1',
+          beams: [emptyBeam(defaultMode === 'outsource' ? 'outsource' : 'in_house')],
+        });
+        nextFirst += 1;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noOfEnds]);
+
+  // Per-group regenerate when its Quick-fill controls change.
+  useEffect(() => {
+    setEndsGroups((prev) => prev.map((g) => {
+      const start = Math.max(0, Math.floor(Number(g.firstBeamNo) || 0));
+      const count = Math.max(1, Math.floor(Number(g.beamCount)   || 1));
+      const newBeams: BeamRow[] = [];
+      for (let i = 0; i < count; i++) {
+        const existing = g.beams[i];
+        const mode: ProdMode = defaultMode === 'outsource' ? 'outsource' : 'in_house';
+        newBeams.push({
           pavu_id: existing?.pavu_id ?? null,
           beam_no: String(start + i),
-          ends:    commonEnds !== '' ? commonEnds : (existing?.ends ?? ''),
+          ends:    g.ends !== '' ? g.ends : (existing?.ends ?? ''),
           meters:  existing?.meters ?? '',
           production_mode: existing?.production_mode ?? mode,
           outsource_vendor_id:
@@ -249,10 +288,14 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
             ?? (mode === 'outsource' ? defaultOutsourceVendorId : ''),
         });
       }
-      return next;
-    });
+      return { ...g, beams: newBeams };
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstBeamNo, beamCount, commonEnds]);
+  }, [endsGroups.map((g) => g.firstBeamNo + '|' + g.beamCount + '|' + g.ends).join(';;')]);
+
+  // Flat list of every beam across every group — used for validation,
+  // total-metres display, and pavu insert payload.
+  const allBeams = useMemo(() => endsGroups.flatMap((g) => g.beams), [endsGroups]);
 
   // ── billing math (rounded to whole rupees) ──
   const billing = useMemo(() => {
@@ -269,31 +312,44 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
 
   const balance = useMemo(() => (Number(yarnSentKg) || 0) - (Number(yarnUsedKg) || 0), [yarnSentKg, yarnUsedKg]);
 
-  // Total metres across all beams in this job. Surfaced under the
-  // beam rows so the operator can sanity-check the lot total at a
-  // glance instead of tallying mentally.
+  // Total metres across all beams in every group.
   const totalMetres = useMemo(() => {
-    return beams.reduce((sum, b) => sum + (Number(b.meters) || 0), 0);
-  }, [beams]);
+    return allBeams.reduce((sum, b) => sum + (Number(b.meters) || 0), 0);
+  }, [allBeams]);
 
-  // ── beam helpers ──
-  function patchBeam(idx: number, patch: Partial<BeamRow>) {
-    setBeams((prev) => prev.map((b, i) => i === idx ? { ...b, ...patch } : b));
+  // ── beam helpers (group-scoped) ──
+  function patchGroup(gIdx: number, patch: Partial<EndsGroup>) {
+    setEndsGroups((prev) => prev.map((g, i) => i === gIdx ? { ...g, ...patch } : g));
   }
-  function addBeam() {
-    setBeamCount((c) => String((Math.floor(Number(c) || 0) || 0) + 1));
+  function patchBeam(gIdx: number, bIdx: number, patch: Partial<BeamRow>) {
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beams: g.beams.map((b, j) => j === bIdx ? { ...b, ...patch } : b) };
+    }));
   }
-  function removeBeam(idx: number) {
-    void idx;
-    setBeamCount((c) => String(Math.max(1, Math.floor(Number(c) || 1) - 1)));
+  function addBeamToGroup(gIdx: number) {
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beamCount: String((Math.floor(Number(g.beamCount) || 0) || 0) + 1) };
+    }));
+  }
+  function removeBeamFromGroup(gIdx: number, bIdx: number) {
+    void bIdx;
+    setEndsGroups((prev) => prev.map((g, i) => {
+      if (i !== gIdx) return g;
+      return { ...g, beamCount: String(Math.max(1, Math.floor(Number(g.beamCount) || 1) - 1)) };
+    }));
   }
   function applyDefaultMode(mode: DefaultMode) {
     setDefaultMode(mode);
     if (mode === 'mixed') return;
-    setBeams((prev) => prev.map((b) => ({
-      ...b,
-      production_mode: mode,
-      outsource_vendor_id: mode === 'outsource' ? (b.outsource_vendor_id || defaultOutsourceVendorId) : '',
+    setEndsGroups((prev) => prev.map((g) => ({
+      ...g,
+      beams: g.beams.map((b) => ({
+        ...b,
+        production_mode: mode,
+        outsource_vendor_id: mode === 'outsource' ? (b.outsource_vendor_id || defaultOutsourceVendorId) : '',
+      })),
     })));
   }
 
@@ -309,8 +365,8 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
     if (!billNo.trim())  return setError('Bill / invoice number is required.');
     if (!billDate)       return setError('Bill / invoice date is required.');
 
-    // Beams validation
-    for (const b of beams) {
+    // Beams validation — across every ends group.
+    for (const b of allBeams) {
       if (!b.beam_no.trim()) return setError('Every beam needs a beam number.');
       if (!Number(b.ends))   return setError('Every beam needs ends > 0.');
       if (!Number(b.meters)) return setError('Every beam needs metres > 0.');
@@ -374,7 +430,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
       yarn_lot_id:            newLotId,
       yarn_sent_kg:           newSentKg,
       yarn_used_kg:           Number(yarnUsedKg) || 0,
-      no_of_paavu:            beams.length,
+      no_of_paavu:            allBeams.length,
       sizing_rate_per_kg:     Number(rate)   || 0,
       charges_amount:         billing.charges,
       gst_pct:                Number(gstPct) || 0,
@@ -405,7 +461,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
       setError(`Job updated but beams failed to reset: ${delErr.message}`);
       return;
     }
-    const beamRows = beams.map((b) => ({
+    const beamRows = allBeams.map((b) => ({
       sizing_job_id:       seed.id,
       beam_no:             b.beam_no.trim(),
       ends:                Number(b.ends),
@@ -548,32 +604,21 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
 
       {/* ── Beams ── */}
       <div className="card p-6 space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-bold text-ink">Beams (Pavu)</h3>
-          <button type="button" onClick={addBeam} className="btn-ghost text-xs">
-            <Plus className="w-3.5 h-3.5" /> Add beam
-          </button>
-        </div>
+        <h3 className="text-sm font-bold text-ink">Beams (Pavu)</h3>
 
-        <div className="rounded-lg border border-line/60 bg-cloud/30 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">Quick fill</div>
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div>
-              <label className="label">First Beam No</label>
-              <input type="number" min={0} step={1} value={firstBeamNo} onChange={(e) => setFirstBeamNo(e.target.value)} className="input num" placeholder="5715" />
-            </div>
-            <div>
-              <label className="label">No. of Beams</label>
-              <input type="number" min={1} step={1} value={beamCount} onChange={(e) => setBeamCount(e.target.value)} className="input num" />
-            </div>
-            <div>
-              <label className="label">Ends (applies to all)</label>
-              <input type="number" min={0} step={1} value={commonEnds} onChange={(e) => setCommonEnds(e.target.value)} className="input num" placeholder="2400" />
-            </div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div>
+            <label className="label">No of ends</label>
+            <input
+              type="number" min={1} step={1}
+              value={noOfEnds}
+              onChange={(e) => setNoOfEnds(e.target.value)}
+              className="input num"
+            />
+            <p className="text-[11px] text-ink-mute mt-1">
+              Splits the beam section into N groups, one per ends spec.
+            </p>
           </div>
-          <p className="text-[11px] text-ink-mute mt-2">
-            Beam numbers auto-increment from the first. Ends value copies to every beam.
-          </p>
         </div>
 
         <div>
@@ -593,7 +638,10 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                 value={defaultOutsourceVendorId}
                 onChange={(e) => {
                   setDefaultOutsourceVendorId(e.target.value);
-                  setBeams((prev) => prev.map((b) => ({ ...b, outsource_vendor_id: e.target.value })));
+                  setEndsGroups((prev) => prev.map((g) => ({
+                    ...g,
+                    beams: g.beams.map((b) => ({ ...b, outsource_vendor_id: e.target.value })),
+                  })));
                 }}
                 className="input"
               >
@@ -604,76 +652,109 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           )}
         </div>
 
-        <div className="space-y-2">
-          {beams.map((b, idx) => (
-            <div key={idx} className="rounded-lg border border-line/60 p-3 space-y-2 bg-cloud/30">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-ink-soft">Beam #{idx + 1}</span>
-                {beams.length > 1 && (
-                  <button type="button" onClick={() => removeBeam(idx)} className="text-rose-600 hover:text-rose-700">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+        {endsGroups.map((g, gIdx) => (
+          <div key={gIdx} className="rounded-lg border border-indigo/30 bg-indigo-50/20 p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold text-indigo uppercase tracking-wide">
+                Ends Group {gIdx + 1}
+                {g.ends !== '' && (
+                  <span className="ml-2 text-ink-soft normal-case font-medium">· {g.ends} ends</span>
                 )}
-              </div>
-              <div className="grid sm:grid-cols-3 gap-2">
+              </span>
+              <button type="button" onClick={() => addBeamToGroup(gIdx)} className="btn-ghost text-xs">
+                <Plus className="w-3.5 h-3.5" /> Add beam
+              </button>
+            </div>
+
+            <div className="rounded-md border border-line/60 bg-paper p-3">
+              <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">Quick fill</div>
+              <div className="grid sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="label">Beam No</label>
-                  <div className="input num bg-cloud/40 text-ink-mute select-none">{b.beam_no || '—'}</div>
+                  <label className="label">First Beam No</label>
+                  <input type="number" min={0} step={1} value={g.firstBeamNo} onChange={(e) => patchGroup(gIdx, { firstBeamNo: e.target.value })} className="input num" placeholder="5715" />
                 </div>
                 <div>
-                  <label className="label">Ends *</label>
-                  {/* Auto-filled from Quick fill above, but editable
-                      per beam — the operator can override a single
-                      row when one beam has a different ends count.
-                      Changing the Quick fill Ends afterwards will
-                      overwrite all rows again. */}
-                  <input
-                    type="number" min={1}
-                    value={b.ends}
-                    onChange={(e) => patchBeam(idx, { ends: e.target.value })}
-                    className="input num"
-                    placeholder="2400"
-                  />
+                  <label className="label">No. of Beams</label>
+                  <input type="number" min={1} step={1} value={g.beamCount} onChange={(e) => patchGroup(gIdx, { beamCount: e.target.value })} className="input num" />
                 </div>
                 <div>
-                  <label className="label">Metres *</label>
-                  <input type="number" step="0.01" min={0.01} value={b.meters} onChange={(e) => patchBeam(idx, { meters: e.target.value })} className="input num" placeholder="1240" />
+                  <label className="label">Ends (applies to this group)</label>
+                  <input type="number" min={0} step={1} value={g.ends} onChange={(e) => patchGroup(gIdx, { ends: e.target.value })} className="input num" placeholder="2400" />
                 </div>
               </div>
-              {defaultMode === 'mixed' && (
-                <div className="grid sm:grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <label className="label">Routing</label>
-                    <select
-                      value={b.production_mode}
-                      onChange={(e) => patchBeam(idx, {
-                        production_mode: e.target.value as ProdMode,
-                        outsource_vendor_id: e.target.value === 'outsource' ? b.outsource_vendor_id : '',
-                      })}
-                      className="input"
-                    >
-                      <option value="in_house">In-house</option>
-                      <option value="outsource">Outsource</option>
-                    </select>
+            </div>
+
+            <div className="space-y-2">
+              {g.beams.map((b, bIdx) => (
+                <div key={bIdx} className="rounded-lg border border-line/60 p-3 space-y-2 bg-cloud/30">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-ink-soft">Beam #{bIdx + 1}</span>
+                    {g.beams.length > 1 && (
+                      <button type="button" onClick={() => removeBeamFromGroup(gIdx, bIdx)} className="text-rose-600 hover:text-rose-700">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                  {b.production_mode === 'outsource' && (
+                  <div className="grid sm:grid-cols-3 gap-2">
                     <div>
-                      <label className="label">Outsource Weaver *</label>
-                      <select value={b.outsource_vendor_id} onChange={(e) => patchBeam(idx, { outsource_vendor_id: e.target.value })} className="input">
-                        <option value="">Select weaver…</option>
-                        {masters.weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
+                      <label className="label">Beam No</label>
+                      <div className="input num bg-cloud/40 text-ink-mute select-none">{b.beam_no || '—'}</div>
+                    </div>
+                    <div>
+                      <label className="label">Ends *</label>
+                      <input
+                        type="number" min={1}
+                        value={b.ends}
+                        onChange={(e) => patchBeam(gIdx, bIdx, { ends: e.target.value })}
+                        className="input num"
+                        placeholder="2400"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Metres *</label>
+                      <input type="number" step="0.01" min={0.01} value={b.meters} onChange={(e) => patchBeam(gIdx, bIdx, { meters: e.target.value })} className="input num" placeholder="1240" />
+                    </div>
+                  </div>
+                  {defaultMode === 'mixed' && (
+                    <div className="grid sm:grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label className="label">Routing</label>
+                        <select
+                          value={b.production_mode}
+                          onChange={(e) => patchBeam(gIdx, bIdx, {
+                            production_mode: e.target.value as ProdMode,
+                            outsource_vendor_id: e.target.value === 'outsource' ? b.outsource_vendor_id : '',
+                          })}
+                          className="input"
+                        >
+                          <option value="in_house">In-house</option>
+                          <option value="outsource">Outsource</option>
+                        </select>
+                      </div>
+                      {b.production_mode === 'outsource' && (
+                        <div>
+                          <label className="label">Outsource Weaver *</label>
+                          <select value={b.outsource_vendor_id} onChange={(e) => patchBeam(gIdx, bIdx, { outsource_vendor_id: e.target.value })} className="input">
+                            <option value="">Select weaver…</option>
+                            {masters.weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* Total metres footer — sum of metres across every beam.
-            Updates live as the operator types per-beam metres or
-            changes the beam count. */}
+            <div className="flex items-center justify-end gap-3 text-xs text-ink-soft">
+              <span>Group {gIdx + 1} total:</span>
+              <span className="num font-semibold text-ink">
+                {g.beams.reduce((s, b) => s + (Number(b.meters) || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
+              </span>
+            </div>
+          </div>
+        ))}
+
         <div className="flex items-center justify-between rounded-lg border border-line/60 bg-indigo-50/40 px-4 py-3">
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
             Total metres
