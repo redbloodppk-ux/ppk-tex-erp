@@ -25,11 +25,23 @@ export default async function PavuListPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
+  // Outsource Weaver party type — resolved once so we can scope the
+  // weaver dropdown to parties tagged as "Outsource Weaver" only.
+  // The WEAVING(VENDOR) ledger list we used previously bled in
+  // anyone tagged as a generic weaving vendor (e.g. Murgan Tex)
+  // even when they weren't on the outsource weaver master.
+  const { data: ptRow } = await sb
+    .from('party_type_master')
+    .select('id')
+    .eq('name', 'Outsource Weaver')
+    .maybeSingle();
+  const outsourceTypeId: number | null = ptRow?.id ?? null;
+
   // Load everything we need in parallel:
   // - pavu rows for the master list (existing behaviour, unchanged)
   // - sizing jobs + their pavu rows for the bulk routing form
-  // - the WEAVING(VENDOR) ledger list for the outsource-weaver picker
-  const [pavusRes, jobsRes, vendorsRes] = await Promise.all([
+  // - Outsource Weaver parties for the routing dropdown
+  const [pavusRes, jobsRes, partiesRes] = await Promise.all([
     sb.from('pavu').select(`
       id, pavu_code, beam_no, ends, meters, status, production_mode,
       sizing_job:sizing_job_id (
@@ -45,11 +57,13 @@ export default async function PavuListPage() {
         outsource_vendor:outsource_ledger_id ( name )
       )
     `).order('created_at', { ascending: false }).limit(100),
-    sb.from('ledger')
-      .select('id, name, ledger_type:type_id!inner(name)')
-      .eq('active', true)
-      .eq('ledger_type.name', 'WEAVING(VENDOR)')
-      .order('name'),
+    outsourceTypeId == null
+      ? Promise.resolve({ data: [] })
+      : sb.from('party')
+          .select('id, name, ledger_id, party_type_ids')
+          .eq('status', 'active')
+          .contains('party_type_ids', [outsourceTypeId])
+          .order('name'),
   ]);
 
   const pavus    = (pavusRes.data    ?? []) as Array<Record<string, unknown>>;
@@ -62,8 +76,13 @@ export default async function PavuListPage() {
       outsource_vendor: { name: string } | null;
     }>;
   }>;
-  const vendors  = ((vendorsRes.data ?? []) as Array<{ id: number; name: string }>)
-    .map<WeavingVendor>((v) => ({ id: v.id, name: v.name }));
+  // The party row carries the operator-friendly name; the linked
+  // ledger_id is what pavu.outsource_ledger_id actually stores. We
+  // drop parties without a linked ledger because the foreign key
+  // would reject those on save.
+  const vendors = ((partiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
+    .filter((p) => p.ledger_id != null)
+    .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
 
   // Build the BulkJobRow list — collapses each job's pavu rows into a
   // unanimous mode + vendor where the rows agree, otherwise flags as
