@@ -1127,7 +1127,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setForm((f) => ({ ...f, sizing_job_id: '' }));
   }, [form.supplier_party_id]);
 
-  // Load pavu rows when the sizing job picker changes.
+  // Load pavu rows when the sizing job picker changes. Outsource
+  // warp-given is, by definition, only about outsource-routed beams,
+  // so the checklist is filtered to production_mode='outsource' —
+  // in-house beams of the same sizing set don't belong in this form.
   useEffect(() => {
     if (form.sizing_job_id === '') { setPavusForJob([]); setSelectedPavuIds(new Set()); return; }
     let cancelled = false;
@@ -1138,6 +1141,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         .from('pavu')
         .select('id, pavu_code, beam_no, ends, meters, production_mode, outsource_ledger_id')
         .eq('sizing_job_id', Number(form.sizing_job_id))
+        .eq('production_mode', 'outsource')
         .order('beam_no');
       if (cancelled) return;
       setPavusForJob((data ?? []) as PavuOpt[]);
