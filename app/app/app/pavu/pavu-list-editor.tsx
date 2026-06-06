@@ -81,8 +81,26 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
     return init;
   });
 
+  function defaultStateFor(r: PavuRow): RowState {
+    return {
+      mode:     r.production_mode,
+      vendorId: r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
+      saving:   false,
+      error:    null,
+      saved:    false,
+      dirty:    false,
+    };
+  }
+
   function patch(rowId: number, patch: Partial<RowState>) {
-    setState((prev) => ({ ...prev, [rowId]: { ...prev[rowId]!, ...patch } }));
+    setState((prev) => {
+      const base = prev[rowId] ?? defaultStateFor(rows.find((x) => x.id === rowId) ?? {
+        id: rowId, pavu_code: '', beam_no: '', ends: 0, meters: 0, status: '',
+        production_mode: 'in_house', outsource_ledger_id: null,
+        sizing_job_code: null, warp_count_code: null, outsource_vendor_name: null,
+      });
+      return { ...prev, [rowId]: { ...base, ...patch } };
+    });
   }
 
   async function handleSave(row: PavuRow): Promise<void> {
@@ -144,7 +162,10 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
         </thead>
         <tbody>
           {rows.map((r) => {
-            const s = state[r.id]!;
+            // Fall back to a freshly-derived default if state wasn't
+            // initialised for this row id (can happen when rows arrive
+            // from a router.refresh() after the initial mount).
+            const s = state[r.id] ?? defaultStateFor(r);
             return (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60 align-middle">
                 <td className="px-4 py-2 font-mono text-xs font-semibold text-ink">{r.pavu_code}</td>
