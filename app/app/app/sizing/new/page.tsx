@@ -738,13 +738,20 @@ export default function NewSizingJobPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="label">Ends</label>
-                      {/* Shared across all beams — set once in Quick
-                          fill above. Read-only here so the operator
-                          can't accidentally desync one row. */}
-                      <div className="input num bg-cloud/40 text-ink-mute select-none">
-                        {b.ends || '—'}
-                      </div>
+                      <label className="label">Ends *</label>
+                      {/* Auto-filled from Quick fill above, but
+                          editable per beam — the operator can
+                          override a single row when one beam has a
+                          different ends count. Changing the Quick
+                          fill Ends afterwards will overwrite all
+                          rows again. */}
+                      <input
+                        type="number" min={1}
+                        value={b.ends}
+                        onChange={(e) => patchBeam(idx, { ends: e.target.value })}
+                        className="input num"
+                        placeholder="2400"
+                      />
                     </div>
                     <div>
                       <label className="label">Metres *</label>
