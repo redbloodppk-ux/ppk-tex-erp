@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader, ComingSoon } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { Plus, Pencil, FileText } from 'lucide-react';
 import { formatRupee, formatDate, formatMetres } from '@/lib/utils';
@@ -7,6 +8,9 @@ import { DcConfirmButton } from './dc-confirm-button';
 
 export const metadata = { title: 'Sales Orders' };
 export const dynamic = 'force-dynamic';
+
+// Whitelisted sort keys on the sales_order list.
+const SORTABLE_COLUMNS = new Set(['doc_no', 'customer_name']);
 
 interface PendingDc {
   id: number;
@@ -20,12 +24,20 @@ interface PendingDc {
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
 }
 
-export default async function OrdersPage() {
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'order_date';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : sp.dir === 'asc' ? 'asc' : 'desc';
+
   const supabase = await createClient();
   const { data: orders } = await supabase
     .from('sales_order')
     .select('id, doc_no, customer_name, order_date, expected_delivery_date, total_metres, total_amount, status')
-    .order('order_date', { ascending: false })
+    .order(sort, { ascending: dir === 'asc' })
     .limit(50);
 
   // Draft DCs that are waiting for the operator to confirm before they
@@ -134,8 +146,8 @@ export default async function OrdersPage() {
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left px-4 py-3">Doc No</th>
-                <th className="text-left px-4 py-3">Customer</th>
+                <SortableTh column="doc_no" label="Doc No" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
+                <SortableTh column="customer_name" label="Customer" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3">Date</th>
                 <th className="text-left px-4 py-3 hidden md:table-cell">Delivery</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Metres</th>

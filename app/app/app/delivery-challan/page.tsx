@@ -1,10 +1,14 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Printer } from 'lucide-react';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
+
+// Whitelisted sort keys for the DC list. Defaults to dc_date desc.
+const SORTABLE_COLUMNS = new Set(['code', 'dc_date']);
 
 interface DcRow {
   id: number;
@@ -39,14 +43,24 @@ function statusPill(s: DcRow['status']): { label: string; cls: string } {
   }
 }
 
-export default async function DeliveryChallanListPage() {
+export default async function DeliveryChallanListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'dc_date';
+  // Default direction is descending for dc_date (newest first); for code
+  // ascending makes more sense. The SortableTh toggles dir on click.
+  const dir: SortDir = sp.dir === 'asc' ? 'asc' : sp.dir === 'desc' ? 'desc' : (sort === 'dc_date' ? 'desc' : 'asc');
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
   const { data, error } = await sb
     .from('delivery_challan')
     .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id')
-    .order('dc_date', { ascending: false })
+    .order(sort, { ascending: dir === 'asc' })
     .order('id', { ascending: false });
 
   const rows = (data ?? []) as DcRow[];
@@ -71,8 +85,8 @@ export default async function DeliveryChallanListPage() {
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-3 py-3">DC No</th>
-              <th className="text-left px-3 py-3">Date</th>
+              <SortableTh column="code" label="DC No" sort={sort} dir={dir} basePath="/app/delivery-challan" className="text-left px-3 py-3" />
+              <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" className="text-left px-3 py-3" />
               <th className="text-left px-3 py-3">Mode</th>
               <th className="text-left px-3 py-3">Party (Bill-To)</th>
               <th className="text-right px-3 py-3">Metres</th>

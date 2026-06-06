@@ -1,12 +1,16 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Link2 } from 'lucide-react';
 import { FabricActiveToggle } from '@/app/components/fabric-active-toggle';
 import { FabricDeleteButton } from '@/app/components/fabric-delete-button';
 
 export const metadata = { title: 'Fabric Qualities' };
 export const dynamic = 'force-dynamic';
+
+// Whitelisted sort keys for the fabric_quality list.
+const SORTABLE_COLUMNS = new Set(['code', 'name']);
 
 interface FQRow {
   id: number;
@@ -32,14 +36,22 @@ function fmtM(n: number): string {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-export default async function FabricQualitiesPage() {
+export default async function FabricQualitiesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
   const { data, error } = await sb
     .from('fabric_quality')
     .select('id, code, name, fabric_type, production_mode, width_in, pick_per_inch, reed, active, is_merged, merged_name')
-    .order('name');
+    .order(sort, { ascending: dir === 'asc' });
 
   const rows = (data ?? []) as unknown as FQRow[];
 
@@ -95,8 +107,8 @@ export default async function FabricQualitiesPage() {
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Code</th>
-              <th className="text-left px-4 py-3">Quality</th>
+              <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/settings/fabric-qualities" className="text-left px-4 py-3" />
+              <SortableTh column="name" label="Quality" sort={sort} dir={dir} basePath="/app/settings/fabric-qualities" className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3 hidden md:table-cell">Fabric Type</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Production Mode</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Merged as</th>

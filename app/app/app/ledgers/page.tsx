@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, CheckCircle2 } from 'lucide-react';
 import { LedgerDeleteButton } from './delete-button';
 import { LedgerViewTab } from './ledger-view-tab';
@@ -9,6 +10,9 @@ export const metadata = { title: 'Ledgers' };
 export const dynamic = 'force-dynamic';
 
 type Tab = 'master' | 'view';
+
+// Columns the operator can sort by on the Master tab.
+const SORTABLE_COLUMNS = new Set(['code', 'name']);
 
 interface LedgerListRow {
   id: number;
@@ -41,12 +45,14 @@ interface LedgerOpt {
 export default async function LedgersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; type?: string; group?: string; ledger?: string }>;
+  searchParams: Promise<{ tab?: string; type?: string; group?: string; ledger?: string; sort?: string; dir?: string }>;
 }) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'view' ? 'view' : 'master';
   const typeFilter  = sp.type  ?? '';
   const groupFilter = sp.group ?? '';
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,7 +77,7 @@ export default async function LedgersPage({
     let q = sb
       .from('ledger')
       .select('id, code, name, gstin, gstin_verified_at, phone, area, active, type_id, group_id, ledger_type:type_id(name), ledger_group:group_id(name)')
-      .order('name');
+      .order(sort, { ascending: dir === 'asc' });
     if (typeFilter)  q = q.eq('type_id',  Number(typeFilter));
     if (groupFilter) q = q.eq('group_id', Number(groupFilter));
     const res = await q;
@@ -185,8 +191,8 @@ export default async function LedgersPage({
             <table className="w-full text-sm min-w-[720px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="text-left px-4 py-3">Code</th>
-                  <th className="text-left px-4 py-3">Ledger Name</th>
+                  <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, group: groupFilter }} className="text-left px-4 py-3" />
+                  <SortableTh column="name" label="Ledger Name" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, group: groupFilter }} className="text-left px-4 py-3" />
                   <th className="text-left px-4 py-3 hidden md:table-cell">Type</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">Group</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">GSTIN</th>

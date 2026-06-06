@@ -1,19 +1,36 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Plus, Phone, MapPin, Star, CheckCircle2 } from 'lucide-react';
 
 export const metadata = { title: 'Customers' };
 
-export default async function CustomersPage() {
+interface PageProps {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}
+
+// Columns the operator can sort by. Anything else falls back to the
+// default — VIPs first, then alphabetical by name.
+const SORTABLE_COLUMNS = new Set(['code', 'name']);
+
+export default async function CustomersPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
+
   const supabase = await createClient();
-  const { data: customers, error } = await supabase
+  let q = supabase
     .from('customer')
-    .select('id, code, name, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status, is_vip')
-    // VIP customers float to the top, then alphabetical within each group.
-    .order('is_vip', { ascending: false })
-    .order('name');
+    .select('id, code, name, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status, is_vip');
+
+  // VIPs always float to the top of the list; the operator-chosen sort
+  // applies within each tier.
+  q = q.order('is_vip', { ascending: false });
+  q = q.order(sort, { ascending: dir === 'asc' });
+
+  const { data: customers, error } = await q;
 
   return (
     <div>
@@ -37,8 +54,8 @@ export default async function CustomersPage() {
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Code</th>
-              <th className="text-left px-4 py-3">Name</th>
+              <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/customers" className="text-left px-4 py-3" />
+              <SortableTh column="name" label="Name" sort={sort} dir={dir} basePath="/app/customers" className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3 hidden md:table-cell">GSTIN</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>
               <th className="text-right px-4 py-3">Credit Limit</th>

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Plus, Phone, MapPin, Pencil, CheckCircle2 } from 'lucide-react';
@@ -7,6 +8,9 @@ import { DeletePartyButton } from './delete-party-button';
 
 export const metadata = { title: 'Parties' };
 export const dynamic = 'force-dynamic';
+
+// Columns the operator can sort by. Anything else falls back to name.
+const SORTABLE_COLUMNS = new Set(['code', 'name']);
 
 interface PartyRow {
   id: number;
@@ -31,10 +35,13 @@ interface TypeRow { id: number; name: string; }
 export default async function PartiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<{ type?: string; sort?: string; dir?: string }>;
 }) {
   const sp = await searchParams;
   const typeFilter = sp.type ?? '';
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
+  const ascending = dir === 'asc';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,11 +50,11 @@ export default async function PartiesPage({
   const [typesRes, partiesRes] = await Promise.all([
     sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
     (typeFilter === ''
-      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').order('name')
+      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').order(sort, { ascending })
       // Use array containment (`@>`) so the filter pill matches parties
       // whose party_type_ids includes the selected type. Supabase exposes
       // this via the .contains() filter.
-      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order('name')),
+      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order(sort, { ascending })),
   ]);
 
   const types = (typesRes.data ?? []) as TypeRow[];
@@ -90,8 +97,8 @@ export default async function PartiesPage({
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Code</th>
-              <th className="text-left px-4 py-3">Name</th>
+              <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/parties" extraParams={{ type: typeFilter }} className="text-left px-4 py-3" />
+              <SortableTh column="name" label="Name" sort={sort} dir={dir} basePath="/app/parties" extraParams={{ type: typeFilter }} className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3 hidden sm:table-cell">Type</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">GSTIN</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>

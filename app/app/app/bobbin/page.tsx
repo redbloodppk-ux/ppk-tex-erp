@@ -16,10 +16,16 @@
  * RLS: anyone authenticated reads; owner / mill_manager writes.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
+
+// Columns the operator can sort by — falls back to default (purchase_date desc)
+// when no sort key is set in the URL.
+const SORTABLE_COLUMNS = new Set(['code', 'description']);
 
 type RecordStatus = 'active' | 'inactive' | 'archived';
 
@@ -117,6 +123,10 @@ function fmtMoney(n: number | null | undefined): string {
 
 export default function BobbinPage() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
+  const rawSort = searchParams.get('sort') ?? '';
+  const sort: string = SORTABLE_COLUMNS.has(rawSort) ? rawSort : '';
+  const dir: SortDir = searchParams.get('dir') === 'desc' ? 'desc' : 'asc';
 
   const [rows, setRows] = useState<Bobbin[]>([]);
   const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOption[]>([]);
@@ -196,6 +206,24 @@ export default function BobbinPage() {
   }, [supabase]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Client-side sort: SortableTh navigates with ?sort=&dir= and we apply it
+  // to the rows already in memory so the operator gets instant feedback
+  // without a full reload.
+  const sortedRows = useMemo<Bobbin[]>(() => {
+    if (sort === '') return rows;
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const av = (a as unknown as Record<string, unknown>)[sort];
+      const bv = (b as unknown as Record<string, unknown>)[sort];
+      if (av === bv) return 0;
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      const cmp = av < bv ? -1 : 1;
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    return copy;
+  }, [rows, sort, dir]);
 
   const ends = useMemo<number | null>(() => toNumOrNull(form.ends_per_bobbin), [form.ends_per_bobbin]);
   const metres = useMemo<number | null>(() => toNumOrNull(form.bobbin_metre), [form.bobbin_metre]);
@@ -580,8 +608,8 @@ export default function BobbinPage() {
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left px-3 py-3">Code</th>
-                <th className="text-left px-3 py-3">Description</th>
+                <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/bobbin" className="text-left px-3 py-3" />
+                <SortableTh column="description" label="Description" sort={sort} dir={dir} basePath="/app/bobbin" className="text-left px-3 py-3" />
                 <th className="text-right px-3 py-3">Qty (pcs)</th>
                 <th className="text-right px-3 py-3" title="Metres per piece × qty">Metres</th>
                 <th className="text-right px-3 py-3">Price Rs</th>
@@ -594,7 +622,7 @@ export default function BobbinPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => {
+              {sortedRows.map((b) => {
                 // Per-row metres = qty × bobbin_metre. Treat missing
                 // bobbin_metre as 0 so the column shows '-' rather than NaN.
                 const perPc = Number(b.bobbin_metre ?? 0);

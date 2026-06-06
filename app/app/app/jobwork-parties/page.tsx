@@ -1,11 +1,15 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Plus, Phone, MapPin } from 'lucide-react';
 
 export const metadata = { title: 'Jobwork Parties' };
 export const dynamic = 'force-dynamic';
+
+// Columns the operator can sort by — defaults to name.
+const SORTABLE_COLUMNS = new Set(['code', 'name']);
 
 interface JWPRow {
   id: number;
@@ -20,13 +24,21 @@ interface JWPRow {
   status: 'active' | 'inactive' | 'archived';
 }
 
-export default async function JobworkPartiesPage() {
+export default async function JobworkPartiesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
+  const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('jobwork_party')
     .select('id, code, name, gstin, phone, email, city, credit_limit, payment_terms_days, status')
-    .order('name');
+    .order(sort, { ascending: dir === 'asc' });
 
   const rows = (data ?? []) as unknown as JWPRow[];
 
@@ -52,8 +64,8 @@ export default async function JobworkPartiesPage() {
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Code</th>
-              <th className="text-left px-4 py-3">Name</th>
+              <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/jobwork-parties" className="text-left px-4 py-3" />
+              <SortableTh column="name" label="Name" sort={sort} dir={dir} basePath="/app/jobwork-parties" className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3 hidden md:table-cell">GSTIN</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>
               <th className="text-right px-4 py-3">Credit Limit</th>

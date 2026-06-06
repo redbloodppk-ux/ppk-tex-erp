@@ -2,8 +2,15 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 
 export const metadata = { title: 'Sizing Jobs' };
+
+// Per-tab whitelists. Each tab queries different columns so they need
+// their own allow-lists; the ?sort key from the URL is validated against
+// the active tab's whitelist before it reaches PostgREST.
+const JOBS_SORTABLE  = new Set(['job_code', 'set_no']);
+const BILLS_SORTABLE = new Set(['bill_no', 'bill_date']);
 
 const STATUS_STYLE: Record<string, string> = {
   draft:      'bg-slate-100 text-slate-700',
@@ -18,7 +25,7 @@ const STATUS_STYLE: Record<string, string> = {
 type Tab = 'jobs' | 'bills';
 
 interface PageProps {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; sort?: string; dir?: string }>;
 }
 
 function fmtDate(s: string | null): string {
@@ -36,6 +43,20 @@ function fmtMoney(v: unknown): string {
 export default async function SizingListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'bills' ? 'bills' : 'jobs';
+
+  // Pick the right whitelist + fallback for the active tab. The shared
+  // ?sort and ?dir params live alongside ?tab; SortableTh preserves tab
+  // via extraParams so the active tab survives a re-sort click.
+  const allowed = tab === 'jobs' ? JOBS_SORTABLE : BILLS_SORTABLE;
+  const fallback = tab === 'jobs' ? 'job_code' : 'bill_date';
+  const sort: string = allowed.has(sp.sort ?? '') ? (sp.sort as string) : fallback;
+  // bill_date defaults to newest-first; everything else asc unless asked.
+  const dir: SortDir = sp.dir === 'asc'
+    ? 'asc'
+    : sp.dir === 'desc'
+      ? 'desc'
+      : (sort === 'bill_date' ? 'desc' : 'asc');
+
   const supabase = await createClient();
 
   // Pull each job plus the foreign-key labels we want to show. PostgREST
@@ -56,6 +77,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
           yarn_supplier:yarn_supplier_party_id ( name ),
           warp_count:warp_count_id        ( code )
         `)
+        .order(sort, { ascending: dir === 'asc' })
         .order('created_at', { ascending: false })
         .limit(100)
     : { data: [], error: null };
@@ -73,7 +95,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
           warp_count:warp_count_id ( code )
         `)
         .not('bill_no', 'is', null)
-        .order('bill_date', { ascending: false, nullsFirst: false })
+        .order(sort, { ascending: dir === 'asc', nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(100)
     : { data: [], error: null };
@@ -128,8 +150,8 @@ export default async function SizingListPage({ searchParams }: PageProps) {
             <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="text-left  px-4 py-3">Job</th>
-                  <th className="text-left  px-4 py-3 hidden md:table-cell">Set No</th>
+                  <SortableTh column="job_code" label="Job" sort={sort} dir={dir} basePath="/app/sizing" extraParams={{ tab }} className="text-left px-4 py-3" />
+                  <SortableTh column="set_no" label="Set No" sort={sort} dir={dir} basePath="/app/sizing" extraParams={{ tab }} className="text-left px-4 py-3 hidden md:table-cell" />
                   <th className="text-left  px-4 py-3">Sizing Mill</th>
                   <th className="text-left  px-4 py-3 hidden md:table-cell">Yarn Supplier</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Count</th>
@@ -205,8 +227,8 @@ export default async function SizingListPage({ searchParams }: PageProps) {
             <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="text-left  px-4 py-3">Bill No</th>
-                  <th className="text-left  px-4 py-3">Bill Date</th>
+                  <SortableTh column="bill_no" label="Bill No" sort={sort} dir={dir} basePath="/app/sizing" extraParams={{ tab }} className="text-left px-4 py-3" />
+                  <SortableTh column="bill_date" label="Bill Date" sort={sort} dir={dir} basePath="/app/sizing" extraParams={{ tab }} className="text-left px-4 py-3" />
                   <th className="text-left  px-4 py-3">Sizing Mill</th>
                   <th className="text-left  px-4 py-3 hidden md:table-cell">Job</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Count</th>

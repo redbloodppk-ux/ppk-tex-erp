@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader, ComingSoon } from '@/app/components/page-header';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { formatRupee } from '@/lib/utils';
 import { Plus, Calculator, ClipboardCheck, Pencil } from 'lucide-react';
@@ -7,6 +8,9 @@ import { CostingActiveToggle } from '@/app/components/costing-active-toggle';
 import { CostingDeleteButton } from '@/app/components/costing-delete-button';
 
 export const metadata = { title: 'Fabric Costing' };
+
+// Whitelisted sort keys on the costing_master list.
+const SORTABLE_COLUMNS = new Set(['quality_code', 'quality_name']);
 
 interface MasterRow {
   id: number;
@@ -27,7 +31,15 @@ interface CostRow {
   true_cost_per_m: number | null;
 }
 
-export default async function CostingPage() {
+export default async function CostingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+  const sp = await searchParams;
+  const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'updated_at';
+  const dir: SortDir = sp.dir === 'asc' ? 'asc' : sp.dir === 'desc' ? 'desc' : 'desc';
+
   const supabase = await createClient();
   const [
     { data: masters },
@@ -38,7 +50,7 @@ export default async function CostingPage() {
     supabase
       .from('costing_master')
       .select('id, quality_code, quality_name, status, approval_status, production_mode, fabric_type, fabric_width_in, gsm, updated_at')
-      .order('updated_at', { ascending: false })
+      .order(sort, { ascending: dir === 'asc' })
       .limit(200),
     supabase
       .from('v_costing_two_cost')
@@ -115,8 +127,8 @@ export default async function CostingPage() {
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left px-4 py-3">Code</th>
-                <th className="text-left px-4 py-3">Quality Name</th>
+                <SortableTh column="quality_code" label="Code" sort={sort} dir={dir} basePath="/app/costing" className="text-left px-4 py-3" />
+                <SortableTh column="quality_name" label="Quality Name" sort={sort} dir={dir} basePath="/app/costing" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3">Type</th>
                 <th className="text-left px-4 py-3">Mode</th>
                 <th className="text-right px-4 py-3">Width (in)</th>
