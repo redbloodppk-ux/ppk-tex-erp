@@ -348,9 +348,19 @@ function TabButton({ active, onClick, children }: {
   );
 }
 
-/* ===== Weavers tab — read-only directory of Outsource Weaver parties ===== */
+/* ===== Weavers tab — read-only directory of Outsource Weaver parties =====
+ *
+ * The `parties` prop on this page comes from the `jobwork_party` table
+ * (filtered by `kind='outsource'`), not the unified `party` master, so
+ * row links go to the jobwork-parties routes — /app/parties/[id] would
+ * 404 because the ids don't exist on `party`.
+ *
+ * We also fetch each row's extra columns (gstin / phone / city) from
+ * the same jobwork_party table so the display stays consistent with
+ * the route the edit pencil opens.
+ */
 function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
-  const [extra, setExtra] = useState<Map<number, { gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>>(new Map());
+  const [extra, setExtra] = useState<Map<number, { gstin: string | null; phone: string | null; city: string | null }>>(new Map());
   const supabase = createClient();
 
   useEffect(() => {
@@ -360,13 +370,13 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
       const { data } = await sb
-        .from('party')
-        .select('id, gstin, phone, city, ledger_id')
+        .from('jobwork_party')
+        .select('id, gstin, phone, city')
         .in('id', parties.map((p) => p.id));
       if (cancelled) return;
-      const m = new Map<number, { gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>();
-      for (const p of (data ?? []) as Array<{ id: number; gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>) {
-        m.set(p.id, { gstin: p.gstin, phone: p.phone, city: p.city, ledger_id: p.ledger_id });
+      const m = new Map<number, { gstin: string | null; phone: string | null; city: string | null }>();
+      for (const p of (data ?? []) as Array<{ id: number; gstin: string | null; phone: string | null; city: string | null }>) {
+        m.set(p.id, { gstin: p.gstin, phone: p.phone, city: p.city });
       }
       setExtra(m);
     })();
@@ -377,9 +387,9 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-sm text-ink-mute">
-          Outsource Weaver parties — {parties.length} total. Edit a row to manage GSTIN, address and ledger linkage on the parties page.
+          Outsource Weaver parties — {parties.length} total. Edit a row to manage GSTIN, address, and contact info.
         </p>
-        <Link href="/app/parties/new" className="btn-primary text-xs">
+        <Link href="/app/jobwork-parties/new?kind=outsource" className="btn-primary text-xs">
           <Plus className="w-3.5 h-3.5" /> Add weaver
         </Link>
       </div>
@@ -393,15 +403,17 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
               <th className="text-left  px-4 py-3 hidden md:table-cell">GSTIN</th>
               <th className="text-left  px-4 py-3 hidden lg:table-cell">Phone</th>
               <th className="text-left  px-4 py-3 hidden lg:table-cell">City</th>
-              <th className="text-left  px-4 py-3 hidden md:table-cell">Linked ledger</th>
               <th className="text-right px-4 py-3 w-16"></th>
             </tr>
           </thead>
           <tbody>
             {parties.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
-                  No Outsource Weaver parties yet. <Link href="/app/parties/new" className="text-indigo font-semibold">Add the first one →</Link>
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-ink-soft">
+                  No Outsource Weaver parties yet.{' '}
+                  <Link href="/app/jobwork-parties/new?kind=outsource" className="text-indigo font-semibold">
+                    Add the first one &rarr;
+                  </Link>
                 </td>
               </tr>
             ) : parties.map((p) => {
@@ -410,19 +422,14 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
                 <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-4 py-3 font-mono text-xs">{p.code}</td>
                   <td className="px-4 py-3 font-semibold">
-                    <Link href={`/app/parties/${p.id}`} className="text-ink hover:text-indigo">{p.name}</Link>
+                    <Link href={`/app/jobwork-parties/${p.id}`} className="text-ink hover:text-indigo">{p.name}</Link>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{x?.gstin ?? '—'}</td>
                   <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.phone ?? '—'}</td>
                   <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.city ?? '—'}</td>
-                  <td className="px-4 py-3 hidden md:table-cell text-xs">
-                    {x?.ledger_id != null
-                      ? <span className="font-mono">#{x.ledger_id}</span>
-                      : <span className="text-rose-700 text-[11px]">Not linked</span>}
-                  </td>
                   <td className="px-4 py-3 text-right">
                     <Link
-                      href={`/app/parties/${p.id}`}
+                      href={`/app/jobwork-parties/${p.id}`}
                       className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
                       title="Edit weaver"
                     >
