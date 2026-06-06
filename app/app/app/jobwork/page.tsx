@@ -929,16 +929,39 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
 
-  // Load sizing jobs once when the form opens.
+  // Load sizing jobs once when the form opens. Only jobs that have
+  // at least one pavu row already routed to outsource via Pavu
+  // Master surface here — sourcing a beam for an outsource warp
+  // entry doesn't make sense if none of the job's beams are
+  // outsource in the first place.
   useEffect(() => {
     if (!showAdd || kind !== 'outsource') return;
     let cancelled = false;
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
+      // Two-step lookup: first find the distinct sizing_job_ids that
+      // have outsource-routed pavu rows, then fetch those jobs. This
+      // is simpler than a PostgREST inner-join + embedded filter and
+      // works the same regardless of the row counts.
+      const { data: pavuRows } = await sb
+        .from('pavu')
+        .select('sizing_job_id')
+        .eq('production_mode', 'outsource')
+        .not('sizing_job_id', 'is', null);
+      const jobIds = Array.from(new Set(
+        ((pavuRows ?? []) as Array<{ sizing_job_id: number | null }>)
+          .map((r) => r.sizing_job_id)
+          .filter((x): x is number => x != null),
+      ));
+      if (jobIds.length === 0) {
+        if (!cancelled) setSizingJobs([]);
+        return;
+      }
       const { data } = await sb
         .from('sizing_job')
         .select('id, job_code, set_no, warp_count_id')
+        .in('id', jobIds)
         .order('created_at', { ascending: false })
         .limit(100);
       if (cancelled) return;
