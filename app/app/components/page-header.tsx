@@ -1,9 +1,18 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
-import { HeaderNavButtons } from './header-nav-buttons';
 
 interface Crumb { label: string; href?: string }
 
+/**
+ * Standard page header — breadcrumbs, title, optional subtitle and
+ * action slot.
+ *
+ * The global Back button was removed: it appeared on every page, even
+ * top-level ones where it served no purpose. Where a Back action is
+ * genuinely useful (deep edit flows, nested forms) it should be added
+ * locally — either via the `actions` slot or by rendering
+ * `HeaderNavButtons` directly inside the page that needs it.
+ */
 export function PageHeader({
   title,
   subtitle,
@@ -18,7 +27,6 @@ export function PageHeader({
   return (
     <header className="mb-6 flex items-end justify-between flex-wrap gap-3">
       <div>
-        <HeaderNavButtons />
         {crumbs?.length ? (
           <nav className="text-xs text-ink-mute mb-1.5 flex items-center gap-1">
             {crumbs.map((c, i) => (
