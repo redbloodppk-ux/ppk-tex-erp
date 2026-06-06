@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { SizingJobDeleteButton } from './sizing-job-delete-button';
+import { SizingPaymentTab } from './sizing-payment-tab';
 
 export const metadata = { title: 'Sizing Jobs' };
 
@@ -23,7 +24,7 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled:  'bg-rose-50 text-rose-700',
 };
 
-type Tab = 'jobs' | 'bills';
+type Tab = 'jobs' | 'bills' | 'payment';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string; sort?: string; dir?: string }>;
@@ -46,7 +47,9 @@ function fmtMoney(v: unknown): string {
 
 export default async function SizingListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const tab: Tab = sp.tab === 'bills' ? 'bills' : 'jobs';
+  const tab: Tab = sp.tab === 'bills'   ? 'bills'
+                  : sp.tab === 'payment' ? 'payment'
+                  : 'jobs';
 
   // Pick the right whitelist + fallback for the active tab. The shared
   // ?sort and ?dir params live alongside ?tab; SortableTh preserves tab
@@ -158,7 +161,20 @@ export default async function SizingListPage({ searchParams }: PageProps) {
         >
           Bills
         </Link>
+        <Link
+          href="/app/sizing?tab=payment"
+          className={
+            'px-4 py-2 text-sm font-medium rounded-t -mb-px border-b-2 transition ' +
+            (tab === 'payment'
+              ? 'border-indigo text-indigo bg-indigo-50/60'
+              : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze/60')
+          }
+        >
+          Payment
+        </Link>
       </div>
+
+      {tab === 'payment' && <SizingPaymentTab />}
 
       {tab === 'jobs' && (
         <>
