@@ -1289,13 +1289,13 @@ async function loadInhouseOpeningStock(
   }
 
   // ── Warp Metre — pavu inflows + in-house fabric receipt outflows ─
-  // Every pavu routed to in-house production (Pavu Master / pavu list
-  // editor / bulk routing form) shows up here as an inflow on the
-  // matching ends column. Outflows come from in-house fabric receipts
-  // (DCs whose production_mode='inhouse'): the metres received become
-  // an outflow against the warp metre stock.
+  // Every pavu sitting in-house and still in stock shows up here as
+  // an inflow on the matching ends column. Outflows come from
+  // in-house fabric receipts (DCs whose production_mode='inhouse'):
+  // the metres received become an outflow against the warp metre
+  // stock.
   if (bucket === 'warp_beam') {
-    // Pavu inflows — in-house, assigned, with a real meters value.
+    // Pavu inflows — in-house, in_stock, with a real meters value.
     const inhousePavus = await safeSelect<{
       id: number; pavu_code: string | null; ends: number | null;
       meters: number | string | null;
@@ -1305,7 +1305,7 @@ async function loadInhouseOpeningStock(
       supabase.from('pavu')
         .select('id, pavu_code, ends, meters, sizing_job_id, created_at')
         .eq('production_mode', 'in_house')
-        .eq('status', 'assigned'),
+        .eq('status', 'in_stock'),
     );
     // Resolve each pavu's date from its sizing job's date_sent
     // (fallback: pavu.created_at). One query for the sizing job set.
@@ -1332,7 +1332,7 @@ async function loadInhouseOpeningStock(
         direction: 'in',
         quantity: meters,
         reference: p.pavu_code ?? `Pavu #${p.id}`,
-        notes: 'Pavu assigned to in-house',
+        notes: 'In-house pavu (in stock)',
       });
     }
 
