@@ -62,7 +62,7 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
 
-type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'status' | 'payment';
+type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'status' | 'payment' | 'weavers';
 
 interface PartyOpt { id: number; code: string; name: string; }
 interface QualityOpt { id: number; code: string | null; name: string; }
@@ -279,6 +279,9 @@ export default function JobworkPage(): React.ReactElement {
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
         <TabButton active={tab === 'status'}    onClick={() => setTab('status')}>Status</TabButton>
         <TabButton active={tab === 'payment'}   onClick={() => setTab('payment')}>Payment</TabButton>
+        {variant.kind === 'outsource' && (
+          <TabButton active={tab === 'weavers'} onClick={() => setTab('weavers')}>Weavers</TabButton>
+        )}
       </div>
 
       {error && <div className="card p-3 mb-3 text-err text-sm">{error}</div>}
@@ -318,6 +321,8 @@ export default function JobworkPage(): React.ReactElement {
         />
       ) : tab === 'payment' ? (
         <JobworkPaymentTab parties={parties} kind={variant.kind} />
+      ) : tab === 'weavers' && variant.kind === 'outsource' ? (
+        <WeaversTab parties={parties} />
       ) : (
         <StatusTab
           parties={parties} qualities={qualities} counts={counts}
@@ -340,6 +345,97 @@ function TabButton({ active, onClick, children }: {
         (active ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-ink-soft hover:text-ink')}>
       {children}
     </button>
+  );
+}
+
+/* ===== Weavers tab — read-only directory of Outsource Weaver parties ===== */
+function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
+  const [extra, setExtra] = useState<Map<number, { gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>>(new Map());
+  const supabase = createClient();
+
+  useEffect(() => {
+    if (parties.length === 0) { setExtra(new Map()); return; }
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('party')
+        .select('id, gstin, phone, city, ledger_id')
+        .in('id', parties.map((p) => p.id));
+      if (cancelled) return;
+      const m = new Map<number, { gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>();
+      for (const p of (data ?? []) as Array<{ id: number; gstin: string | null; phone: string | null; city: string | null; ledger_id: number | null }>) {
+        m.set(p.id, { gstin: p.gstin, phone: p.phone, city: p.city, ledger_id: p.ledger_id });
+      }
+      setExtra(m);
+    })();
+    return () => { cancelled = true; };
+  }, [parties, supabase]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-sm text-ink-mute">
+          Outsource Weaver parties — {parties.length} total. Edit a row to manage GSTIN, address and ledger linkage on the parties page.
+        </p>
+        <Link href="/app/parties/new" className="btn-primary text-xs">
+          <Plus className="w-3.5 h-3.5" /> Add weaver
+        </Link>
+      </div>
+
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left  px-4 py-3">Code</th>
+              <th className="text-left  px-4 py-3">Name</th>
+              <th className="text-left  px-4 py-3 hidden md:table-cell">GSTIN</th>
+              <th className="text-left  px-4 py-3 hidden lg:table-cell">Phone</th>
+              <th className="text-left  px-4 py-3 hidden lg:table-cell">City</th>
+              <th className="text-left  px-4 py-3 hidden md:table-cell">Linked ledger</th>
+              <th className="text-right px-4 py-3 w-16"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {parties.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
+                  No Outsource Weaver parties yet. <Link href="/app/parties/new" className="text-indigo font-semibold">Add the first one →</Link>
+                </td>
+              </tr>
+            ) : parties.map((p) => {
+              const x = extra.get(p.id);
+              return (
+                <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-4 py-3 font-mono text-xs">{p.code}</td>
+                  <td className="px-4 py-3 font-semibold">
+                    <Link href={`/app/parties/${p.id}`} className="text-ink hover:text-indigo">{p.name}</Link>
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{x?.gstin ?? '—'}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.phone ?? '—'}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.city ?? '—'}</td>
+                  <td className="px-4 py-3 hidden md:table-cell text-xs">
+                    {x?.ledger_id != null
+                      ? <span className="font-mono">#{x.ledger_id}</span>
+                      : <span className="text-rose-700 text-[11px]">Not linked</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/app/parties/${p.id}`}
+                      className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
+                      title="Edit weaver"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
