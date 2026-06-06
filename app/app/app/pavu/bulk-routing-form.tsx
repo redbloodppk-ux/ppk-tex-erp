@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, ChevronDown, ChevronRight } from 'lucide-react';
+import { syncWarpBeamFromPavus } from './sync-warp-beam';
 
 type ProdMode = 'in_house' | 'outsource';
 type Scope    = 'whole' | 'beam_wise';
@@ -140,6 +141,9 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
         .update({ production_mode: 'in_house', outsource_ledger_id: null })
         .eq('sizing_job_id', job.id);
       if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
+      // Sync — any mirrored warp-beam-given rows get cleaned up.
+      const sync = await syncWarpBeamFromPavus(sb, job.beams.map((b) => b.id));
+      if (!sync.ok) { patch(job.id, { saving: false, error: 'Pavu saved, warp-given sync failed: ' + (sync.error ?? '') }); return; }
       patch(job.id, { saving: false, saved: true });
       router.refresh();
       return;
@@ -160,6 +164,9 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
         })
         .eq('sizing_job_id', job.id);
       if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
+      // Sync — each beam's mirror row is upserted with the new weaver.
+      const sync = await syncWarpBeamFromPavus(sb, job.beams.map((b) => b.id));
+      if (!sync.ok) { patch(job.id, { saving: false, error: 'Pavu saved, warp-given sync failed: ' + (sync.error ?? '') }); return; }
       patch(job.id, { saving: false, saved: true });
       router.refresh();
       return;
@@ -182,6 +189,10 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
         return;
       }
     }
+    // Sync each beam — outsource beams get their mirror row upserted
+    // (with per-beam weaver), in-house beams get theirs removed.
+    const sync = await syncWarpBeamFromPavus(sb, job.beams.map((b) => b.id));
+    if (!sync.ok) { patch(job.id, { saving: false, error: 'Pavu saved, warp-given sync failed: ' + (sync.error ?? '') }); return; }
     patch(job.id, { saving: false, saved: true });
     router.refresh();
   }
