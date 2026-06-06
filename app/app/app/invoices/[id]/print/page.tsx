@@ -43,6 +43,7 @@ export async function generateMetadata({
 type DocType =
   | 'tax_invoice'
   | 'jobwork_invoice'
+  | 'weaving_bill'
   | 'yarn_sale'
   | 'general_sale'
   | 'credit_note'
@@ -57,12 +58,16 @@ interface DocStyle {
 }
 
 const DOC_STYLES: Record<DocType, DocStyle> = {
-  tax_invoice:     { title: 'Tax Invoice',     accent: '#3730a3', accentSoft: '#eef2ff', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
-  jobwork_invoice: { title: 'Jobwork Bill',    accent: '#0f766e', accentSoft: '#ccfbf1', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
-  yarn_sale:       { title: 'Yarn Sale Invoice', accent: '#b45309', accentSoft: '#fef3c7', totalLabel: 'Total due',       partyLabel: 'Bill to'   },
-  general_sale:    { title: 'Service Invoice', accent: '#475569', accentSoft: '#f1f5f9', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
-  credit_note:     { title: 'Credit Note',     accent: '#be123c', accentSoft: '#ffe4e6', totalLabel: 'Amount refundable', partyLabel: 'Refund to' },
-  debit_note:      { title: 'Debit Note',      accent: '#6d28d9', accentSoft: '#ede9fe', totalLabel: 'Amount payable',    partyLabel: 'Bill from' },
+  tax_invoice:     { title: 'Tax Invoice',              accent: '#3730a3', accentSoft: '#eef2ff', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
+  jobwork_invoice: { title: 'Job Work / Weaver Bill',   accent: '#0f766e', accentSoft: '#ccfbf1', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
+  // weaving_bill (WB prefix) — outsource weaving flow. Same printed
+  // title as jobwork_invoice so customer-facing copies of both bill
+  // types read identically; the doc-type underneath stays distinct.
+  weaving_bill:    { title: 'Job Work / Weaver Bill',   accent: '#0f766e', accentSoft: '#ccfbf1', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
+  yarn_sale:       { title: 'Yarn Sale Invoice',        accent: '#b45309', accentSoft: '#fef3c7', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
+  general_sale:    { title: 'Service Invoice',          accent: '#475569', accentSoft: '#f1f5f9', totalLabel: 'Total due',         partyLabel: 'Bill to'   },
+  credit_note:     { title: 'Credit Note',              accent: '#be123c', accentSoft: '#ffe4e6', totalLabel: 'Amount refundable', partyLabel: 'Refund to' },
+  debit_note:      { title: 'Debit Note',               accent: '#6d28d9', accentSoft: '#ede9fe', totalLabel: 'Amount payable',    partyLabel: 'Bill from' },
 };
 
 // ────────────────────────────────────────────────────────────────────────

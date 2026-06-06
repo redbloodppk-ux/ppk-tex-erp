@@ -44,7 +44,11 @@ interface InvoiceLine {
 
 const DOC_LABEL: Record<string, string> = {
   tax_invoice:     'Fabric Sale',
-  jobwork_invoice: 'Jobwork Bill',
+  jobwork_invoice: 'Job Work / Weaver Bill',
+  // weaving_bill (WB prefix) — outsource weaving flow. Same label as
+  // jobwork_invoice so the operator sees one consistent name for both
+  // bill types.
+  weaving_bill:    'Job Work / Weaver Bill',
   yarn_sale:       'Yarn Sale',
   general_sale:    'General Sale',
   credit_note:     'Sales Return',

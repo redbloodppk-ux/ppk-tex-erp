@@ -883,7 +883,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       <div className="flex items-center gap-2">
         <button type="submit" disabled={busy} className="btn-primary">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save weave bill
+          Save job work / weaver bill
         </button>
         <button
           type="button"

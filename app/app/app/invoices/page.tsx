@@ -7,13 +7,13 @@ import { DeleteInvoiceButton } from './delete-invoice-button';
 export const metadata = { title: 'Invoices' };
 
 const DOC_TABS = [
-  { key: 'all',              label: 'All',              icon: FileText        },
-  { key: 'tax_invoice',      label: 'Fabric Sales',     icon: FileText        },
-  { key: 'jobwork_invoice',  label: 'Jobwork Bills',    icon: Hammer          },
-  { key: 'yarn_sale',        label: 'Yarn Sales',       icon: Coins           },
-  { key: 'general_sale',     label: 'General Sales',    icon: Briefcase       },
-  { key: 'credit_note',      label: 'Sales Returns',    icon: RotateCcw       },
-  { key: 'debit_note',       label: 'Purchase Returns', icon: ArrowDownLeft   },
+  { key: 'all',              label: 'All',                       icon: FileText        },
+  { key: 'tax_invoice',      label: 'Fabric Sales',              icon: FileText        },
+  { key: 'jobwork_invoice',  label: 'Job Work / Weaver Bills',   icon: Hammer          },
+  { key: 'yarn_sale',        label: 'Yarn Sales',                icon: Coins           },
+  { key: 'general_sale',     label: 'General Sales',             icon: Briefcase       },
+  { key: 'credit_note',      label: 'Sales Returns',             icon: RotateCcw       },
+  { key: 'debit_note',       label: 'Purchase Returns',          icon: ArrowDownLeft   },
 ] as const;
 
 const STATUS_STYLE: Record<string, string> = {
@@ -27,7 +27,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 const DOC_LABEL: Record<string, string> = {
   tax_invoice:     'Fabric',
-  jobwork_invoice: 'Jobwork',
+  jobwork_invoice: 'Job Work / Weaver',
+  // Outsource weaving bills (WB prefix). Share the same column
+  // label as jobwork_invoice so the operator sees one consistent
+  // name for both flows. The doc_type underneath stays distinct
+  // so each can keep its own number series.
+  weaving_bill:    'Job Work / Weaver',
   yarn_sale:       'Yarn',
   general_sale:    'General',
   credit_note:     'Sales Return',
@@ -37,6 +42,10 @@ const DOC_LABEL: Record<string, string> = {
 const DOC_PILL: Record<string, string> = {
   tax_invoice:     'bg-indigo-50 text-indigo-700',
   jobwork_invoice: 'bg-teal-50 text-teal-700',
+  // Same pill colour as jobwork_invoice so the combined "Job Work /
+  // Weaver" tab reads visually consistent regardless of which underlying
+  // doc_type the row carries.
+  weaving_bill:    'bg-teal-50 text-teal-700',
   yarn_sale:       'bg-amber-50 text-amber-700',
   general_sale:    'bg-slate-100 text-slate-700',
   credit_note:     'bg-rose-50 text-rose-700',
@@ -95,7 +104,7 @@ export default async function InvoicesPage({
         actions={
           activeTab === 'jobwork_invoice' ? (
             <Link href="/app/invoices/new/jobwork-bill" className="btn-primary">
-              <Plus className="w-4 h-4" /> New Jobwork Bill
+              <Plus className="w-4 h-4" /> New Job Work / Weaver Bill
             </Link>
           ) : (
             <Link href={`/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`} className="btn-primary">

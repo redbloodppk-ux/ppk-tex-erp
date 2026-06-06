@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { JobworkBillForm } from './jobwork-bill-form';
 
-export const metadata = { title: 'New Weaving Bill' };
+export const metadata = { title: 'New Job Work / Weaver Bill' };
 export const dynamic = 'force-dynamic';
 
 interface PartyRow {
@@ -83,11 +83,11 @@ export default async function NewJobworkBillPage(): Promise<React.ReactElement> 
   return (
     <div>
       <PageHeader
-        title="New Weaving Bill"
+        title="New Job Work / Weaver Bill"
         subtitle="Combine one or more confirmed DCs from a single jobwork / outsource party into one billable invoice (JB/...)."
         crumbs={[
           { label: 'Invoices', href: '/app/invoices' },
-          { label: 'New Weaving Bill' },
+          { label: 'New Job Work / Weaver Bill' },
         ]}
       />
       <JobworkBillForm parties={parties} />
