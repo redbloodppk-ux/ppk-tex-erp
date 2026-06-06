@@ -53,7 +53,8 @@ export default async function PavuListPage() {
     sb.from('sizing_job').select(`
       id, job_code, set_no,
       pavu_rows:pavu (
-        meters, production_mode, outsource_ledger_id,
+        id, beam_no, ends, meters,
+        production_mode, outsource_ledger_id,
         outsource_vendor:outsource_ledger_id ( name )
       )
     `).order('created_at', { ascending: false }).limit(100),
@@ -70,6 +71,9 @@ export default async function PavuListPage() {
   const rawJobs  = (jobsRes.data     ?? []) as Array<{
     id: number; job_code: string; set_no: string | null;
     pavu_rows: Array<{
+      id: number;
+      beam_no: string;
+      ends: number;
       meters: number | string | null;
       production_mode: 'in_house' | 'outsource' | null;
       outsource_ledger_id: number | null;
@@ -121,6 +125,18 @@ export default async function PavuListPage() {
         current_mode,
         current_vendor_id,
         current_vendor_name,
+        // Beam-level data so the form can switch into beam-wise mode
+        // (one vendor per beam) when the operator wants to split a
+        // job across multiple outsource weavers.
+        beams: j.pavu_rows.map((r) => ({
+          id: r.id,
+          beam_no: r.beam_no,
+          ends: Number(r.ends ?? 0),
+          meters: Number(r.meters ?? 0),
+          production_mode: r.production_mode,
+          outsource_ledger_id: r.outsource_ledger_id,
+          outsource_vendor_name: r.outsource_vendor?.name ?? null,
+        })),
       };
     });
 

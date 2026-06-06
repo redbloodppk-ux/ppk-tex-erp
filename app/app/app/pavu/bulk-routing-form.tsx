@@ -3,28 +3,34 @@
  * Pavu Master — Bulk Routing form.
  *
  * Shows one row per sizing job with its set no, beam count and total
- * warp metres. The operator picks a production mode (in-house /
- * outsource) and — when outsource is chosen — an outsource weaving
- * vendor. Clicking Save on a row updates the production_mode and
- * outsource_ledger_id on every pavu row belonging to that job, so
- * the routing decision applies to every beam at once.
+ * warp metres. For each job the operator picks:
  *
- * "Current" pill on each row reflects how the existing pavu rows
- * are routed:
- *   - "All in-house"          if every beam is in_house
- *   - "All outsource · Name"  if every beam is outsource to a single vendor
- *   - "Mixed"                 if the rows aren't unanimous
+ *   1. Production mode: in-house / outsource
+ *   2. (only when outsource) Scope: whole job / beam-wise
+ *      - whole     → one outsource weaver across every beam
+ *      - beam-wise → each beam in the set gets its own weaver
  *
- * Saving overwrites whatever was there. Loom-mounted beams keep
- * their loom assignment — only the production_mode and the
- * outsource vendor change.
+ * Clicking Save flushes the chosen routing to every pavu row that
+ * belongs to the job. In beam-wise mode each row goes through a
+ * separate update so per-beam vendors stick.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, ChevronDown, ChevronRight } from 'lucide-react';
 
 type ProdMode = 'in_house' | 'outsource';
+type Scope    = 'whole' | 'beam_wise';
+
+export interface BulkBeam {
+  id: number;
+  beam_no: string;
+  ends: number;
+  meters: number;
+  production_mode: ProdMode | null;
+  outsource_ledger_id: number | null;
+  outsource_vendor_name: string | null;
+}
 
 export interface BulkJobRow {
   id: number;
@@ -32,12 +38,10 @@ export interface BulkJobRow {
   set_no: string | null;
   beam_count: number;
   total_warp_metres: number;
-  /** What every pavu row in the job currently uses. Null when the
-   *  job has no beams yet or when rows are mixed. */
   current_mode: ProdMode | 'mixed' | null;
-  /** Vendor id when current_mode = 'outsource' and unanimous. */
   current_vendor_id: number | null;
   current_vendor_name: string | null;
+  beams: BulkBeam[];
 }
 
 export interface WeavingVendor {
@@ -46,11 +50,14 @@ export interface WeavingVendor {
 }
 
 interface RowState {
-  mode:      ProdMode;
-  vendorId:  string;
-  saving:    boolean;
-  error:     string | null;
-  saved:     boolean;
+  mode:           ProdMode;
+  scope:          Scope;
+  vendorId:       string;                 // used when scope='whole'
+  beamVendorIds:  Record<number, string>; // beam id → vendor (ledger) id
+  expanded:       boolean;                // beam-wise drawer open?
+  saving:         boolean;
+  error:          string | null;
+  saved:          boolean;
 }
 
 interface Props {
@@ -62,6 +69,16 @@ function fmtMetres(v: number): string {
   return v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+/** Initial scope for a job — beam-wise iff the existing pavu rows
+ *  are routed to two or more different outsource vendors. */
+function deriveInitialScope(job: BulkJobRow): Scope {
+  const vendors = new Set<number | null>();
+  for (const b of job.beams) {
+    if (b.production_mode === 'outsource') vendors.add(b.outsource_ledger_id ?? null);
+  }
+  return vendors.size > 1 ? 'beam_wise' : 'whole';
+}
+
 export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
@@ -69,12 +86,22 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
   const [state, setState] = useState<Record<number, RowState>>(() => {
     const init: Record<number, RowState> = {};
     for (const j of jobs) {
+      const scope = deriveInitialScope(j);
+      const beamVendorIds: Record<number, string> = {};
+      for (const b of j.beams) {
+        if (b.outsource_ledger_id != null) {
+          beamVendorIds[b.id] = String(b.outsource_ledger_id);
+        }
+      }
       init[j.id] = {
-        mode:     j.current_mode === 'outsource' ? 'outsource' : 'in_house',
-        vendorId: j.current_vendor_id != null ? String(j.current_vendor_id) : '',
-        saving:   false,
-        error:    null,
-        saved:    false,
+        mode:           j.current_mode === 'outsource' ? 'outsource' : 'in_house',
+        scope,
+        vendorId:       j.current_vendor_id != null ? String(j.current_vendor_id) : '',
+        beamVendorIds,
+        expanded:       scope === 'beam_wise',
+        saving:         false,
+        error:          null,
+        saved:          false,
       };
     }
     return init;
@@ -84,27 +111,83 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
     setState((prev) => ({ ...prev, [jobId]: { ...prev[jobId]!, ...patch } }));
   }
 
+  function setBeamVendor(jobId: number, beamId: number, vendorId: string) {
+    setState((prev) => {
+      const cur = prev[jobId]!;
+      return {
+        ...prev,
+        [jobId]: {
+          ...cur,
+          beamVendorIds: { ...cur.beamVendorIds, [beamId]: vendorId },
+          saved: false,
+        },
+      };
+    });
+  }
+
   async function handleSave(job: BulkJobRow): Promise<void> {
     const s = state[job.id];
     if (!s) return;
-    if (s.mode === 'outsource' && !s.vendorId) {
-      patch(job.id, { error: 'Pick an outsource weaver.' });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+
+    // ── In-house ──
+    if (s.mode === 'in_house') {
+      patch(job.id, { saving: true, error: null, saved: false });
+      const { error: updErr } = await sb
+        .from('pavu')
+        .update({ production_mode: 'in_house', outsource_ledger_id: null })
+        .eq('sizing_job_id', job.id);
+      if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
+      patch(job.id, { saving: false, saved: true });
+      router.refresh();
       return;
     }
 
-    patch(job.id, { saving: true, error: null, saved: false });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
-    const { error: updErr } = await sb
-      .from('pavu')
-      .update({
-        production_mode:     s.mode,
-        outsource_ledger_id: s.mode === 'outsource' ? Number(s.vendorId) : null,
-      })
-      .eq('sizing_job_id', job.id);
-    if (updErr) {
-      patch(job.id, { saving: false, error: updErr.message });
+    // ── Outsource, whole job ──
+    if (s.scope === 'whole') {
+      if (!s.vendorId) {
+        patch(job.id, { error: 'Pick an outsource weaver.' });
+        return;
+      }
+      patch(job.id, { saving: true, error: null, saved: false });
+      const { error: updErr } = await sb
+        .from('pavu')
+        .update({
+          production_mode:     'outsource',
+          outsource_ledger_id: Number(s.vendorId),
+        })
+        .eq('sizing_job_id', job.id);
+      if (updErr) { patch(job.id, { saving: false, error: updErr.message }); return; }
+      patch(job.id, { saving: false, saved: true });
+      router.refresh();
       return;
+    }
+
+    // ── Outsource, beam-wise ──
+    const missing = job.beams.find((b) => !s.beamVendorIds[b.id]);
+    if (missing) {
+      patch(job.id, { error: `Beam ${missing.beam_no}: pick a weaver.` });
+      return;
+    }
+    patch(job.id, { saving: true, error: null, saved: false });
+    // One update per beam — Postgres has no straight UPSERT for the
+    // (id, ledger) pair, and this loop is small (typically <= 20 beams
+    // per job), so the round-trip cost is negligible.
+    for (const b of job.beams) {
+      const vendorId = Number(s.beamVendorIds[b.id]);
+      const { error: updErr } = await sb
+        .from('pavu')
+        .update({
+          production_mode:     'outsource',
+          outsource_ledger_id: vendorId,
+        })
+        .eq('id', b.id);
+      if (updErr) {
+        patch(job.id, { saving: false, error: `Beam ${b.beam_no}: ${updErr.message}` });
+        return;
+      }
     }
     patch(job.id, { saving: false, saved: true });
     router.refresh();
@@ -120,22 +203,23 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
             <th className="text-right px-4 py-3">Beams</th>
             <th className="text-right px-4 py-3">Total Warp (m)</th>
             <th className="text-left  px-4 py-3">Current</th>
-            <th className="text-left  px-4 py-3">Production mode</th>
-            <th className="text-left  px-4 py-3">Outsource weaver</th>
+            <th className="text-left  px-4 py-3">Mode &amp; weaver</th>
             <th className="text-right px-4 py-3 w-24"></th>
           </tr>
         </thead>
         <tbody>
           {jobs.length === 0 ? (
             <tr>
-              <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
+              <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
                 No sizing jobs with beams yet.
               </td>
             </tr>
           ) : jobs.map((j) => {
             const s = state[j.id]!;
+            const showOutsourceControls = s.mode === 'outsource';
+            const showBeamRows = showOutsourceControls && s.scope === 'beam_wise' && s.expanded;
             return (
-              <tr key={j.id} className="border-t border-line/40 align-middle">
+              <tr key={j.id} className="border-t border-line/40 align-top">
                 <td className="px-4 py-3 font-mono text-xs font-semibold text-ink">{j.job_code}</td>
                 <td className="px-4 py-3 hidden md:table-cell font-mono text-xs text-ink-soft">{j.set_no ?? '—'}</td>
                 <td className="px-4 py-3 text-right num">{j.beam_count}</td>
@@ -153,38 +237,102 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <select
-                    value={s.mode}
-                    onChange={(e) => patch(j.id, {
-                      mode: e.target.value as ProdMode,
-                      vendorId: e.target.value === 'outsource' ? s.vendorId : '',
-                      saved: false,
-                    })}
-                    className="input py-1 text-xs"
-                  >
-                    <option value="in_house">In-house</option>
-                    <option value="outsource">Outsource</option>
-                  </select>
-                </td>
-                <td className="px-4 py-3">
-                  {s.mode === 'outsource' ? (
+                <td className="px-4 py-3 space-y-2">
+                  {/* Mode + scope picker row */}
+                  <div className="flex flex-wrap items-center gap-2">
                     <select
-                      value={s.vendorId}
-                      onChange={(e) => patch(j.id, { vendorId: e.target.value, saved: false })}
-                      className="input py-1 text-xs min-w-[160px]"
+                      value={s.mode}
+                      onChange={(e) => {
+                        const nextMode = e.target.value as ProdMode;
+                        patch(j.id, {
+                          mode: nextMode,
+                          // Reset vendor selections when flipping away
+                          // from outsource so the form doesn't ship
+                          // stale values back to the server.
+                          vendorId: nextMode === 'outsource' ? s.vendorId : '',
+                          saved: false,
+                        });
+                      }}
+                      className="input py-1 text-xs min-w-[120px]"
                     >
-                      <option value="">Select weaver…</option>
-                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      <option value="in_house">In-house</option>
+                      <option value="outsource">Outsource</option>
                     </select>
-                  ) : (
-                    <span className="text-ink-mute text-xs">—</span>
+
+                    {showOutsourceControls && (
+                      <select
+                        value={s.scope}
+                        onChange={(e) => {
+                          const nextScope = e.target.value as Scope;
+                          patch(j.id, {
+                            scope: nextScope,
+                            expanded: nextScope === 'beam_wise',
+                            saved: false,
+                          });
+                        }}
+                        className="input py-1 text-xs min-w-[140px]"
+                      >
+                        <option value="whole">Whole job</option>
+                        <option value="beam_wise">Beam-wise</option>
+                      </select>
+                    )}
+
+                    {showOutsourceControls && s.scope === 'whole' && (
+                      <select
+                        value={s.vendorId}
+                        onChange={(e) => patch(j.id, { vendorId: e.target.value, saved: false })}
+                        className="input py-1 text-xs min-w-[180px]"
+                      >
+                        <option value="">Select weaver…</option>
+                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    )}
+
+                    {showOutsourceControls && s.scope === 'beam_wise' && (
+                      <button
+                        type="button"
+                        onClick={() => patch(j.id, { expanded: !s.expanded })}
+                        className="btn-ghost text-xs inline-flex items-center gap-1"
+                      >
+                        {s.expanded
+                          ? <><ChevronDown className="w-3 h-3" /> Hide beams</>
+                          : <><ChevronRight className="w-3 h-3" /> Show beams</>}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Per-beam grid — only shown in beam-wise mode */}
+                  {showBeamRows && (
+                    <div className="rounded-md border border-line/60 bg-cloud/30 p-2 mt-2">
+                      <div className="text-[10px] uppercase tracking-wide text-ink-mute mb-1">
+                        Set {j.set_no ?? j.job_code} · {j.beams.length} beam{j.beams.length === 1 ? '' : 's'}
+                      </div>
+                      <div className="space-y-1">
+                        {j.beams.map((b) => (
+                          <div key={b.id} className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="font-mono w-16 inline-block">#{b.beam_no}</span>
+                            <span className="text-ink-mute w-24 inline-block">
+                              {b.ends} ends · {b.meters.toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
+                            </span>
+                            <select
+                              value={s.beamVendorIds[b.id] ?? ''}
+                              onChange={(e) => setBeamVendor(j.id, b.id, e.target.value)}
+                              className="input py-1 text-xs flex-1 min-w-[180px]"
+                            >
+                              <option value="">Select weaver…</option>
+                              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {s.error && (
+                    <div className="text-rose-700 text-[10px]" title={s.error}>{s.error}</div>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {s.error && (
-                    <div className="text-rose-700 text-[10px] mb-1" title={s.error}>{s.error}</div>
-                  )}
                   <button
                     type="button"
                     onClick={() => void handleSave(j)}
