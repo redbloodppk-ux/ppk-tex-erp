@@ -235,6 +235,31 @@ export default function NewSizingJobPage() {
     return suppliers.filter((s) => sizingSupplierIds.has(s.id));
   }, [suppliers, sizingSupplierIds]);
 
+  // Warp Yarn Count dropdown is narrowed to the counts the selected
+  // yarn supplier actually ships — derived from yarn_lot.yarn_count_id
+  // restricted to that supplier's rows. Until a supplier is picked
+  // we leave the full count list visible (no filter cue yet).
+  const eligibleCounts = useMemo(() => {
+    if (yarnSupplierId === '') return counts;
+    const supplierId = Number(yarnSupplierId);
+    const allowed = new Set<number>();
+    for (const l of lots) {
+      if (l.supplier_party_id === supplierId) allowed.add(l.yarn_count_id);
+    }
+    return counts.filter((c) => allowed.has(c.id));
+  }, [counts, lots, yarnSupplierId]);
+
+  // Clear a stale warp-count selection when the supplier change
+  // removes it from the eligible set. The operator otherwise sees
+  // their old choice in a dropdown that no longer offers it.
+  useEffect(() => {
+    if (warpCountId === '') return;
+    if (!eligibleCounts.some((c) => c.id === Number(warpCountId))) {
+      setWarpCountId('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eligibleCounts]);
+
   // When the warehouse choice changes, clear any stale yarn-lot selection
   // so the operator can't accidentally submit a lot from the wrong
   // warehouse (the dropdown now only shows valid options).
@@ -534,9 +559,18 @@ export default function NewSizingJobPage() {
               <div>
                 <label className="label">Warp Yarn Count *</label>
                 <select required value={warpCountId} onChange={e => setWarpCountId(e.target.value)} className="input">
-                  <option value="" disabled>Select count…</option>
-                  {counts.map(c => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
+                  <option value="" disabled>
+                    {yarnSupplierId === ''
+                      ? 'Pick a yarn supplier first…'
+                      : eligibleCounts.length === 0
+                        ? 'No counts on file for this supplier'
+                        : 'Select count…'}
+                  </option>
+                  {eligibleCounts.map(c => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
                 </select>
+                <p className="text-[11px] text-ink-mute mt-1">
+                  Showing only counts the selected supplier has yarn for.
+                </p>
               </div>
               <div>
                 <label className="label">Ends Average Count</label>

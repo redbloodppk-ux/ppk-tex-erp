@@ -197,6 +197,22 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
     return masters.suppliers.filter((s) => sizingSupplierIds.has(s.id) || s.id === currentId);
   }, [masters.suppliers, masters.lots, yarnSupplierId]);
 
+  // Warp Yarn Count dropdown is narrowed to the counts the selected
+  // yarn supplier actually ships — derived from yarn_lot rows
+  // restricted to that supplier. The currently-saved count is always
+  // kept in the list so an edit screen never renders a blank
+  // selection against a saved job.
+  const eligibleCounts = useMemo(() => {
+    if (yarnSupplierId === '') return masters.counts;
+    const supplierId = Number(yarnSupplierId);
+    const currentCountId = Number(warpCountId) || -1;
+    const allowed = new Set<number>();
+    for (const l of masters.lots) {
+      if (l.supplier_party_id === supplierId) allowed.add(l.yarn_count_id);
+    }
+    return masters.counts.filter((c) => allowed.has(c.id) || c.id === currentCountId);
+  }, [masters.counts, masters.lots, yarnSupplierId, warpCountId]);
+
   // Lots filtered by warehouse + warp count + supplier. The currently
   // selected lot is always present even if the filter excludes it,
   // so the dropdown never shows "empty selection" against a saved job.
@@ -442,9 +458,19 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           <div>
             <label className="label">Warp Yarn Count *</label>
             <select required value={warpCountId} onChange={(e) => setWarpCountId(e.target.value)} className="input">
-              <option value="" disabled>Select count…</option>
-              {masters.counts.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
+              <option value="" disabled>
+                {yarnSupplierId === ''
+                  ? 'Pick a yarn supplier first…'
+                  : eligibleCounts.length === 0
+                    ? 'No counts on file for this supplier'
+                    : 'Select count…'}
+              </option>
+              {eligibleCounts.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
             </select>
+            <p className="text-[11px] text-ink-mute mt-1">
+              Showing only counts the selected supplier has yarn for.
+              The current selection is always kept available.
+            </p>
           </div>
           <div>
             <label className="label">Ends Average Count</label>
