@@ -922,6 +922,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     job_code: string;
     set_no: string | null;
     warp_count_id: number | null;
+    sizing_ledger_id: number | null;
   }
   interface PavuOpt {
     id: number;
@@ -932,50 +933,142 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     production_mode: 'in_house' | 'outsource' | null;
     outsource_ledger_id: number | null;
   }
+  interface OutsourceRouting {
+    outsource_ledger_id: number | null;
+    sizing_job_id: number | null;
+  }
   const [sizingJobs,       setSizingJobs]       = useState<SizingJobOpt[]>([]);
   const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
+  // Routing relationships between outsource parties and sizing
+  // parties / jobs. Loaded once when the form opens; the cascading
+  // dropdowns (party → sizing party → sizing job) read from this.
+  const [outsourceRoutings,    setOutsourceRoutings]    = useState<OutsourceRouting[]>([]);
+  const [outsourcePartyLedger, setOutsourcePartyLedger] = useState<Map<number, number>>(new Map());
+  const [sizingPartyLedger,    setSizingPartyLedger]    = useState<Map<number, number>>(new Map());
 
-  // Load sizing jobs once when the form opens. Only jobs that have
-  // at least one pavu row already routed to outsource via Pavu
-  // Master surface here — sourcing a beam for an outsource warp
-  // entry doesn't make sense if none of the job's beams are
-  // outsource in the first place.
+  // Load every piece of routing context the cascading dropdowns
+  // need: outsource-routed pavu rows (with their outsource_ledger_id
+  // and sizing_job_id), the sizing jobs they belong to (with each
+  // job's sizing_ledger_id), and the ledger_id of every outsource
+  // party and sizing party in the dropdown lists. Cascading filter:
+  //   1. Pick Outsourcing party → narrows Sizing party dropdown to
+  //      those whose ledger matches a sizing_job that has pavus
+  //      routed to this outsource party.
+  //   2. Pick Sizing party → narrows Sizing job dropdown to jobs
+  //      from that sizing party + going to this outsource party.
   useEffect(() => {
     if (!showAdd || kind !== 'outsource') return;
     let cancelled = false;
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      // Two-step lookup: first find the distinct sizing_job_ids that
-      // have outsource-routed pavu rows, then fetch those jobs. This
-      // is simpler than a PostgREST inner-join + embedded filter and
-      // works the same regardless of the row counts.
-      const { data: pavuRows } = await sb
-        .from('pavu')
-        .select('sizing_job_id')
-        .eq('production_mode', 'outsource')
-        .not('sizing_job_id', 'is', null);
-      const jobIds = Array.from(new Set(
-        ((pavuRows ?? []) as Array<{ sizing_job_id: number | null }>)
-          .map((r) => r.sizing_job_id)
-          .filter((x): x is number => x != null),
-      ));
+      const [pavuRes, sizingPartyLedgerRes, outsourcePartyLedgerRes] = await Promise.all([
+        sb.from('pavu')
+          .select('outsource_ledger_id, sizing_job_id')
+          .eq('production_mode', 'outsource')
+          .not('sizing_job_id', 'is', null),
+        sizingParties.length > 0
+          ? sb.from('party').select('id, ledger_id').in('id', sizingParties.map((p) => p.id))
+          : Promise.resolve({ data: [] }),
+        parties.length > 0
+          ? sb.from('party').select('id, ledger_id').in('id', parties.map((p) => p.id))
+          : Promise.resolve({ data: [] }),
+      ]);
+      if (cancelled) return;
+      const routings = ((pavuRes.data ?? []) as OutsourceRouting[]);
+      setOutsourceRoutings(routings);
+
+      // Sizing job lookup — only the jobs referenced by an outsource
+      // routing, with their sizing_ledger_id so the cascade can
+      // match against the picked sizing party.
+      const jobIds = Array.from(new Set(routings.map((r) => r.sizing_job_id).filter((x): x is number => x != null)));
       if (jobIds.length === 0) {
         if (!cancelled) setSizingJobs([]);
-        return;
+      } else {
+        const { data: jobs } = await sb
+          .from('sizing_job')
+          .select('id, job_code, set_no, warp_count_id, sizing_ledger_id')
+          .in('id', jobIds)
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (!cancelled) setSizingJobs(((jobs ?? []) as SizingJobOpt[]));
       }
-      const { data } = await sb
-        .from('sizing_job')
-        .select('id, job_code, set_no, warp_count_id')
-        .in('id', jobIds)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (cancelled) return;
-      setSizingJobs((data ?? []) as SizingJobOpt[]);
+
+      const sizingMap = new Map<number, number>();
+      for (const p of (sizingPartyLedgerRes.data ?? []) as Array<{ id: number; ledger_id: number | null }>) {
+        if (p.ledger_id != null) sizingMap.set(p.id, p.ledger_id);
+      }
+      if (!cancelled) setSizingPartyLedger(sizingMap);
+
+      const outsourceMap = new Map<number, number>();
+      for (const p of (outsourcePartyLedgerRes.data ?? []) as Array<{ id: number; ledger_id: number | null }>) {
+        if (p.ledger_id != null) outsourceMap.set(p.id, p.ledger_id);
+      }
+      if (!cancelled) setOutsourcePartyLedger(outsourceMap);
     })();
     return () => { cancelled = true; };
-  }, [showAdd, kind, supabase]);
+  }, [showAdd, kind, supabase, parties, sizingParties]);
+
+  // ── Cascade memos ──────────────────────────────────────────────
+  const selectedOutsourceLedgerId = form.jobwork_party_id === ''
+    ? null
+    : outsourcePartyLedger.get(Number(form.jobwork_party_id)) ?? null;
+
+  // Sizing jobs that have a pavu routed to the selected outsource
+  // party. Drives both the Sizing-party narrowing and the eventual
+  // Sizing-job dropdown.
+  const sizingJobIdsForOutsource = useMemo(() => {
+    const out = new Set<number>();
+    if (selectedOutsourceLedgerId == null) return out;
+    for (const r of outsourceRoutings) {
+      if (r.outsource_ledger_id === selectedOutsourceLedgerId && r.sizing_job_id != null) {
+        out.add(r.sizing_job_id);
+      }
+    }
+    return out;
+  }, [outsourceRoutings, selectedOutsourceLedgerId]);
+
+  // Sizing parties that have a job going to the selected outsource
+  // party. Filtered against the existing sizingParties prop.
+  const eligibleSizingParties = useMemo(() => {
+    if (selectedOutsourceLedgerId == null) return sizingParties;
+    const allowedLedgers = new Set<number>();
+    for (const j of sizingJobs) {
+      if (sizingJobIdsForOutsource.has(j.id) && j.sizing_ledger_id != null) {
+        allowedLedgers.add(j.sizing_ledger_id);
+      }
+    }
+    return sizingParties.filter((p) => {
+      const lid = sizingPartyLedger.get(p.id);
+      return lid != null && allowedLedgers.has(lid);
+    });
+  }, [sizingParties, sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, selectedOutsourceLedgerId]);
+
+  // Sizing jobs filtered by both outsource party and (when set)
+  // sizing party. Empty until at least the outsource party is picked.
+  const eligibleSizingJobs = useMemo(() => {
+    if (selectedOutsourceLedgerId == null) return [];
+    const supplierLedgerId = form.supplier_party_id === ''
+      ? null
+      : sizingPartyLedger.get(Number(form.supplier_party_id)) ?? null;
+    return sizingJobs.filter((j) => {
+      if (!sizingJobIdsForOutsource.has(j.id)) return false;
+      if (supplierLedgerId !== null && j.sizing_ledger_id !== supplierLedgerId) return false;
+      return true;
+    });
+  }, [sizingJobs, sizingJobIdsForOutsource, sizingPartyLedger, form.supplier_party_id, selectedOutsourceLedgerId]);
+
+  // When the outsource party changes, clear stale sizing-party and
+  // sizing-job selections so the cascade doesn't get confused.
+  useEffect(() => {
+    setForm((f) => ({ ...f, supplier_party_id: '', sizing_job_id: '' }));
+  }, [form.jobwork_party_id]);
+
+  // When the sizing party changes, clear the sizing-job selection.
+  useEffect(() => {
+    setForm((f) => ({ ...f, sizing_job_id: '' }));
+  }, [form.supplier_party_id]);
 
   // Load pavu rows when the sizing job picker changes.
   useEffect(() => {
@@ -1056,11 +1149,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setErr(null);
     if (form.jobwork_party_id === '') { setErr('Pick an outsource party.'); return; }
     if (kind === 'outsource') {
-      // Pavu-driven flow on the outsource page. Sizing job + selected
-      // pavu beams are mandatory; the totals are auto-derived from
-      // the picked beams, never typed.
-      if (form.sizing_job_id === '') { setErr('Pick a sizing job.'); return; }
-      if (selectedPavuIds.size === 0) { setErr('Select at least one pavu beam.'); return; }
+      // Pavu-driven flow on the outsource page. Cascading dropdowns
+      // and the pavu checklist are all required; the totals are
+      // auto-derived from the picked beams, never typed.
+      if (form.supplier_party_id === '') { setErr('Pick a sizing party.'); return; }
+      if (form.sizing_job_id === '')     { setErr('Pick a sizing job.'); return; }
+      if (form.fabric_quality_id === '') { setErr('Pick a fabric quality to assign the metres to.'); return; }
+      if (selectedPavuIds.size === 0)    { setErr('Select at least one pavu beam.'); return; }
     }
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1089,7 +1184,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       const beamIds = Array.from(selectedPavuIds);
       const payload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
-        fabric_quality_id: null,
+        fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
         warp_count_id:     autoWarpCountId,
         given_date:        form.given_date,
         total_ends:        autoEndsValues.length === 1 ? autoEndsValues[0] : null,
@@ -1267,10 +1362,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       <div className="card p-4 mb-4 space-y-4">
         <h3 className="font-display font-bold text-sm">Add warp beam given</h3>
 
-        {/* Step 1 — pick date, party, sizing job. The sizing-job picker
-            drives the pavu list below; the totals downstream are then
-            auto-derived from whichever pavu beams the operator ticks. */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Step 1 — pick date, party, sizing party, sizing job. The
+            cascade is: Outsourcing party → narrows Sizing party →
+            narrows Sizing job → drives the pavu list below. The
+            totals downstream are auto-derived from whichever pavu
+            beams the operator ticks. */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div><label className="label text-xs">ID</label>
             <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
           </div>
@@ -1281,10 +1378,39 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
+          <div><label className="label text-xs">Sizing party *</label>
+            <select
+              className="input"
+              value={form.supplier_party_id}
+              onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}
+              disabled={form.jobwork_party_id === ''}
+            >
+              <option value="">
+                {form.jobwork_party_id === ''
+                  ? 'Pick outsource party first…'
+                  : eligibleSizingParties.length === 0
+                    ? 'No sizing parties for this party'
+                    : '--- pick ---'}
+              </option>
+              {eligibleSizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            </select></div>
           <div><label className="label text-xs">Sizing job *</label>
-            <select className="input" value={form.sizing_job_id} onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}>
-              <option value="">--- pick ---</option>
-              {sizingJobs.map((j) => (
+            <select
+              className="input"
+              value={form.sizing_job_id}
+              onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}
+              disabled={form.jobwork_party_id === '' || form.supplier_party_id === ''}
+            >
+              <option value="">
+                {form.jobwork_party_id === ''
+                  ? 'Pick outsource party first…'
+                  : form.supplier_party_id === ''
+                    ? 'Pick sizing party first…'
+                    : eligibleSizingJobs.length === 0
+                      ? 'No sizing sets for this pair'
+                      : '--- pick ---'}
+              </option>
+              {eligibleSizingJobs.map((j) => (
                 <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' · Set ' + j.set_no : ''}</option>
               ))}
             </select></div>
@@ -1369,20 +1495,24 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </div>
         </div>
 
-        {/* Optional extras */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div><label className="label text-xs">Sizing party</label>
-            <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
-              <option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+        {/* Optional extras. Fabric quality replaces the old "Reference
+            / DC no" field — the operator assigns the warp metres to a
+            specific fabric quality, which is then stored on the
+            warp-given row. */}
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+          <div><label className="label text-xs">Fabric quality *</label>
+            <select
+              className="input"
+              value={form.fabric_quality_id}
+              onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}
+            >
+              <option value="">--- pick ---</option>
+              {qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select>
-            {sizingParties.length === 0 && (
-              <p className="text-[10px] text-ink-mute mt-0.5">
-                No active <span className="font-semibold">Sizing Party</span> set up yet.
-              </p>
-            )}
+            <p className="text-[10px] text-ink-mute mt-0.5">
+              Assigns the selected warp metres to this quality.
+            </p>
           </div>
-          <div><label className="label text-xs">Reference / DC no</label>
-            <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div><label className="label text-xs">Notes</label>
             <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
