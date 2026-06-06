@@ -167,19 +167,18 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         subtitle="Every sized warp beam in the mill. Switch tabs to see in-house vs outsource routing; the table itself is editable."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {/* Bulk-routing toggle — only useful on the Outsource tab.
-                Hidden on In-house to keep the header uncluttered. */}
-            {tab === 'outsource' && (
-              <Link
-                href={bulkToggleHref}
-                className={bulkOpen ? 'btn-ghost' : 'btn-secondary'}
-                scroll={false}
-              >
-                {bulkOpen
-                  ? <><X className="w-4 h-4" /> Hide bulk routing</>
-                  : <><Shuffle className="w-4 h-4" /> Bulk routing</>}
-              </Link>
-            )}
+            {/* Bulk-routing toggle — available on both tabs because
+                the operator may want to route in-house beams out, or
+                rearrange outsource assignments, from either side. */}
+            <Link
+              href={bulkToggleHref}
+              className={bulkOpen ? 'btn-ghost' : 'btn-secondary'}
+              scroll={false}
+            >
+              {bulkOpen
+                ? <><X className="w-4 h-4" /> Hide bulk routing</>
+                : <><Shuffle className="w-4 h-4" /> Bulk routing</>}
+            </Link>
             <Link href="/app/pavu/assign" className="btn-ghost">
               <Factory className="w-4 h-4" /> Loom View
             </Link>
@@ -213,9 +212,10 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         </Link>
       </div>
 
-      {/* Bulk routing form — only on Outsource tab AND only when the
-          header toggle is on (?bulk=open). */}
-      {tab === 'outsource' && bulkOpen && (
+      {/* Bulk routing form — visible on either tab whenever the
+          header toggle is on (?bulk=open). The form itself handles
+          both in-house and outsource routing per job. */}
+      {bulkOpen && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-display font-bold text-sm">
