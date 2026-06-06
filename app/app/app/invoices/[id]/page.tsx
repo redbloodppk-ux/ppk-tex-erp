@@ -55,6 +55,13 @@ function fmtMoney(v: unknown): string {
   return Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Whole-rupee formatter for bill totals — matches the rounded
+// `total` saved on the invoice row and the figure printed on the
+// bill. Line-level numbers stay at 2 decimals for GST audit.
+function fmtRupees(v: unknown): string {
+  return Math.round(Number(v ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
 function fmtDate(s: string | null): string {
   if (!s) return '-';
   const d = new Date(s + 'T00:00:00');
@@ -247,7 +254,7 @@ export default async function InvoiceDetailPage({
                 <td className="px-3 py-2 text-right num">{fmtMoney(inv.cgst_amount)}</td>
                 <td className="px-3 py-2 text-right num">{fmtMoney(inv.sgst_amount)}</td>
                 <td className="px-3 py-2 text-right num">{fmtMoney(inv.igst_amount)}</td>
-                <td className="px-3 py-2 text-right num">{fmtMoney(inv.total)}</td>
+                <td className="px-3 py-2 text-right num">{fmtRupees(inv.total)}</td>
               </tr>
             </tfoot>
           </table>
@@ -310,7 +317,7 @@ export default async function InvoiceDetailPage({
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total</div>
-            <div className="num font-bold text-emerald-700 text-lg">Rs {fmtMoney(inv.total)}</div>
+            <div className="num font-bold text-emerald-700 text-lg">Rs {fmtRupees(inv.total)}</div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-mute">Paid</div>

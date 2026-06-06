@@ -146,6 +146,14 @@ function fmtMoney(v: number): string {
   return v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Whole-rupee formatter for bill totals — line-level GST is still
+// computed to paise (GST authorities expect 2-decimal precision per
+// line), but the displayed Grand total is rounded so what the
+// operator sees matches what the bill prints.
+function fmtRupees(v: number): string {
+  return Math.round(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -448,6 +456,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   }, [items, pickedDcIds, qualityById, receiptAggs]);
 
   // ── Totals (header) ──
+  // Grand total is rounded to whole rupees per business policy ("all
+  // bill values must be rounded off"). The paise difference is
+  // surfaced as `roundOff` so the auditor can trace where the
+  // 50-paise / 1-rupee swing came from.
   const gst = num(gstPct);
   const isInterstate = (party?.state_code ?? '') !== '' && party?.state_code !== PPKTEX_STATE_CODE;
   const totals = useMemo(() => {
@@ -455,11 +467,19 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
     const cgst = isInterstate ? 0 : round2(taxable * gst / 200);
     const sgst = isInterstate ? 0 : round2(taxable * gst / 200);
     const igst = isInterstate ? round2(taxable * gst / 100) : 0;
-    const grand = round2(taxable + cgst + sgst + igst);
+    const grandRaw = round2(taxable + cgst + sgst + igst);
+    const grand    = Math.round(grandRaw);
+    const roundOff = round2(grand - grandRaw);
     const metres = lines.reduce<number>((s, l) => s + l.metres, 0);
     const pieces = lines.reduce<number>((s, l) => s + l.pieces, 0);
     const bundles = lines.reduce<number>((s, l) => s + l.bundles, 0);
-    return { taxable: round2(taxable), cgst, sgst, igst, grand, metres, pieces, bundles };
+    return {
+      taxable: round2(taxable),
+      cgst, sgst, igst,
+      grand,
+      roundOff,
+      metres, pieces, bundles,
+    };
   }, [lines, gst, isInterstate]);
 
   // ── Pick / unpick handlers ──
@@ -521,7 +541,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       cgst_amount: totals.cgst,
       sgst_amount: totals.sgst,
       igst_amount: totals.igst,
-      round_off: 0,
+      // Round-off captures the paise swing between the raw sum
+       // (taxable + GST) and the whole-rupee grand total displayed on
+       // the bill. Audit trail intact, auditor-friendly.
+      round_off: totals.roundOff,
       // Jobwork bills are saved already-issued - you only create one when
       // you mean to hand it to the customer. Status can still be edited
       // later (cancelled, paid, etc.) from the invoice detail page.
@@ -809,7 +832,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       {/* ───── Tax summary ───── */}
       {lines.length > 0 && (
         <div className="card p-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
             <div>
               <div className="text-[11px] uppercase tracking-wide text-ink-mute">Taxable</div>
               <div className="num font-bold">Rs {fmtMoney(totals.taxable)}</div>
@@ -827,8 +850,14 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
               <div className="num font-bold">Rs {fmtMoney(totals.igst)}</div>
             </div>
             <div>
+              <div className="text-[11px] uppercase tracking-wide text-ink-mute">Round off</div>
+              <div className={'num font-bold ' + (totals.roundOff < 0 ? 'text-rose-700' : 'text-ink-soft')}>
+                Rs {fmtMoney(totals.roundOff)}
+              </div>
+            </div>
+            <div>
               <div className="text-[11px] uppercase tracking-wide text-ink-mute">Grand total</div>
-              <div className="num font-bold text-emerald-700 text-lg">Rs {fmtMoney(totals.grand)}</div>
+              <div className="num font-bold text-emerald-700 text-lg">Rs {fmtRupees(totals.grand)}</div>
             </div>
           </div>
         </div>

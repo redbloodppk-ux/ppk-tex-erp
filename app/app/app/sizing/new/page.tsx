@@ -249,13 +249,21 @@ export default function NewSizingJobPage() {
   // Sizing charges multiply against Yarn Used (kg), not Yarn Sent.
   // Mills bill for what they actually sized, not for what was handed
   // over — sent quantity stays as a stock-movement record only.
+  //
+  // Bill values are rounded to whole rupees (no paise). Mills here
+  // invoice in whole-rupee figures, and the prior 2-decimal display
+  // was creating spurious ₹0.01 / ₹0.02 mismatches against the
+  // operator's paper bills.
   const billing = useMemo(() => {
     const kg = Number(yarnUsedKg) || 0;
     const r  = Number(rate) || 0;
     const g  = Number(gstPct) || 0;
-    const charges = kg * r;
-    const total   = +(charges * (1 + g / 100)).toFixed(2);
-    return { charges: +charges.toFixed(2), total };
+    const chargesRaw = kg * r;
+    const totalRaw   = chargesRaw * (1 + g / 100);
+    return {
+      charges: Math.round(chargesRaw),
+      total:   Math.round(totalRaw),
+    };
   }, [yarnUsedKg, rate, gstPct]);
 
   const balance = useMemo(() => {
@@ -709,13 +717,13 @@ export default function NewSizingJobPage() {
               <div>
                 <label className="label">Charges (₹)</label>
                 <div className="input num bg-cloud/60 text-ink-soft flex items-center">
-                  ₹ {billing.charges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹ {billing.charges.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </div>
               </div>
               <div>
                 <label className="label">Total with GST (₹)</label>
                 <div className="input num bg-indigo/5 text-indigo font-bold flex items-center">
-                  ₹ {billing.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹ {billing.total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </div>
               </div>
             </div>

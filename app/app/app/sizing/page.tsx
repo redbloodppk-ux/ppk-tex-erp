@@ -36,8 +36,11 @@ function fmtDate(s: string | null): string {
   return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
+// Bills are displayed in whole rupees — sizing-mill invoices come in
+// whole-rupee figures and the prior 2-decimal display was creating
+// spurious mismatches against the paper bill.
 function fmtMoney(v: unknown): string {
-  return Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Math.round(Number(v ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
 export default async function SizingListPage({ searchParams }: PageProps) {

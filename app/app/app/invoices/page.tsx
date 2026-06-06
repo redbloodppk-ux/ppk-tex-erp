@@ -177,7 +177,9 @@ export default async function InvoicesPage({
                     <td className="px-4 py-3">{partyName}</td>
                     <td className="px-4 py-3 text-right num hidden md:table-cell">{Number(inv.taxable_value).toFixed(2)}</td>
                     <td className="px-4 py-3 text-right num hidden lg:table-cell">{gst.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right num font-semibold">{Number(inv.total).toFixed(2)}</td>
+                    {/* Bill total shown rounded — matches the figure
+                        printed on the bill itself. */}
+                    <td className="px-4 py-3 text-right num font-semibold">{Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                     <td className="px-4 py-3 text-right num hidden md:table-cell">
                       {inv.doc_type === 'debit_note' || inv.doc_type === 'credit_note'
                         ? '—'

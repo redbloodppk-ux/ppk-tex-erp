@@ -143,6 +143,13 @@ function fmtMoney(v: unknown): string {
   return num(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Whole-rupee formatter for the grand total on the printed bill —
+// matches the form's display and the rounded `total` saved on the
+// invoice row.
+function fmtRupees(v: unknown): string {
+  return Math.round(num(v)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Page
 // ────────────────────────────────────────────────────────────────────────
@@ -446,7 +453,7 @@ export default async function InvoicePrintPage({
                 )}
                 <tr className="grand">
                   <td>{style.totalLabel}</td>
-                  <td className="v" style={{ color: style.accent }}>&#8377; {fmtMoney(grand)}</td>
+                  <td className="v" style={{ color: style.accent }}>&#8377; {fmtRupees(grand)}</td>
                 </tr>
               </tbody>
             </table>
