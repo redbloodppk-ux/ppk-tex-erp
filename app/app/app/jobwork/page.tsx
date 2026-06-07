@@ -1446,6 +1446,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // Pavu Master can edit them again. Works for both aggregate rows
   // (pavu_ids array) and 1-to-1 mirror rows (pavu_id singular).
   // Aggregate rows store pavu_ids as a JSONB array (migration 120).
+  //
+  // Behaviour: we only flip status back to 'in_stock'. The pavu's
+  // production_mode and outsource_ledger_id are preserved so the beam
+  // stays on the same outsource weaver's side of Pavu Master — the
+  // user is undoing the DC, not the routing decision. To fully unroute
+  // (back to in-house stock), edit the pavu in Pavu Master afterwards.
   async function release(r: WarpBeamRow) {
     const ids: number[] = Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0
       ? r.pavu_ids.map((x) => Number(x)).filter((n) => Number.isFinite(n))
@@ -1454,13 +1460,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       window.alert('No pavu link on this warp beam entry to release.');
       return;
     }
-    if (!window.confirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? Pavu Master will be editable again for these beams.`)) return;
+    if (!window.confirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? They stay on the same outsource weaver and become editable again in Pavu Master.`)) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Revert the pavu rows.
+    // Revert the pavu rows — only the status flips. The
+    // production_mode + outsource_ledger_id stay so the beam remains
+    // on the same outsource weaver in Pavu Master.
     const { error: pavuErr } = await sb
       .from('pavu')
-      .update({ production_mode: 'in_house', outsource_ledger_id: null, status: 'in_stock' })
+      .update({ status: 'in_stock' })
       .in('id', ids);
     if (pavuErr) { setErr(`Release failed: ${pavuErr.message}`); return; }
     // Drop the warp-given row itself.
