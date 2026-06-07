@@ -459,6 +459,45 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       }),
     }));
   }
+  // Enter-to-next-piece keyboard nav. Each piece input gets a stable
+  // id `dc-piece-<itemIdx>-<bundleIdx>-<pieceIdx>` so this handler can
+  // resolve the next target by DOM id without touching state. Order of
+  // preference:
+  //   1. Next piece in the same bundle.
+  //   2. First piece of the next bundle in the same item.
+  //   3. First piece of the first bundle of the next item.
+  //   4. None → blur so Enter doesn't accidentally submit the form.
+  function focusNextPiece(itemIdx: number, bundleIdx: number, pieceIdx: number): void {
+    const it = form.items[itemIdx];
+    if (!it) return;
+    const b = it.bundles[bundleIdx];
+    if (!b) return;
+
+    if (pieceIdx + 1 < b.pieces.length) {
+      document.getElementById(`dc-piece-${itemIdx}-${bundleIdx}-${pieceIdx + 1}`)?.focus();
+      return;
+    }
+    if (bundleIdx + 1 < it.bundles.length) {
+      const nextBundle = it.bundles[bundleIdx + 1];
+      if (nextBundle && nextBundle.pieces.length > 0) {
+        document.getElementById(`dc-piece-${itemIdx}-${bundleIdx + 1}-0`)?.focus();
+        return;
+      }
+    }
+    for (let ni = itemIdx + 1; ni < form.items.length; ni += 1) {
+      const ni_it = form.items[ni];
+      if (!ni_it) continue;
+      const firstBundle = ni_it.bundles[0];
+      if (firstBundle && firstBundle.pieces.length > 0) {
+        document.getElementById(`dc-piece-${ni}-0-0`)?.focus();
+        return;
+      }
+    }
+    // End of the road — drop focus so Enter doesn't fire a form submit
+    // (the form's onSubmit catches that anyway, but better to be explicit).
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
   // Grow or shrink a bundle's piece list to length `count`. Mirrors
   // setBundleCount but one level deeper. Keeps any metres the operator
   // already typed; new piece slots start blank. Lower bound is 1 so
@@ -1030,11 +1069,20 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                               <div key={pieceIdx} className="flex items-center gap-1">
                                 <span className="text-[10px] text-ink-mute w-5 text-right">{pieceIdx + 1}.</span>
                                 <input
+                                  id={`dc-piece-${itemIdx}-${bundleIdx}-${pieceIdx}`}
                                   type="number" step={0.01} min={0}
                                   placeholder="metres"
                                   className="input h-8 text-xs num flex-1 text-right"
                                   value={p}
                                   onChange={(e) => setPiece(itemIdx, bundleIdx, pieceIdx, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    // Enter jumps to the next piece input
+                                    // instead of submitting the parent form.
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      focusNextPiece(itemIdx, bundleIdx, pieceIdx);
+                                    }
+                                  }}
                                 />
                                 <button type="button"
                                   onClick={() => removePiece(itemIdx, bundleIdx, pieceIdx)}
