@@ -1,0 +1,16 @@
+# pnpm v10+ settings live here, not in package.json.
+# onlyBuiltDependencies allows the listed packages to run their
+# postinstall scripts (download native binaries, register CLIs).
+# Without this, pnpm blocks the scripts for safety and leaves
+# node_modules/.bin/supabase missing, esbuild without its binary, etc.
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  supabase: true
+  unrs-resolver: true
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - supabase
+  - unrs-resolver
