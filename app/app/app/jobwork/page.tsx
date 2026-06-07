@@ -1255,6 +1255,31 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   })();
   const autoWarpCountLabel = autoWarpCountId != null ? countById.get(autoWarpCountId)?.display_name ?? `#${autoWarpCountId}` : '—';
 
+  // Fabric quality dropdown is narrowed to qualities whose master ends
+  // value matches the selected pavus' ends. When the operator ticks
+  // beams that all share one ends spec we drop straight to the
+  // matching qualities; mixed selections fall back to the full list
+  // (the operator has to pick something compatible manually).
+  const fabricQualitiesForEnds = useMemo(() => {
+    if (autoEndsValues.length !== 1) return qualities;
+    const wantedEnds = autoEndsValues[0];
+    const matching = qualities.filter((q) => {
+      const d = fabricDefaults.get(q.id);
+      return d?.total_ends != null && Number(d.total_ends) === wantedEnds;
+    });
+    return matching.length > 0 ? matching : qualities;
+  }, [qualities, fabricDefaults, autoEndsValues]);
+
+  // Auto-pick the fabric quality when exactly one matches the selected
+  // ends. Saves the operator a click on the common 1-quality case.
+  useEffect(() => {
+    if (fabricQualitiesForEnds.length === 1 && form.fabric_quality_id === '') {
+      const id = String(fabricQualitiesForEnds[0]!.id);
+      setForm((f) => ({ ...f, fabric_quality_id: id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabricQualitiesForEnds]);
+
   // Rows after applying the on-screen filters. We keep `rows` (the full
   // list) for the table body filter check and the footer's totals so the
   // totals always reflect what's currently visible.
@@ -1306,10 +1331,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (kind === 'outsource') {
       // Resolve the selected outsource party's ledger_id so we can
       // update the pavu rows with the correct foreign key. The party
-      // dropdown stores party.id; pavu.outsource_ledger_id stores
-      // party.ledger_id.
+      // dropdown is sourced from `jobwork_party` (kind='outsource'),
+      // NOT the `party` master — querying `party` with this id was
+      // the source of the "Selected party has no linked ledger" error
+      // even after migration 121 had linked the jobwork_party row.
       const { data: party } = await sb
-        .from('party')
+        .from('jobwork_party')
         .select('ledger_id')
         .eq('id', Number(form.jobwork_party_id))
         .maybeSingle();
@@ -1661,10 +1688,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}
             >
               <option value="">--- pick ---</option>
-              {qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+              {fabricQualitiesForEnds.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select>
             <p className="text-[10px] text-ink-mute mt-0.5">
-              Assigns the selected warp metres to this quality.
+              {autoEndsValues.length === 1
+                ? `Filtered to qualities with ${autoEndsValues[0]} ends.`
+                : 'Assigns the selected warp metres to this quality.'}
             </p>
           </div>
           <div><label className="label text-xs">Notes</label>
