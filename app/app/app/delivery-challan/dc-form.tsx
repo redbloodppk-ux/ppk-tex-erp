@@ -192,6 +192,11 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const [outsourceTypeId, setOutsourceTypeId] = useState<number | null>(null);
   const [busy,  setBusy]  = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Preview of the next DC code the BEFORE INSERT trigger will mint
+  // — peeked from doc_sequence so the operator knows the number ahead
+  // of saving. Re-read whenever production_mode changes; each mode
+  // pulls from its own series (DC / JDC / ODC).
+  const [nextDcCode, setNextDcCode] = useState<string>('');
 
   // ---- Load reference data ----
   useEffect(() => {
@@ -234,6 +239,47 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   }, [allParties, form.production_mode, customerTypeId, jobworkTypeId, outsourceTypeId]);
 
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
+
+  // Peek the next DC code from doc_sequence whenever the production
+  // mode changes (or on first paint, when the form is new). Each mode
+  // reads from its own row:
+  //   inhouse   → 'dc'           (DC/26-27/NNNN)
+  //   jobwork   → 'jobwork_dc'   (JDC/26-27/NNNN)
+  //   outsource → 'outsource_dc' (ODC/26-27/NNNN)
+  // The BEFORE INSERT trigger generates the real code on save; this
+  // is purely a UI peek.
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    void (async () => {
+      const docType = form.production_mode === 'jobwork'
+        ? 'jobwork_dc'
+        : form.production_mode === 'outsource'
+          ? 'outsource_dc'
+          : 'dc';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('doc_sequence')
+        .select('prefix, format, fy_code, next_value')
+        .eq('doc_type', docType)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!data) { setNextDcCode(''); return; }
+      const { prefix, format, fy_code, next_value } = data as {
+        prefix: string; format: string; fy_code: string; next_value: number;
+      };
+      const seqMatch = /\{seq:(0+)\}/.exec(format);
+      const width = seqMatch?.[1]?.length ?? 4;
+      const seqStr = String(next_value).padStart(width, '0');
+      const code = format
+        .replace('{prefix}', prefix)
+        .replace('{fy}', fy_code)
+        .replace(/\{seq:0+\}/, seqStr);
+      setNextDcCode(code);
+    })();
+    return () => { cancelled = true; };
+  }, [form.production_mode, isEdit, supabase]);
 
   // ---- Fabric quality dropdown filtered by DC production mode ----
   // String mismatch alert: delivery_challan.production_mode stores
@@ -545,11 +591,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             const hint = isEdit
               ? '(editable)'
               : (canCustomise ? '(optional - leave blank for auto)' : '');
-            const placeholder = form.production_mode === 'jobwork'
+            // Preview reads from doc_sequence (DC / JDC / ODC) so the
+            // operator sees the actual next number, not a static
+            // example. Falls back to the legacy stub if the load
+            // hasn't completed.
+            const fallbackStub = form.production_mode === 'jobwork'
               ? 'JDC/26-27/0001'
               : form.production_mode === 'outsource'
                 ? 'ODC/26-27/0001'
                 : 'DC/26-27/0001';
+            const placeholder = nextDcCode || fallbackStub;
             return (
               <>
                 <label className="label">
@@ -565,7 +616,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     required={isEdit}
                   />
                 ) : (
-                  <div className="input bg-cloud/40 text-ink-mute">Auto (assigned on save)</div>
+                  <div className="input bg-cloud/40 text-ink-mute font-mono text-xs">
+                    {nextDcCode ? `Auto (${nextDcCode})` : 'Auto (assigned on save)'}
+                  </div>
                 )}
               </>
             );

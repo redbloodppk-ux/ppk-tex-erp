@@ -3,8 +3,14 @@
  * Shared Jobwork Party form — used by /new (create) and /[id] (edit).
  * Mirrors the Customer form layout. GSTIN lookup integration can be
  * added later; for now operators type the GSTIN manually.
+ *
+ * The new-row case can be opened for either `kind='jobwork'` (default)
+ * or `kind='outsource'`. The kind picks the prefix series that the
+ * BEFORE INSERT trigger (fn_autogen_code, mig 123) will use:
+ *   jobwork   → JWP-NNNN   (legacy format)
+ *   outsource → OWP/26-27/NNNN
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2, Archive } from 'lucide-react';
@@ -29,6 +35,11 @@ interface JobworkPartyFormProps {
   partyId?: number;
   initial?: Partial<JobworkPartyFormValues>;
   code?: string;
+  /** 'jobwork' (default) or 'outsource'. New rows are inserted with
+   *  this kind, which drives the auto-issued code prefix via the
+   *  fn_autogen_code trigger. Ignored on edit (the existing row's
+   *  kind is preserved). */
+  kind?: 'jobwork' | 'outsource';
 }
 
 const EMPTY: JobworkPartyFormValues = {
@@ -47,7 +58,7 @@ const EMPTY: JobworkPartyFormValues = {
   notes: '',
 };
 
-export function JobworkPartyForm({ partyId, initial, code }: JobworkPartyFormProps) {
+export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: JobworkPartyFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const isEdit = typeof partyId === 'number';
@@ -56,6 +67,37 @@ export function JobworkPartyForm({ partyId, initial, code }: JobworkPartyFormPro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // Live preview of the next auto-issued code from doc_sequence —
+  // matches whichever prefix series this row's `kind` will route to.
+  const [nextCodePreview, setNextCodePreview] = useState<string>('');
+
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    void (async () => {
+      const docType = kind === 'outsource' ? 'outsource_party' : 'jobwork_party';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('doc_sequence')
+        .select('prefix, format, fy_code, next_value')
+        .eq('doc_type', docType)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const { prefix, format, fy_code, next_value } = data as {
+        prefix: string; format: string; fy_code: string; next_value: number;
+      };
+      const seqMatch = /\{seq:(0+)\}/.exec(format);
+      const width = seqMatch?.[1]?.length ?? 4;
+      const seqStr = String(next_value).padStart(width, '0');
+      const built = format
+        .replace('{prefix}', prefix)
+        .replace('{fy}', fy_code)
+        .replace(/\{seq:0+\}/, seqStr);
+      setNextCodePreview(built);
+    })();
+    return () => { cancelled = true; };
+  }, [kind, isEdit, supabase]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -91,10 +133,13 @@ export function JobworkPartyForm({ partyId, initial, code }: JobworkPartyFormPro
       router.refresh();
     } else {
       // code omitted - trg_jobwork_party_autogen_code fills it.
-      const { error: err } = await sb.from('jobwork_party').insert(payload);
+      // `kind` is set explicitly so the trigger routes to the correct
+      // doc_sequence row (jobwork_party vs outsource_party).
+      const insertPayload = { ...payload, kind };
+      const { error: err } = await sb.from('jobwork_party').insert(insertPayload);
       setBusy(false);
       if (err) { setError(err.message); return; }
-      router.push('/app/jobwork-parties');
+      router.push(kind === 'outsource' ? '/app/outsource' : '/app/jobwork-parties');
       router.refresh();
     }
   }
@@ -129,9 +174,12 @@ export function JobworkPartyForm({ partyId, initial, code }: JobworkPartyFormPro
     <form onSubmit={onSubmit} className="card p-6 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="label">Jobwork Party Code</label>
-          <div className="input num bg-cloud/60 text-ink-mute flex items-center cursor-not-allowed select-none">
-            {code ?? 'Auto-generated (JWP-XXXX)'}
+          <label className="label">{kind === 'outsource' ? 'Outsource Weaver Code' : 'Jobwork Party Code'}</label>
+          <div className="input num bg-cloud/60 text-ink-mute flex items-center cursor-not-allowed select-none font-mono text-xs">
+            {code
+              ?? (nextCodePreview
+                ? `Auto (${nextCodePreview})`
+                : (kind === 'outsource' ? 'Auto-generated (OWP/26-27/NNNN)' : 'Auto-generated (JWP-NNNN)'))}
           </div>
           {!isEdit && (
             <p className="text-[11px] text-ink-mute mt-1">Assigned automatically when saved.</p>
@@ -232,7 +280,9 @@ export function JobworkPartyForm({ partyId, initial, code }: JobworkPartyFormPro
           <button type="button" onClick={() => router.back()} className="btn-ghost">Cancel</button>
           <button type="submit" disabled={busy} className="btn-primary">
             {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isEdit ? 'Save Changes' : 'Create Jobwork Party'}
+            {isEdit
+              ? 'Save Changes'
+              : kind === 'outsource' ? 'Create Outsource Weaver' : 'Create Jobwork Party'}
           </button>
         </div>
       </div>
