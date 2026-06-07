@@ -237,20 +237,43 @@ export default async function SettingsPage() {
       </div>
 
       <div className="card p-5">
-        <h2 className="font-display font-bold text-base mb-3">Company</h2>
+        <div className="flex items-start justify-between mb-3">
+          <h2 className="font-display font-bold text-base">Company</h2>
+          <Link href="/app/settings/company" className="btn-secondary text-xs">
+            {company ? 'Edit' : 'Set up'}
+          </Link>
+        </div>
         {company ? (
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
             <dt className="text-ink-soft">Legal Name</dt>
-            <dd className="font-semibold">{(company as any).legal_name}</dd>
+            <dd className="font-semibold">{(company as { legal_name: string }).legal_name}</dd>
             <dt className="text-ink-soft">GSTIN</dt>
-            <dd className="num">{(company as any).gstin}</dd>
+            <dd className="num flex items-center gap-1.5">
+              <span>{(company as { gstin: string }).gstin}</span>
+              {(company as { gstin_verified_at?: string | null }).gstin_verified_at && (
+                <span title="GSTIN verified against the GST portal" className="inline-flex items-center gap-0.5 text-emerald-600 font-semibold text-[11px]">
+                  &#x2713; verified
+                </span>
+              )}
+            </dd>
             <dt className="text-ink-soft">Address</dt>
-            <dd>{(company as any).address_line1}, {(company as any).city} {(company as any).pincode}</dd>
+            <dd>
+              {(company as { address_line1: string }).address_line1}
+              {(company as { address_line2?: string | null }).address_line2
+                ? `, ${(company as { address_line2: string }).address_line2}`
+                : ''}
+              , {(company as { city: string }).city} {(company as { pincode: string }).pincode}
+            </dd>
             <dt className="text-ink-soft">Phone</dt>
-            <dd className="num">{(company as any).contact_phone}</dd>
+            <dd className="num">{(company as { phone?: string | null }).phone ?? '—'}</dd>
           </dl>
         ) : (
-          <p className="text-sm text-ink-soft">No company profile loaded yet.</p>
+          <p className="text-sm text-ink-soft">
+            No company profile loaded yet.{' '}
+            <Link href="/app/settings/company" className="text-indigo-700 font-semibold underline">
+              Set it up now &rarr;
+            </Link>
+          </p>
         )}
       </div>
 
