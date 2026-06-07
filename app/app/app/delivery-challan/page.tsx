@@ -91,8 +91,19 @@ export default async function DeliveryChallanListPage({
 
   // Build the subtitle so it reflects the active mode scope.
   const subtitle = mode !== null
-    ? `${MODE_LABEL[mode]} DCs only — pick one to record a fabric receipt against.`
-    : 'Generate DCs for in-house and jobwork dispatches. Confirmed DCs flow into the Sales Orders page for invoicing.';
+    ? `${MODE_LABEL[mode]} DCs only.`
+    : 'All Delivery Challans across in-house, jobwork and outsource flows.';
+
+  // Tab strip — each tab is just the same page scoped to one mode.
+  // "All" is the legacy view (no filter). The 3-mode tabs let the
+  // operator land directly on the kind of DC they want to work with.
+  const TAB_DEFS: ReadonlyArray<{ key: ModeFilter | 'all'; label: string }> = [
+    { key: 'all',       label: 'All' },
+    { key: 'inhouse',   label: 'In-house' },
+    { key: 'jobwork',   label: 'Job Work' },
+    { key: 'outsource', label: 'Outsource Weaving' },
+  ];
+  const activeKey: ModeFilter | 'all' = mode ?? 'all';
 
   return (
     <div>
@@ -100,18 +111,35 @@ export default async function DeliveryChallanListPage({
         title={mode !== null ? `Delivery Challan — ${MODE_LABEL[mode]}` : 'Delivery Challan'}
         subtitle={subtitle}
         actions={
-          <div className="flex items-center gap-2">
-            {mode !== null && (
-              <Link href="/app/delivery-challan" className="btn-ghost text-xs">
-                Show all modes
-              </Link>
-            )}
-            <Link href={newDcHref} className="btn-primary">
-              <Plus className="w-4 h-4" /> New DC
-            </Link>
-          </div>
+          <Link href={newDcHref} className="btn-primary">
+            <Plus className="w-4 h-4" /> New DC
+          </Link>
         }
       />
+
+      {/* Tab strip — In-house / Job Work / Outsource Weaving each
+          scope the table to that mode. The "All" tab keeps the
+          legacy unfiltered view available. */}
+      <div className="flex flex-wrap gap-1 mb-4 border-b border-line/60">
+        {TAB_DEFS.map((t) => {
+          const active = t.key === activeKey;
+          const href = t.key === 'all' ? '/app/delivery-challan' : `/app/delivery-challan?mode=${t.key}`;
+          return (
+            <Link
+              key={t.key}
+              href={href}
+              className={
+                'px-4 py-2 text-sm font-medium rounded-t -mb-px border-b-2 transition ' +
+                (active
+                  ? 'border-indigo text-indigo bg-indigo-50/60'
+                  : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze/60')
+              }
+            >
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
 
       {error && (
         <div className="card p-3 mb-4 text-err text-sm">Could not load DCs: {error.message}</div>

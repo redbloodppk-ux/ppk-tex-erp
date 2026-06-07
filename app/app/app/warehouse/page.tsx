@@ -201,14 +201,28 @@ export default async function WarehousePage({
   // loaders aggregate by party_id and discard rows whose party isn't
   // in the passed-in set, so jobwork data never leaks into outsource
   // and vice-versa.
-  const fabricRows     = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
+  const fabricRowsRaw  = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
+  // Apply the in-house "Fabric Quality" filter at the page level —
+  // loadFabric returns rows keyed by quality_code, so we look up the
+  // picked quality's code in the fabricQualities master and keep only
+  // matching stock rows. No filter set → full list.
+  const fabricRows = (() => {
+    if (!fabricRowsRaw) return fabricRowsRaw;
+    if (mode !== 'inhouse' || !sp.quality) return fabricRowsRaw;
+    const picked = (fabricQualities ?? []).find((q: { id: number; code: string; name: string }) => q.id === Number(sp.quality));
+    if (!picked) return fabricRowsRaw;
+    return fabricRowsRaw.filter((r) => r.quality_code === picked.code || r.quality_name === picked.name);
+  })();
   const warpBeamRows   = isJobworkLike && tab === 'warp_beam'           ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
   const weftYarnRows   = isJobworkLike && tab === 'weft_yarn'           ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
   const porvaiYarnRows = isJobworkLike && tab === 'porvai_yarn'         ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
   const jwBobbinRows   = isJobworkLike && tab === 'bobbin'              ? await loadJobworkBobbin(supabase, sp, jobworkParties ?? [], bobbinMasters ?? []) : null;
-  const inWarpRows     = mode === 'inhouse' && tab === 'warp_metre'     ? await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
-  const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
-  const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  // In-house pivot loaders take the same sp object so they can apply
+  // the Fabric Quality / Yarn Count filters at the column level. With
+  // no filter set they return the full pivot exactly as before.
+  const inWarpRows     = mode === 'inhouse' && tab === 'warp_metre'     ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
+  const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
+  const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
   // Sizing warehouse — its own top-level mode. The loader pivots
   // yarn_lot inflows (delivery_destination='sizing') and sizing_job
@@ -364,7 +378,23 @@ export default async function WarehousePage({
           </>
         )}
 
-        {mode === 'inhouse' && tab === 'yarn' && (
+        {/* In-house warp metre + fabric tabs share a Fabric Quality
+            filter so the operator can drill into one quality at a time.
+            Columns + events are filtered post-aggregation so only the
+            picked quality's column survives. */}
+        {mode === 'inhouse' && (tab === 'warp_metre' || tab === 'fabric') && (
+          <FilterSelect
+            name="quality"
+            label="Fabric Quality"
+            value={sp.quality}
+            options={(fabricQualities ?? []).map((q: { id: number; code: string; name: string }) => ({ value: String(q.id), label: `${q.code} - ${q.name}` }))}
+          />
+        )}
+
+        {/* In-house weft / porvai tabs share a Yarn Count filter — the
+            pivot's columns are already keyed by yarn count, so the
+            filter just collapses the table to the chosen column. */}
+        {mode === 'inhouse' && (tab === 'weft_yarn' || tab === 'porvai_yarn') && (
           <FilterSelect
             name="count"
             label="Yarn Count"
@@ -450,10 +480,23 @@ export default async function WarehousePage({
         </>
       )}
       {mode === 'sizing' && tab === 'yarn'         && (
-        <PivotView
-          data={sizingRows!}
-          emptyMessage="No sizing-warehouse activity yet. Yarn purchases with delivery = 'sizing' appear here as inflows; sizing jobs that consume them appear as outflows."
-        />
+        <>
+          {/* Sizing warehouse uses bucket='weft_yarn' so its opening
+              stock rows live in the same column shape (keyed by yarn
+              count) the loader expects. The mode='sizing' flag is what
+              actually segregates these from in-house weft entries. */}
+          <OpeningStockForm
+            mode="sizing"
+            bucket="weft_yarn"
+            qualities={(fabricQualities ?? []) as any}
+            counts={(counts ?? []) as any}
+            bobbinMasters={(bobbinMasters ?? []) as any}
+          />
+          <PivotView
+            data={sizingRows!}
+            emptyMessage="No sizing-warehouse activity yet. Yarn purchases with delivery = 'sizing' appear here as inflows; sizing jobs that consume them appear as outflows. Use Add opening stock to record balances brought forward."
+          />
+        </>
       )}
       {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
       {isJobworkLike && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage={mode === 'outsource' ? 'No warp beam entries yet. Issue beams from Outsource Weaving → Warp Beam Given to see them here.' : 'No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here.'} />}
@@ -468,6 +511,33 @@ export default async function WarehousePage({
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers — kept inline so the file works as a single Server Component
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Filter a PivotData down to a single column based on the in-house
+ * filter dropdowns. Used by the warp_metre / weft_yarn / porvai_yarn
+ * tabs so picking a Fabric Quality or Yarn Count drills the pivot
+ * view to just that column's events.
+ *
+ * Pivot columns are id'd as:
+ *   - `fq:<id>`  → fabric_quality_id  (warp_metre opening stock)
+ *   - `yc:<id>`  → yarn_count_id      (weft_yarn / porvai_yarn)
+ *   - `ends:<n>` → ends per bobbin    (warp_metre pavu inflows)
+ *
+ * When the filter doesn't match any column we still hand back an empty
+ * PivotData (rather than the full unfiltered one) so the operator's
+ * intent is preserved.
+ */
+function applyInhouseColumnFilter(data: PivotData, sp: SP): PivotData {
+  if (!sp.quality && !sp.count) return data;
+  const keep = new Set<string>();
+  if (sp.quality) keep.add(`fq:${sp.quality}`);
+  if (sp.count)   keep.add(`yc:${sp.count}`);
+  return {
+    unit: data.unit,
+    columns: data.columns.filter((c) => keep.has(c.id)),
+    events:  data.events.filter((e) => keep.has(e.column_id)),
+  };
+}
 
 function FilterSelect({
   name, label, value, options,
@@ -1437,6 +1507,36 @@ async function loadSizingWarehouse(
     return id;
   };
 
+  // Opening-stock inflows. Anything entered via the Add opening
+  // stock form on the Sizing Warehouse tab lives in opening_stock
+  // with mode='sizing'. Treat the open_date as the event date and
+  // route each row to its yarn-count column. Honour the same
+  // yarn-count filter that's applied to the lot query above.
+  const openingRows = await safeSelect<{
+    id: number; yarn_count_id: number | null;
+    quantity: number | string | null; open_date: string | null;
+    reference_no: string | null; notes: string | null;
+  }>(
+    (() => {
+      let q = supabase.from('opening_stock')
+        .select('id, yarn_count_id, quantity, open_date, reference_no, notes')
+        .eq('mode', 'sizing')
+        .eq('status', 'active');
+      if (countFilter !== null) q = q.eq('yarn_count_id', countFilter);
+      return q;
+    })(),
+  );
+  for (const r of openingRows) {
+    const colId = ensureCol(r.yarn_count_id);
+    events.push({
+      event_date: r.open_date ?? '',
+      column_id: colId,
+      direction: 'in',
+      quantity: Number(r.quantity ?? 0),
+      reference: r.reference_no ?? 'Opening stock',
+      notes: r.notes ?? 'Opening balance (sizing warehouse)',
+    });
+  }
   for (const l of lots) {
     const cId = l.yarn_count_id;
     const colId = ensureCol(cId);

@@ -1,12 +1,19 @@
 'use client';
 /**
- * Inline form to add an opening stock entry for the in-house warehouse.
- * Shown above the pivot table on each inhouse tab. The bucket prop
- * picks which key field is required:
+ * Inline form to add an opening stock entry for the in-house warehouse
+ * or the sizing warehouse. Shown above the pivot table on each tab.
+ *
+ * The bucket prop picks which key field is required:
  *   - warp_beam   → fabric quality
  *   - weft_yarn / porvai_yarn → yarn count
  *   - bobbin      → ends_per_bobbin (+ optional bobbin master link)
- * Saves to public.opening_stock with mode='inhouse'.
+ *
+ * The mode prop picks which warehouse the entry belongs to:
+ *   - inhouse (default) → saves with mode='inhouse'
+ *   - sizing            → saves with mode='sizing'
+ *
+ * Both write to public.opening_stock. The Warehouse pivot loaders
+ * pick the rows up via the (bucket, mode) index.
  */
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -24,6 +31,11 @@ interface Props {
   qualities: QualityOpt[];
   counts: CountOpt[];
   bobbinMasters: BobbinMasterOpt[];
+  /** 'inhouse' (default) or 'sizing'. The save payload's `mode` column
+   *  is set from this value so the right warehouse loader picks up the
+   *  row. Sizing warehouse uses bucket='weft_yarn' for yarn-by-count
+   *  opening stock. */
+  mode?: 'inhouse' | 'sizing';
 }
 
 function todayISO(): string {
@@ -31,7 +43,7 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function OpeningStockForm({ bucket, qualities, counts, bobbinMasters }: Props): React.ReactElement {
+export function OpeningStockForm({ bucket, qualities, counts, bobbinMasters, mode = 'inhouse' }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
   const [open, setOpen] = useState<boolean>(false);
@@ -72,7 +84,7 @@ export function OpeningStockForm({ bucket, qualities, counts, bobbinMasters }: P
     }
     const payload = {
       bucket,
-      mode: 'inhouse',
+      mode,
       fabric_quality_id: bucket === 'warp_beam' && form.fabric_quality_id !== '' ? Number(form.fabric_quality_id) : null,
       yarn_count_id:     (bucket === 'weft_yarn' || bucket === 'porvai_yarn') && form.yarn_count_id !== '' ? Number(form.yarn_count_id) : null,
       bobbin_id:         bucket === 'bobbin' && form.bobbin_id !== '' ? Number(form.bobbin_id) : null,
@@ -96,10 +108,16 @@ export function OpeningStockForm({ bucket, qualities, counts, bobbinMasters }: P
     <div className="mb-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-ink-mute">
-          {bucket === 'warp_beam'  && 'In-house warp metre stock grouped by fabric quality. Opening balances flow as inflows into the pivot.'}
-          {bucket === 'weft_yarn'  && 'In-house weft yarn stock grouped by yarn count.'}
-          {bucket === 'porvai_yarn'&& 'In-house porvai yarn stock grouped by yarn count.'}
-          {bucket === 'bobbin'     && 'In-house bobbin stock grouped by ends per bobbin.'}
+          {mode === 'sizing'
+            ? 'Sizing warehouse yarn stock grouped by yarn count. Opening balances appear as inflows on the pivot.'
+            : (
+              <>
+                {bucket === 'warp_beam'  && 'In-house warp metre stock grouped by fabric quality. Opening balances flow as inflows into the pivot.'}
+                {bucket === 'weft_yarn'  && 'In-house weft yarn stock grouped by yarn count.'}
+                {bucket === 'porvai_yarn'&& 'In-house porvai yarn stock grouped by yarn count.'}
+                {bucket === 'bobbin'     && 'In-house bobbin stock grouped by ends per bobbin.'}
+              </>
+            )}
         </p>
         <button
           type="button"
