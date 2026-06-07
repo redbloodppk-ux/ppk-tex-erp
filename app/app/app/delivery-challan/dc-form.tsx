@@ -459,43 +459,51 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       }),
     }));
   }
-  // Enter-to-next-piece keyboard nav. Each piece input gets a stable
-  // id `dc-piece-<itemIdx>-<bundleIdx>-<pieceIdx>` so this handler can
-  // resolve the next target by DOM id without touching state. Order of
-  // preference:
-  //   1. Next piece in the same bundle.
-  //   2. First piece of the next bundle in the same item.
-  //   3. First piece of the first bundle of the next item.
-  //   4. None → blur so Enter doesn't accidentally submit the form.
-  function focusNextPiece(itemIdx: number, bundleIdx: number, pieceIdx: number): void {
-    const it = form.items[itemIdx];
-    if (!it) return;
-    const b = it.bundles[bundleIdx];
-    if (!b) return;
+  // Enter-as-Tab navigation. Attached at the items-container level so
+  // a single handler covers every field inside the items section:
+  // No. of bundles, No. of pieces, each piece input, summary inputs,
+  // HSN, description, etc.
+  //
+  // Skipped on purpose:
+  //   - <textarea>          (Enter keeps its native newline behaviour)
+  //   - <button>            (Enter on a button should click it)
+  //   - <input type="file"> (would steal focus before the picker opens)
+  //
+  // The walk is DOM-ordered so the focus chain naturally follows the
+  // visible layout: bundle-count → No. of pieces → piece 1 → piece 2
+  // → ... → next bundle's No. of pieces → ... → next item.
+  function handleItemsEnter(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const tag = target.tagName;
+    if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
+    if (tag === 'INPUT' && (target as HTMLInputElement).type === 'file') return;
+    // IME composition (e.g. typing in a non-Latin script) — let the
+    // user finish composing before we hijack Enter.
+    if (e.nativeEvent.isComposing) return;
+    e.preventDefault();
 
-    if (pieceIdx + 1 < b.pieces.length) {
-      document.getElementById(`dc-piece-${itemIdx}-${bundleIdx}-${pieceIdx + 1}`)?.focus();
-      return;
-    }
-    if (bundleIdx + 1 < it.bundles.length) {
-      const nextBundle = it.bundles[bundleIdx + 1];
-      if (nextBundle && nextBundle.pieces.length > 0) {
-        document.getElementById(`dc-piece-${itemIdx}-${bundleIdx + 1}-0`)?.focus();
-        return;
+    // Pull every focusable input/select inside the items container
+    // (this DIV is what we attached the handler to via currentTarget).
+    const container = e.currentTarget;
+    const focusable = Array.from(container.querySelectorAll<HTMLElement>(
+      'input:not([disabled]):not([type="hidden"]):not([type="file"]), select:not([disabled])',
+    ));
+    const idx = focusable.indexOf(target);
+    if (idx === -1) return;
+    const next = focusable[idx + 1];
+    if (next) {
+      next.focus();
+      // Select the contents of number/text inputs so a fresh Enter →
+      // type → Enter cycle replaces the value instead of appending.
+      if (next instanceof HTMLInputElement &&
+          (next.type === 'number' || next.type === 'text')) {
+        next.select();
       }
+    } else {
+      target.blur();
     }
-    for (let ni = itemIdx + 1; ni < form.items.length; ni += 1) {
-      const ni_it = form.items[ni];
-      if (!ni_it) continue;
-      const firstBundle = ni_it.bundles[0];
-      if (firstBundle && firstBundle.pieces.length > 0) {
-        document.getElementById(`dc-piece-${ni}-0-0`)?.focus();
-        return;
-      }
-    }
-    // End of the road — drop focus so Enter doesn't fire a form submit
-    // (the form's onSubmit catches that anyway, but better to be explicit).
-    (document.activeElement as HTMLElement | null)?.blur();
   }
 
   // Grow or shrink a bundle's piece list to length `count`. Mirrors
@@ -945,7 +953,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             <Plus className="w-3.5 h-3.5" /> Add item
           </button>
         </div>
-        <div className="p-3 space-y-4">
+        {/* onKeyDown on the items container drives Enter-as-Tab navigation
+            across every input/select inside (CORR-ext2). Textareas and
+            buttons are skipped inside the handler. */}
+        <div className="p-3 space-y-4" onKeyDown={handleItemsEnter}>
           {form.items.map((it, itemIdx) => {
             const tot = itemTotals(it, form.entry_mode);
             return (
@@ -1075,14 +1086,6 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                                   className="input h-8 text-xs num flex-1 text-right"
                                   value={p}
                                   onChange={(e) => setPiece(itemIdx, bundleIdx, pieceIdx, e.target.value)}
-                                  onKeyDown={(e) => {
-                                    // Enter jumps to the next piece input
-                                    // instead of submitting the parent form.
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      focusNextPiece(itemIdx, bundleIdx, pieceIdx);
-                                    }
-                                  }}
                                 />
                                 <button type="button"
                                   onClick={() => removePiece(itemIdx, bundleIdx, pieceIdx)}
