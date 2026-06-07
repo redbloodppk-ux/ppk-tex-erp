@@ -219,7 +219,14 @@ export default async function DcPrintPage({
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
-          .dc-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 0 !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
+          /* Critical: keep .dc-sheet full-printable-page tall so the
+             flex column actually stretches and `margin-top:auto` on
+             .dc-foot pushes the signatures to the page bottom. With
+             min-height:0 the column collapsed to content size and
+             everything appeared "shrunken" on the printout vs. the
+             preview. 100vh in print mode = the printable area height
+             between the @page margins. */
+          .dc-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
           .dc-print-header {
             display: flex !important;
             position: fixed;
