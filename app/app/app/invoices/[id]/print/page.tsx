@@ -222,13 +222,75 @@ export default async function InvoicePrintPage({
   return (
     <>
       <style>{`
-        @page { size: A4; margin: 12mm; }
+        /* Multi-page print: fixed slim header + fixed footer repeat on
+           every printed page, even when a long invoice spills onto a
+           second sheet. The @page bottom-center margin box injects the
+           "Page N of M" counter. On-screen the fixed elements are
+           hidden so the live preview stays clean. */
+        @page {
+          size: A4;
+          margin: 28mm 10mm 26mm 10mm;
+          @bottom-center {
+            content: "Page " counter(page) " of " counter(pages);
+            font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            color: #222;
+          }
+        }
+        /* Hide the print-only header/footer on screen. */
+        .inv-print-header, .inv-print-footer { display: none; }
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
-          .inv-sheet { box-shadow: none !important; border: none !important; }
-          /* Force a fresh A4 page between ORIGINAL and DUPLICATE copies */
+          /* Critical: keep .inv-sheet full-printable-page tall so the
+             flex column stretches and 'margin-top:auto' on .foot-strip
+             pushes signatures + address footer to the page bottom.
+             Without min-height:100vh the column collapses to content
+             size and the printout looks "shrunken" vs preview. */
+          .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
+          /* Fresh A4 page between ORIGINAL and DUPLICATE copies. */
           .inv-sheet + .inv-sheet { page-break-before: always; }
+          .inv-print-header {
+            display: flex !important;
+            position: fixed;
+            top: 0; left: 10mm; right: 10mm;
+            height: 20mm;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4mm 0;
+            border-bottom: 1px solid #000;
+            font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: #111;
+            background: #fff;
+          }
+          .inv-print-header .ph-title { font-size: 16px; font-weight: 800; letter-spacing: 0.6px; }
+          .inv-print-header .ph-meta  { text-align: right; font-size: 12.5px; font-weight: 700; line-height: 1.35; color: #222; }
+          .inv-print-header .ph-meta b { color: #000; font-weight: 800; }
+          .inv-print-footer {
+            display: block !important;
+            position: fixed;
+            bottom: 0; left: 10mm; right: 10mm;
+            padding: 3mm 0 2mm 0;
+            border-top: 1px solid #000;
+            text-align: center;
+            font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 12.5px;
+            font-weight: 700;
+            line-height: 1.45;
+            color: #111;
+            background: #fff;
+          }
+          .inv-print-footer .pf-small { font-weight: 600; font-size: 11px; color: #222; }
+          /* Avoid splitting the line-items table across pages if Chrome
+             can fit it on one. Header repeats on each spilled page. */
+          table.items thead { display: table-header-group; }
+          table.items tfoot { display: table-footer-group; }
+          /* The on-page address footer is redundant with the fixed
+             footer — hide it during print so it doesn't double-print. */
+          .addr-foot { display: none !important; }
         }
         body { background: #f3f4f6; }
         .inv-sheet {
@@ -307,6 +369,26 @@ export default async function InvoicePrintPage({
       `}</style>
 
       <InvoicePrintActions invoiceId={inv.id} invoiceNo={inv.invoice_no} />
+
+      {/* Fixed print-only header — repeats on every printed page.
+          Hidden on screen by CSS. */}
+      <div className="inv-print-header">
+        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; {style.title.toUpperCase()}</div>
+        <div className="ph-meta">
+          <div>Invoice # <b>{inv.invoice_no}</b></div>
+          <div>Date: <b>{fmtDate(inv.invoice_date)}</b></div>
+        </div>
+      </div>
+
+      {/* Fixed print-only footer — company address + contact line.
+          The "Page X of Y" counter is injected by the @page rule's
+          @bottom-center margin box, so it sits just below this band. */}
+      <div className="inv-print-footer">
+        <div>{COMPANY.address}</div>
+        <div className="pf-small">
+          GSTIN: {COMPANY.gstin} &nbsp;&middot;&nbsp; MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
+        </div>
+      </div>
 
       {/* Every invoice prints in two identical copies: one ORIGINAL for the
           buyer, one DUPLICATE for our records. We render the same sheet
