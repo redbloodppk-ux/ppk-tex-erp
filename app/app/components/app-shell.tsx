@@ -14,6 +14,7 @@ import { Topbar } from './topbar';
 import { OfflineSync } from './offline-sync';
 import { OfflineBanner } from './offline-banner';
 import { UpdatePrompt } from './update-prompt';
+import { InstallPrompt } from './install-prompt';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -71,6 +72,11 @@ export function AppShell({
           {children}
         </main>
       </div>
+      {/* OfflineSync renders the bottom-right "pending sync" pill;
+          InstallPrompt renders the bottom-left "Install PPK TEX" pill.
+          They live outside the main flow so they overlay every page. */}
+      <OfflineSync />
+      <InstallPrompt />
     </div>
   );
 }

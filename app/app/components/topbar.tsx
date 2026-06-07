@@ -4,9 +4,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  Bell, LogOut, Search, ChevronDown, Menu, ArrowLeft,
+  LogOut, Search, ChevronDown, Menu, ArrowLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { NotificationBell } from './notification-bell';
 
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Owner',
@@ -87,14 +88,10 @@ export function Topbar({
       <div className="flex-1 sm:hidden" />
 
       <div className="flex items-center gap-1 sm:gap-2">
-        <Link
-          href="/app/notifications"
-          className="relative p-2 rounded-lg hover:bg-cloud"
-          aria-label="Notifications"
-        >
-          <Bell className="w-5 h-5 text-ink-soft" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500" />
-        </Link>
+        {/* Live bell — replaces the static red dot. Polls every 60s
+            and opens a dropdown with the top 10 pending items. See
+            NotificationBell + lib/notifications/source.ts. */}
+        <NotificationBell />
 
         <div className="relative">
           <button
