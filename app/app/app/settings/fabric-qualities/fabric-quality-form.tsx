@@ -398,10 +398,17 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                 <div>
                   <label className="label text-xs">Bobbin</label>
                   <div className="flex items-stretch gap-1.5">
+                    {/* Primary bobbin = the regular, non-lurex cone.
+                        Lurex bobbins are reserved for the "Bobbin 2"
+                        picker below, so we filter them out here. We
+                        treat is_lurex IS NULL the same as false (legacy
+                        rows pre-dating the lurex flag are not lurex). */}
                     <select className="input w-full" value={bobbinId}
                       onChange={(e) => setBobbinId(e.target.value)}>
                       <option value="">--- pick a bobbin ---</option>
-                      {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+                      {bobbins
+                        .filter((b) => b.is_lurex !== true)
+                        .map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
                     </select>
                     <NewLink href="/app/bobbin" title="Add new bobbin" />
                   </div>
