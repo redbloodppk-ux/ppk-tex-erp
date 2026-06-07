@@ -919,7 +919,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                 {form.entry_mode === 'summary' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-line/40 pt-3">
                     <div>
-                      <label className="label text-[10px]">Total metres</label>
+                      <label className="label text-[10px]">Total metres / towels</label>
                       <input type="number" step={0.01} min={0}
                         className="input h-9 text-sm num text-right"
                         placeholder="0.00"
