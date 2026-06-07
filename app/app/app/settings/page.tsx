@@ -1,13 +1,17 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked } from 'lucide-react';
+import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked, ShieldAlert, Users } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
 import { CostingDefaults } from './costing-defaults';
 
 export const metadata = { title: 'Settings' };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: { searchParams?: Promise<{ notice?: string }> }) {
+  const sp = (await searchParams) ?? {};
+  const notice = sp.notice === 'owner-only' ? 'owner-only' : null;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const [
@@ -43,6 +47,13 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Settings" subtitle="Company profile, users and roles, document sequences, system constants." />
+
+      {notice === 'owner-only' && (
+        <div className="card p-3 border-l-4 border-l-amber-500 bg-amber-50/40 text-sm text-amber-800 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 shrink-0" />
+          That page is restricted to the <strong>owner</strong> role. Ask an owner to grant access or make the change for you.
+        </div>
+      )}
 
       {/* Mill setup */}
       <div className="card p-5 space-y-3">
@@ -278,7 +289,12 @@ export default async function SettingsPage() {
       </div>
 
       <div className="card p-5">
-        <h2 className="font-display font-bold text-base mb-3">Users &amp; Roles</h2>
+        <div className="flex items-start justify-between mb-3">
+          <h2 className="font-display font-bold text-base">Users &amp; Roles</h2>
+          <Link href="/app/settings/users" className="btn-secondary text-xs">
+            <Users className="w-3.5 h-3.5" /> Manage
+          </Link>
+        </div>
         <table className="w-full text-sm">
           <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
             <tr>
@@ -289,14 +305,20 @@ export default async function SettingsPage() {
             </tr>
           </thead>
           <tbody>
-            {users?.length ? users.map((u: any) => (
+            {users?.length ? users.map((u: { id: string; full_name: string; email: string; role: string; status: string }) => (
               <tr key={u.id} className="border-b border-line/40 last:border-0">
                 <td className="py-2.5 font-semibold">{u.full_name}</td>
                 <td className="text-xs text-ink-soft">{u.email}</td>
                 <td className="text-xs uppercase">{u.role.replace(/_/g, ' ')}</td>
                 <td className="text-right">
-                  <span className={`pill ${u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {u.is_active ? 'active' : 'inactive'}
+                  <span className={`pill ${
+                    u.status === 'active'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : u.status === 'resigned'
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {u.status}
                   </span>
                 </td>
               </tr>
@@ -305,6 +327,9 @@ export default async function SettingsPage() {
             )}
           </tbody>
         </table>
+        <p className="text-[11px] text-ink-mute mt-3">
+          Owners can add new users, change roles and archive accounts via the <Link href="/app/settings/users" className="text-indigo-700 underline font-semibold">Manage</Link> page.
+        </p>
       </div>
     </div>
   );
