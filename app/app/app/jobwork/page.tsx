@@ -1080,8 +1080,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           .select('outsource_ledger_id, sizing_job_id')
           .eq('production_mode', 'outsource')
           .not('sizing_job_id', 'is', null),
+        // `parties` is sourced from `jobwork_party` (kind='outsource')
+        // by the parent — not the `party` master — so we resolve the
+        // ledger map from the same table. Querying `party` with these
+        // ids returns nothing (different id namespaces) and the
+        // strict cascade collapses to an empty sizing-vendor list.
         parties.length > 0
-          ? sb.from('party').select('id, ledger_id').in('id', parties.map((p) => p.id))
+          ? sb.from('jobwork_party').select('id, ledger_id').in('id', parties.map((p) => p.id))
           : Promise.resolve({ data: [] }),
       ]);
       if (cancelled) return;
