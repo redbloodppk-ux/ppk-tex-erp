@@ -320,8 +320,10 @@ export default async function DcPrintPage({
         .dc-vehicle { border: 1px solid #000; border-top: none; padding: 6px 11px; font-size: 13.5px; font-weight: 700; }
         /* Signature footer block — margin-top:auto pushes it to the
            bottom of the dc-sheet flex column, so it sits at the bottom
-           of the last printed page even when bundle content is short. */
-        .dc-foot { border: 1px solid #000; border-top: none; display: grid; grid-template-columns: 1fr 1fr; min-height: 95px; margin-top: auto; }
+           of the last printed page even when bundle content is short.
+           The top border stays solid because the auto-margin can leave
+           visible whitespace between .dc-vehicle and .dc-foot. */
+        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 95px; margin-top: auto; }
         .dc-foot > div { padding: 8px 11px; font-size: 13px; font-weight: 700; }
         .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
         .dc-foot .sig { font-weight: 800; margin-bottom: 32px; font-size: 13.5px; letter-spacing: 0.4px; }

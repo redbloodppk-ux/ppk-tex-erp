@@ -202,6 +202,10 @@ export default async function WarehousePage({
   // in the passed-in set, so jobwork data never leaks into outsource
   // and vice-versa.
   const fabricRowsRaw  = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
+  // In-house Fabric tab gets a second table below the aggregate showing
+  // every stock event (in & out) joined to its DC / Fabric Receipt /
+  // Invoice / payment status. Only runs on the in-house Fabric tab.
+  const fabricLineage  = (mode === 'inhouse' && tab === 'fabric')        ? await loadFabricLineage(supabase, sp) : null;
   // Apply the in-house "Fabric Quality" filter at the page level —
   // loadFabric returns rows keyed by quality_code, so we look up the
   // picked quality's code in the fabricQualities master and keep only
@@ -498,7 +502,24 @@ export default async function WarehousePage({
           />
         </>
       )}
-      {mode === 'inhouse' && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
+      {mode === 'inhouse' && tab === 'fabric'      && (
+        <>
+          <FabricView rows={fabricRows!} />
+          {/* Per-event lineage: DC → FR → Invoice → payment status.
+              Hidden when the loader returned no rows so an empty
+              database doesn't double-paint "no results" cards. */}
+          {fabricLineage && fabricLineage.length > 0 && (
+            <>
+              <h2 className="text-base font-semibold text-ink mt-8 mb-1">Per-event lineage</h2>
+              <p className="text-xs text-ink-mute mb-3">
+                Each row is one fabric movement — incoming via Fabric Receipt or outgoing via a Sales DC.
+                Status shows whether stock is still on hand or has been invoiced (with payment state).
+              </p>
+              <FabricLineageView rows={fabricLineage} />
+            </>
+          )}
+        </>
+      )}
       {isJobworkLike && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage={mode === 'outsource' ? 'No warp beam entries yet. Issue beams from Outsource Weaving → Warp Beam Given to see them here.' : 'No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here.'} />}
       {isJobworkLike && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage={mode === 'outsource' ? 'No weft yarn entries yet. Issue yarn from Outsource Weaving → Weft Yarn Given to see them here.' : 'No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here.'} />}
       {isJobworkLike && tab === 'porvai_yarn' && <PivotView data={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
@@ -877,17 +898,21 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
     `)
     .gt('metres_available', 0)
     .order('received_at', { ascending: false });
-  // In-house fabric: inhouse + outsourced + resale (everything we own).
-  // Jobwork fabric:   only fabric received against jobwork DCs.
-  // Outsource fabric: fabric received against outsource DCs.
-  //   (fabric_stock.source_type 'outsourced' is the historical alias —
-  //    both warehouse modes that came from external weavers map to it.)
+  // In-house fabric warehouse holds EVERY quality the mill owns,
+  // regardless of how it was produced:
+  //   • inhouse    — own warp + own loom
+  //   • outsourced — own yarn, external weaver
+  //   • jobwork    — customer-owned yarn, you weave (yes we count it
+  //                  here too because it physically sits in our shed)
+  //   • resale     — bought finished cloth to resell
+  // Jobwork mode and Outsource mode keep their narrow views so each
+  // warehouse tab still tells its own story.
   if (mode === 'jobwork') {
     q = q.eq('source_type', 'jobwork');
   } else if (mode === 'outsource') {
     q = q.eq('source_type', 'outsourced');
   } else {
-    q = q.in('source_type', ['inhouse', 'outsourced', 'resale']);
+    q = q.in('source_type', ['inhouse', 'outsourced', 'jobwork', 'resale']);
   }
   const { data } = await q;
 
@@ -968,6 +993,283 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+// ─── Fabric lineage (per-event view for the In-house Fabric tab) ────────────
+// One row per stock event so the operator can see for every metre of
+// fabric: which DC brought it in, which fabric receipt logged it, and
+// which sales invoice (if any) took it out — plus the payment status
+// of that invoice. Two event kinds share the same shape:
+//   • IN  — sourced from fabric_receipt_item joined to fabric_receipt
+//           and to its source DC (the DC we sent OUT to the weaver, or
+//           the DC representing our own production).
+//   • OUT — sourced from delivery_challan_item where the DC's
+//           production_mode = 'inhouse' (the DC that goes TO a customer)
+//           plus the invoice it's linked to and that invoice's payment
+//           rollup.
+// Joined and merged in the page so neither side needs a new view.
+type FabricLineageDirection = 'in' | 'out';
+type FabricLineageStatus =
+  | 'in_stock'
+  | 'invoiced_paid'
+  | 'invoiced_unpaid'
+  | 'invoiced_partial'
+  | 'draft_dc';
+
+interface FabricLineageRow {
+  id: string;                         // composite key for React
+  direction: FabricLineageDirection;
+  event_date: string;                 // ISO
+  quality_id: number | null;
+  quality_code: string;
+  quality_name: string;
+  source_kind: 'inhouse' | 'jobwork' | 'outsource' | 'resale' | 'unknown';
+  dc_id: number | null;
+  dc_code: string | null;
+  receipt_id: number | null;
+  receipt_code: string | null;
+  invoice_id: number | null;
+  invoice_no: string | null;
+  party_name: string;
+  metres: number;
+  invoice_total: number;              // 0 for IN rows
+  invoice_paid: number;               // 0 for IN rows
+  invoice_balance: number;            // 0 for IN rows
+  status: FabricLineageStatus;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRow[]> {
+  const qualityFilter = sp.quality && /^\d+$/.test(sp.quality) ? Number(sp.quality) : null;
+
+  // ── IN side: fabric_receipt_item × fabric_receipt × delivery_challan ──
+  let inQ = supabase.from('fabric_receipt_item').select(`
+    id, fabric_quality_id, received_metres,
+    receipt:receipt_id (
+      id, code, receipt_date, party_id,
+      dc:dc_id ( id, code, production_mode ),
+      party:party_id ( id, name )
+    )
+  `);
+  if (qualityFilter !== null) inQ = inQ.eq('fabric_quality_id', qualityFilter);
+  const { data: inRowsRaw } = await inQ;
+
+  // ── OUT side: delivery_challan_item × delivery_challan × invoice ──
+  // We only consider inhouse-mode DCs (production_mode = 'inhouse'),
+  // because jobwork / outsource DCs are outbound to vendors, not sales.
+  let outQ = supabase.from('delivery_challan_item').select(`
+    id, fabric_quality_id, metres,
+    dc:dc_id!inner (
+      id, code, dc_date, status, production_mode, invoice_id, bill_to_name,
+      invoice:invoice_id ( id, invoice_no, total, amount_paid, balance, status )
+    )
+  `).eq('dc.production_mode', 'inhouse');
+  if (qualityFilter !== null) outQ = outQ.eq('fabric_quality_id', qualityFilter);
+  const { data: outRowsRaw } = await outQ;
+
+  // ── Quality lookup ──
+  const qIds = new Set<number>();
+  for (const r of (inRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
+  for (const r of (outRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
+  let qualityById = new Map<number, { code: string; name: string }>();
+  if (qIds.size > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: qRows } = await (supabase as any)
+      .from('fabric_quality').select('id, code, name').in('id', Array.from(qIds));
+    qualityById = new Map((qRows ?? []).map((q: { id: number; code: string; name: string }) => [q.id, { code: q.code, name: q.name }]));
+  }
+
+  const sourceKindFromMode = (mode: string | null | undefined): FabricLineageRow['source_kind'] => {
+    if (mode === 'inhouse') return 'inhouse';
+    if (mode === 'jobwork') return 'jobwork';
+    if (mode === 'outsource') return 'outsource';
+    return 'unknown';
+  };
+
+  const inRows: FabricLineageRow[] = ((inRowsRaw ?? []) as Array<{
+    id: number; fabric_quality_id: number | null; received_metres: number | string | null;
+    receipt: { id: number; code: string | null; receipt_date: string | null; party_id: number | null;
+      dc: { id: number; code: string | null; production_mode: string | null } | null;
+      party: { id: number; name: string | null } | null;
+    } | null;
+  }>).map((r): FabricLineageRow => {
+    const qid = r.fabric_quality_id;
+    const q = qid != null ? qualityById.get(qid) : null;
+    return {
+      id: `in:${r.id}`,
+      direction: 'in',
+      event_date: r.receipt?.receipt_date ?? '',
+      quality_id: qid,
+      quality_code: q?.code ?? '—',
+      quality_name: q?.name ?? '',
+      source_kind: sourceKindFromMode(r.receipt?.dc?.production_mode),
+      dc_id: r.receipt?.dc?.id ?? null,
+      dc_code: r.receipt?.dc?.code ?? null,
+      receipt_id: r.receipt?.id ?? null,
+      receipt_code: r.receipt?.code ?? null,
+      invoice_id: null,
+      invoice_no: null,
+      party_name: r.receipt?.party?.name ?? '—',
+      metres: Number(r.received_metres ?? 0),
+      invoice_total: 0,
+      invoice_paid: 0,
+      invoice_balance: 0,
+      status: 'in_stock',
+    };
+  });
+
+  const outRows: FabricLineageRow[] = ((outRowsRaw ?? []) as Array<{
+    id: number; fabric_quality_id: number | null; metres: number | string | null;
+    dc: { id: number; code: string | null; dc_date: string | null; status: string | null;
+      production_mode: string | null; invoice_id: number | null; bill_to_name: string | null;
+      invoice: { id: number; invoice_no: string | null; total: number | string | null;
+        amount_paid: number | string | null; balance: number | string | null; status: string | null;
+      } | null;
+    };
+  }>).map((r): FabricLineageRow => {
+    const qid = r.fabric_quality_id;
+    const q = qid != null ? qualityById.get(qid) : null;
+    const inv = r.dc?.invoice ?? null;
+    const total = Number(inv?.total ?? 0);
+    const paid  = Number(inv?.amount_paid ?? 0);
+    const balance = Number(inv?.balance ?? Math.max(0, total - paid));
+    let status: FabricLineageStatus;
+    if (!inv) status = 'draft_dc';
+    else if (balance <= 0.01 && total > 0) status = 'invoiced_paid';
+    else if (paid > 0 && balance > 0.01) status = 'invoiced_partial';
+    else status = 'invoiced_unpaid';
+    return {
+      id: `out:${r.id}`,
+      direction: 'out',
+      event_date: r.dc?.dc_date ?? '',
+      quality_id: qid,
+      quality_code: q?.code ?? '—',
+      quality_name: q?.name ?? '',
+      source_kind: 'inhouse',
+      dc_id: r.dc?.id ?? null,
+      dc_code: r.dc?.code ?? null,
+      receipt_id: null,
+      receipt_code: null,
+      invoice_id: inv?.id ?? null,
+      invoice_no: inv?.invoice_no ?? null,
+      party_name: r.dc?.bill_to_name ?? '—',
+      metres: Number(r.metres ?? 0),
+      invoice_total: total,
+      invoice_paid: paid,
+      invoice_balance: balance,
+      status,
+    };
+  });
+
+  return [...inRows, ...outRows].sort((a, b) =>
+    a.event_date === b.event_date ? a.id.localeCompare(b.id) : (a.event_date < b.event_date ? 1 : -1),
+  );
+}
+
+const LINEAGE_STATUS_PILL: Record<FabricLineageStatus, { label: string; cls: string }> = {
+  in_stock:         { label: 'In Stock',         cls: 'bg-emerald-50 text-emerald-700' },
+  invoiced_paid:    { label: 'Invoiced · Paid',  cls: 'bg-emerald-100 text-emerald-800' },
+  invoiced_partial: { label: 'Invoiced · Part',  cls: 'bg-amber-50 text-amber-700' },
+  invoiced_unpaid:  { label: 'Invoiced · Unpaid',cls: 'bg-rose-50 text-rose-700' },
+  draft_dc:         { label: 'DC (no invoice)',  cls: 'bg-slate-100 text-slate-600' },
+};
+
+const SOURCE_KIND_LABEL: Record<FabricLineageRow['source_kind'], string> = {
+  inhouse:   'In-house',
+  jobwork:   'Job Work',
+  outsource: 'Outsource',
+  resale:    'Resale',
+  unknown:   '—',
+};
+
+function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactElement {
+  if (rows.length === 0) {
+    return (
+      <div className="card p-6 text-center text-ink-soft text-sm mt-4">
+        No incoming or outgoing fabric events yet.
+      </div>
+    );
+  }
+  const received = rows.filter((r) => r.direction === 'in').reduce((s, r) => s + r.metres, 0);
+  const invoicedOut = rows.filter((r) => r.direction === 'out').reduce((s, r) => s + r.metres, 0);
+  const unpaidValue = rows
+    .filter((r) => r.direction === 'out' && (r.status === 'invoiced_unpaid' || r.status === 'invoiced_partial'))
+    .reduce((s, r) => s + r.invoice_balance, 0);
+
+  return (
+    <>
+      <div className="grid sm:grid-cols-4 gap-3 mt-6 mb-3">
+        <Kpi label="Events shown"    value={String(rows.length)} icon={Layers} />
+        <Kpi label="Received (in)"   value={formatMetres(received, 0)} icon={Truck} />
+        <Kpi label="Sold (out)"      value={formatMetres(invoicedOut, 0)} icon={Truck} />
+        <Kpi label="Unpaid (₹)"      value={formatRupee(unpaidValue, { compact: true })} icon={Coins} />
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[960px]">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left  px-3 py-3">Date</th>
+              <th className="text-left  px-3 py-3">Quality</th>
+              <th className="text-left  px-3 py-3">Source</th>
+              <th className="text-left  px-3 py-3">DC</th>
+              <th className="text-left  px-3 py-3">Fabric Receipt</th>
+              <th className="text-left  px-3 py-3">Invoice</th>
+              <th className="text-left  px-3 py-3">Party</th>
+              <th className="text-right px-3 py-3">Metres</th>
+              <th className="text-left  px-3 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const pill = LINEAGE_STATUS_PILL[r.status];
+              return (
+                <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap">
+                    {r.event_date || '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-semibold">{r.quality_code}</div>
+                    {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    <span className="inline-flex items-center gap-1">
+                      <span className={'inline-block w-1.5 h-1.5 rounded-full ' +
+                        (r.direction === 'in' ? 'bg-emerald-500' : 'bg-rose-500')} />
+                      {SOURCE_KIND_LABEL[r.source_kind]} · {r.direction === 'in' ? 'IN' : 'OUT'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.dc_id != null
+                      ? <Link href={`/app/delivery-challan/${r.dc_id}`} className="text-indigo-700 hover:underline">{r.dc_code ?? '—'}</Link>
+                      : <span className="text-ink-mute">—</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.receipt_id != null
+                      ? <Link href={`/app/jobwork/fabric-receipt/${r.receipt_id}`} className="text-indigo-700 hover:underline">{r.receipt_code ?? '—'}</Link>
+                      : <span className="text-ink-mute">—</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.invoice_id != null
+                      ? <Link href={`/app/invoices/${r.invoice_id}`} className="text-indigo-700 hover:underline">{r.invoice_no ?? `#${r.invoice_id}`}</Link>
+                      : <span className="text-ink-mute">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs">{r.party_name}</td>
+                  <td className="px-3 py-2 text-right num font-semibold">{formatMetres(r.metres, 1)}</td>
+                  <td className="px-3 py-2">
+                    <span className={`pill ${pill.cls} text-[11px] uppercase tracking-wide`}>{pill.label}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-ink-mute mt-2">
+        IN rows come from Fabric Receipts (incoming stock). OUT rows come from in-house Sales DCs;
+        the linked invoice&apos;s amount_paid / balance drives the payment-status pill.
+      </p>
     </>
   );
 }
