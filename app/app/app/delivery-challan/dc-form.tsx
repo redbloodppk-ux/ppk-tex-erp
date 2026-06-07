@@ -459,6 +459,38 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       }),
     }));
   }
+  // Grow or shrink a bundle's piece list to length `count`. Mirrors
+  // setBundleCount but one level deeper. Keeps any metres the operator
+  // already typed; new piece slots start blank. Lower bound is 1 so
+  // an existing bundle never collapses to zero rows (the operator can
+  // still delete the bundle itself by lowering "No. of bundles").
+  function setPieceCount(itemIdx: number, bundleIdx: number, count: number): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== itemIdx) return it;
+        return {
+          ...it,
+          bundles: it.bundles.map((b, j) => {
+            if (j !== bundleIdx) return b;
+            const target = Math.max(1, Math.min(count, 200));
+            const cur = b.pieces;
+            let next: Piece[];
+            if (target > cur.length) {
+              const grow: Piece[] = [];
+              for (let k = cur.length; k < target; k++) grow.push('');
+              next = [...cur, ...grow];
+            } else if (target < cur.length) {
+              next = cur.slice(0, target);
+            } else {
+              next = cur;
+            }
+            return { ...b, pieces: next };
+          }),
+        };
+      }),
+    }));
+  }
   function addPiece(itemIdx: number, bundleIdx: number): void {
     setForm((f) => ({
       ...f,
@@ -964,7 +996,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                       onChange={(e) => setBundleCount(itemIdx, Number(e.target.value) || 0)} />
                   </div>
                   <p className="text-[11px] text-ink-mute pb-2">
-                    Type the bundle count, then enter each piece's metres inside each bundle below.
+                    Type the bundle count, then inside each bundle type its piece count and fill the metres for each piece.
                   </p>
                 </div>
 
@@ -981,6 +1013,17 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                             <span className="text-[10px] text-ink-mute">
                               {bPieces} pcs / {bMetres.toFixed(2)} m
                             </span>
+                          </div>
+                          {/* Pieces-count picker — same UX as the bundle count
+                              picker above. Type N to spawn N empty piece rows. */}
+                          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-line/60">
+                            <label className="text-[10px] uppercase tracking-wide text-ink-mute">No. of pieces</label>
+                            <input
+                              type="number" min={1} max={200} step={1}
+                              className="input h-7 text-xs num w-16 text-right"
+                              value={b.pieces.length}
+                              onChange={(e) => setPieceCount(itemIdx, bundleIdx, Number(e.target.value) || 1)}
+                            />
                           </div>
                           <div className="space-y-1">
                             {b.pieces.map((p, pieceIdx) => (
