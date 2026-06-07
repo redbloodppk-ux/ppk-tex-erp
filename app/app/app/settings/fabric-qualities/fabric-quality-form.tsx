@@ -42,7 +42,7 @@ export interface FQWeftLine {
 }
 export interface FQRateLine { sno: number; fabric_type: string; rate_per_meter: string; }
 
-interface BobbinOption { id: number; code: string; description: string; }
+interface BobbinOption { id: number; code: string; description: string; is_lurex?: boolean | null; }
 interface FabricTypeOption { id: number; code: string; name: string; }
 
 interface CalcSnapshot {
@@ -57,6 +57,11 @@ interface CalcSnapshot {
   code?: string; fabricType?: string;
   productionMode?: 'inhouse' | 'job_work' | 'outsourcing';
   useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
+  // Lurex (metallic accent yarn) is wound on a second bobbin/cone
+  // alongside the primary one. When `isLurex` is on, `bobbinId2`
+  // holds the lurex bobbin picked from the master. Disabling the
+  // checkbox clears bobbin 2 so we don't ship a stale FK.
+  isLurex?: boolean; bobbinId2?: string;
   hsn?: string; crimpPct?: number; gstPct?: number;
   notes?: string;
 }
@@ -97,6 +102,12 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   // calculation behaves consistently.
   const [bobbinMetres] = useState(1);
   const [bobbinId, setBobbinId] = useState('');
+  // Lurex (a metallic-thread cone wound alongside the primary bobbin)
+  // is opt-in per fabric quality. The Bobbin 2 picker below is only
+  // enabled while `isLurex` is true; unticking the box clears the
+  // selection so we never write a stale FK on save.
+  const [isLurex, setIsLurex] = useState<boolean>(false);
+  const [bobbinId2, setBobbinId2] = useState<string>('');
 
   const [usePorvai, setUsePorvai] = useState(true);
   const [porvaiByDenier, setPorvaiByDenier] = useState(true);
@@ -144,7 +155,10 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
       const [bb, ft] = await Promise.all([
-        sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
+        // Pull is_lurex so the Bobbin 2 picker can restrict its options
+        // to lurex bobbins only — operators shouldn't be able to pick a
+        // regular bobbin as the "lurex" cone.
+        sb.from('bobbin').select('id, code, description, is_lurex').neq('status', 'archived').order('code'),
         sb.from('fabric_type_master').select('id, code, name').eq('active', true).order('name'),
       ]);
       setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
@@ -191,6 +205,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
       if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
       if (s.bobbinId          != null) setBobbinId(s.bobbinId);
+      if (s.isLurex           != null) setIsLurex(s.isLurex);
+      if (s.bobbinId2         != null) setBobbinId2(s.bobbinId2);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
       if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
       if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
@@ -282,6 +298,10 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
         warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
         finishedWidthIn, reedCount, tapeLengthIn,
         useBobbin, bobbinMetres, bobbinId,
+        // Lurex is a per-fabric flag; bobbinId2 only travels when the
+        // checkbox is on (we cleared it in the UI when unticked but
+        // belt-and-braces it here too so a stale FK can't sneak in).
+        isLurex, bobbinId2: isLurex ? bobbinId2 : '',
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiCountId,
         isTowel, towelLength,
@@ -384,6 +404,52 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                       {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
                     </select>
                     <NewLink href="/app/bobbin" title="Add new bobbin" />
+                  </div>
+                </div>
+
+                {/* Lurex (metallic accent yarn) toggle. When ticked, a
+                    second Bobbin picker becomes active and is restricted
+                    to bobbins flagged is_lurex=true on the master. The
+                    checkbox lives inside the useBobbin block because
+                    there's no meaningful lurex without a primary bobbin. */}
+                <div className="pt-1">
+                  <Toggle
+                    label="Lurex (metallic accent)"
+                    checked={isLurex}
+                    set={(b) => {
+                      setIsLurex(b);
+                      // Clear bobbin 2 the moment lurex is turned off
+                      // so the snapshot/save never carries a stale FK.
+                      if (!b) setBobbinId2('');
+                    }}
+                  />
+                  <div className="mt-1.5">
+                    <label className={'label text-xs ' + (isLurex ? '' : 'text-ink-mute')}>
+                      Bobbin 2 (lurex)
+                    </label>
+                    <div className="flex items-stretch gap-1.5">
+                      <select
+                        className={'input w-full ' + (isLurex ? '' : 'bg-cloud/40 text-ink-mute cursor-not-allowed')}
+                        value={bobbinId2}
+                        onChange={(e) => setBobbinId2(e.target.value)}
+                        disabled={!isLurex}
+                      >
+                        <option value="">
+                          {isLurex ? '--- pick a lurex bobbin ---' : 'enable Lurex first'}
+                        </option>
+                        {bobbins
+                          .filter((b) => b.is_lurex === true)
+                          .map((b) => (
+                            <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
+                          ))}
+                      </select>
+                      <NewLink href="/app/bobbin" title="Add new lurex bobbin" />
+                    </div>
+                    {isLurex && bobbins.filter((b) => b.is_lurex === true).length === 0 && (
+                      <p className="text-[11px] text-amber-700 mt-1">
+                        No lurex bobbins on file yet. Click the + above to add one and tick its &ldquo;Is lurex&rdquo; flag.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
