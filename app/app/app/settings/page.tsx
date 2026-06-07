@@ -24,7 +24,9 @@ export default async function SettingsPage({
     { data: me },
   ] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
-    supabase.from('app_user').select('id, email, full_name, role, is_active').order('full_name'),
+    // app_user.status is the real column (employee_status enum); the
+    // legacy `is_active` boolean never existed on this table.
+    supabase.from('app_user').select('id, email, full_name, role, status').order('full_name'),
     supabase.from('v_looms_overhead').select('total_per_m').maybeSingle(),
     supabase.from('system_config').select('value').eq('key', 'shift_log_night_enabled').maybeSingle(),
     supabase.from('system_config').select('value').eq('key', 'default_yarn_wastage_pct').maybeSingle(),
