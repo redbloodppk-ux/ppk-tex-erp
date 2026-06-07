@@ -190,6 +190,11 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const [customerTypeId,  setCustomerTypeId]  = useState<number | null>(null);
   const [jobworkTypeId,   setJobworkTypeId]   = useState<number | null>(null);
   const [outsourceTypeId, setOutsourceTypeId] = useState<number | null>(null);
+  // Recent vehicle numbers used on past DCs — fed into a native
+  // <datalist> so the operator can pick one without retyping. Sourced
+  // straight from delivery_challan.vehicle_no, deduped, and capped at
+  // 50 so the suggestion list stays short.
+  const [vehicleSuggestions, setVehicleSuggestions] = useState<string[]>([]);
   const [busy,  setBusy]  = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   // Preview of the next DC code the BEFORE INSERT trigger will mint
@@ -214,6 +219,29 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       setOutsourceTypeId(types.find((t) => t.name === 'Outsource Weaver')?.id ?? null);
       setAllParties((partyRes.data ?? []) as PartyOpt[]);
       setQualities((fqRes.data ?? []) as QualityOpt[]);
+
+      // Pull recent vehicle numbers for the autocomplete datalist.
+      // We grab the last 200 DC vehicle entries (newest first), dedupe
+      // case-insensitively, and keep the first 50 unique values. The
+      // user usually rotates between a handful of trucks so this is
+      // plenty without bloating the suggestion list.
+      const vehRes = await sb
+        .from('delivery_challan')
+        .select('vehicle_no')
+        .not('vehicle_no', 'is', null)
+        .order('dc_date', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(200);
+      const seen = new Set<string>();
+      const uniques: string[] = [];
+      for (const row of (vehRes.data ?? []) as Array<{ vehicle_no: string | null }>) {
+        const v = (row.vehicle_no ?? '').trim().toUpperCase();
+        if (v === '' || seen.has(v)) continue;
+        seen.add(v);
+        uniques.push(v);
+        if (uniques.length >= 50) break;
+      }
+      setVehicleSuggestions(uniques);
     })();
   }, [supabase]);
 
@@ -716,13 +744,30 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         </div>
       </div>
 
-      {/* Vehicle number — mandatory */}
+      {/* Vehicle number — mandatory. Backed by a native datalist of
+          recently-used vehicle numbers from past DCs so the operator
+          can pick a familiar truck instead of retyping it. Typing a
+          new value still works (it'll auto-add itself to the list the
+          next time the form is opened, since the suggestions are
+          re-pulled from delivery_challan.vehicle_no on mount). */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="label">Vehicle Number *</label>
           <input className="input num uppercase" required placeholder="TN 38 AB 1234"
+            list="dc-vehicle-history"
+            autoComplete="off"
             value={form.vehicle_no}
             onChange={(e) => setForm({ ...form, vehicle_no: e.target.value.toUpperCase() })} />
+          <datalist id="dc-vehicle-history">
+            {vehicleSuggestions.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
+          {vehicleSuggestions.length > 0 && (
+            <p className="text-[11px] text-ink-mute mt-1">
+              Tip: start typing to pick from {vehicleSuggestions.length} recent vehicle number{vehicleSuggestions.length === 1 ? '' : 's'}.
+            </p>
+          )}
         </div>
       </div>
 

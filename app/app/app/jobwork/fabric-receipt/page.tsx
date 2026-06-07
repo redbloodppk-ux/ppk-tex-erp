@@ -33,13 +33,17 @@ interface TabConfig {
   pickDcLabel: string;
 }
 
+// "Pick a … DC" all route to the shared DC list, scoped via ?mode= so
+// the operator only sees the kind of DC matching the tab they're on.
+// This stops cross-mode picks (e.g. an in-house DC being chosen as the
+// source of an Outsource fabric receipt) at the UI layer.
 const TABS: ReadonlyArray<TabConfig> = [
   {
     kind: 'inhouse',
     label: 'In-house',
     productionMode: 'inhouse',
     partyTypeName: null,
-    pickDcHref: '/app/delivery-challan',
+    pickDcHref: '/app/delivery-challan?mode=inhouse',
     pickDcLabel: 'Pick an in-house DC',
   },
   {
@@ -47,7 +51,7 @@ const TABS: ReadonlyArray<TabConfig> = [
     label: 'Job Work',
     productionMode: 'jobwork',
     partyTypeName: 'Jobwork Party',
-    pickDcHref: '/app/jobwork',
+    pickDcHref: '/app/delivery-challan?mode=jobwork',
     pickDcLabel: 'Pick a jobwork DC',
   },
   {
@@ -55,7 +59,7 @@ const TABS: ReadonlyArray<TabConfig> = [
     label: 'Outsource Weaving',
     productionMode: 'outsource',
     partyTypeName: 'Outsource Weaver',
-    pickDcHref: '/app/outsource',
+    pickDcHref: '/app/delivery-challan?mode=outsource',
     pickDcLabel: 'Pick an outsource DC',
   },
 ];

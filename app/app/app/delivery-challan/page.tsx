@@ -10,12 +10,25 @@ export const dynamic = 'force-dynamic';
 // Whitelisted sort keys for the DC list. Defaults to dc_date desc.
 const SORTABLE_COLUMNS = new Set(['code', 'dc_date']);
 
+// Whitelisted production_mode filter values. Driven from the Fabric
+// Receipts "Pick a … DC" buttons — each tab opens this page scoped to
+// its own mode so the operator never picks a DC of the wrong kind.
+type ModeFilter = 'inhouse' | 'jobwork' | 'outsource';
+const MODE_LABEL: Record<ModeFilter, string> = {
+  inhouse:   'In-house',
+  jobwork:   'Job Work',
+  outsource: 'Outsource Weaving',
+};
+function isModeFilter(v: string | undefined): v is ModeFilter {
+  return v === 'inhouse' || v === 'jobwork' || v === 'outsource';
+}
+
 interface DcRow {
   id: number;
   code: string;
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
-  production_mode: 'inhouse' | 'jobwork';
+  production_mode: 'inhouse' | 'jobwork' | 'outsource';
   party_id: number | null;
   bill_to_name: string | null;
   total_metres: number | string | null;
@@ -46,7 +59,7 @@ function statusPill(s: DcRow['status']): { label: string; cls: string } {
 export default async function DeliveryChallanListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; dir?: string }>;
+  searchParams: Promise<{ sort?: string; dir?: string; mode?: string }>;
 }) {
   const sp = await searchParams;
   const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'dc_date';
@@ -54,26 +67,49 @@ export default async function DeliveryChallanListPage({
   // ascending makes more sense. The SortableTh toggles dir on click.
   const dir: SortDir = sp.dir === 'asc' ? 'asc' : sp.dir === 'desc' ? 'desc' : (sort === 'dc_date' ? 'desc' : 'asc');
 
+  // Optional production-mode scope. Driven from the Fabric Receipts
+  // "Pick a … DC" buttons — `?mode=inhouse` only shows inhouse DCs and
+  // so on. No mode = show everything (legacy behaviour).
+  const mode: ModeFilter | null = isModeFilter(sp.mode) ? sp.mode : null;
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
-  const { data, error } = await sb
+  let q = sb
     .from('delivery_challan')
     .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id')
     .order(sort, { ascending: dir === 'asc' })
     .order('id', { ascending: false });
+  if (mode !== null) q = q.eq('production_mode', mode);
+  const { data, error } = await q;
 
   const rows = (data ?? []) as DcRow[];
+
+  // Preserve the mode filter in any links built off this page.
+  const qsMode = mode !== null ? `?mode=${mode}` : '';
+  const newDcHref = `/app/delivery-challan/new${qsMode}`;
+
+  // Build the subtitle so it reflects the active mode scope.
+  const subtitle = mode !== null
+    ? `${MODE_LABEL[mode]} DCs only — pick one to record a fabric receipt against.`
+    : 'Generate DCs for in-house and jobwork dispatches. Confirmed DCs flow into the Sales Orders page for invoicing.';
 
   return (
     <div>
       <PageHeader
-        title="Delivery Challan"
-        subtitle="Generate DCs for in-house and jobwork dispatches. Confirmed DCs flow into the Sales Orders page for invoicing."
+        title={mode !== null ? `Delivery Challan — ${MODE_LABEL[mode]}` : 'Delivery Challan'}
+        subtitle={subtitle}
         actions={
-          <Link href="/app/delivery-challan/new" className="btn-primary">
-            <Plus className="w-4 h-4" /> New DC
-          </Link>
+          <div className="flex items-center gap-2">
+            {mode !== null && (
+              <Link href="/app/delivery-challan" className="btn-ghost text-xs">
+                Show all modes
+              </Link>
+            )}
+            <Link href={newDcHref} className="btn-primary">
+              <Plus className="w-4 h-4" /> New DC
+            </Link>
+          </div>
         }
       />
 
@@ -85,8 +121,14 @@ export default async function DeliveryChallanListPage({
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <SortableTh column="code" label="DC No" sort={sort} dir={dir} basePath="/app/delivery-challan" className="text-left px-3 py-3" />
-              <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" className="text-left px-3 py-3" />
+              {/* Sort links must preserve the mode filter — otherwise
+                  clicking a header would silently drop the scope and
+                  surface every DC again. SortableTh builds its href as
+                  `${basePath}?sort=...&dir=...` so the mode param has
+                  to ride along via extraParams, not glued onto the
+                  basePath (that'd produce ?mode=…?sort=…). */}
+              <SortableTh column="code" label="DC No" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={mode !== null ? { mode } : {}} className="text-left px-3 py-3" />
+              <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={mode !== null ? { mode } : {}} className="text-left px-3 py-3" />
               <th className="text-left px-3 py-3">Mode</th>
               <th className="text-left px-3 py-3">Party (Bill-To)</th>
               <th className="text-right px-3 py-3">Metres</th>
@@ -100,7 +142,10 @@ export default async function DeliveryChallanListPage({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
-                  No delivery challans yet. <Link href="/app/delivery-challan/new" className="text-indigo font-semibold">Create the first one &rarr;</Link>
+                  {mode !== null
+                    ? <>No {MODE_LABEL[mode].toLowerCase()} delivery challans yet. </>
+                    : <>No delivery challans yet. </>}
+                  <Link href={newDcHref} className="text-indigo font-semibold">Create the first one &rarr;</Link>
                 </td>
               </tr>
             ) : rows.map((r) => {
