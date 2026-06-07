@@ -1158,65 +1158,38 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return out;
   }, [outsourceRoutings, selectedOutsourceLedgerId]);
 
-  // Sizing vendors eligible for the dropdown.
+  // Sizing vendors eligible for the dropdown — strict cascade.
   //
-  // Strict cascade first: vendors whose sizing job has pavus routed
-  // to the selected outsource party (via pavu.outsource_ledger_id ↔
-  // party.ledger_id). If that returns nothing — which happens when
-  // the data isn't cleanly tied (e.g. legacy pavus carrying a
-  // WEAVING(VENDOR) ledger_id that doesn't match the Outsource
-  // Weaver party's linked ledger) — we fall back to every sizing
-  // vendor that appears in any sizing job with outsource-routed
-  // pavus at all. That keeps the form usable instead of leaving the
-  // operator stuck.
+  // With Pavu Master now sourcing outsource parties from
+  // `jobwork_party` (kind='outsource') and migration 121 having
+  // linked every jobwork_party row to a ledger, pavu.outsource_ledger_id
+  // always equals jobwork_party.ledger_id for newly-routed pavus, so
+  // the strict cascade can run without a fallback.
   const eligibleSizingVendors = useMemo<Array<{ ledger_id: number; name: string }>>(() => {
-    if (form.jobwork_party_id === '') return [];
-
-    function collectVendors(filterToOutsourceLedger: boolean): Array<{ ledger_id: number; name: string }> {
-      const seen = new Set<number>();
-      const out: Array<{ ledger_id: number; name: string }> = [];
-      for (const j of sizingJobs) {
-        if (filterToOutsourceLedger && !sizingJobIdsForOutsource.has(j.id)) continue;
-        const lid = j.sizing_ledger_id;
-        if (lid == null || seen.has(lid)) continue;
-        seen.add(lid);
-        out.push({ ledger_id: lid, name: sizingVendorLedgerName.get(lid) ?? `Ledger #${lid}` });
-      }
-      out.sort((a, b) => a.name.localeCompare(b.name));
-      return out;
+    if (form.jobwork_party_id === '' || selectedOutsourceLedgerId == null) return [];
+    const seen = new Set<number>();
+    const out: Array<{ ledger_id: number; name: string }> = [];
+    for (const j of sizingJobs) {
+      if (!sizingJobIdsForOutsource.has(j.id)) continue;
+      const lid = j.sizing_ledger_id;
+      if (lid == null || seen.has(lid)) continue;
+      seen.add(lid);
+      out.push({ ledger_id: lid, name: sizingVendorLedgerName.get(lid) ?? `Ledger #${lid}` });
     }
-
-    if (selectedOutsourceLedgerId != null) {
-      const strict = collectVendors(true);
-      if (strict.length > 0) return strict;
-    }
-    return collectVendors(false);
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
   }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, sizingVendorLedgerName, selectedOutsourceLedgerId]);
 
-  // Sizing jobs eligible for the dropdown.
-  //
-  // Same two-tier logic: strict (outsource party + sizing vendor)
-  // first, fall back to (sizing vendor only) when strict yields
-  // nothing. The pavu checklist downstream still confirms which
-  // beams are actually routed to the selected outsource party, so
-  // the operator can't accidentally ship the wrong set.
+  // Sizing jobs eligible for the dropdown — strict cascade
+  // by outsource party AND (when set) sizing vendor.
   const eligibleSizingJobs = useMemo(() => {
-    if (form.jobwork_party_id === '') return [];
+    if (form.jobwork_party_id === '' || selectedOutsourceLedgerId == null) return [];
     const supplierLedgerId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
-
-    function collect(filterToOutsourceLedger: boolean): SizingJobOpt[] {
-      return sizingJobs.filter((j) => {
-        if (filterToOutsourceLedger && !sizingJobIdsForOutsource.has(j.id)) return false;
-        if (supplierLedgerId !== null && j.sizing_ledger_id !== supplierLedgerId) return false;
-        return true;
-      });
-    }
-
-    if (selectedOutsourceLedgerId != null) {
-      const strict = collect(true);
-      if (strict.length > 0) return strict;
-    }
-    return collect(false);
+    return sizingJobs.filter((j) => {
+      if (!sizingJobIdsForOutsource.has(j.id)) return false;
+      if (supplierLedgerId !== null && j.sizing_ledger_id !== supplierLedgerId) return false;
+      return true;
+    });
   }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, form.supplier_party_id, selectedOutsourceLedgerId]);
 
   // When the outsource party changes, clear stale sizing-party and

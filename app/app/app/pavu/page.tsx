@@ -26,14 +26,16 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Outsource Weaver party type — used as the source of the weaver
-  // dropdown in both the bulk routing form and the per-row editor.
-  const { data: ptRow } = await sb
-    .from('party_type_master')
-    .select('id')
-    .eq('name', 'Outsource Weaver')
-    .maybeSingle();
-  const outsourceTypeId: number | null = ptRow?.id ?? null;
+  // Source the outsource-weaver dropdown from `jobwork_party`
+  // (kind='outsource'). After migration 121, every jobwork_party row
+  // has its own auto-linked WEAVING(VENDOR) ledger via
+  // jobwork_party.ledger_id. Using the same source as
+  // /app/outsource → Warp Beam Given guarantees the warp-given form's
+  // cascade (sizing party / sizing job by outsource party) can find
+  // matches — pavu.outsource_ledger_id stored on assignment is the
+  // SAME ledger id the warp-given form's outsourcePartyLedger map
+  // reads. The legacy party-master route (Outsource Weaver type)
+  // used a different ledger and broke the cascade.
 
   const [pavusRes, jobsRes, partiesRes] = await Promise.all([
     sb.from('pavu').select(`
@@ -53,16 +55,17 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         outsource_vendor:outsource_ledger_id ( name )
       )
     `).order('created_at', { ascending: false }).limit(100),
-    outsourceTypeId == null
-      ? Promise.resolve({ data: [] })
-      : sb.from('party')
-          .select('id, name, ledger_id, party_type_ids')
-          .eq('status', 'active')
-          .contains('party_type_ids', [outsourceTypeId])
-          .order('name'),
+    sb.from('jobwork_party')
+      .select('id, name, ledger_id')
+      .eq('kind', 'outsource')
+      .eq('status', 'active')
+      .order('name'),
   ]);
 
-  // ── Vendor list (party-backed, value = party.ledger_id) ──
+  // ── Vendor list ──
+  // Value = jobwork_party.ledger_id (created/linked by migration
+  // 121's trigger). Parties without a linked ledger are dropped
+  // because the FK on pavu.outsource_ledger_id would reject them.
   const vendors = ((partiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
     .filter((p) => p.ledger_id != null)
     .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
