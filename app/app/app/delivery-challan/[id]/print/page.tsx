@@ -195,11 +195,70 @@ export default async function DcPrintPage({
         loaded or whether tailwind purges these classes.
       */}
       <style>{`
-        @page { size: A4; margin: 10mm; }
+        /* ── Multi-page print: slim header + footer repeat on every page ──
+           When a single DC's bundle grid is long enough to spill onto a
+           second sheet, Chrome's print engine clones .dc-print-header
+           (top) and .dc-print-footer (bottom) onto each printed page
+           because they're position: fixed. The @page margin boxes inject
+           the "Page N of M" counter. On-screen these elements are hidden
+           so the live preview stays clean. */
+        @page {
+          size: A4;
+          margin: 24mm 10mm 22mm 10mm;
+          /* Bottom-centre page counter — rendered by Chrome's print engine. */
+          @bottom-center {
+            content: "Page " counter(page) " of " counter(pages);
+            font-family: 'Calibri', Arial, sans-serif;
+            font-size: 9px;
+            color: #555;
+          }
+        }
+        /* Hide the fixed header/footer on screen — they're print-only. */
+        .dc-print-header, .dc-print-footer { display: none; }
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
-          .dc-sheet { box-shadow: none !important; border: none !important; }
+          .dc-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 0 !important; margin: 0 !important; width: auto !important; }
+          .dc-print-header {
+            display: flex !important;
+            position: fixed;
+            top: 0; left: 10mm; right: 10mm;
+            height: 18mm;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4mm 0;
+            border-bottom: 0.6px solid #000;
+            font-family: 'Calibri', Arial, sans-serif;
+            font-size: 10px;
+            color: #111;
+            background: #fff;
+          }
+          .dc-print-header .ph-title { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
+          .dc-print-header .ph-meta  { text-align: right; font-size: 9.5px; line-height: 1.3; color: #444; }
+          .dc-print-header .ph-meta b { color: #111; font-weight: 700; }
+          .dc-print-footer {
+            display: block !important;
+            position: fixed;
+            bottom: 0; left: 10mm; right: 10mm;
+            padding: 3mm 0 2mm 0;
+            border-top: 0.6px solid #000;
+            text-align: center;
+            font-family: 'Calibri', Arial, sans-serif;
+            font-size: 9.5px;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #111;
+            background: #fff;
+          }
+          .dc-print-footer .pf-small { font-weight: 400; font-size: 9px; color: #444; }
+          /* Tighten page breaks: don't split an item's bundle table across
+             two pages if it can be avoided, and never orphan a header row. */
+          .dc-item table.bundles { page-break-inside: avoid; }
+          .dc-item table.bundles thead { display: table-header-group; }
+          .dc-item table.bundles tfoot { display: table-footer-group; }
+          /* The existing on-page address footer becomes redundant when the
+             fixed footer is on. Hide it during print to avoid duplication. */
+          .dc-addrfoot { display: none !important; }
         }
         body { background: #f3f4f6; }
         .dc-sheet {
@@ -265,6 +324,26 @@ export default async function DcPrintPage({
       `}</style>
 
       <PrintActions dcId={dc.id} dcCode={dc.code} />
+
+      {/* Fixed print-only header. Shows on every page when the DC content
+          flows across multiple sheets. Hidden on screen by CSS. */}
+      <div className="dc-print-header">
+        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; DELIVERY CHELLAN</div>
+        <div className="ph-meta">
+          <div>Chellan # <b>{dc.code}</b></div>
+          <div>Date: <b>{fmtDc(dc.dc_date)}</b></div>
+        </div>
+      </div>
+
+      {/* Fixed print-only footer — company address. The page-counter
+          "Page X of Y" is injected by the @page rule's @bottom-center
+          margin box (see CSS above). */}
+      <div className="dc-print-footer">
+        <div>{COMPANY.address}</div>
+        <div className="pf-small">
+          GSTIN: {COMPANY.gstin} &nbsp;&middot;&nbsp; MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
+        </div>
+      </div>
 
       <div
         className={'dc-sheet dc-watermark ' +
