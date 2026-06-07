@@ -1,0 +1,21 @@
+-- 125_pavu_status_assigned.sql
+--
+-- Adds the 'assigned' value to public.pavu_status. This status is set
+-- on every pavu that gets attached to an outsource warp-given DC at
+-- save time (see /app/jobwork outsource variant), so the Pavu Master
+-- shows them as locked-to-outsource and the Release action on the
+-- jobwork page can restore them.
+--
+-- Without this value, saving an outsource warp-given form failed with:
+--   invalid input value for enum pavu_status: "assigned"
+-- after the jobwork_warp_beam row was already inserted, leaving the
+-- pavu rows untouched (and the warp-given row half-applied).
+--
+-- Enum values BEFORE: in_stock, on_loom, finished, damaged, scrapped
+-- Enum values AFTER : in_stock, on_loom, finished, damaged, scrapped, assigned
+--
+-- NOTE: ALTER TYPE ... ADD VALUE cannot run inside a transaction block
+-- in older PG versions; we leave it as a top-level statement so the
+-- supabase migration runner handles it correctly.
+
+ALTER TYPE public.pavu_status ADD VALUE IF NOT EXISTS 'assigned';
