@@ -76,6 +76,11 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   const values: PartyFormValues = { ...EMPTY, ...(initial ?? {}) };
 
   const [partyTypes, setPartyTypes] = useState<PartyTypeOpt[]>([]);
+  // Ledger types — the accounting bucket the linked ledger row will
+  // sit in. Loaded once for the dropdown; the operator's pick is
+  // persisted onto party.ledger_id's ledger.type_id after save.
+  const [ledgerTypes,   setLedgerTypes]   = useState<Array<{ id: number; name: string }>>([]);
+  const [ledgerTypeId,  setLedgerTypeId]  = useState<string>('');
   // Multi-type selection. Hydrate from values.party_type_ids when editing
   // an existing party, or from the single legacy party_type_id when older
   // rows haven't been migrated yet.
@@ -110,11 +115,33 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const { data } = await sb.from('party_type_master')
-        .select('id, code, name').eq('active', true).order('name');
-      setPartyTypes((data ?? []) as PartyTypeOpt[]);
+      const [ptRes, ltRes] = await Promise.all([
+        sb.from('party_type_master').select('id, code, name').eq('active', true).order('name'),
+        sb.from('ledger_type').select('id, name').eq('active', true).order('name'),
+      ]);
+      setPartyTypes((ptRes.data ?? []) as PartyTypeOpt[]);
+      setLedgerTypes(((ltRes.data ?? []) as Array<{ id: number; name: string }>));
     })();
   }, [supabase]);
+
+  // On edit, hydrate the ledger-type dropdown from the party's linked
+  // ledger's type_id. We do this in a separate effect so it can wait
+  // until both the partyId and the ledger types list are available.
+  useEffect(() => {
+    if (!isEdit || partyId == null) return;
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb.from('party').select('ledger_id').eq('id', partyId).maybeSingle();
+      const ledgerId = data?.ledger_id;
+      if (ledgerId == null) return;
+      const { data: led } = await sb.from('ledger').select('type_id').eq('id', ledgerId).maybeSingle();
+      if (cancelled) return;
+      if (led?.type_id != null) setLedgerTypeId(String(led.type_id));
+    })();
+    return () => { cancelled = true; };
+  }, [isEdit, partyId, supabase]);
 
   function applyGst(d: GstinData) {
     // Clicking Verify is an explicit "fill from GST portal" action, so we
@@ -177,16 +204,33 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    // Helper — propagate the picked ledger_type to the party's linked
+    // ledger row. Best-effort: if the party has no linked ledger yet
+    // (e.g. the linking trigger fires later) we silently skip.
+    async function syncLedgerType(partyIdToSync: number): Promise<void> {
+      const pickedTypeId = ledgerTypeId === '' ? null : Number(ledgerTypeId);
+      if (pickedTypeId == null) return;
+      const { data: p } = await sb.from('party').select('ledger_id').eq('id', partyIdToSync).maybeSingle();
+      const linkedLedgerId = p?.ledger_id;
+      if (linkedLedgerId == null) return;
+      await sb.from('ledger').update({ type_id: pickedTypeId }).eq('id', linkedLedgerId);
+    }
+
     if (isEdit) {
       const { error: err } = await sb.from('party').update(payload).eq('id', partyId);
+      if (err) { setBusy(false); setError(err.message); return; }
+      await syncLedgerType(partyId as number);
       setBusy(false);
-      if (err) { setError(err.message); return; }
       setSavedMsg('Saved.');
       router.refresh();
     } else {
-      const { error: err } = await sb.from('party').insert(payload);
+      const { data: inserted, error: err } = await sb.from('party').insert(payload).select('id').single();
+      if (err) { setBusy(false); setError(err.message); return; }
+      if (inserted?.id != null) {
+        await syncLedgerType(inserted.id);
+      }
       setBusy(false);
-      if (err) { setError(err.message); return; }
       router.push('/app/parties');
       router.refresh();
     }
@@ -313,6 +357,30 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
             <option value="archived">Archived</option>
           </select>
         </div>
+      </div>
+
+      {/* Ledger type — picks the accounting bucket the linked ledger
+          row sits in (e.g. SUNDRY DEBTORS for a customer, JOB WORK
+          (VENDOR) for a jobwork party). On save we write this to the
+          party's linked ledger row so reports + payment flows route
+          to the right group. */}
+      <div>
+        <label className="label">Ledger type</label>
+        <select
+          className="input"
+          value={ledgerTypeId}
+          onChange={(e) => setLedgerTypeId(e.target.value)}
+        >
+          <option value="">— Leave to default —</option>
+          {ledgerTypes.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <p className="text-[11px] text-ink-mute mt-1">
+          Optional. When set, the party&rsquo;s linked ledger row is
+          re-tagged with this type on save. Leave as default if the
+          party type already maps to the correct ledger type.
+        </p>
       </div>
 
       <div>
