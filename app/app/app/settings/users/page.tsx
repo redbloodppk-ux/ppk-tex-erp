@@ -82,15 +82,22 @@ export default async function UsersAndRolesPage() {
     .order('full_name', { ascending: true });
   const rows = (data ?? []) as AppUserRow[];
 
-  // KPI counts
-  const counts = rows.reduce(
+  // KPI counts. Separate the fixed-shape totals from the open-ended
+  // byStatus / byRole maps so noUncheckedIndexedAccess doesn't widen
+  // the fixed fields to `number | undefined`.
+  interface UserCounts {
+    total: number;
+    byStatus: Record<string, number>;
+    byRole: Record<string, number>;
+  }
+  const counts: UserCounts = rows.reduce<UserCounts>(
     (acc, r) => {
       acc.total += 1;
-      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      acc.byStatus[r.status] = (acc.byStatus[r.status] ?? 0) + 1;
       acc.byRole[r.role] = (acc.byRole[r.role] ?? 0) + 1;
       return acc;
     },
-    { total: 0, byRole: {} as Record<string, number> } as Record<string, number> & { byRole: Record<string, number> },
+    { total: 0, byStatus: {}, byRole: {} },
   );
 
   return (
@@ -116,13 +123,13 @@ export default async function UsersAndRolesPage() {
           <div className="text-[11px] uppercase tracking-wide text-ink-mute flex items-center gap-1">
             <UserCheck className="w-3 h-3 text-emerald-600" /> Active
           </div>
-          <div className="num text-xl font-bold text-emerald-700">{counts.active ?? 0}</div>
+          <div className="num text-xl font-bold text-emerald-700">{counts.byStatus.active ?? 0}</div>
         </div>
         <div className="card p-3">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute flex items-center gap-1">
             <UserX className="w-3 h-3 text-slate-500" /> Inactive
           </div>
-          <div className="num text-xl font-bold text-slate-600">{counts.inactive ?? 0}</div>
+          <div className="num text-xl font-bold text-slate-600">{counts.byStatus.inactive ?? 0}</div>
         </div>
         <div className="card p-3">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute flex items-center gap-1">
