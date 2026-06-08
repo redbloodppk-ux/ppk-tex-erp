@@ -149,7 +149,12 @@ export default async function CashflowPage({
   }
 
   const snap: SnapshotRow | null = snapshotRes.data ?? null;
-  const recent: RecentRow[] = (recentRes.data ?? []) as RecentRow[];
+  // Cast via unknown — the generated database.types.ts still has the
+  // pre-migration-134 column names (payment_id / payment_no /
+  // payment_date). The view now exposes source_id / source_kind /
+  // doc_no / event_date / category_*. Until typegen is re-run, the
+  // generated type doesn't overlap our hand-written RecentRow.
+  const recent: RecentRow[] = (recentRes.data ?? []) as unknown as RecentRow[];
 
   const recentFiltered = recent.filter(r =>
     dirFilter === 'all' ? true : r.direction === dirFilter
