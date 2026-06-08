@@ -132,16 +132,30 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
   const typeFilter = (params.type ?? 'all') as 'all' | YarnType;
   const onlyLow = params.only_low === '1';
   const hideEmpty = params.hide_empty === '1';
+  // ?quality=<id> narrows the summary matrix to that fabric quality.
+  // Only the rows that carry a natural fabric_quality link respond to
+  // the filter (warp jobwork/outsource + all fabric rows). Other rows
+  // get rendered as N/A. See migration 130.
+  const qualityParam = typeof params.quality === 'string' ? params.quality : undefined;
+  const qualityFilter = qualityParam && /^\d+$/.test(qualityParam) ? Number(qualityParam) : null;
 
   const supabase = await createClient();
 
-  // Mode-wise stock summary matrix (migration 129). One row per
-  // (category × mode); we pivot client-side into a 5×3 grid. Fetched
-  // in parallel with the yarn-detail rows below.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const summaryRes = await (supabase as any)
-    .from('v_stock_on_hand_summary')
-    .select('category, mode, unit, qty');
+  const sb = supabase as any;
+
+  // Mode-wise stock summary matrix via fn_stock_on_hand_summary (mig
+  // 130). Passing NULL = global view; passing a quality id = filtered.
+  const summaryRes = await sb.rpc('fn_stock_on_hand_summary', { p_quality_id: qualityFilter });
+
+  // Fabric qualities list for the filter dropdown — every active
+  // quality so the operator can pick one. Cheap query; cached by the
+  // page's force-dynamic but it's small.
+  const { data: qualityOptions } = await sb
+    .from('fabric_quality')
+    .select('id, code, name')
+    .eq('active', true)
+    .order('name');
 
   let query = supabase
     .from('v_stock_on_hand')
@@ -220,12 +234,17 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
   interface SummaryCell { qty: number; unit: string }
   type SummaryCategory = 'warp_metre' | 'weft_yarn' | 'porvai_yarn' | 'bobbin_metre' | 'fabric';
   type SummaryMode = 'in_house' | 'jobwork' | 'outsource';
-  const SUMMARY_CATEGORIES: ReadonlyArray<{ key: SummaryCategory; label: string }> = [
-    { key: 'warp_metre',   label: 'Warp Metre'   },
-    { key: 'weft_yarn',    label: 'Weft Yarn'    },
-    { key: 'porvai_yarn',  label: 'Porvai Yarn'  },
-    { key: 'bobbin_metre', label: 'Bobbin Metre' },
-    { key: 'fabric',       label: 'Fabric (received, not invoiced)' },
+  // Categories that have a natural fabric_quality link. Used to decide
+  // whether to render a real number or "N/A" when a quality filter is
+  // active. Other categories (warp in-house, weft, porvai, bobbin) get
+  // N/A because there's no clean way to attribute their stock to a
+  // single fabric quality.
+  const SUMMARY_CATEGORIES: ReadonlyArray<{ key: SummaryCategory; label: string; qualityFilterScope: ReadonlyArray<SummaryMode> }> = [
+    { key: 'warp_metre',   label: 'Warp Metre',                           qualityFilterScope: ['jobwork', 'outsource'] },
+    { key: 'weft_yarn',    label: 'Weft Yarn',                            qualityFilterScope: [] },
+    { key: 'porvai_yarn',  label: 'Porvai Yarn',                          qualityFilterScope: [] },
+    { key: 'bobbin_metre', label: 'Bobbin Metre',                         qualityFilterScope: [] },
+    { key: 'fabric',       label: 'Fabric (received, not invoiced)',      qualityFilterScope: ['in_house', 'jobwork', 'outsource'] },
   ];
   const SUMMARY_MODES: ReadonlyArray<{ key: SummaryMode; label: string }> = [
     { key: 'in_house',  label: 'In-house'  },
@@ -271,8 +290,19 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
             detail table below. Fabric row counts only stock that's
             been receipted but not yet invoiced. */}
       <div className="card overflow-x-auto mb-4">
-        <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex items-baseline justify-between gap-2">
-          <h2 className="font-display font-bold text-sm">Mode-wise stock summary</h2>
+        <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex items-baseline justify-between gap-2 flex-wrap">
+          <h2 className="font-display font-bold text-sm">
+            Mode-wise stock summary
+            {qualityFilter !== null && (() => {
+              const picked = (qualityOptions ?? []).find((q: { id: number; code: string | null; name: string }) => q.id === qualityFilter);
+              const label = picked ? (picked.code ?? picked.name) : `Quality #${qualityFilter}`;
+              return (
+                <span className="ml-2 text-xs font-normal text-ink-soft">
+                  filtered to <strong className="text-ink">{label}</strong>
+                </span>
+              );
+            })()}
+          </h2>
           <span className="text-[11px] text-ink-mute">
             Fabric = received via Fabric Receipt and still not invoiced.
           </span>
@@ -296,13 +326,26 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
                 <tr key={cat.key} className="border-t border-line/40">
                   <td className="px-3 py-2 font-semibold">{cat.label}</td>
                   {cells.map((c, i) => {
+                    const mode = SUMMARY_MODES[i]?.key;
+                    // When a quality filter is set AND this (category,
+                    // mode) cell has no natural quality link, the
+                    // function returns 0 by construction — render N/A
+                    // instead of a misleading zero. When no filter,
+                    // zero is real and renders as a dash.
+                    const inQualityScope = mode != null && cat.qualityFilterScope.includes(mode);
+                    const filteredNA = qualityFilter !== null && !inQualityScope;
                     const isZero = c.qty <= 0;
                     return (
                       <td
                         key={i}
                         className={'px-3 py-2 text-right num ' + (isZero ? 'text-ink-mute' : '')}
+                        title={filteredNA ? 'Stock breakdown by fabric quality is not tracked for this category' : undefined}
                       >
-                        {isZero ? '\u2014' : `${fmtSummary(c.qty)} ${c.unit || unit}`}
+                        {filteredNA
+                          ? <span className="italic">N/A</span>
+                          : isZero
+                            ? '\u2014'
+                            : `${fmtSummary(c.qty)} ${c.unit || unit}`}
                       </td>
                     );
                   })}
@@ -315,8 +358,18 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
           </tbody>
         </table>
         <div className="px-4 py-2 border-t border-line/40 text-[11px] text-ink-mute">
-          Porvai-yarn at vendor is currently 0 because porvai-at-vendor isn&apos;t tracked
-          separately yet. Add a porvai bag flow if you need that column to fill.
+          {qualityFilter !== null ? (
+            <>
+              N/A cells: weft / porvai yarn and bobbin stock aren&apos;t tagged with a
+              fabric quality in the data model. Only Warp Metre (jobwork &amp; outsource)
+              and Fabric rows respond to the quality filter.
+            </>
+          ) : (
+            <>
+              Porvai-yarn at vendor is currently 0 because porvai-at-vendor isn&apos;t tracked
+              separately yet. Add a porvai bag flow if you need that column to fill.
+            </>
+          )}
         </div>
       </div>
 
@@ -336,6 +389,24 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
             <option value="cotton">Cotton</option>
             <option value="polyester">Polyester</option>
             <option value="blend">Blend</option>
+          </select>
+        </label>
+        {/* Fabric quality filter — narrows the mode-wise summary
+            matrix above. Doesn't affect the yarn-detail table below
+            (yarn rows have no quality link). */}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Fabric Quality</span>
+          <select
+            name="quality"
+            defaultValue={qualityFilter !== null ? String(qualityFilter) : ''}
+            className="border border-cloud rounded px-2 py-1 bg-white min-w-[200px]"
+          >
+            <option value="">All qualities</option>
+            {(qualityOptions ?? []).map((q: { id: number; code: string | null; name: string }) => (
+              <option key={q.id} value={q.id}>
+                {q.code ? `${q.code} — ${q.name}` : q.name}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex items-center gap-2">
