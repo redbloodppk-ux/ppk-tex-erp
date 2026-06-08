@@ -59,6 +59,7 @@ interface PageProps {
     type?: string;
     only_low?: string;
     hide_empty?: string;
+    quality?: string;
   }>;
 }
 
