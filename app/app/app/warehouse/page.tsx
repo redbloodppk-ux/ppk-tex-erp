@@ -21,7 +21,7 @@ import { Boxes, Package, Layers, AlertTriangle, Coins, TrendingDown, Factory, Tr
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
-import { OpeningStockForm } from './opening-stock-form';
+import { OpeningStockForm, type ExistingOpeningRow } from './opening-stock-form';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
 // Force server-render on every visit so the jobwork tabs always reflect
@@ -233,6 +233,23 @@ export default async function WarehousePage({
   // outflows by yarn count, one column per count.
   const sizingRows     = mode === 'sizing'  && tab === 'yarn'           ? await loadSizingWarehouse(supabase, counts ?? [], sp) : null;
 
+  // ── Existing opening entries for the active form's bucket + mode ──
+  // Surfaced under the "Add opening stock" form so the operator can see
+  // (and delete) any entry that was made earlier. Only loaded when one
+  // of the in-house / sizing tabs that actually renders the form is
+  // active — keeps the page fast on other tabs.
+  const openingFormBucket: 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin' | null =
+    mode === 'inhouse' && tab === 'warp_metre'  ? 'warp_beam'   :
+    mode === 'inhouse' && tab === 'weft_yarn'   ? 'weft_yarn'   :
+    mode === 'inhouse' && tab === 'porvai_yarn' ? 'porvai_yarn' :
+    mode === 'inhouse' && tab === 'bobbin'      ? 'bobbin'      :
+    mode === 'sizing'  && tab === 'yarn'        ? 'weft_yarn'   :
+    null;
+  const openingFormMode: 'inhouse' | 'sizing' = mode === 'sizing' ? 'sizing' : 'inhouse';
+  const existingOpening = openingFormBucket
+    ? await loadExistingOpening(supabase, openingFormBucket, openingFormMode)
+    : [];
+
   const subTabs = isJobworkLike
     ? JOBWORK_TABS
     : mode === 'sizing'
@@ -382,11 +399,11 @@ export default async function WarehousePage({
           </>
         )}
 
-        {/* In-house warp metre + fabric tabs share a Fabric Quality
-            filter so the operator can drill into one quality at a time.
-            Columns + events are filtered post-aggregation so only the
-            picked quality's column survives. */}
-        {mode === 'inhouse' && (tab === 'warp_metre' || tab === 'fabric') && (
+        {/* In-house Fabric tab keeps the Fabric Quality filter so the
+            operator can drill into one quality at a time. The Warp
+            Metre tab no longer uses this filter — its pivot columns
+            are now keyed by warp ends, not quality. */}
+        {mode === 'inhouse' && tab === 'fabric' && (
           <FilterSelect
             name="quality"
             label="Fabric Quality"
@@ -461,25 +478,25 @@ export default async function WarehousePage({
       {/* ── Tab body ───────────────────────────────────────────────────── */}
       {mode === 'inhouse' && tab === 'warp_metre'  && (
         <>
-          <OpeningStockForm bucket="warp_beam"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
-          <PivotView data={inWarpRows!} emptyMessage="No in-house warp metre stock yet. Use Add opening stock to enter your starting balance per fabric quality." />
+          <OpeningStockForm bucket="warp_beam"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
+          <PivotView data={inWarpRows!} emptyMessage="No in-house warp metre stock yet. Use Add opening stock to enter your starting balance per warp ends count." />
         </>
       )}
       {mode === 'inhouse' && tab === 'weft_yarn'   && (
         <>
-          <OpeningStockForm bucket="weft_yarn"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <OpeningStockForm bucket="weft_yarn"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inWeftRows!} emptyMessage="No in-house weft yarn stock yet. Use Add opening stock to enter your starting balance per yarn count." />
         </>
       )}
       {mode === 'inhouse' && tab === 'porvai_yarn' && (
         <>
-          <OpeningStockForm bucket="porvai_yarn" qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <OpeningStockForm bucket="porvai_yarn" qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inPorvaiRows!} emptyMessage="No in-house porvai yarn stock yet. Use Add opening stock to enter your starting balance." />
         </>
       )}
       {mode === 'inhouse' && tab === 'bobbin'      && (
         <>
-          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} />
+          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
         </>
       )}
@@ -495,6 +512,7 @@ export default async function WarehousePage({
             qualities={(fabricQualities ?? []) as any}
             counts={(counts ?? []) as any}
             bobbinMasters={(bobbinMasters ?? []) as any}
+            existing={existingOpening}
           />
           <PivotView
             data={sizingRows!}
@@ -550,9 +568,17 @@ export default async function WarehousePage({
  */
 function applyInhouseColumnFilter(data: PivotData, sp: SP): PivotData {
   if (!sp.quality && !sp.count) return data;
+  // Only apply a filter that actually matches a column id in this
+  // pivot. This prevents a stale ?quality= param (e.g. left over from
+  // navigating between tabs) from zeroing out a pivot whose columns
+  // are keyed differently — the warp_metre pivot now uses `ends:N`
+  // columns, not `fq:N`, so a quality filter would otherwise wipe it.
+  const haveQualityCols = data.columns.some((c) => c.id.startsWith('fq:'));
+  const haveCountCols   = data.columns.some((c) => c.id.startsWith('yc:'));
   const keep = new Set<string>();
-  if (sp.quality) keep.add(`fq:${sp.quality}`);
-  if (sp.count)   keep.add(`yc:${sp.count}`);
+  if (sp.quality && haveQualityCols) keep.add(`fq:${sp.quality}`);
+  if (sp.count   && haveCountCols)   keep.add(`yc:${sp.count}`);
+  if (keep.size === 0) return data;
   return {
     unit: data.unit,
     columns: data.columns.filter((c) => keep.has(c.id)),
@@ -1533,6 +1559,27 @@ async function safeSelect<T>(p: Promise<{ data: T[] | null; error: unknown }>): 
   }
 }
 
+/** Pull the active opening_stock rows for one (bucket, mode). Used to
+ *  render an inline list with delete buttons under the form. The row
+ *  shape is imported from the form component so the type stays in one
+ *  place. */
+async function loadExistingOpening(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  bucket: 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin',
+  mode: 'inhouse' | 'sizing',
+): Promise<ExistingOpeningRow[]> {
+  const rows = await safeSelect<ExistingOpeningRow>(
+    supabase.from('opening_stock')
+      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, ends_per_bobbin, warp_ends, quantity, unit, open_date, reference_no, notes')
+      .eq('bucket', bucket)
+      .eq('mode', mode)
+      .eq('status', 'active')
+      .order('open_date', { ascending: false }),
+  );
+  return rows;
+}
+
 interface LedgerEvent {
   event_date: string;
   direction: 'in' | 'out';
@@ -1602,12 +1649,12 @@ async function loadInhouseOpeningStock(
 ): Promise<PivotData> {
   const openingRows = await safeSelect<{
     id: number; fabric_quality_id: number | null; yarn_count_id: number | null;
-    bobbin_id: number | null; ends_per_bobbin: number | null;
+    bobbin_id: number | null; ends_per_bobbin: number | null; warp_ends: number | null;
     quantity: number | string | null; open_date: string | null;
     reference_no: string | null; notes: string | null;
   }>(
     supabase.from('opening_stock')
-      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, ends_per_bobbin, quantity, open_date, reference_no, notes')
+      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, ends_per_bobbin, warp_ends, quantity, open_date, reference_no, notes')
       .eq('bucket', bucket)
       .eq('mode', 'inhouse')
       .eq('status', 'active'),
@@ -1646,11 +1693,29 @@ async function loadInhouseOpeningStock(
     let colId = 'unknown';
     let label = '(no key)';
     let sublabel = '';
-    if (bucket === 'warp_beam' && r.fabric_quality_id != null) {
-      const fq = qualityById.get(r.fabric_quality_id);
-      colId = `fq:${r.fabric_quality_id}`;
-      label = fq?.code ?? fq?.name ?? `FQ #${r.fabric_quality_id}`;
-      sublabel = fq?.name ?? '';
+    if (bucket === 'warp_beam') {
+      // Prefer warp_ends (new column, aligns with pavu.ends) so the
+      // opening entry lands on the same pivot column as the matching
+      // pavu inflows. Fall back to fabric_quality_id for legacy rows
+      // entered before the warp_ends column existed.
+      if (r.warp_ends != null) {
+        colId = ensureEndsCol(Number(r.warp_ends));
+        events.push({
+          event_date: r.open_date ?? '',
+          column_id: colId,
+          direction: 'in',
+          quantity: Number(r.quantity ?? 0),
+          reference: r.reference_no ?? 'Opening stock',
+          notes: r.notes ?? '',
+        });
+        continue;
+      }
+      if (r.fabric_quality_id != null) {
+        const fq = qualityById.get(r.fabric_quality_id);
+        colId = `fq:${r.fabric_quality_id}`;
+        label = fq?.code ?? fq?.name ?? `FQ #${r.fabric_quality_id}`;
+        sublabel = fq?.name ?? '';
+      }
     } else if ((bucket === 'weft_yarn' || bucket === 'porvai_yarn') && r.yarn_count_id != null) {
       colId = ensureCountCol(r.yarn_count_id);
       events.push({
