@@ -881,6 +881,11 @@ function BobbinView({ rows }: { rows: BobbinRow[] }) {
 // ─── Fabric ──────────────────────────────────────────────────────────────────
 type FabricRow = {
   costing_id: number;
+  // fabric_quality.id — resolved from costing_master.quality_code →
+  // fabric_quality.code (both unique). Used to drill into the per-quality
+  // stock ledger at /app/warehouse/fabric/[qualityId]. Null when the
+  // costing's quality_code has no matching row in fabric_quality.
+  fabric_quality_id: number | null;
   quality_code: string;
   quality_name: string;
   source_type: string;
@@ -923,6 +928,7 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
     if (!row) {
       row = {
         costing_id: r.costing_id,
+        fabric_quality_id: null,                // filled in below via batch lookup
         quality_code: r.costing?.quality_code ?? '—',
         quality_name: r.costing?.quality_name ?? '',
         source_type: r.source_type,
@@ -939,6 +945,28 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
     row.metres_available += m;
     row.receipts += 1;
   });
+
+  // Resolve fabric_quality_id for every distinct quality_code in one
+  // round-trip. costing_master.quality_code and fabric_quality.code are
+  // both unique strings, so the join is by code.
+  const codes = Array.from(new Set(
+    Array.from(grouped.values())
+      .map((r) => r.quality_code)
+      .filter((c) => c && c !== '—'),
+  ));
+  if (codes.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: qRows } = await supabase
+      .from('fabric_quality')
+      .select('id, code')
+      .in('code', codes);
+    const codeToId = new Map<string, number>(
+      ((qRows ?? []) as Array<{ id: number; code: string }>).map((q) => [q.code, Number(q.id)]),
+    );
+    grouped.forEach((row) => {
+      row.fabric_quality_id = codeToId.get(row.quality_code) ?? null;
+    });
+  }
 
   return Array.from(grouped.values()).sort((a, b) => b.metres_available - a.metres_available);
 }
@@ -976,8 +1004,23 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
             {rows.map(r => (
               <tr key={`${r.costing_id}-${r.source_type}`} className="border-t border-line/40 hover:bg-haze/60">
                 <td className="px-4 py-3">
-                  <div className="font-semibold">{r.quality_code}</div>
-                  <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
+                  {r.fabric_quality_id != null ? (
+                    <Link
+                      href={`/app/warehouse/fabric/${r.fabric_quality_id}`}
+                      className="group inline-block"
+                      title="Open per-quality stock ledger"
+                    >
+                      <div className="font-semibold text-indigo-700 group-hover:underline">
+                        {r.quality_code}
+                      </div>
+                      <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
+                    </Link>
+                  ) : (
+                    <>
+                      <div className="font-semibold">{r.quality_code}</div>
+                      <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
+                    </>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`text-[11px] px-2 py-0.5 rounded ${SOURCE_PILL[r.source_type] ?? 'bg-cloud'}`}>
@@ -1057,15 +1100,21 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
   const { data: inRowsRaw } = await inQ;
 
   // ── OUT side: delivery_challan_item × delivery_challan × invoice ──
-  // We only consider inhouse-mode DCs (production_mode = 'inhouse'),
-  // because jobwork / outsource DCs are outbound to vendors, not sales.
+  // EVERY DC type reduces in-house fabric stock — the cloth physically
+  // leaves our shed in all three cases:
+  //   • inhouse   — sale to customer (invoiced)
+  //   • outsource — fabric going out to a vendor (e.g. for finishing) or sold
+  //   • jobwork   — finished cloth returned to the customer who owns the yarn
+  // We surface all three modes so the per-quality stock ledger matches
+  // the physical movement on the floor. The Source column distinguishes
+  // them visually.
   let outQ = supabase.from('delivery_challan_item').select(`
     id, fabric_quality_id, metres,
     dc:dc_id!inner (
       id, code, dc_date, status, production_mode, invoice_id, bill_to_name,
       invoice:invoice_id ( id, invoice_no, total, amount_paid, balance, status )
     )
-  `).eq('dc.production_mode', 'inhouse');
+  `).in('dc.production_mode', ['inhouse', 'outsource', 'jobwork']);
   if (qualityFilter !== null) outQ = outQ.eq('fabric_quality_id', qualityFilter);
   const { data: outRowsRaw } = await outQ;
 
@@ -1147,7 +1196,7 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
       quality_id: qid,
       quality_code: q?.code ?? '—',
       quality_name: q?.name ?? '',
-      source_kind: 'inhouse',
+      source_kind: sourceKindFromMode(r.dc?.production_mode),
       dc_id: r.dc?.id ?? null,
       dc_code: r.dc?.code ?? null,
       receipt_id: null,
@@ -1223,15 +1272,38 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
           </thead>
           <tbody>
             {rows.map((r) => {
-              const pill = LINEAGE_STATUS_PILL[r.status];
+              // For non-inhouse OUT events (jobwork return / outsource send)
+              // the invoice-status pill is meaningless because there is no
+              // sale invoice — these are physical movements out of the shed.
+              // We override the pill so the operator sees the movement type
+              // instead of "DC (no invoice)".
+              let pill = LINEAGE_STATUS_PILL[r.status];
+              if (r.direction === 'out' && r.source_kind === 'jobwork') {
+                pill = { label: 'Jobwork Return', cls: 'bg-amber-50 text-amber-700' };
+              } else if (r.direction === 'out' && r.source_kind === 'outsource' && r.status === 'draft_dc') {
+                pill = { label: 'Outsource Send', cls: 'bg-indigo-50 text-indigo-700' };
+              }
               return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap">
                     {r.event_date || '—'}
                   </td>
                   <td className="px-3 py-2">
-                    <div className="font-semibold">{r.quality_code}</div>
-                    {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                    {r.quality_id != null ? (
+                      <Link
+                        href={`/app/warehouse/fabric/${r.quality_id}`}
+                        className="group inline-block"
+                        title="Open per-quality stock ledger"
+                      >
+                        <div className="font-semibold text-indigo-700 group-hover:underline">{r.quality_code}</div>
+                        {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                      </Link>
+                    ) : (
+                      <>
+                        <div className="font-semibold">{r.quality_code}</div>
+                        {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     <span className="inline-flex items-center gap-1">
@@ -1267,8 +1339,9 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
         </table>
       </div>
       <p className="text-[11px] text-ink-mute mt-2">
-        IN rows come from Fabric Receipts (incoming stock). OUT rows come from in-house Sales DCs;
-        the linked invoice&apos;s amount_paid / balance drives the payment-status pill.
+        IN rows come from Fabric Receipts (cloth arriving in the shed). OUT rows come from every DC type —
+        in-house Sales DCs show their invoice payment status; Jobwork DCs are tagged &ldquo;Jobwork Return&rdquo;
+        (cloth returned to the yarn owner); Outsource DCs without an invoice are tagged &ldquo;Outsource Send&rdquo;.
       </p>
     </>
   );
