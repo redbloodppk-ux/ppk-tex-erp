@@ -87,7 +87,11 @@ function pct(numerator: number, denominator: number): string {
 
 export default async function PeriodPnlPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const preset = sp.preset && presetRange(sp.preset);
+  // Explicit truthy check — `sp.preset && presetRange(sp.preset)` would
+  // short-circuit to "" (the empty string) when sp.preset is empty,
+  // narrowing the type to `string | {from,to}` and breaking `?.from`
+  // access. Ternary keeps `preset` as `{from,to} | null`.
+  const preset = sp.preset ? presetRange(sp.preset) : null;
   const fromInput = sp.from && /^\d{4}-\d{2}-\d{2}$/.test(sp.from) ? sp.from : null;
   const toInput   = sp.to   && /^\d{4}-\d{2}-\d{2}$/.test(sp.to)   ? sp.to   : null;
 
