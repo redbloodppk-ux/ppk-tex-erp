@@ -14,7 +14,7 @@ import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
-type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'people' | 'insights' | 'admin';
+type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
 
 interface NavItem {
   href: string;
@@ -51,7 +51,8 @@ const NAV: NavItem[] = [
   // and ships with a Status tab that shows a chronological ledger of
   // inflow / outflow / running balance per party. Old
   // /app/pay-customer and /app/pay-purchase URLs redirect here.
-  { href: '/app/payments',          label: 'Payments',         icon: Wallet,          group: 'sales',      roles: ['owner','accounts','sales_manager','auditor'] },
+  // Payments lives in the Finance group below — kept off Sales so the
+  // sidebar reflects the owner's accounting mental model.
 
   // Inventory
   // Mills moved into the unified Parties master under Admin (filter by
@@ -80,9 +81,20 @@ const NAV: NavItem[] = [
   // People (HR)
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'people',     roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
-  { href: '/app/wages',         label: 'Wages',              icon: BadgeIndianRupee,group: 'people',     roles: ['owner','accounts','auditor'] },
-  { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'insights',   roles: ['owner','accounts','auditor'] },
-  { href: '/app/expenses',      label: 'Expenses',           icon: Wallet,          group: 'people',     roles: ['owner','accounts','auditor'] },
+  // Wages, Expenses, Payments, Bank Entries moved into the Finance
+  // group below so all money-flow tools sit together.
+
+  // Finance
+  // Payments: party-scoped (customer in / vendor out).
+  // Wages: weekly payroll, fed into LOOMS Calibration.
+  // Expenses: categorised mill expenses.
+  // Bank Entries: non-party bank flows (EB, loan EMI, interest,
+  //   cash withdrawals) — closes the gap for True Cost + P&L.
+  { href: '/app/payments',         label: 'Payments',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','sales_manager','auditor'] },
+  { href: '/app/wages',            label: 'Wages',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
+  { href: '/app/wages/weekly',     label: 'Weekly Summary',     icon: Calendar,        group: 'finance',    roles: ['owner','accounts','auditor'] },
+  { href: '/app/expenses',         label: 'Expenses',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','auditor'] },
+  { href: '/app/bank-entries',     label: 'Bank Entries',       icon: BookCheck,       group: 'finance',    roles: ['owner','accounts','auditor'] },
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
@@ -99,7 +111,7 @@ const NAV: NavItem[] = [
 ];
 
 const GROUP_ORDER: readonly GroupKey[] = [
-  'overview', 'sales', 'inventory', 'production', 'people', 'insights', 'admin',
+  'overview', 'sales', 'inventory', 'production', 'people', 'finance', 'insights', 'admin',
 ];
 
 const GROUP_LABEL: Record<GroupKey, string> = {
@@ -107,7 +119,8 @@ const GROUP_LABEL: Record<GroupKey, string> = {
   sales:      'Sales & Customers',
   inventory:  'Inventory & Purchases',
   production: 'Production',
-  people:     'People & Payroll',
+  people:     'People & HR',
+  finance:    'Finance',
   insights:   'Reports & Alerts',
   admin:      'Admin',
 };
