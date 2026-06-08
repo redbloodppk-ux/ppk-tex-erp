@@ -135,6 +135,14 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
 
   const supabase = await createClient();
 
+  // Mode-wise stock summary matrix (migration 129). One row per
+  // (category × mode); we pivot client-side into a 5×3 grid. Fetched
+  // in parallel with the yarn-detail rows below.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const summaryRes = await (supabase as any)
+    .from('v_stock_on_hand_summary')
+    .select('category, mode, unit, qty');
+
   let query = supabase
     .from('v_stock_on_hand')
     .select('*')
@@ -205,6 +213,42 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
     r => r.days_of_cover != null && Number(r.days_of_cover) < 14,
   ).length;
 
+  // ── Pivot the summary view into a 5-row × 3-col matrix ──
+  // Rows = categories (warp_metre → fabric), cols = modes (in_house →
+  // outsource). Missing cells default to 0 so the table always paints
+  // a full grid even when the view returns nothing for a slot.
+  interface SummaryCell { qty: number; unit: string }
+  type SummaryCategory = 'warp_metre' | 'weft_yarn' | 'porvai_yarn' | 'bobbin_metre' | 'fabric';
+  type SummaryMode = 'in_house' | 'jobwork' | 'outsource';
+  const SUMMARY_CATEGORIES: ReadonlyArray<{ key: SummaryCategory; label: string }> = [
+    { key: 'warp_metre',   label: 'Warp Metre'   },
+    { key: 'weft_yarn',    label: 'Weft Yarn'    },
+    { key: 'porvai_yarn',  label: 'Porvai Yarn'  },
+    { key: 'bobbin_metre', label: 'Bobbin Metre' },
+    { key: 'fabric',       label: 'Fabric (received, not invoiced)' },
+  ];
+  const SUMMARY_MODES: ReadonlyArray<{ key: SummaryMode; label: string }> = [
+    { key: 'in_house',  label: 'In-house'  },
+    { key: 'jobwork',   label: 'Job Work'  },
+    { key: 'outsource', label: 'Outsource' },
+  ];
+  const summaryRowsRaw = (summaryRes.data ?? []) as Array<{
+    category: string; mode: string; unit: string; qty: number | string | null;
+  }>;
+  const summaryMatrix = new Map<string, SummaryCell>();
+  for (const r of summaryRowsRaw) {
+    summaryMatrix.set(`${r.category}|${r.mode}`, {
+      qty: Number(r.qty ?? 0),
+      unit: r.unit ?? '',
+    });
+  }
+  function summaryCell(cat: SummaryCategory, mode: SummaryMode): SummaryCell {
+    return summaryMatrix.get(`${cat}|${mode}`) ?? { qty: 0, unit: '' };
+  }
+  function fmtSummary(qty: number): string {
+    return qty.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  }
+
   return (
     <div>
       <PageHeader
@@ -220,6 +264,61 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
           />
         }
       />
+
+      {/* ── Mode-wise stock summary (migration 129) ─────────────────
+            5 categories × 3 production modes. Drives a quick scan of
+            "what's where" before the operator drills into the yarn
+            detail table below. Fabric row counts only stock that's
+            been receipted but not yet invoiced. */}
+      <div className="card overflow-x-auto mb-4">
+        <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex items-baseline justify-between gap-2">
+          <h2 className="font-display font-bold text-sm">Mode-wise stock summary</h2>
+          <span className="text-[11px] text-ink-mute">
+            Fabric = received via Fabric Receipt and still not invoiced.
+          </span>
+        </div>
+        <table className="w-full text-sm min-w-[640px]">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-3 py-2">Category</th>
+              {SUMMARY_MODES.map((m) => (
+                <th key={m.key} className="text-right px-3 py-2">{m.label}</th>
+              ))}
+              <th className="text-right px-3 py-2 bg-cloud">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {SUMMARY_CATEGORIES.map((cat) => {
+              const cells = SUMMARY_MODES.map((m) => summaryCell(cat.key, m.key));
+              const total = cells.reduce((s, c) => s + c.qty, 0);
+              const unit = cells.find((c) => c.unit)?.unit ?? '';
+              return (
+                <tr key={cat.key} className="border-t border-line/40">
+                  <td className="px-3 py-2 font-semibold">{cat.label}</td>
+                  {cells.map((c, i) => {
+                    const isZero = c.qty <= 0;
+                    return (
+                      <td
+                        key={i}
+                        className={'px-3 py-2 text-right num ' + (isZero ? 'text-ink-mute' : '')}
+                      >
+                        {isZero ? '\u2014' : `${fmtSummary(c.qty)} ${c.unit || unit}`}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right num font-bold bg-cloud/40">
+                    {total > 0 ? `${fmtSummary(total)} ${unit}` : '\u2014'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="px-4 py-2 border-t border-line/40 text-[11px] text-ink-mute">
+          Porvai-yarn at vendor is currently 0 because porvai-at-vendor isn&apos;t tracked
+          separately yet. Add a porvai bag flow if you need that column to fill.
+        </div>
+      </div>
 
       {/* Filters */}
       <form
