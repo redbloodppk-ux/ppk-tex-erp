@@ -57,10 +57,14 @@ interface SnapshotRow {
   net_due_30d: number | null;
 }
 
+// Merged shape — covers both payment rows and bank_entry rows. After
+// migration 134 the view exposes generic column names (source_id /
+// doc_no / event_date) so the page treats both feeds uniformly.
 interface RecentRow {
-  payment_id: number | null;
-  payment_no: string | null;
-  payment_date: string | null;
+  source_id: number | null;
+  source_kind: 'payment' | 'bank_entry' | null;
+  doc_no: string | null;
+  event_date: string | null;
   direction: 'in' | 'out' | null;
   amount: number | null;
   mode: string | null;
@@ -69,6 +73,8 @@ interface RecentRow {
   party_code: string | null;
   party_kind: string | null;
   invoice_no: string | null;
+  category_code: string | null;
+  category_name: string | null;
   days_ago: number | null;
 }
 
@@ -127,7 +133,7 @@ export default async function CashflowPage({
     supabase
       .from('v_cashflow_recent')
       .select('*')
-      .order('payment_date', { ascending: false })
+      .order('event_date', { ascending: false })
       .limit(50),
   ]);
 
@@ -157,22 +163,26 @@ export default async function CashflowPage({
     ? Number(snap[`net_${win}d` as keyof SnapshotRow] ?? 0)
     : 0;
 
-  /* Excel export — the recent-payments ledger as currently filtered on screen */
+  /* Excel export — the recent-cashflow ledger as currently filtered on screen */
   const exportColumns: ExcelColumn[] = [
-    { key: 'payment_date', label: 'Date', type: 'date', width: 13 },
+    { key: 'event_date', label: 'Date', type: 'date', width: 13 },
+    { key: 'source_kind', label: 'Source', type: 'text', width: 12 },
     { key: 'direction', label: 'Direction', type: 'text', width: 11 },
-    { key: 'party_name', label: 'Party', type: 'text', width: 26 },
-    { key: 'party_code', label: 'Party code', type: 'text', width: 13 },
+    { key: 'party_name', label: 'Party / Bank', type: 'text', width: 26 },
+    { key: 'party_code', label: 'Code', type: 'text', width: 13 },
+    { key: 'category_name', label: 'Category', type: 'text', width: 22 },
     { key: 'amount', label: 'Amount', type: 'rupee', width: 14, total: true },
     { key: 'mode', label: 'Mode', type: 'text', width: 12 },
     { key: 'reference', label: 'Reference', type: 'text', width: 18 },
     { key: 'invoice_no', label: 'Invoice', type: 'text', width: 16 },
   ];
   const exportRows = recentFiltered.map((r) => ({
-    payment_date: r.payment_date ?? '',
+    event_date: r.event_date ?? '',
+    source_kind: r.source_kind === 'bank_entry' ? 'Bank Entry' : 'Payment',
     direction: r.direction === 'in' ? 'In' : r.direction === 'out' ? 'Out' : '',
     party_name: r.party_name ?? '',
     party_code: r.party_code ?? '',
+    category_name: r.category_name ?? '',
     amount: Number(r.amount ?? 0),
     mode: r.mode ?? '',
     reference: r.reference ?? '',
@@ -290,8 +300,10 @@ export default async function CashflowPage({
               <thead className="bg-cloud/40 text-ink-soft">
                 <tr>
                   <Th>Date</Th>
+                  <Th>Source</Th>
                   <Th>Direction</Th>
-                  <Th>Party</Th>
+                  <Th>Party / Bank</Th>
+                  <Th>Category</Th>
                   <Th className="text-right">Amount</Th>
                   <Th>Mode</Th>
                   <Th>Reference</Th>
@@ -301,14 +313,22 @@ export default async function CashflowPage({
               <tbody>
                 {recentFiltered.map(r => (
                   <tr
-                    key={r.payment_id ?? `${r.payment_no}-${r.payment_date}`}
+                    key={`${r.source_kind ?? 'x'}-${r.source_id ?? `${r.doc_no}-${r.event_date}`}`}
                     className="border-t border-cloud/40"
                   >
                     <Td>
-                      <div>{fmtDate(r.payment_date)}</div>
+                      <div>{fmtDate(r.event_date)}</div>
                       <div className="text-xs text-ink-mute">
                         {r.days_ago != null ? `${r.days_ago}d ago` : ''}
                       </div>
+                    </Td>
+                    <Td className="text-xs">
+                      <span className={'inline-flex items-center px-1.5 py-0.5 rounded ' +
+                        (r.source_kind === 'bank_entry'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-indigo-50 text-indigo-700')}>
+                        {r.source_kind === 'bank_entry' ? 'Bank' : 'Pmt'}
+                      </span>
                     </Td>
                     <Td>
                       <DirectionBadge dir={r.direction} />
@@ -320,6 +340,9 @@ export default async function CashflowPage({
                           .filter(Boolean)
                           .join(' · ')}
                       </div>
+                    </Td>
+                    <Td className="text-ink-soft text-xs">
+                      {r.category_name ?? (r.source_kind === 'payment' ? 'Party payment' : '—')}
                     </Td>
                     <Td className="text-right tabular-nums font-medium">
                       {fmtRupees(r.amount)}

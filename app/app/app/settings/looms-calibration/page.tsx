@@ -245,6 +245,11 @@ export default function LoomsCalibrationPage() {
         title="LOOMS Calibration"
         subtitle="The per-metre overhead used in True Cost for in-house fabric. Re-do this whenever EB rates, wages or loom hours change."
         crumbs={[{ label: 'Settings', href: '/app/settings' }, { label: 'LOOMS Calibration' }]}
+        actions={
+          <a href="/app/settings/looms-calibration/history" className="btn-secondary text-xs">
+            View change history
+          </a>
+        }
       />
 
       {/* Live total preview */}
