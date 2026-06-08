@@ -50,7 +50,14 @@ const REPORTS: ReportLink[] = [
     href: '/app/reports/cashflow',
     title: 'Cash-flow Snapshot',
     description:
-      'Money in vs out for 7/30/90 days, plus upcoming receivables and payables on both sides.',
+      'Money in vs out for 7/30/90 days, plus upcoming receivables and payables on both sides. Includes Bank Entries (EB, loan EMI, etc.).',
+    ready: true,
+  },
+  {
+    href: '/app/reports/pnl',
+    title: 'Period P&L',
+    description:
+      'Profit & Loss for any window — Revenue minus COGS, wages, factory expenses, bank expenses, plus other income. Net profit at the bottom. Balance-sheet items (cash withdrawals, loan principal, GST payment) are excluded.',
     ready: true,
   },
   {
