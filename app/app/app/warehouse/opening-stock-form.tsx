@@ -81,7 +81,13 @@ function describeRow(
   bobbinById: Map<number, BobbinMasterOpt>,
 ): string {
   if (r.bucket === 'warp_beam') {
-    if (r.warp_ends != null) return `${r.warp_ends} ends`;
+    if (r.warp_ends != null) {
+      // Composite key — show both ends + count so the operator can tell
+      // "1770 × 29s" apart from "1770 × 2/40s".
+      const c = r.yarn_count_id != null ? countById.get(r.yarn_count_id) : null;
+      const countLabel = c ? ` · ${c.code}` : '';
+      return `${r.warp_ends} ends${countLabel}`;
+    }
     if (r.fabric_quality_id != null) {
       const q = qualityById.get(r.fabric_quality_id);
       return q ? `${q.code ?? '?'} · ${q.name}` : `Quality #${r.fabric_quality_id}`;
@@ -154,6 +160,13 @@ export function OpeningStockForm({
         window.alert('Enter a positive warp ends count (e.g. 2400, 3600, 5000).');
         return;
       }
+      // Warp count is now part of the composite key. Without it, the
+      // pivot would collapse "1770 × 29s" and "1770 × 2/40s" onto the
+      // same column — exactly the bug we're fixing.
+      if (form.yarn_count_id === '') {
+        window.alert('Pick the warp yarn count — the pivot keys columns by (ends + count).');
+        return;
+      }
     }
     if ((bucket === 'weft_yarn' || bucket === 'porvai_yarn') && form.yarn_count_id === '') {
       window.alert('Pick a yarn count.');
@@ -177,15 +190,27 @@ export function OpeningStockForm({
       const bm = bobbinMasters.find((b) => b.id === Number(form.bobbin_id));
       if (bm?.ends_per_bobbin != null) endsPerBobbin = bm.ends_per_bobbin;
     }
+    // Resolve yarn_count_id for the row. For warp_beam it's the warp
+    // yarn count (composite key with warp_ends); for weft / porvai it's
+    // the single grouping key. Bobbin doesn't use it.
+    const resolvedYarnCountId =
+      bucket === 'warp_beam'
+        ? (form.yarn_count_id !== '' ? Number(form.yarn_count_id) : null)
+        : (bucket === 'weft_yarn' || bucket === 'porvai_yarn') && form.yarn_count_id !== ''
+        ? Number(form.yarn_count_id)
+        : null;
+
     const payload = {
       bucket,
       mode,
-      // warp_beam now keys on warp_ends — fabric_quality_id is intentionally
-      // left null for new entries so the pivot column lines up with pavu
-      // inflows.
+      // warp_beam now keys on (warp_ends + yarn_count_id) so two warps
+      // sharing the same ends count but different warp counts (e.g.
+      // 1770 × 29s vs 1770 × 2/40s) end up on separate pivot columns.
+      // fabric_quality_id is left null for new entries — kept around
+      // only for legacy rows entered before this change.
       warp_ends:         bucket === 'warp_beam' && form.warp_ends !== '' ? Number(form.warp_ends) : null,
       fabric_quality_id: null,
-      yarn_count_id:     (bucket === 'weft_yarn' || bucket === 'porvai_yarn') && form.yarn_count_id !== '' ? Number(form.yarn_count_id) : null,
+      yarn_count_id:     resolvedYarnCountId,
       bobbin_id:         bucket === 'bobbin' && form.bobbin_id !== '' ? Number(form.bobbin_id) : null,
       ends_per_bobbin:   bucket === 'bobbin' ? endsPerBobbin : null,
       quantity: qty,
@@ -227,7 +252,7 @@ export function OpeningStockForm({
             ? 'Sizing warehouse yarn stock grouped by yarn count. Opening balances appear as inflows on the pivot.'
             : (
               <>
-                {bucket === 'warp_beam'  && 'In-house warp metre stock grouped by warp ends. Opening balances flow as inflows into the pivot — same column as the matching pavu inflows.'}
+                {bucket === 'warp_beam'  && 'In-house warp metre stock grouped by (warp ends + warp count). Opening balances flow as inflows into the pivot — same column as the matching pavu inflows.'}
                 {bucket === 'weft_yarn'  && 'In-house weft yarn stock grouped by yarn count.'}
                 {bucket === 'porvai_yarn'&& 'In-house porvai yarn stock grouped by yarn count.'}
                 {bucket === 'bobbin'     && 'In-house bobbin stock grouped by ends per bobbin.'}
@@ -257,22 +282,40 @@ export function OpeningStockForm({
           </div>
 
           {bucket === 'warp_beam' && (
-            <div>
-              <label className="label text-xs">Warp Ends *</label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                placeholder="e.g. 2400"
-                className="input num h-9 text-sm"
-                value={form.warp_ends}
-                onChange={(e) => setForm({ ...form, warp_ends: e.target.value })}
-              />
-              <p className="text-[10px] text-ink-mute mt-1">
-                Matches pavu.ends so opening stock sits in the same column as pavu inflows.
-              </p>
-            </div>
+            <>
+              <div>
+                <label className="label text-xs">Warp Ends *</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="e.g. 2400"
+                  className="input num h-9 text-sm"
+                  value={form.warp_ends}
+                  onChange={(e) => setForm({ ...form, warp_ends: e.target.value })}
+                />
+                <p className="text-[10px] text-ink-mute mt-1">
+                  Matches pavu.ends.
+                </p>
+              </div>
+              <div>
+                <label className="label text-xs">Warp Count *</label>
+                <select
+                  className="input h-9 text-sm"
+                  value={form.yarn_count_id}
+                  onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}
+                >
+                  <option value="">--- select ---</option>
+                  {counts.map((c) => (
+                    <option key={c.id} value={c.id}>{c.code} - {c.display_name ?? ''}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-ink-mute mt-1">
+                  Combined with ends so &ldquo;1770 × 29s&rdquo; and &ldquo;1770 × 2/40s&rdquo; sit on separate pivot columns.
+                </p>
+              </div>
+            </>
           )}
 
           {(bucket === 'weft_yarn' || bucket === 'porvai_yarn') && (

@@ -1688,18 +1688,39 @@ async function loadInhouseOpeningStock(
     return id;
   };
 
+  /** Composite key for warp metre columns: (warp_ends + warp_count_id).
+   *  Two warps that share the ends number but use different warp counts
+   *  (e.g. 1770 × 29s vs 1770 × 2/40s) MUST land on separate pivot
+   *  columns — without this they collapse into one and the operator
+   *  can't tell them apart. countId is optional only so legacy rows
+   *  without a count still render somewhere. */
+  const ensureEndsCountCol = (ends: number, countId: number | null): string => {
+    const id = countId != null ? `ends:${ends}|yc:${countId}` : `ends:${ends}`;
+    if (!colMap.has(id)) {
+      const c = countId != null ? countById.get(countId) : null;
+      const countSuffix = c ? ` · ${c.code}` : '';
+      colMap.set(id, {
+        id,
+        label: `${ends} ends${countSuffix}`,
+        sublabel: c?.display_name ?? '',
+      });
+    }
+    return id;
+  };
+
   // ── 1. Opening stock inflows ────────────────────────────────────
   for (const r of openingRows) {
     let colId = 'unknown';
     let label = '(no key)';
     let sublabel = '';
     if (bucket === 'warp_beam') {
-      // Prefer warp_ends (new column, aligns with pavu.ends) so the
-      // opening entry lands on the same pivot column as the matching
-      // pavu inflows. Fall back to fabric_quality_id for legacy rows
-      // entered before the warp_ends column existed.
+      // Prefer the composite (warp_ends + yarn_count_id) key so warps
+      // with the same ends count but different warp counts (e.g.
+      // 1770 × 29s vs 1770 × 2/40s) sit on separate columns.
+      // Fall back to fabric_quality_id for legacy rows entered before
+      // the warp_ends column existed.
       if (r.warp_ends != null) {
-        colId = ensureEndsCol(Number(r.warp_ends));
+        colId = ensureEndsCountCol(Number(r.warp_ends), r.yarn_count_id);
         events.push({
           event_date: r.open_date ?? '',
           column_id: colId,
@@ -1817,23 +1838,30 @@ async function loadInhouseOpeningStock(
         .eq('production_mode', 'in_house')
         .eq('status', 'in_stock'),
     );
-    // Resolve each pavu's date from its sizing job's date_sent
-    // (fallback: pavu.created_at). One query for the sizing job set.
+    // Resolve each pavu's date AND warp_count_id from its sizing job.
+    // sizing_job.warp_count_id is what disambiguates pavu inflows with
+    // matching ends but different warp counts — feeding into the
+    // composite (ends + count) column key so they don't collide.
     const sizingJobIds = Array.from(new Set(
       inhousePavus.map((p) => p.sizing_job_id).filter((x): x is number => x != null),
     ));
-    const dateBySizingJob = new Map<number, string | null>();
+    const dateBySizingJob  = new Map<number, string | null>();
+    const countBySizingJob = new Map<number, number | null>();
     if (sizingJobIds.length > 0) {
-      const jobs = await safeSelect<{ id: number; date_sent: string | null }>(
-        supabase.from('sizing_job').select('id, date_sent').in('id', sizingJobIds),
+      const jobs = await safeSelect<{ id: number; date_sent: string | null; warp_count_id: number | null }>(
+        supabase.from('sizing_job').select('id, date_sent, warp_count_id').in('id', sizingJobIds),
       );
-      for (const j of jobs) dateBySizingJob.set(j.id, j.date_sent);
+      for (const j of jobs) {
+        dateBySizingJob.set(j.id, j.date_sent);
+        countBySizingJob.set(j.id, j.warp_count_id);
+      }
     }
     for (const p of inhousePavus) {
       const ends = Number(p.ends ?? 0);
       const meters = Number(p.meters ?? 0);
       if (ends <= 0 || meters <= 0) continue;
-      const colId = ensureEndsCol(ends);
+      const warpCountId = p.sizing_job_id != null ? (countBySizingJob.get(p.sizing_job_id) ?? null) : null;
+      const colId = ensureEndsCountCol(ends, warpCountId);
       const eventDate = (p.sizing_job_id != null ? dateBySizingJob.get(p.sizing_job_id) ?? null : null)
         ?? (p.created_at ?? '').slice(0, 10);
       events.push({
@@ -1865,13 +1893,39 @@ async function loadInhouseOpeningStock(
         `)
         .eq('dc.production_mode', 'inhouse'),
     );
+
+    // Resolve the primary warp count for every fabric_quality that
+    // appears in the receipts. fabric_quality_warp_count is a multi-row
+    // table (one row per sno) — we use sno=1 as the primary count.
+    // Multi-warp qualities will pick their first listed count; that
+    // matches the pavu side because pavu also locks to a single
+    // sizing_job.warp_count_id per beam.
+    const receiptQualityIds = Array.from(new Set(
+      receipts.flatMap((r) => (Array.isArray(r.items) ? r.items : []))
+        .map((it) => it.fabric_quality_id)
+        .filter((x): x is number => x != null),
+    ));
+    const warpCountByQuality = new Map<number, number | null>();
+    if (receiptQualityIds.length > 0) {
+      const links = await safeSelect<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>(
+        supabase.from('fabric_quality_warp_count')
+          .select('fabric_quality_id, yarn_count_id, sno')
+          .in('fabric_quality_id', receiptQualityIds)
+          .eq('sno', 1),
+      );
+      for (const l of links) warpCountByQuality.set(l.fabric_quality_id, l.yarn_count_id);
+    }
+
     for (const r of receipts) {
       const items = Array.isArray(r.items) ? r.items : [];
       for (const it of items) {
         const ends = Number(it.ends_count_snapshot ?? 0);
         const m    = Number(it.received_metres ?? 0);
         if (ends <= 0 || m <= 0) continue;
-        const colId = ensureEndsCol(ends);
+        const warpCountId = it.fabric_quality_id != null
+          ? (warpCountByQuality.get(it.fabric_quality_id) ?? null)
+          : null;
+        const colId = ensureEndsCountCol(ends, warpCountId);
         events.push({
           event_date: r.receipt_date ?? '',
           column_id: colId,
