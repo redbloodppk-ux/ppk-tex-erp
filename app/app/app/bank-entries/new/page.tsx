@@ -41,6 +41,19 @@ export default async function NewBankEntryPage() {
   });
   const bankList: LedgerOpt[] = bankFlat.length > 0 ? bankFlat : allFlat;
 
+  // Exclude PARTY-type ledgers from the "Other ledger" picker — those
+  // are handled by /app/payments. Bank Entries are strictly for non-
+  // party flows (EB, loan, GST, cash etc.). Filtering by type name so
+  // any new party-type added later stays excluded without code change.
+  const PARTY_TYPES = new Set([
+    'CUSTOMER', 'SUPPLIER', 'AGENT',
+    'JOB WORK(VENDOR)', 'SIZING(VENDOR)', 'WEAVING(VENDOR)',
+  ]);
+  const otherLedgersList: LedgerOpt[] = allFlat.filter((l) => {
+    const t = (l.type_name ?? '').toUpperCase();
+    return !PARTY_TYPES.has(t);
+  });
+
   return (
     <div className="max-w-2xl">
       <PageHeader
@@ -51,7 +64,7 @@ export default async function NewBankEntryPage() {
       <BankEntryForm
         categories={(cats ?? []) as BankCategoryOpt[]}
         bankLedgers={bankList}
-        allLedgers={allFlat}
+        allLedgers={otherLedgersList}
       />
     </div>
   );

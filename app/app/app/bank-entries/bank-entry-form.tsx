@@ -248,6 +248,8 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers }: 
           </select>
           <p className="text-[10px] text-ink-mute mt-1">
             E.g. for EB bill → &ldquo;EB Expense&rdquo;; for Loan EMI → &ldquo;Loan A/c&rdquo;; for Cash Withdraw → &ldquo;Cash in Hand&rdquo;.
+            <br />
+            <strong>Party ledgers (Customer, Supplier, Vendors) are hidden here</strong> — record those via Payments.
           </p>
         </div>
       </div>

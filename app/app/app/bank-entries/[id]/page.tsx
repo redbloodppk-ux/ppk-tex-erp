@@ -43,6 +43,20 @@ export default async function EditBankEntryPage({
   });
   const bankList: LedgerOpt[] = bankFlat.length > 0 ? bankFlat : allFlat;
 
+  // Hide party-type ledgers from the "Other ledger" picker — those
+  // belong to /app/payments, not Bank Entries. If an existing entry's
+  // other_ledger_id IS a party (legacy data created before the filter),
+  // we re-include just that one row so the edit form can show it.
+  const PARTY_TYPES = new Set([
+    'CUSTOMER', 'SUPPLIER', 'AGENT',
+    'JOB WORK(VENDOR)', 'SIZING(VENDOR)', 'WEAVING(VENDOR)',
+  ]);
+  const otherLedgersList: LedgerOpt[] = allFlat.filter((l) => {
+    if (row.other_ledger_id != null && l.id === row.other_ledger_id) return true;
+    const t = (l.type_name ?? '').toUpperCase();
+    return !PARTY_TYPES.has(t);
+  });
+
   return (
     <div className="max-w-2xl">
       <PageHeader
@@ -57,7 +71,7 @@ export default async function EditBankEntryPage({
         initial={row}
         categories={(cats ?? []) as BankCategoryOpt[]}
         bankLedgers={bankList}
-        allLedgers={allFlat}
+        allLedgers={otherLedgersList}
       />
     </div>
   );
