@@ -49,6 +49,16 @@ const dec = (s: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+interface SuggestResult {
+  power_per_m: number | string | null;
+  labour_per_m: number | string | null;
+  maintenance_per_m: number | string | null;
+  insurance_per_m: number | string | null;
+  metres: number | string | null;
+  period_from: string | null;
+  period_to: string | null;
+}
+
 export default function LoomsCalibrationPage() {
   const supabase = createClient();
   const [values, setValues] = useState<Breakdown>(EMPTY);
@@ -58,6 +68,13 @@ export default function LoomsCalibrationPage() {
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [savedAt, setSavedAt]   = useState<Date | null>(null);
+  // Auto-suggest state — populated when the operator clicks the
+  // "Suggest from last N days" button. Drives the live "Suggested"
+  // chip under each input (Step 2 of the Finance loop).
+  const [suggesting, setSuggesting]   = useState(false);
+  const [suggestions, setSuggestions] = useState<SuggestResult | null>(null);
+  const [suggestDays, setSuggestDays] = useState<number>(30);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   // ── load current breakdown ───────────────────────────────────────────────
   useEffect(() => {
@@ -112,6 +129,65 @@ export default function LoomsCalibrationPage() {
     return out;
   }, [values]);
   const hasErrors = Object.keys(errors).length > 0;
+
+  // ── suggest from real data (Bank Entries + Wages + Expenses) ────
+  async function loadSuggestions(days: number): Promise<void> {
+    setSuggestError(null);
+    setSuggesting(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { data, error: e } = await sb.rpc('fn_looms_calibration_suggest', { p_days_back: days });
+    setSuggesting(false);
+    if (e) { setSuggestError(e.message); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) { setSuggestError('No data returned.'); return; }
+    setSuggestions(row as SuggestResult);
+  }
+
+  /** Pick a sensible number from a suggestion column. NULL when source
+   *  data was missing (no in-house production in the window). */
+  function asMaybeNum(v: unknown): number | null {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /** Copy the four auto-fill fields into the form. Depreciation stays
+   *  as-is because there's no source data for it. */
+  function applySuggestions(): void {
+    if (!suggestions) return;
+    setValues((v) => ({
+      ...v,
+      power:       asMaybeNum(suggestions.power_per_m)       != null ? String(asMaybeNum(suggestions.power_per_m)!.toFixed(2))       : v.power,
+      labour:      asMaybeNum(suggestions.labour_per_m)      != null ? String(asMaybeNum(suggestions.labour_per_m)!.toFixed(2))      : v.labour,
+      maintenance: asMaybeNum(suggestions.maintenance_per_m) != null ? String(asMaybeNum(suggestions.maintenance_per_m)!.toFixed(2)) : v.maintenance,
+      insurance:   asMaybeNum(suggestions.insurance_per_m)   != null ? String(asMaybeNum(suggestions.insurance_per_m)!.toFixed(2))   : v.insurance,
+    }));
+  }
+
+  /** Apply a single field from suggestions (per-input "Use" link). */
+  function applyOne(id: keyof Breakdown): void {
+    if (!suggestions) return;
+    const map: Record<keyof Breakdown, number | null> = {
+      power:        asMaybeNum(suggestions.power_per_m),
+      labour:       asMaybeNum(suggestions.labour_per_m),
+      maintenance:  asMaybeNum(suggestions.maintenance_per_m),
+      insurance:    asMaybeNum(suggestions.insurance_per_m),
+      depreciation: null,
+    };
+    const next = map[id];
+    if (next == null) return;
+    setValues((v) => ({ ...v, [id]: String(next.toFixed(2)) }));
+  }
+
+  // Map breakdown field → suggested ₹/m (or null when unavailable).
+  const suggestedFor: Record<keyof Breakdown, number | null> = suggestions ? {
+    power:        asMaybeNum(suggestions.power_per_m),
+    labour:       asMaybeNum(suggestions.labour_per_m),
+    maintenance:  asMaybeNum(suggestions.maintenance_per_m),
+    insurance:    asMaybeNum(suggestions.insurance_per_m),
+    depreciation: null,
+  } : { power: null, labour: null, maintenance: null, insurance: null, depreciation: null };
 
   // ── save ─────────────────────────────────────────────────────────────────
   async function onSave() {
@@ -187,12 +263,69 @@ export default function LoomsCalibrationPage() {
         </div>
       </div>
 
+      {/* Auto-suggest from real data (Step 2 of the Finance loop) */}
+      <div className="card p-5 space-y-3 border border-emerald-100 bg-emerald-50/30">
+        <div className="flex items-baseline justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="font-display font-bold text-base text-emerald-900">Auto-suggest from real data</h2>
+            <p className="text-xs text-ink-soft mt-0.5">
+              Pulls actual bank entries, wages, and expenses divided by in-house produced metres.
+              The suggestion shows under each input; click <strong>Use</strong> to copy, or <strong>Apply all</strong> at once.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-ink-soft">Window</label>
+            <select
+              value={suggestDays}
+              onChange={(e) => setSuggestDays(Number(e.target.value))}
+              className="input py-1 text-xs"
+              disabled={suggesting}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={14}>Last 14 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={60}>Last 60 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void loadSuggestions(suggestDays)}
+              disabled={suggesting}
+              className="btn-secondary text-xs"
+            >
+              {suggesting ? 'Loading\u2026' : 'Suggest'}
+            </button>
+          </div>
+        </div>
+        {suggestError && (
+          <div className="text-xs text-rose-700">Suggest failed: {suggestError}</div>
+        )}
+        {suggestions && (
+          <div className="flex items-center justify-between flex-wrap gap-3 pt-1 border-t border-emerald-200">
+            <div className="text-xs text-ink-soft">
+              Window: <strong>{suggestions.period_from ?? '?'}</strong> to <strong>{suggestions.period_to ?? '?'}</strong>{' '}
+              · In-house metres produced: <strong className="num">{Number(suggestions.metres ?? 0).toFixed(0)}</strong>
+              {Number(suggestions.metres ?? 0) === 0 && (
+                <span className="ml-2 text-amber-700">
+                  (no in-house production in this window — suggestions blank)
+                </span>
+              )}
+            </div>
+            <button type="button" onClick={applySuggestions} className="btn-primary text-xs">
+              Apply all four
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Editor */}
       <div className="card p-5 space-y-4">
         <h2 className="font-display font-bold text-base">Breakdown (₹ per metre)</h2>
 
         <div className="grid sm:grid-cols-2 gap-4">
-          {FIELDS.map(f => (
+          {FIELDS.map(f => {
+            const suggested = suggestedFor[f.id];
+            return (
             <div key={f.id}>
               <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">{f.label}</label>
               <div className="relative mt-1">
@@ -208,11 +341,24 @@ export default function LoomsCalibrationPage() {
                 />
               </div>
               <p className="text-[11px] text-ink-mute mt-1">{f.hint}</p>
+              {suggested != null && (
+                <div className="mt-1 inline-flex items-center gap-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                  <span>Suggested: \u20B9{suggested.toFixed(2)}/m</span>
+                  <button
+                    type="button"
+                    onClick={() => applyOne(f.id)}
+                    className="text-emerald-700 hover:text-emerald-900 underline text-[11px] font-bold"
+                  >
+                    Use
+                  </button>
+                </div>
+              )}
               {errors[f.id] && (
                 <p className="text-[11px] text-red-600 mt-1 font-semibold">{errors[f.id]}</p>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Summary table */}
