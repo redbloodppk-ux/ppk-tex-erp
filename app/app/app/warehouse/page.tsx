@@ -175,7 +175,10 @@ export default async function WarehousePage({
     })(),
     supabase.from('customer').select('id, name').eq('status', 'active').order('name'),
     supabase.from('yarn_count').select('id, code, display_name, reorder_kg').eq('status', 'active').order('code'),
-    supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('status', 'active').order('code'),
+    // Restricted to in-house bobbins so the in-house warehouse forms
+    // only surface bobbins from the in-house stream. Jobwork/outsource
+    // tabs query the bobbin master directly with their own mode filter.
+    supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('production_mode', 'inhouse').eq('status', 'active').order('code'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     // Filter the party master to the kind that matches the active
     // mode — jobwork-typed for /warehouse?mode=jobwork and
@@ -184,14 +187,29 @@ export default async function WarehousePage({
     (supabase as any).from('jobwork_party').select('id, code, name, kind').eq('status', 'active').eq('kind', partyKind).order('name'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
-    // bobbin_ends_master — drives the "Ends per bobbin" dropdown on
-    // the bobbin opening stock form. Only active rows are surfaced.
+    // Bobbin master filtered to production_mode='inhouse' — drives the
+    // "Bobbin" dropdown on the in-house bobbin opening stock form so the
+    // operator only picks from bobbins in the in-house stream.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from('bobbin_ends_master').select('id, ends_count, label').eq('active', true).order('ends_count'),
+    (supabase as any).from('bobbin')
+      .select('id, code, ends_per_bobbin, bobbin_metre, is_lurex')
+      .eq('production_mode', 'inhouse')
+      .neq('status', 'archived')
+      .order('ends_per_bobbin'),
   ]);
 
-  const bobbinEnds: BobbinEndsOpt[] = ((bobbinEndsRaw ?? []) as Array<{ id: number; ends_count: number; label: string }>)
-    .map((r) => ({ id: r.id, ends_count: r.ends_count, label: r.label }));
+  // Re-shape into the existing BobbinEndsOpt shape consumed by the
+  // form. ends_count carries ends_per_bobbin so the opening_stock row
+  // is saved with the right integer; id is the bobbin master id so the
+  // form can save bobbin_id directly.
+  const bobbinEnds: BobbinEndsOpt[] = ((bobbinEndsRaw ?? []) as Array<{
+    id: number; code: string; ends_per_bobbin: number;
+    bobbin_metre: number | null; is_lurex: boolean | null
+  }>).map((r) => ({
+    id: r.id,
+    ends_count: r.ends_per_bobbin,
+    label: `${r.code} (${r.ends_per_bobbin} ends${r.bobbin_metre ? ` · ${r.bobbin_metre} m/pc` : ''}${r.is_lurex ? ' · lurex' : ''})`,
+  }));
 
   // ─── Low-stock alerts (cross-cutting, in-house only) ──────────────────────
   // Alerts cover yarn_count.reorder_kg and bobbin.reorder_pieces which

@@ -223,9 +223,11 @@ export default function JobworkPage(): React.ReactElement {
       // weaving consumed the yarn. We aggregate these per bobbin in
       // BobbinTab to show "Returned" counts.
       sb.from('bobbin_return').select('id, bobbin_id, supplier_party_id, jobwork_party_id, return_date, quantity_pcs, reference_no, notes').eq('status', 'active').order('return_date', { ascending: false }),
-      // Bobbin master is 1:1 with bobbin_ends_master after migration 140.
-      // Used to populate the "Pick bobbin" dropdown on the Add form.
-      sb.from('bobbin').select('id, code, ends_per_bobbin, bobbin_metre, is_lurex').neq('status', 'archived').order('ends_per_bobbin'),
+      // Bobbin master filtered to production_mode = the current variant
+      // (jobwork on /app/jobwork, outsource on /app/outsource). Migration
+      // 142 makes bobbin one row per (ends, mode), so the same page can
+      // service both flows by just changing the eq below.
+      sb.from('bobbin').select('id, code, ends_per_bobbin, bobbin_metre, is_lurex').eq('production_mode', variant.kind).neq('status', 'archived').order('ends_per_bobbin'),
     ]);
     // Don't propagate the bobbin_return error if migration 093 hasn't
     // been applied yet - we just treat it as empty.
