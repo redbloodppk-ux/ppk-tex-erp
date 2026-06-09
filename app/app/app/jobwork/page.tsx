@@ -597,8 +597,17 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   // across every line item in this submission. Items[] holds one
   // entry per bobbin spec, each with its own quantity. One Save
   // inserts N rows into jobwork_bobbin_issue in a single Promise.all.
-  interface AddItem { bobbin_id: string; qty: string }
-  function makeEmptyItem(): AddItem { return { bobbin_id: '', qty: '' }; }
+  interface AddItem {
+    bobbin_id: string;
+    qty: string;
+    /** Metres per piece. Prefills from the bobbin master when a bobbin
+     *  is picked, but the operator can override (partial bobbin /
+     *  short piece / typo correction). Used only for the in-form
+     *  Total m calculation — the bobbin master's m/pc is the canonical
+     *  value and is not changed by editing this field. */
+    metre_per_pc: string;
+  }
+  function makeEmptyItem(): AddItem { return { bobbin_id: '', qty: '', metre_per_pc: '' }; }
   const [addForm, setAddForm] = useState<{
     jobwork_party_id: string;
     purchase_date: string;
@@ -640,6 +649,16 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       ...f,
       items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
     }));
+  }
+
+  // When the operator picks a bobbin we prefill metre_per_pc from the
+  // bobbin master. The form's metre_per_pc field remains editable so
+  // a partial bobbin or typo can be corrected for this submission's
+  // total calculation only.
+  function pickBobbinForItem(idx: number, bobbinId: string): void {
+    const bm = bobbinId === '' ? null : bobbinMasters.find((m) => m.id === Number(bobbinId)) ?? null;
+    const prefill = bm?.bobbin_metre != null ? String(bm.bobbin_metre) : '';
+    patchItem(idx, { bobbin_id: bobbinId, metre_per_pc: prefill });
   }
 
   async function addBobbin(): Promise<void> {
@@ -839,16 +858,20 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
             </div>
           </div>
 
-          {/* Line items: one row per bobbin spec being issued */}
+          {/* Line items: one row per bobbin spec being issued. Column
+              order Bobbin → Qty → M/pc → Total m so the operator
+              reads the same way they think: "BB-JW-36, 10 pcs of
+              2000 m/pc = 20,000 m". M/pc prefills from the master but
+              is editable so partial bobbins / short pieces can be
+              entered. */}
           <div className="border border-line/40 rounded-md overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
                 <tr>
                   <th className="px-2 py-2 text-left w-10">#</th>
                   <th className="px-2 py-2 text-left">Bobbin *</th>
-                  <th className="px-2 py-2 text-right">Ends</th>
-                  <th className="px-2 py-2 text-right">M/pc</th>
                   <th className="px-2 py-2 text-right">Qty (pcs) *</th>
+                  <th className="px-2 py-2 text-right">M/pc</th>
                   <th className="px-2 py-2 text-right">Total m</th>
                   <th className="px-2 py-2 w-12" />
                 </tr>
@@ -857,7 +880,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                 {addForm.items.map((it, idx) => {
                   const bm = it.bobbin_id === '' ? null : bobbinMasters.find((m) => m.id === Number(it.bobbin_id)) ?? null;
                   const qtyN = Number(it.qty || 0);
-                  const perPc = Number(bm?.bobbin_metre ?? 0);
+                  const perPc = Number(it.metre_per_pc || 0);
                   const totalM = qtyN > 0 && perPc > 0 ? qtyN * perPc : 0;
                   return (
                     <tr key={idx} className="border-t border-line/40">
@@ -866,18 +889,16 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         <select
                           className="input h-8 text-xs w-full"
                           value={it.bobbin_id}
-                          onChange={(e) => patchItem(idx, { bobbin_id: e.target.value })}
+                          onChange={(e) => pickBobbinForItem(idx, e.target.value)}
                         >
                           <option value="">--- pick ---</option>
                           {bobbinMasters.map((b) => (
                             <option key={b.id} value={b.id}>
-                              {b.code}{b.is_lurex ? ' · lurex' : ''}
+                              {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
                             </option>
                           ))}
                         </select>
                       </td>
-                      <td className="px-2 py-1.5 text-right num text-xs text-ink-soft">{bm ? bm.ends_per_bobbin : '—'}</td>
-                      <td className="px-2 py-1.5 text-right num text-xs text-ink-soft">{bm?.bobbin_metre ?? '—'}</td>
                       <td className="px-2 py-1.5">
                         <input
                           type="number"
@@ -885,6 +906,17 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                           className="input num h-8 text-xs w-24 text-right"
                           value={it.qty}
                           onChange={(e) => patchItem(idx, { qty: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="input num h-8 text-xs w-24 text-right"
+                          value={it.metre_per_pc}
+                          placeholder={bm?.bobbin_metre != null ? String(bm.bobbin_metre) : ''}
+                          onChange={(e) => patchItem(idx, { metre_per_pc: e.target.value })}
                         />
                       </td>
                       <td className="px-2 py-1.5 text-right num text-xs font-semibold">
@@ -907,7 +939,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               </tbody>
               <tfoot className="bg-cloud/30 border-t border-line/40">
                 <tr>
-                  <td colSpan={5} className="px-2 py-2">
+                  <td colSpan={4} className="px-2 py-2">
                     <button
                       type="button"
                       onClick={addItemRow}
@@ -919,9 +951,8 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {(() => {
                       const grand = addForm.items.reduce((s, it) => {
-                        const bm = it.bobbin_id === '' ? null : bobbinMasters.find((m) => m.id === Number(it.bobbin_id));
                         const qtyN = Number(it.qty || 0);
-                        const perPc = Number(bm?.bobbin_metre ?? 0);
+                        const perPc = Number(it.metre_per_pc || 0);
                         return s + (qtyN > 0 && perPc > 0 ? qtyN * perPc : 0);
                       }, 0);
                       return grand > 0 ? grand.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' m' : '—';
@@ -934,7 +965,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           <p className="text-[10px] text-ink-mute">
-            Bobbin list is managed in Settings &rarr; Bobbin Ends Master. Ends and M/pc come from the bobbin master and can&apos;t be edited here.
+            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces — the master value is not changed.
           </p>
 
           <div className="flex items-center justify-end gap-2">
