@@ -2225,36 +2225,46 @@ async function loadJobworkBobbin(
   if (partyIdSet.length === 0) {
     return { unit: 'm', columns: [], events: [] };
   }
-  let bobs = await safeSelect<{
-    id: number; code: string; description: string | null;
-    jobwork_party_id: number | null; quantity: number | string | null;
-    original_quantity?: number | string | null;
-    bobbin_metre: number | string | null; ends_per_bobbin: number | null;
-    purchase_date: string | null;
+  // Inflows now come from jobwork_bobbin_issue (one row per "give N pieces
+  // of bobbin X to party Y on date Z" event). The bobbin master is joined
+  // for its code + ends_per_bobbin + bobbin_metre. Previously the bobbin
+  // master itself was overloaded with these rows; migration 141 separates
+  // the concerns.
+  const issues = await safeSelect<{
+    id: number; jobwork_party_id: number;
+    pieces_issued: number | string | null;
+    original_pieces: number | string | null;
+    issue_date: string | null;
+    reference_no: string | null; notes: string | null;
+    bobbin: {
+      id: number; code: string | null;
+      ends_per_bobbin: number | null;
+      bobbin_metre: number | string | null;
+    } | null;
   }>(
     (() => {
       let q = supabase
-        .from('bobbin')
-        .select('id, code, description, jobwork_party_id, quantity, original_quantity, bobbin_metre, ends_per_bobbin, purchase_date')
-        .eq('production_mode', 'jobwork')
+        .from('jobwork_bobbin_issue')
+        .select(`id, jobwork_party_id, pieces_issued, original_pieces, issue_date, reference_no, notes,
+                 bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre )`)
+        .eq('status', 'active')
         .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       return q;
     })(),
   );
-  if (bobs.length === 0) {
-    bobs = await safeSelect(
-      (() => {
-        let q = supabase
-          .from('bobbin')
-          .select('id, code, description, jobwork_party_id, quantity, bobbin_metre, ends_per_bobbin, purchase_date')
-          .eq('production_mode', 'jobwork')
-          .in('jobwork_party_id', partyIdSet);
-        if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
-        return q;
-      })(),
-    );
-  }
+  // Re-shape into the bob[] flat structure the rest of the loader uses.
+  const bobs = issues.map((r) => ({
+    id: r.id,
+    code: r.bobbin?.code ?? `JB-${r.id}`,
+    description: r.notes,
+    jobwork_party_id: r.jobwork_party_id,
+    quantity: r.pieces_issued,
+    original_quantity: r.original_pieces,
+    bobbin_metre: r.bobbin?.bobbin_metre ?? null,
+    ends_per_bobbin: r.bobbin?.ends_per_bobbin ?? null,
+    purchase_date: r.issue_date,
+  }));
 
   const outRows = await safeSelect<{
     bobbin_id: number | null; quantity: number | string | null;

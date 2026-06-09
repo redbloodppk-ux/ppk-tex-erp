@@ -71,7 +71,13 @@ interface CountOpt { id: number; code: string; display_name: string; }
 interface FabricDefaults { warp_count_id: number | null; ends_id: number | null; total_ends: number | null; }
 
 interface BobbinRow {
-  id: number; code: string; description: string;
+  /** jobwork_bobbin_issue.id (migration 141). One row per
+   *  "issued N pieces of bobbin X to party Y on date Z" event. */
+  id: number;
+  /** Canonical bobbin master id (BB-<ends>) this issue refers to.
+   *  Used by Restock to clone the row and by the master dropdown. */
+  bobbin_id: number;
+  code: string; description: string;
   ends_per_bobbin: number; bobbin_metre: number; quantity: number; gst_pct: number;
   bobbin_price: number; jobwork_party_id: number | null; vendor_id: number | null;
   /** Unified-party FK pointing at the bobbin supplier. Selected on
@@ -84,6 +90,14 @@ interface BobbinRow {
    *  the read-only "history" display so reductions by fabric receipts
    *  don't shrink the issued quantity shown on this page. */
   original_quantity: number | null;
+}
+
+interface BobbinMasterOpt {
+  id: number;
+  code: string;
+  ends_per_bobbin: number;
+  bobbin_metre: number | null;
+  is_lurex: boolean;
 }
 interface WarpBeamRow {
   id: number; jobwork_party_id: number;
@@ -155,6 +169,7 @@ export default function JobworkPage(): React.ReactElement {
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [counts, setCounts] = useState<CountOpt[]>([]);
   const [bobbins, setBobbins] = useState<BobbinRow[]>([]);
+  const [bobbinMasters, setBobbinMasters] = useState<BobbinMasterOpt[]>([]);
   const [bobbinReturns, setBobbinReturns] = useState<BobbinReturnRow[]>([]);
   const [warpBeams, setWarpBeams] = useState<WarpBeamRow[]>([]);
   const [weftBags, setWeftBags] = useState<WeftBagRow[]>([]);
@@ -178,7 +193,7 @@ export default function JobworkPage(): React.ReactElement {
     const bobbinSupplierTypeId = ptList.find((t) => t.name === 'Bobbin Supplier')?.id ?? null;
     const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
-    const [p, ap, bs, sp, q, c, b, w, wb, br] = await Promise.all([
+    const [p, ap, bs, sp, q, c, b, w, wb, br, bm] = await Promise.all([
       // Filter jobwork_party by kind so the same code services both
       // /app/jobwork (kind='jobwork') and /app/outsource (kind='outsource').
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').eq('kind', variant.kind).order('name'),
@@ -194,17 +209,27 @@ export default function JobworkPage(): React.ReactElement {
       // form when a fabric is picked.
       sb.from('fabric_quality').select('id, code, name, calc_snapshot').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
-      sb.from('bobbin').select('id, code, description, ends_per_bobbin, bobbin_metre, quantity, original_quantity, gst_pct, bobbin_price, jobwork_party_id, vendor_id, supplier_party_id, purchase_date, invoice_no, is_lurex, notes').eq('production_mode', 'jobwork').neq('status', 'archived').order('purchase_date', { ascending: false, nullsFirst: false }),
+      // Bobbin Given = events from jobwork_bobbin_issue (migration 141).
+      // The bobbin master is joined so the row still carries
+      // ends_per_bobbin / bobbin_metre / code / is_lurex for display —
+      // those properties belong to the bobbin master, not the issue
+      // event. We reshape the result into BobbinRow below so the
+      // existing BobbinTab UI keeps working.
+      sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, supplier_party_id, reference_no, notes,
+              bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
       // BobbinTab to show "Returned" counts.
       sb.from('bobbin_return').select('id, bobbin_id, supplier_party_id, jobwork_party_id, return_date, quantity_pcs, reference_no, notes').eq('status', 'active').order('return_date', { ascending: false }),
+      // Bobbin master is 1:1 with bobbin_ends_master after migration 140.
+      // Used to populate the "Pick bobbin" dropdown on the Add form.
+      sb.from('bobbin').select('id, code, ends_per_bobbin, bobbin_metre, is_lurex').neq('status', 'archived').order('ends_per_bobbin'),
     ]);
     // Don't propagate the bobbin_return error if migration 093 hasn't
     // been applied yet - we just treat it as empty.
-    const errObj = [p, ap, bs, sp, q, c, b, w, wb].find((r) => r.error);
+    const errObj = [p, ap, bs, sp, q, c, b, w, wb, bm].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
     } else {
@@ -236,7 +261,41 @@ export default function JobworkPage(): React.ReactElement {
       setQualities(qRows.map((r) => ({ id: r.id, code: r.code, name: r.name })));
       setCounts((c.data ?? []) as CountOpt[]);
       setFabricDefaults(defaults);
-      setBobbins((b.data ?? []) as BobbinRow[]);
+      // Reshape jobwork_bobbin_issue rows into BobbinRow so the
+      // existing BobbinTab UI can render them without further changes.
+      // The id is the issue id (writes/updates use this); bobbin_id is
+      // the canonical master.
+      type IssueWithBobbin = {
+        id: number; jobwork_party_id: number; bobbin_id: number;
+        issue_date: string | null;
+        pieces_issued: number | string | null;
+        original_pieces: number | string | null;
+        supplier_party_id: number | null;
+        reference_no: string | null; notes: string | null;
+        bobbin: { id: number; code: string | null; ends_per_bobbin: number | null;
+                  bobbin_metre: number | string | null; is_lurex: boolean | null } | null;
+      };
+      const reshaped: BobbinRow[] = ((b.data ?? []) as IssueWithBobbin[]).map((r) => ({
+        id: r.id,
+        bobbin_id: r.bobbin_id,
+        code: r.bobbin?.code ?? `JB-${r.id}`,
+        description: r.notes ?? '',
+        ends_per_bobbin: Number(r.bobbin?.ends_per_bobbin ?? 0),
+        bobbin_metre: Number(r.bobbin?.bobbin_metre ?? 0),
+        quantity: Number(r.pieces_issued ?? 0),
+        gst_pct: 0,
+        bobbin_price: 0,
+        jobwork_party_id: r.jobwork_party_id,
+        vendor_id: null,
+        supplier_party_id: r.supplier_party_id,
+        purchase_date: r.issue_date,
+        invoice_no: r.reference_no,
+        is_lurex: Boolean(r.bobbin?.is_lurex ?? false),
+        notes: r.notes,
+        original_quantity: r.original_pieces == null ? null : Number(r.original_pieces),
+      }));
+      setBobbins(reshaped);
+      setBobbinMasters((bm.data ?? []) as BobbinMasterOpt[]);
       setWarpBeams((w.data ?? []) as WarpBeamRow[]);
       setWeftBags((wb.data ?? []) as WeftBagRow[]);
       // bobbin_return table may not exist yet (migration 093). Tolerate
@@ -298,6 +357,7 @@ export default function JobworkPage(): React.ReactElement {
           partyById={partyById}
           bobbinSuppliers={bobbinSuppliers}
           allParties={allParties}
+          bobbinMasters={bobbinMasters}
           partyLabel={variant.partyLabel}
           onChanged={load}
         />
@@ -496,9 +556,14 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
 }
 
 /* ===== Bobbin tab ===== */
-function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, partyLabel, onChanged }: {
+function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobbinMasters, partyLabel, onChanged }: {
   rows: BobbinRow[]; returns: BobbinReturnRow[];
   partyById: Map<number, PartyOpt>; bobbinSuppliers: PartyOpt[]; allParties: PartyOpt[];
+  /** Canonical bobbin master list (1:1 with bobbin_ends_master). Used
+   *  to populate the "Pick bobbin" dropdown on the Add and Restock
+   *  forms so the operator selects an existing spec rather than typing
+   *  ends / metres / price every time. */
+  bobbinMasters: BobbinMasterOpt[];
   /** Label for the dropdown that picks which party to give the bobbin
    *  to — "Jobwork Party" on /app/jobwork, "Outsourcing party" on
    *  /app/outsource. */
@@ -525,44 +590,34 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
   // the table isn't pushed down by an empty form on first load.
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [addBusy, setAddBusy] = useState<boolean>(false);
+  // Add form now picks a canonical bobbin from the master dropdown
+  // (1:1 with bobbin_ends_master) instead of typing ends / metre /
+  // price every time. Properties like is_lurex live on the master, so
+  // the form only collects the per-issue facts: party, bobbin, date,
+  // pieces, supplier, notes.
   const [addForm, setAddForm] = useState<{
     jobwork_party_id: string;
-    description: string;
-    ends_per_bobbin: string;
-    bobbin_metre: string;
+    bobbin_id: string;
     quantity: string;
-    bobbin_price: string;
-    gst_pct: string;
     purchase_date: string;
     supplier_party_id: string;
-    is_lurex: boolean;
     notes: string;
   }>({
     jobwork_party_id: '',
-    description: '',
-    ends_per_bobbin: '',
-    bobbin_metre: '',
+    bobbin_id: '',
     quantity: '',
-    bobbin_price: '',
-    gst_pct: '0',
     purchase_date: todayISO(),
     supplier_party_id: '',
-    is_lurex: false,
     notes: '',
   });
 
   function resetAddForm(): void {
     setAddForm({
       jobwork_party_id: '',
-      description: '',
-      ends_per_bobbin: '',
-      bobbin_metre: '',
+      bobbin_id: '',
       quantity: '',
-      bobbin_price: '',
-      gst_pct: '0',
       purchase_date: todayISO(),
       supplier_party_id: '',
-      is_lurex: false,
       notes: '',
     });
   }
@@ -570,29 +625,27 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
   async function addBobbin(): Promise<void> {
     const partyId = addForm.jobwork_party_id === '' ? null : Number(addForm.jobwork_party_id);
     if (partyId === null) { window.alert('Select a jobwork party.'); return; }
-    const ends = Number(addForm.ends_per_bobbin || 0);
-    const perPc = Number(addForm.bobbin_metre || 0);
+    const bobbinId = addForm.bobbin_id === '' ? null : Number(addForm.bobbin_id);
+    if (bobbinId === null) { window.alert('Pick a bobbin from the master list.'); return; }
     const qty = Number(addForm.quantity || 0);
     if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
     setAddBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+    // Writes a jobwork_bobbin_issue row (migration 141). The bobbin
+    // master row itself is never touched — only the issue log grows.
     const payload = {
-      description: addForm.description || `${ends} ends × ${perPc} m`,
-      ends_per_bobbin: ends,
-      bobbin_metre: perPc,
-      bobbin_price: Number(addForm.bobbin_price || 0),
-      gst_pct: Number(addForm.gst_pct || 0),
-      quantity: Math.trunc(qty),
       jobwork_party_id: partyId,
+      bobbin_id: bobbinId,
+      issue_date: addForm.purchase_date,
+      pieces_issued: qty,
+      original_pieces: qty,
       supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
-      production_mode: 'jobwork',
-      purchase_date: addForm.purchase_date,
-      is_lurex: addForm.is_lurex,
+      reference_no: null,
       notes: addForm.notes || null,
       status: 'active',
     };
-    const { error } = await sb.from('bobbin').insert(payload);
+    const { error } = await sb.from('jobwork_bobbin_issue').insert(payload);
     setAddBusy(false);
     if (error) { window.alert('Add failed: ' + error.message); return; }
     resetAddForm();
@@ -606,24 +659,21 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
     const qty = Number(data.qty.qty ?? 0);
     if (qty <= 0) { window.alert('Quantity required'); return; }
     const supplierPartyId = data.supplier_party_id === '' ? null : Number(data.supplier_party_id);
+    // Restock = a fresh jobwork_bobbin_issue row pointing at the same
+    // canonical bobbin master. We never spawn a new bobbin code.
     const payload = {
-      description: parent.description,
-      ends_per_bobbin: parent.ends_per_bobbin,
-      bobbin_metre: parent.bobbin_metre,
-      bobbin_price: parent.bobbin_price,
-      gst_pct: parent.gst_pct,
-      quantity: Math.trunc(qty),
-      // New unified-party FK; legacy mill vendor_id stays null on restocks.
-      supplier_party_id: supplierPartyId,
       jobwork_party_id: parent.jobwork_party_id,
-      production_mode: 'jobwork',
-      purchase_date: data.given_date,
-      invoice_no: `RESTOCK-${parent.code}`,
-      is_lurex: parent.is_lurex,
-      notes: 'Restock of ' + parent.code + (supplierPartyId !== null ? ' from party #' + supplierPartyId : ''),
+      bobbin_id: parent.bobbin_id,
+      issue_date: data.given_date,
+      pieces_issued: qty,
+      original_pieces: qty,
+      supplier_party_id: supplierPartyId,
+      reference_no: `RESTOCK-${parent.code}`,
+      notes: 'Restock of ' + parent.code
+             + (supplierPartyId !== null ? ' from party #' + supplierPartyId : ''),
       status: 'active',
     };
-    const { error } = await sb.from('bobbin').insert(payload);
+    const { error } = await sb.from('jobwork_bobbin_issue').insert(payload);
     if (error) { window.alert('Restock failed: ' + error.message); return; }
     setRestockId(null);
     onChanged();
@@ -633,22 +683,19 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
     if (!editForm) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Editing the issued qty resets BOTH original_quantity (the
-    // history value) and quantity (the live balance) so the corrected
-    // value reflects everywhere. Any past stock-reduction math against
-    // this row should be reviewed by the operator separately.
+    // Editing the issued qty resets BOTH original_pieces (the history
+    // value) and pieces_issued (the live balance). The bobbin master
+    // properties (ends, metre, lurex) live on the bobbin master and are
+    // not editable from this form — they belong to a different concern.
     const editedQty = Number(editForm.original_quantity ?? editForm.quantity ?? 0);
     const payload = {
-      description: editForm.description,
-      ends_per_bobbin: editForm.ends_per_bobbin,
-      bobbin_metre: editForm.bobbin_metre,
-      original_quantity: editedQty,
-      quantity: editedQty,
       jobwork_party_id: editForm.jobwork_party_id,
-      purchase_date: editForm.purchase_date,
-      bobbin_price: editForm.bobbin_price,
+      issue_date: editForm.purchase_date,
+      pieces_issued: editedQty,
+      original_pieces: editedQty,
+      notes: editForm.notes,
     };
-    const { error } = await sb.from('bobbin').update(payload).eq('id', editForm.id);
+    const { error } = await sb.from('jobwork_bobbin_issue').update(payload).eq('id', editForm.id);
     if (error) { window.alert('Save failed: ' + error.message); return; }
     setEditingId(null);
     setEditForm(null);
@@ -660,8 +707,8 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     // Soft-delete by status flip - matches what the page already filters
-    // out via .neq('status', 'archived').
-    const { error } = await sb.from('bobbin').update({ status: 'archived' }).eq('id', id);
+    // out via .eq('status', 'active').
+    const { error } = await sb.from('jobwork_bobbin_issue').update({ status: 'archived' }).eq('id', id);
     if (error) { window.alert('Delete failed: ' + error.message); return; }
     onChanged();
   }
@@ -698,9 +745,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
         </button>
       </div>
 
-      {/* Inline add form. Mirrors the WarpBeam/WeftBag tabs' inline
-          create pattern. Inserts directly into the bobbin table with
-          production_mode='jobwork'. */}
+      {/* Inline add form. Inserts a jobwork_bobbin_issue row (migration
+          141). The bobbin master picker replaces the old free-text
+          ends/metre/price/lurex fields — those properties live on the
+          canonical bobbin row and shouldn't be re-typed per issue. */}
       {showAdd && (
         <div className="card p-3 mb-3 grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
@@ -717,32 +765,22 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
             </select>
           </div>
           <div>
-            <label className="label text-xs">Description</label>
-            <input
+            <label className="label text-xs">Bobbin *</label>
+            <select
               className="input h-9 text-sm"
-              placeholder="e.g. 30 ends 100 m"
-              value={addForm.description}
-              onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label text-xs">Ends per bobbin *</label>
-            <input
-              type="number"
-              className="input num h-9 text-sm"
-              value={addForm.ends_per_bobbin}
-              onChange={(e) => setAddForm({ ...addForm, ends_per_bobbin: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label text-xs">Metres per piece *</label>
-            <input
-              type="number"
-              step={0.01}
-              className="input num h-9 text-sm"
-              value={addForm.bobbin_metre}
-              onChange={(e) => setAddForm({ ...addForm, bobbin_metre: e.target.value })}
-            />
+              value={addForm.bobbin_id}
+              onChange={(e) => setAddForm({ ...addForm, bobbin_id: e.target.value })}
+            >
+              <option value="">--- pick from master ---</option>
+              {bobbinMasters.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code} ({b.ends_per_bobbin} ends{b.bobbin_metre ? ` · ${b.bobbin_metre} m/pc` : ''}{b.is_lurex ? ' · lurex' : ''})
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-ink-mute mt-1">
+              Manage list in Settings &rarr; Bobbin Ends Master.
+            </p>
           </div>
           <div>
             <label className="label text-xs">Quantity (pcs) *</label>
@@ -754,17 +792,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
             />
           </div>
           <div>
-            <label className="label text-xs">Bobbin price (Rs)</label>
-            <input
-              type="number"
-              step={0.01}
-              className="input num h-9 text-sm"
-              value={addForm.bobbin_price}
-              onChange={(e) => setAddForm({ ...addForm, bobbin_price: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label text-xs">Purchase date *</label>
+            <label className="label text-xs">Issue date *</label>
             <input
               type="date"
               className="input h-9 text-sm"
@@ -784,6 +812,15 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, part
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+          </div>
+          <div className="md:col-span-3">
+            <label className="label text-xs">Notes</label>
+            <input
+              className="input h-9 text-sm"
+              placeholder="(optional)"
+              value={addForm.notes}
+              onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })}
+            />
           </div>
           <div className="md:col-span-4 flex items-center justify-end gap-2 pt-1">
             <button type="button" onClick={() => { setShowAdd(false); resetAddForm(); }} className="btn-secondary text-xs">
