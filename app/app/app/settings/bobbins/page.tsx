@@ -144,9 +144,16 @@ export default function BobbinMasterPage() {
       return;
     }
     setAdding(true);
+    // description is NOT NULL on the bobbin table — auto-generate a
+    // sensible one from the picked ends + mode + optional lurex flag.
+    // The operator can edit it inline in the table below after save.
+    const desc = `${e.ends_count} ends · ${MODE_LABEL[neu.production_mode]}`
+      + (neu.is_lurex ? ' · lurex' : '')
+      + (metre != null ? ` · ${metre} m/pc` : '');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('bobbin').insert({
       code: generateCode(neu.production_mode, e.ends_count),
+      description: desc,
       bobbin_ends_master_id: e.id,
       ends_per_bobbin: e.ends_count,
       bobbin_metre: metre,
