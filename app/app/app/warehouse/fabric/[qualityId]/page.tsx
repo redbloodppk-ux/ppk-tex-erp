@@ -129,6 +129,13 @@ interface QualityHeader {
   id: number;
   code: string;
   name: string | null;
+  /** Metres per finished piece. When non-null the page renders a
+   *  "pieces" sub-line under every metres figure (KPI cards + table
+   *  rows + footer total) so the operator can read the ledger in the
+   *  natural unit for towels and dhoties. */
+  meter_per_pc: number | null;
+  is_merged: boolean;
+  merged_name: string | null;
 }
 
 async function loadQuality(
@@ -138,11 +145,25 @@ async function loadQuality(
 ): Promise<QualityHeader | null> {
   const { data } = await supabase
     .from('fabric_quality')
-    .select('id, code, name')
+    .select('id, code, name, meter_per_pc, is_merged, merged_name')
     .eq('id', qualityId)
     .maybeSingle();
   if (!data) return null;
-  return { id: Number(data.id), code: String(data.code ?? '—'), name: data.name ?? null };
+  const mpp = data.meter_per_pc == null ? null : Number(data.meter_per_pc);
+  return {
+    id: Number(data.id),
+    code: String(data.code ?? '—'),
+    name: data.name ?? null,
+    meter_per_pc: mpp != null && Number.isFinite(mpp) && mpp > 0 ? mpp : null,
+    is_merged: Boolean(data.is_merged),
+    merged_name: data.merged_name ?? null,
+  };
+}
+
+function fmtPcs(metres: number, mpp: number | null): string {
+  if (mpp == null || mpp <= 0) return '';
+  const pcs = metres / mpp;
+  return pcs.toLocaleString('en-IN', { maximumFractionDigits: 1 }) + ' pcs';
 }
 
 async function loadLedger(
@@ -265,11 +286,14 @@ async function loadLedger(
 interface KpiProps {
   label: string;
   value: string;
+  /** Optional second line under the primary value — used for the
+   *  pieces sub-text when meter_per_pc is set on the fabric quality. */
+  sub?: string;
   icon: React.ComponentType<{ className?: string }>;
   tone?: 'ok' | 'warn' | 'mute';
 }
 
-function Kpi({ label, value, icon: Icon, tone = 'mute' }: KpiProps) {
+function Kpi({ label, value, sub, icon: Icon, tone = 'mute' }: KpiProps) {
   const toneCls =
     tone === 'ok'   ? 'bg-emerald-50 text-emerald-700' :
     tone === 'warn' ? 'bg-amber-50 text-amber-700' :
@@ -282,6 +306,7 @@ function Kpi({ label, value, icon: Icon, tone = 'mute' }: KpiProps) {
       <div className="min-w-0">
         <div className="text-[11px] uppercase tracking-wide text-ink-mute">{label}</div>
         <div className="font-semibold text-lg truncate">{value}</div>
+        {sub && <div className="text-[11px] text-ink-mute truncate">{sub}</div>}
       </div>
     </div>
   );
@@ -379,25 +404,29 @@ export default async function FabricStockLedgerPage({
 
       <PageHeader
         title={`Fabric Ledger — ${quality.code}`}
-        subtitle={quality.name ?? 'Per-event stock movement (IN + OUT) for this quality'}
+        subtitle={(quality.name ?? 'Per-event stock movement (IN + OUT) for this quality')
+          + (quality.meter_per_pc ? ` · ${quality.meter_per_pc} m/pc` : '')}
       />
 
       <div className="grid sm:grid-cols-4 gap-3 mt-4 mb-3">
         <Kpi
           label="Total Received"
           value={formatMetres(totalIn, 1)}
+          sub={fmtPcs(totalIn, quality.meter_per_pc) || undefined}
           icon={TrendingUp}
           tone="ok"
         />
         <Kpi
           label="Total Sold / Out"
           value={formatMetres(totalOut, 1)}
+          sub={fmtPcs(totalOut, quality.meter_per_pc) || undefined}
           icon={TrendingDown}
           tone="warn"
         />
         <Kpi
           label="On-hand Balance"
           value={formatMetres(closingBalance, 1)}
+          sub={fmtPcs(closingBalance, quality.meter_per_pc) || undefined}
           icon={Layers}
           tone={closingBalance > 0 ? 'ok' : 'mute'}
         />
@@ -506,12 +535,20 @@ export default async function FabricStockLedgerPage({
                         {r.direction === 'in' ? '+' : '−'}
                         {formatMetres(r.metres, 1)}
                       </span>
+                      {quality.meter_per_pc && (
+                        <div className={'text-[10px] font-normal ' + (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-600')}>
+                          {r.direction === 'in' ? '+' : '−'}{fmtPcs(r.metres, quality.meter_per_pc)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <span className={`pill ${pill.cls} text-[11px] uppercase tracking-wide`}>{pill.label}</span>
                     </td>
                     <td className="px-3 py-2 text-right num font-semibold">
                       {formatMetres(bal, 1)}
+                      {quality.meter_per_pc && (
+                        <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(bal, quality.meter_per_pc)}</div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -524,9 +561,17 @@ export default async function FabricStockLedgerPage({
                 </td>
                 <td className="px-3 py-3 text-right num font-semibold" colSpan={2}>
                   IN {formatMetres(totalIn, 1)} · OUT {formatMetres(totalOut, 1)}
+                  {quality.meter_per_pc && (
+                    <div className="text-[10px] font-normal text-ink-mute">
+                      IN {fmtPcs(totalIn, quality.meter_per_pc)} · OUT {fmtPcs(totalOut, quality.meter_per_pc)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {formatMetres(closingBalance, 1)}
+                  {quality.meter_per_pc && (
+                    <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(closingBalance, quality.meter_per_pc)}</div>
+                  )}
                 </td>
               </tr>
             </tfoot>
