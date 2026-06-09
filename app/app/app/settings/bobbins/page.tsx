@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -84,10 +84,12 @@ export default function BobbinMasterPage() {
     setLoading(true);
     const [bRes, eRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Include archived rows so the operator can SEE what they have
+      // archived and restore it instead of being blocked by the
+      // UNIQUE(ends, mode) constraint with no way to recover.
       (supabase as any)
         .from('bobbin')
         .select('id, code, bobbin_ends_master_id, ends_per_bobbin, bobbin_metre, is_lurex, production_mode, status')
-        .neq('status', 'archived')
         .order('production_mode')
         .order('ends_per_bobbin'),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,8 +177,11 @@ export default function BobbinMasterPage() {
       const dupe =
         err.message.includes('bobbin_unique_ends_mode') ||
         err.message.includes('bobbin_code_key');
+      // "An In-house / An Outsource" reads better than "A In-house";
+      // pick the article from the first letter of the mode label.
+      const article = /^[aeiouAEIOU]/.test(MODE_LABEL[neu.production_mode]) ? 'An' : 'A';
       const msg = dupe
-        ? `A ${MODE_LABEL[neu.production_mode]} bobbin for ${e.ends_count} ends already exists (${generateCode(neu.production_mode, e.ends_count)}).`
+        ? `${article} ${MODE_LABEL[neu.production_mode]} bobbin for ${e.ends_count} ends already exists (${generateCode(neu.production_mode, e.ends_count)}).`
         : err.message;
       setError(msg);
       return;
@@ -211,24 +216,31 @@ export default function BobbinMasterPage() {
     setSavedMsg('Saved.');
   }
 
-  async function deleteRow(id: number, code: string) {
-    const ok = window.confirm(`Archive bobbin ${code}? (Soft delete — historical references stay intact.)`);
-    if (!ok) return;
+  async function toggleArchive(id: number, code: string, currentStatus: string): Promise<void> {
+    const archiving = currentStatus !== 'archived';
+    const verb = archiving ? 'Archive' : 'Restore';
+    const explain = archiving
+      ? `Archive bobbin ${code}?\n\nIt will be hidden from add-bobbin-stock dropdowns but stays in the database. You can restore it from this page later.`
+      : `Restore bobbin ${code} to active?\n\nIt will appear again in add-bobbin-stock dropdowns.`;
+    if (!window.confirm(explain)) return;
     setError(null);
     setSavedMsg(null);
     setBusyId(id);
+    const nextStatus = archiving ? 'archived' : 'active';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any)
       .from('bobbin')
-      .update({ status: 'archived' })
+      .update({ status: nextStatus })
       .eq('id', id);
     setBusyId(null);
     if (err) {
       setError(err.message);
       return;
     }
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    setSavedMsg(`Archived ${code}.`);
+    // Update the row in place so archived rows stay visible (greyed out)
+    // instead of disappearing. The earlier behaviour silently hid them.
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r)));
+    setSavedMsg(`${verb}d ${code}.`);
   }
 
   return (
@@ -346,9 +358,22 @@ export default function BobbinMasterPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-line/60">
-                    <td className="py-2 pr-3 font-mono text-xs font-semibold">{r.code}</td>
+                {rows.map((r) => {
+                  const isArchived = r.status === 'archived';
+                  return (
+                  <tr
+                    key={r.id}
+                    className={
+                      'border-b border-line/60 ' +
+                      (isArchived ? 'opacity-50 bg-cloud/30' : '')
+                    }
+                  >
+                    <td className="py-2 pr-3 font-mono text-xs font-semibold">
+                      {r.code}
+                      {isArchived && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-mute">archived</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 num">{r.ends_per_bobbin}</td>
                     <td className="py-2 pr-3">
                       <span className={
@@ -367,6 +392,7 @@ export default function BobbinMasterPage() {
                         step={0.01}
                         className="input num w-24 text-xs h-8"
                         value={r.bobbin_metre ?? ''}
+                        disabled={isArchived}
                         onChange={(e) =>
                           updateRow(r.id, {
                             bobbin_metre: e.target.value === '' ? null : Number(e.target.value),
@@ -379,6 +405,7 @@ export default function BobbinMasterPage() {
                         <input
                           type="checkbox"
                           checked={r.is_lurex}
+                          disabled={isArchived}
                           onChange={(e) => updateRow(r.id, { is_lurex: e.target.checked })}
                         />
                         <span className="text-xs text-ink-soft">{r.is_lurex ? 'Yes' : 'No'}</span>
@@ -391,17 +418,23 @@ export default function BobbinMasterPage() {
                         )}
                         <button
                           type="button"
-                          className="p-1 rounded hover:bg-red-50 text-red-600"
-                          title="Archive this bobbin"
-                          onClick={() => deleteRow(r.id, r.code)}
+                          className={
+                            'p-1 rounded ' +
+                            (isArchived
+                              ? 'hover:bg-emerald-50 text-emerald-600'
+                              : 'hover:bg-red-50 text-red-600')
+                          }
+                          title={isArchived ? 'Restore this bobbin' : 'Archive this bobbin'}
+                          onClick={() => toggleArchive(r.id, r.code, r.status)}
                           disabled={busyId === r.id}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {isArchived ? <RotateCcw className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
