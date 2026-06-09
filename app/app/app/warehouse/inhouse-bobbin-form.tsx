@@ -22,7 +22,7 @@
  */
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, X, Trash2 } from 'lucide-react';
+import { Loader2, Plus, X, Trash2, Pencil, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { ExistingOpeningRow, BobbinEndsOpt } from './opening-stock-form';
 
@@ -42,6 +42,16 @@ interface Props {
   /** Existing opening entries for bucket='bobbin', mode='inhouse'.
    *  Rendered inline below the form with a delete button per row. */
   existing?: ExistingOpeningRow[];
+}
+
+/** Inline-edit state for an existing opening_stock row. The bobbin
+ *  itself is locked (changing it would change the row's identity);
+ *  the operator can correct date / quantity / reference / notes. */
+interface EditForm {
+  open_date: string;
+  quantity: string;
+  reference_no: string;
+  notes: string;
 }
 
 interface AddItem {
@@ -99,6 +109,14 @@ export function InhouseBobbinOpeningStockForm({
   const [open, setOpen] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({
+    open_date: '',
+    quantity: '',
+    reference_no: '',
+    notes: '',
+  });
+  const [savingEditId, setSavingEditId] = useState<number | null>(null);
   const [, startTransition] = useTransition();
 
   const [form, setForm] = useState<{
@@ -206,6 +224,44 @@ export function InhouseBobbinOpeningStockForm({
     if (error) { window.alert('Save failed: ' + error.message); return; }
     reset();
     setOpen(false);
+    startTransition(() => router.refresh());
+  }
+
+  function startEdit(row: ExistingOpeningRow): void {
+    setEditingId(row.id);
+    setEditForm({
+      open_date:    row.open_date ?? '',
+      quantity:     row.quantity == null ? '' : String(row.quantity),
+      reference_no: row.reference_no ?? '',
+      notes:        row.notes ?? '',
+    });
+  }
+
+  function cancelEdit(): void {
+    setEditingId(null);
+    setEditForm({ open_date: '', quantity: '', reference_no: '', notes: '' });
+  }
+
+  async function saveEdit(id: number): Promise<void> {
+    const qty = Number(editForm.quantity);
+    if (!editForm.open_date) { window.alert('Open date is required.'); return; }
+    if (!(qty > 0)) { window.alert('Quantity (m) must be greater than 0.'); return; }
+    setSavingEditId(id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error } = await sb
+      .from('opening_stock')
+      .update({
+        open_date:    editForm.open_date,
+        quantity:     Math.round(qty * 100) / 100,
+        reference_no: editForm.reference_no.trim() || null,
+        notes:        editForm.notes.trim() || null,
+        updated_at:   new Date().toISOString(),
+      })
+      .eq('id', id);
+    setSavingEditId(null);
+    if (error) { window.alert('Save failed: ' + error.message); return; }
+    cancelEdit();
     startTransition(() => router.refresh());
   }
 
@@ -447,6 +503,73 @@ export function InhouseBobbinOpeningStockForm({
                     ? `${ends} ends/bobbin`
                     : '(no bobbin link)';
                 const isDeleting = deletingId === r.id;
+                const isEditing  = editingId === r.id;
+                const isSaving   = savingEditId === r.id;
+                if (isEditing) {
+                  return (
+                    <tr key={r.id} className="border-t border-line/40 bg-amber-50/40">
+                      <td className="px-3 py-2">
+                        <input
+                          type="date"
+                          className="input h-8 text-xs"
+                          value={editForm.open_date}
+                          onChange={(e) => setEditForm({ ...editForm, open_date: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-medium text-ink-soft">
+                        {label}
+                        <div className="text-[10px] text-ink-mute">bobbin locked</div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="input num h-8 text-xs text-right w-28 inline-block"
+                          value={editForm.quantity}
+                          onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                        />
+                        <span className="text-[10px] text-ink-mute ml-1">m</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="input h-8 text-xs w-full"
+                          value={editForm.reference_no}
+                          onChange={(e) => setEditForm({ ...editForm, reference_no: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="input h-8 text-xs w-full"
+                          value={editForm.notes}
+                          onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(r.id)}
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          title="Save changes"
+                        >
+                          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-ink-soft hover:bg-haze ml-1 disabled:opacity-50"
+                          title="Discard changes"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Cancel
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.open_date ?? '—'}</td>
@@ -454,12 +577,22 @@ export function InhouseBobbinOpeningStockForm({
                     <td className="px-3 py-2 text-right num font-semibold">{fmtQty(r.quantity, r.unit)}</td>
                     <td className="px-3 py-2 text-ink-soft">{r.reference_no ?? ''}</td>
                     <td className="px-3 py-2 text-ink-soft">{r.notes ?? ''}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(r)}
+                        disabled={editingId !== null || isDeleting}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-indigo-700 hover:bg-indigo-50 disabled:opacity-30"
+                        title="Edit opening entry"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit
+                      </button>
                       <button
                         type="button"
                         onClick={() => remove(r.id, label)}
-                        disabled={isDeleting}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                        disabled={isDeleting || editingId !== null}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-rose-600 hover:bg-rose-50 ml-1 disabled:opacity-50"
                         title="Delete opening entry"
                       >
                         {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
@@ -472,7 +605,7 @@ export function InhouseBobbinOpeningStockForm({
             </tbody>
           </table>
           <p className="text-[10px] text-ink-mute px-3 py-2 border-t border-line/40">
-            Delete soft-deletes the row (status=&apos;deleted&apos;) so the audit history stays intact but the pivot drops it.
+            Edit updates the row in place (date, quantity, reference, notes). The bobbin itself is locked once saved — delete and re-add if you picked the wrong bobbin. Delete soft-deletes the row (status=&apos;deleted&apos;) so the audit history stays intact but the pivot drops it.
           </p>
         </div>
       )}
