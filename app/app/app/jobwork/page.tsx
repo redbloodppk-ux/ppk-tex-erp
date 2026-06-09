@@ -590,62 +590,91 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   // the table isn't pushed down by an empty form on first load.
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [addBusy, setAddBusy] = useState<boolean>(false);
-  // Add form now picks a canonical bobbin from the master dropdown
-  // (1:1 with bobbin_ends_master) instead of typing ends / metre /
-  // price every time. Properties like is_lurex live on the master, so
-  // the form only collects the per-issue facts: party, bobbin, date,
-  // pieces, supplier, notes.
+  // ─── Multi-item Add form ────────────────────────────────────────
+  // Top section (party + date + supplier + reference) is shared
+  // across every line item in this submission. Items[] holds one
+  // entry per bobbin spec, each with its own quantity. One Save
+  // inserts N rows into jobwork_bobbin_issue in a single Promise.all.
+  interface AddItem { bobbin_id: string; qty: string }
+  function makeEmptyItem(): AddItem { return { bobbin_id: '', qty: '' }; }
   const [addForm, setAddForm] = useState<{
     jobwork_party_id: string;
-    bobbin_id: string;
-    quantity: string;
     purchase_date: string;
     supplier_party_id: string;
+    reference_no: string;
     notes: string;
+    items: AddItem[];
   }>({
     jobwork_party_id: '',
-    bobbin_id: '',
-    quantity: '',
     purchase_date: todayISO(),
     supplier_party_id: '',
+    reference_no: '',
     notes: '',
+    items: [makeEmptyItem()],
   });
 
   function resetAddForm(): void {
     setAddForm({
       jobwork_party_id: '',
-      bobbin_id: '',
-      quantity: '',
       purchase_date: todayISO(),
       supplier_party_id: '',
+      reference_no: '',
       notes: '',
+      items: [makeEmptyItem()],
     });
+  }
+
+  function addItemRow(): void {
+    setAddForm((f) => ({ ...f, items: [...f.items, makeEmptyItem()] }));
+  }
+  function removeItemRow(idx: number): void {
+    setAddForm((f) => ({
+      ...f,
+      items: f.items.length > 1 ? f.items.filter((_, i) => i !== idx) : f.items,
+    }));
+  }
+  function patchItem(idx: number, patch: Partial<AddItem>): void {
+    setAddForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+    }));
   }
 
   async function addBobbin(): Promise<void> {
     const partyId = addForm.jobwork_party_id === '' ? null : Number(addForm.jobwork_party_id);
     if (partyId === null) { window.alert('Select a jobwork party.'); return; }
-    const bobbinId = addForm.bobbin_id === '' ? null : Number(addForm.bobbin_id);
-    if (bobbinId === null) { window.alert('Pick a bobbin from the master list.'); return; }
-    const qty = Number(addForm.quantity || 0);
-    if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
+    // Each non-empty item becomes one row. Empty rows (no bobbin
+    // picked) are skipped so the operator can leave trailing blank
+    // rows around without it being an error.
+    const validItems = addForm.items.filter((it) => it.bobbin_id !== '' && Number(it.qty) > 0);
+    if (validItems.length === 0) {
+      window.alert('Pick a bobbin and enter a positive quantity for at least one line.');
+      return;
+    }
+    // Cross-check: any line with bobbin picked but qty <= 0 — surface
+    // the row number so the operator can fix it.
+    const badIdx = addForm.items.findIndex((it) => it.bobbin_id !== '' && !(Number(it.qty) > 0));
+    if (badIdx !== -1) {
+      window.alert(`Line ${badIdx + 1}: enter a positive quantity (pcs).`);
+      return;
+    }
     setAddBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Writes a jobwork_bobbin_issue row (migration 141). The bobbin
-    // master row itself is never touched — only the issue log grows.
-    const payload = {
+    const payloads = validItems.map((it) => ({
       jobwork_party_id: partyId,
-      bobbin_id: bobbinId,
+      bobbin_id: Number(it.bobbin_id),
       issue_date: addForm.purchase_date,
-      pieces_issued: qty,
-      original_pieces: qty,
+      pieces_issued: Number(it.qty),
+      original_pieces: Number(it.qty),
       supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
-      reference_no: null,
-      notes: addForm.notes || null,
+      reference_no: addForm.reference_no.trim() === '' ? null : addForm.reference_no.trim(),
+      notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
       status: 'active',
-    };
-    const { error } = await sb.from('jobwork_bobbin_issue').insert(payload);
+    }));
+    // Single INSERT with the array — Postgres processes it as one
+    // statement, all-or-nothing.
+    const { error } = await sb.from('jobwork_bobbin_issue').insert(payloads);
     setAddBusy(false);
     if (error) { window.alert('Add failed: ' + error.message); return; }
     resetAddForm();
@@ -745,84 +774,168 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         </button>
       </div>
 
-      {/* Inline add form. Inserts a jobwork_bobbin_issue row (migration
-          141). The bobbin master picker replaces the old free-text
-          ends/metre/price/lurex fields — those properties live on the
-          canonical bobbin row and shouldn't be re-typed per issue. */}
+      {/* Inline add form — multi-item. Party + date + supplier picked
+          once at the top, then a list of line items (bobbin + qty,
+          with ends and m/pc + total metres auto-filled from the
+          master). One Save inserts N rows into jobwork_bobbin_issue. */}
       {showAdd && (
-        <div className="card p-3 mb-3 grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className="label text-xs">{partyLabel} *</label>
-            <select
-              className="input h-9 text-sm"
-              value={addForm.jobwork_party_id}
-              onChange={(e) => setAddForm({ ...addForm, jobwork_party_id: e.target.value })}
-            >
-              <option value="">--- select ---</option>
-              {Array.from(partyById.values()).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+        <div className="card p-3 mb-3 space-y-3">
+          {/* Top: shared facts for every line in this submission */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="label text-xs">{partyLabel} *</label>
+              <select
+                className="input h-9 text-sm"
+                value={addForm.jobwork_party_id}
+                onChange={(e) => setAddForm({ ...addForm, jobwork_party_id: e.target.value })}
+              >
+                <option value="">--- select ---</option>
+                {Array.from(partyById.values()).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Issue date *</label>
+              <input
+                type="date"
+                className="input h-9 text-sm"
+                value={addForm.purchase_date}
+                onChange={(e) => setAddForm({ ...addForm, purchase_date: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Supplier (optional)</label>
+              <select
+                className="input h-9 text-sm"
+                value={addForm.supplier_party_id}
+                onChange={(e) => setAddForm({ ...addForm, supplier_party_id: e.target.value })}
+              >
+                <option value="">---</option>
+                {bobbinSuppliers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Reference (DC / Slip no.)</label>
+              <input
+                className="input h-9 text-sm"
+                placeholder="(optional)"
+                value={addForm.reference_no}
+                onChange={(e) => setAddForm({ ...addForm, reference_no: e.target.value })}
+              />
+            </div>
+            <div className="md:col-span-4">
+              <label className="label text-xs">Notes</label>
+              <input
+                className="input h-9 text-sm"
+                placeholder="(applies to every line below)"
+                value={addForm.notes}
+                onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })}
+              />
+            </div>
           </div>
-          <div>
-            <label className="label text-xs">Bobbin *</label>
-            <select
-              className="input h-9 text-sm"
-              value={addForm.bobbin_id}
-              onChange={(e) => setAddForm({ ...addForm, bobbin_id: e.target.value })}
-            >
-              <option value="">--- pick from master ---</option>
-              {bobbinMasters.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.code} ({b.ends_per_bobbin} ends{b.bobbin_metre ? ` · ${b.bobbin_metre} m/pc` : ''}{b.is_lurex ? ' · lurex' : ''})
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-ink-mute mt-1">
-              Manage list in Settings &rarr; Bobbin Ends Master.
-            </p>
+
+          {/* Line items: one row per bobbin spec being issued */}
+          <div className="border border-line/40 rounded-md overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="px-2 py-2 text-left w-10">#</th>
+                  <th className="px-2 py-2 text-left">Bobbin *</th>
+                  <th className="px-2 py-2 text-right">Ends</th>
+                  <th className="px-2 py-2 text-right">M/pc</th>
+                  <th className="px-2 py-2 text-right">Qty (pcs) *</th>
+                  <th className="px-2 py-2 text-right">Total m</th>
+                  <th className="px-2 py-2 w-12" />
+                </tr>
+              </thead>
+              <tbody>
+                {addForm.items.map((it, idx) => {
+                  const bm = it.bobbin_id === '' ? null : bobbinMasters.find((m) => m.id === Number(it.bobbin_id)) ?? null;
+                  const qtyN = Number(it.qty || 0);
+                  const perPc = Number(bm?.bobbin_metre ?? 0);
+                  const totalM = qtyN > 0 && perPc > 0 ? qtyN * perPc : 0;
+                  return (
+                    <tr key={idx} className="border-t border-line/40">
+                      <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
+                      <td className="px-2 py-1.5">
+                        <select
+                          className="input h-8 text-xs w-full"
+                          value={it.bobbin_id}
+                          onChange={(e) => patchItem(idx, { bobbin_id: e.target.value })}
+                        >
+                          <option value="">--- pick ---</option>
+                          {bobbinMasters.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.code}{b.is_lurex ? ' · lurex' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-2 py-1.5 text-right num text-xs text-ink-soft">{bm ? bm.ends_per_bobbin : '—'}</td>
+                      <td className="px-2 py-1.5 text-right num text-xs text-ink-soft">{bm?.bobbin_metre ?? '—'}</td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          className="input num h-8 text-xs w-24 text-right"
+                          value={it.qty}
+                          onChange={(e) => patchItem(idx, { qty: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-right num text-xs font-semibold">
+                        {totalM > 0 ? totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => removeItemRow(idx)}
+                          disabled={addForm.items.length === 1}
+                          title="Remove line"
+                          className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-cloud/30 border-t border-line/40">
+                <tr>
+                  <td colSpan={5} className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={addItemRow}
+                      className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add line
+                    </button>
+                  </td>
+                  <td className="px-2 py-2 text-right num text-xs font-semibold">
+                    {(() => {
+                      const grand = addForm.items.reduce((s, it) => {
+                        const bm = it.bobbin_id === '' ? null : bobbinMasters.find((m) => m.id === Number(it.bobbin_id));
+                        const qtyN = Number(it.qty || 0);
+                        const perPc = Number(bm?.bobbin_metre ?? 0);
+                        return s + (qtyN > 0 && perPc > 0 ? qtyN * perPc : 0);
+                      }, 0);
+                      return grand > 0 ? grand.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' m' : '—';
+                    })()}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
           </div>
-          <div>
-            <label className="label text-xs">Quantity (pcs) *</label>
-            <input
-              type="number"
-              className="input num h-9 text-sm"
-              value={addForm.quantity}
-              onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label text-xs">Issue date *</label>
-            <input
-              type="date"
-              className="input h-9 text-sm"
-              value={addForm.purchase_date}
-              onChange={(e) => setAddForm({ ...addForm, purchase_date: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label text-xs">Supplier (optional)</label>
-            <select
-              className="input h-9 text-sm"
-              value={addForm.supplier_party_id}
-              onChange={(e) => setAddForm({ ...addForm, supplier_party_id: e.target.value })}
-            >
-              <option value="">---</option>
-              {bobbinSuppliers.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-3">
-            <label className="label text-xs">Notes</label>
-            <input
-              className="input h-9 text-sm"
-              placeholder="(optional)"
-              value={addForm.notes}
-              onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })}
-            />
-          </div>
-          <div className="md:col-span-4 flex items-center justify-end gap-2 pt-1">
+
+          <p className="text-[10px] text-ink-mute">
+            Bobbin list is managed in Settings &rarr; Bobbin Ends Master. Ends and M/pc come from the bobbin master and can&apos;t be edited here.
+          </p>
+
+          <div className="flex items-center justify-end gap-2">
             <button type="button" onClick={() => { setShowAdd(false); resetAddForm(); }} className="btn-secondary text-xs">
               Cancel
             </button>
@@ -833,7 +946,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               className="btn-primary text-xs"
             >
               {addBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Save bobbin given
+              Save all
             </button>
           </div>
         </div>
