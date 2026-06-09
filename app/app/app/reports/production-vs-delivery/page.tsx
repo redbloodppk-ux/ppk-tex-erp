@@ -147,16 +147,11 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
     bucket.push(r);
     byQuality.set(key, bucket);
   }
-  interface ExportRow {
-    quality: string;
-    mode: string;
-    produced_m: number | '';
-    delivered_m: number | '';
-    variance_m: number | '';
-    variance_pct: number | '';
-    last_activity: string;
-  }
-  const exportRows: ExportRow[] = [];
+  // ExcelExportButton requires ReadonlyArray<Record<string, unknown>>
+  // so we type the rows as Record<string, unknown>[] directly rather
+  // than a named interface (which would need an index signature to
+  // satisfy the prop type under strict mode).
+  const exportRows: Record<string, unknown>[] = [];
   const qualityOrder = [...byQuality.keys()].sort((a, b) => {
     if (a === '__unattributed__') return 1;
     if (b === '__unattributed__') return -1;
