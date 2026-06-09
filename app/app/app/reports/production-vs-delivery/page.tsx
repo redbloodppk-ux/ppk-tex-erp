@@ -389,8 +389,11 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                 <th className="text-left  px-3 py-3">Quality</th>
                 <th className="text-left  px-3 py-3">Mode</th>
                 <th className="text-right px-3 py-3">Produced (m)</th>
+                <th className="text-right px-3 py-3">Produced (pcs)</th>
                 <th className="text-right px-3 py-3">Delivered (m)</th>
+                <th className="text-right px-3 py-3">Delivered (pcs)</th>
                 <th className="text-right px-3 py-3">Variance (m)</th>
+                <th className="text-right px-3 py-3">Variance (pcs)</th>
                 <th className="text-right px-3 py-3">Var %</th>
                 <th className="text-left  px-3 py-3">Last activity</th>
               </tr>
@@ -451,23 +454,23 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {fmtMetres(num(r.produced_m))}
-                      {producedPcs != null && (
-                        <div className="text-[10px] text-ink-mute">{fmtPcs(producedPcs)}</div>
-                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right num text-ink-soft">
+                      {producedPcs != null ? fmtPcs(producedPcs) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {fmtMetres(num(r.delivered_m))}
-                      {deliveredPcs != null && (
-                        <div className="text-[10px] text-ink-mute">{fmtPcs(deliveredPcs)}</div>
-                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right num text-ink-soft">
+                      {deliveredPcs != null ? fmtPcs(deliveredPcs) : '—'}
                     </td>
                     <td className={'px-3 py-2 text-right num font-semibold ' + varClass}>
                       {v >= 0 ? '+' : ''}{fmtMetres(v)}
-                      {variancePcs != null && (
-                        <div className={'text-[10px] font-normal ' + varClass}>
-                          {variancePcs >= 0 ? '+' : ''}{fmtPcs(variancePcs)}
-                        </div>
-                      )}
+                    </td>
+                    <td className={'px-3 py-2 text-right num ' + varClass}>
+                      {variancePcs != null
+                        ? `${variancePcs >= 0 ? '+' : ''}${fmtPcs(variancePcs)}`
+                        : '—'}
                     </td>
                     <td className={'px-3 py-2 text-right num ' + varClass}>
                       {variancePct == null ? '—' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}
