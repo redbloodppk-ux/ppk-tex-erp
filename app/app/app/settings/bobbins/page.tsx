@@ -150,13 +150,18 @@ export default function BobbinMasterPage() {
     const desc = `${e.ends_count} ends · ${MODE_LABEL[neu.production_mode]}`
       + (neu.is_lurex ? ' · lurex' : '')
       + (metre != null ? ` · ${metre} m/pc` : '');
+    // bobbin_metre and bobbin_price are NOT NULL on the bobbin table
+    // with no defaults — default both to 0 when the user leaves them
+    // blank. Pricing now lives on bobbin_purchase events, so a master
+    // row with price=0 is the expected resting state.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('bobbin').insert({
       code: generateCode(neu.production_mode, e.ends_count),
       description: desc,
       bobbin_ends_master_id: e.id,
       ends_per_bobbin: e.ends_count,
-      bobbin_metre: metre,
+      bobbin_metre: metre ?? 0,
+      bobbin_price: 0,
       is_lurex: neu.is_lurex,
       production_mode: neu.production_mode,
       status: 'active',
