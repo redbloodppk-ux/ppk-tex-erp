@@ -68,6 +68,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/production-vs-delivery',
+    title: 'Production vs Delivery',
+    description:
+      'Per-quality variance between metres produced (shift logs for in-house; fabric receipts for jobwork & outsource) and metres delivered on DCs. Flags qualities where production is drifting from dispatch.',
+    ready: true,
+  },
+  {
     href: '/app/reports/loom-utilisation',
     title: 'Loom Utilisation',
     description:
