@@ -178,7 +178,10 @@ export default async function WarehousePage({
     // Restricted to in-house bobbins so the in-house warehouse forms
     // only surface bobbins from the in-house stream. Jobwork/outsource
     // tabs query the bobbin master directly with their own mode filter.
-    supabase.from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('production_mode', 'inhouse').eq('status', 'active').order('code'),
+    // Cast through any because production_mode was added by migration
+    // 142 and the generated database.types.ts is not yet regenerated.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('bobbin').select('id, code, description, reorder_pieces, ends_per_bobbin').eq('production_mode', 'inhouse').eq('status', 'active').order('code'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     // Filter the party master to the kind that matches the active
     // mode — jobwork-typed for /warehouse?mode=jobwork and
