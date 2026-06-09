@@ -865,15 +865,26 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               is editable so partial bobbins / short pieces can be
               entered. */}
           <div className="border border-line/40 rounded-md overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              {/* Fixed column widths so the Bobbin select doesn't eat
+                  all the space and push Qty / M/pc inputs awkwardly
+                  far apart with stray gaps. */}
+              <colgroup>
+                <col className="w-10" />     {/* #            */}
+                <col />                       {/* Bobbin (flex) */}
+                <col className="w-32" />     {/* Qty          */}
+                <col className="w-32" />     {/* M/pc         */}
+                <col className="w-28" />     {/* Total m      */}
+                <col className="w-12" />     {/* delete       */}
+              </colgroup>
               <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="px-2 py-2 text-left w-10">#</th>
+                  <th className="px-2 py-2 text-left">#</th>
                   <th className="px-2 py-2 text-left">Bobbin *</th>
                   <th className="px-2 py-2 text-right">Qty (pcs) *</th>
                   <th className="px-2 py-2 text-right">M/pc</th>
                   <th className="px-2 py-2 text-right">Total m</th>
-                  <th className="px-2 py-2 w-12" />
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -883,7 +894,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                   const perPc = Number(it.metre_per_pc || 0);
                   const totalM = qtyN > 0 && perPc > 0 ? qtyN * perPc : 0;
                   return (
-                    <tr key={idx} className="border-t border-line/40">
+                    <tr key={idx} className="border-t border-line/40 align-middle">
                       <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
                       <td className="px-2 py-1.5">
                         <select
@@ -903,7 +914,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         <input
                           type="number"
                           min={1}
-                          className="input num h-8 text-xs w-24 text-right"
+                          className="input num h-8 text-xs w-full text-right"
                           value={it.qty}
                           onChange={(e) => patchItem(idx, { qty: e.target.value })}
                         />
@@ -913,7 +924,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                           type="number"
                           min={0}
                           step={0.01}
-                          className="input num h-8 text-xs w-24 text-right"
+                          className="input num h-8 text-xs w-full text-right"
                           value={it.metre_per_pc}
                           placeholder={bm?.bobbin_metre != null ? String(bm.bobbin_metre) : ''}
                           onChange={(e) => patchItem(idx, { metre_per_pc: e.target.value })}
@@ -922,7 +933,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                       <td className="px-2 py-1.5 text-right num text-xs font-semibold">
                         {totalM > 0 ? totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-1 py-1.5 text-center">
                         <button
                           type="button"
                           onClick={() => removeItemRow(idx)}
