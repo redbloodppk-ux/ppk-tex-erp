@@ -51,6 +51,15 @@ interface AddItem {
    *  editable so partial bobbins / short pieces can be entered. The
    *  bobbin master row's m/pc is NOT changed by this field. */
   metre_per_pc: string;
+  /** Total metres. Auto-fills from qty_pcs × metre_per_pc whenever
+   *  both are entered, but is fully editable — the operator can type
+   *  total metres directly (e.g. for a partial bobbin where neither
+   *  pcs nor m/pc is clean) and that value is what gets stored. */
+  total_metre: string;
+  /** True once the user has manually typed total_metre. Prevents
+   *  the auto-fill from clobbering their value if they later edit
+   *  qty / m/pc. */
+  total_metre_dirty: boolean;
 }
 
 function todayISO(): string {
@@ -59,7 +68,20 @@ function todayISO(): string {
 }
 
 function makeEmptyItem(): AddItem {
-  return { bobbin_id: '', qty_pcs: '', metre_per_pc: '' };
+  return { bobbin_id: '', qty_pcs: '', metre_per_pc: '', total_metre: '', total_metre_dirty: false };
+}
+
+/** Recompute the auto-filled total_metre when qty or m/pc changes,
+ *  unless the operator has typed total_metre by hand. */
+function recomputeTotal(it: AddItem): AddItem {
+  if (it.total_metre_dirty) return it;
+  const q = Number(it.qty_pcs);
+  const m = Number(it.metre_per_pc);
+  if (q > 0 && m > 0) {
+    const t = Math.round(q * m * 100) / 100;
+    return { ...it, total_metre: String(t) };
+  }
+  return { ...it, total_metre: '' };
 }
 
 function fmtQty(qty: number | string | null, unit: string | null): string {
@@ -112,7 +134,17 @@ export function InhouseBobbinOpeningStockForm({
   function patchItem(idx: number, patch: Partial<AddItem>): void {
     setForm((f) => ({
       ...f,
-      items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+      items: f.items.map((it, i) => (i === idx ? recomputeTotal({ ...it, ...patch }) : it)),
+    }));
+  }
+  /** When the operator types total_metre by hand, set the dirty flag
+   *  so subsequent qty / m/pc edits don't overwrite the typed value. */
+  function setTotalMetre(idx: number, val: string): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) =>
+        i === idx ? { ...it, total_metre: val, total_metre_dirty: true } : it,
+      ),
     }));
   }
   /** When the operator picks a bobbin, prefill metre_per_pc from the
@@ -125,20 +157,23 @@ export function InhouseBobbinOpeningStockForm({
 
   async function save(): Promise<void> {
     if (!form.open_date) { window.alert('Open date is required.'); return; }
+    // A line is valid when a bobbin is picked AND total_metre resolves
+    // to a positive number (either typed directly or auto-computed
+    // from qty × m/pc).
     const validItems = form.items.filter(
-      (it) => it.bobbin_id !== '' && Number(it.qty_pcs) > 0 && Number(it.metre_per_pc) > 0,
+      (it) => it.bobbin_id !== '' && Number(it.total_metre) > 0,
     );
     if (validItems.length === 0) {
-      window.alert('Pick a bobbin, qty > 0 and m/pc > 0 for at least one line.');
+      window.alert('Pick a bobbin and enter total metres (or qty + m/pc) > 0 for at least one line.');
       return;
     }
     // Catch half-filled lines so the operator doesn't silently lose
     // typed data.
     const badIdx = form.items.findIndex(
-      (it) => it.bobbin_id !== '' && (!(Number(it.qty_pcs) > 0) || !(Number(it.metre_per_pc) > 0)),
+      (it) => it.bobbin_id !== '' && !(Number(it.total_metre) > 0),
     );
     if (badIdx !== -1) {
-      window.alert(`Line ${badIdx + 1}: enter qty (pcs) > 0 AND m/pc > 0.`);
+      window.alert(`Line ${badIdx + 1}: enter total metres directly, or enter qty (pcs) and m/pc so total metres > 0.`);
       return;
     }
 
@@ -147,9 +182,7 @@ export function InhouseBobbinOpeningStockForm({
     const sb = supabase as any;
     const payloads = validItems.map((it) => {
       const bm = bobbins.find((b) => b.id === Number(it.bobbin_id));
-      const qtyPcs = Number(it.qty_pcs);
-      const perPc = Number(it.metre_per_pc);
-      const totalMetres = Math.round(qtyPcs * perPc * 100) / 100;
+      const totalMetres = Math.round(Number(it.total_metre) * 100) / 100;
       return {
         bucket: 'bobbin',
         mode: 'inhouse',
@@ -267,9 +300,6 @@ export function InhouseBobbinOpeningStockForm({
               <tbody>
                 {form.items.map((it, idx) => {
                   const bm = it.bobbin_id === '' ? null : bobbinById.get(Number(it.bobbin_id)) ?? null;
-                  const qtyN = Number(it.qty_pcs || 0);
-                  const perPc = Number(it.metre_per_pc || 0);
-                  const totalM = qtyN > 0 && perPc > 0 ? qtyN * perPc : 0;
                   return (
                     <tr key={idx} className="border-t border-line/40 align-middle">
                       <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
@@ -307,8 +337,24 @@ export function InhouseBobbinOpeningStockForm({
                           onChange={(e) => patchItem(idx, { metre_per_pc: e.target.value })}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right num text-xs font-semibold">
-                        {totalM > 0 ? totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className={
+                            'input num h-8 text-xs w-full text-right font-semibold ' +
+                            (it.total_metre_dirty ? 'bg-amber-50' : '')
+                          }
+                          value={it.total_metre}
+                          placeholder="auto"
+                          onChange={(e) => setTotalMetre(idx, e.target.value)}
+                          title={
+                            it.total_metre_dirty
+                              ? 'Typed by hand — qty / m/pc edits will not overwrite this'
+                              : 'Auto = qty × m/pc. Type a value to override.'
+                          }
+                        />
                       </td>
                       <td className="px-1 py-1.5 text-center">
                         <button
@@ -339,9 +385,8 @@ export function InhouseBobbinOpeningStockForm({
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {(() => {
                       const grand = form.items.reduce((s, it) => {
-                        const qtyN = Number(it.qty_pcs || 0);
-                        const perPc = Number(it.metre_per_pc || 0);
-                        return s + (qtyN > 0 && perPc > 0 ? qtyN * perPc : 0);
+                        const t = Number(it.total_metre || 0);
+                        return s + (t > 0 ? t : 0);
                       }, 0);
                       return grand > 0 ? grand.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' m' : '—';
                     })()}
@@ -354,6 +399,7 @@ export function InhouseBobbinOpeningStockForm({
 
           <p className="text-[10px] text-ink-mute">
             Bobbins are managed in Settings &rarr; Bobbin Master (only in-house bobbins shown here). M/pc prefills from the bobbin master when you pick a bobbin, but you can override it for partial bobbins or short pieces — the master value is not changed.
+            Total m auto-fills from Qty &times; M/pc; type a value to override (cell turns amber) for partial bobbins or short pieces where neither qty nor m/pc is clean. The Total m value is what gets saved to opening stock.
           </p>
 
           <div className="flex items-center justify-end gap-2">
