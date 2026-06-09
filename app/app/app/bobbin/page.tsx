@@ -301,7 +301,7 @@ export default function BobbinPurchasePage() {
 
   return (
     <div>
-      <InhouseStockTabs current="bobbin" />
+      <InhouseStockTabs />
       <PageHeader
         title="Bobbin Stock"
         subtitle="Every bobbin batch purchased. Pick a bobbin from the master, enter qty + price; multiple lines per purchase share the invoice."
