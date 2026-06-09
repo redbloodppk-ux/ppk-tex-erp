@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { formatRupee, formatMetres } from '@/lib/utils';
+import { formatRupee } from '@/lib/utils';
 import {
-  TrendingUp, AlertTriangle, Package, Users, Factory, Receipt,
-  ClockAlert, ArrowUpRight, Boxes, ShoppingCart,
+  Users, Receipt, ArrowUpRight,
+  ShoppingCart, Wallet, Landmark, ClipboardList, ClockArrowUp,
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
 
@@ -14,35 +14,34 @@ export default async function DashboardPage() {
 
   // Pull a handful of headline numbers in parallel. Each query is RLS-scoped
   // so it just reflects what the signed-in user is allowed to see.
+  // After the dashboard trim only Active Customers + Outstanding (Rs) +
+  // Recent Invoices remain — the rest of the widgets the operator never
+  // looked at were removed in this revision.
   const [
     { count: customerCount },
-    { count: openOrderCount },
     { data: outstanding },
-    { data: lowYarn },
-    { data: recentOrders },
     { data: recentInvoices },
-    { data: loomUtil },
   ] = await Promise.all([
     supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    // "Open" = not yet in a terminal state. Excludes paid + cancelled.
-    supabase.from('sales_order').select('id', { count: 'exact', head: true })
-      .in('status', ['draft', 'pending_approval', 'approved', 'in_production', 'partial_dispatch']),
     supabase.from('v_customer_outstanding').select('outstanding_amount').limit(500),
-    supabase.from('v_yarn_days_of_cover').select('yarn_count_code, days_of_cover, on_hand_kg').lte('days_of_cover', 14).order('days_of_cover', { ascending: true }).limit(5),
-    supabase.from('sales_order').select('doc_no, customer_name, total_amount, status, order_date').order('order_date', { ascending: false }).limit(5),
     supabase.from('invoice').select('doc_no, customer_name, total_amount, status, invoice_date').order('invoice_date', { ascending: false }).limit(5),
-    supabase.from('v_loom_shift_utilisation').select('loom_code, shift_count, total_metres, avg_metres_per_shift, last_log_date').order('loom_code'),
   ]);
 
-  const loggedLooms = (loomUtil ?? []).filter((r: any) => Number(r.shift_count ?? 0) > 0);
-
-  const totalOutstanding = (outstanding ?? []).reduce((s, r: any) => s + Number(r.outstanding_amount ?? 0), 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const totalOutstanding = (outstanding ?? []).reduce((s: number, r: any) => s + Number(r.outstanding_amount ?? 0), 0);
 
   const cards = [
     { label: 'Active Customers', value: customerCount ?? 0,         icon: Users,        href: '/app/customers',  tone: 'from-indigo to-violet' },
-    { label: 'Open Sales Orders', value: openOrderCount ?? 0,        icon: ShoppingCart, href: '/app/orders',     tone: 'from-emerald-500 to-teal-500' },
     { label: 'Outstanding (Rs)',  value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
-    { label: 'Low-Stock Yarn',    value: lowYarn?.length ?? 0,       icon: Boxes,        href: '/app/yarn',       tone: 'from-amber-500 to-yellow-500' },
+  ];
+
+  // Frequent-entry shortcuts — surface the screens the operator opens
+  // every day so they're one click from the dashboard.
+  const quickEntries: Array<{ label: string; sub: string; href: string; icon: typeof Wallet; tone: string }> = [
+    { label: 'Payment',     sub: 'Customer / supplier receipt',  href: '/app/payments',              icon: Wallet,        tone: 'from-emerald-500 to-teal-500' },
+    { label: 'Wages',       sub: 'Weaver / staff payout',        href: '/app/wages',                 icon: ClipboardList, tone: 'from-amber-500 to-yellow-500' },
+    { label: 'Bank Entry',  sub: 'Cash / bank ledger',           href: '/app/bank-entries',          icon: Landmark,      tone: 'from-indigo to-violet' },
+    { label: 'Shift Log',   sub: 'Loom production for a shift',  href: '/app/production/shift-log',  icon: ClockArrowUp,  tone: 'from-rose-500 to-orange-500' },
   ];
 
   return (
@@ -60,7 +59,7 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 gap-4">
         {cards.map(c => (
           <Link
             key={c.label}
@@ -79,98 +78,32 @@ export default async function DashboardPage() {
         ))}
       </section>
 
+      {/* Quick Entry — shortcuts to the screens the operator hits every
+          day. Replaces the read-only Recent Sales Orders / Yarn Running
+          Low / Loom Utilisation panels that nobody acted on. */}
+      <section>
+        <h2 className="font-display font-bold text-base mb-3">Quick Entry</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {quickEntries.map((q) => (
+            <Link
+              key={q.href}
+              href={q.href}
+              className="card p-4 group hover:shadow-emboss transition-shadow"
+            >
+              <div className="flex items-start justify-between">
+                <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${q.tone} text-white grid place-items-center`}>
+                  <q.icon className="w-5 h-5" />
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              <div className="mt-3 font-semibold text-ink">{q.label}</div>
+              <div className="text-[11px] text-ink-soft mt-0.5">{q.sub}</div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <TodayAttendanceWidget />
-
-      <section className="grid lg:grid-cols-3 gap-4">
-        <div className="card p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display font-bold text-base">Recent Sales Orders</h2>
-            <Link href="/app/orders" className="text-xs text-indigo font-semibold">View all &rarr;</Link>
-          </div>
-          {!recentOrders?.length ? (
-            <EmptyHint icon={ShoppingCart} text="No sales orders yet - create your first one." href="/app/orders/new" cta="New SO" />
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
-                <tr><th className="text-left py-2">Doc No</th><th className="text-left">Customer</th><th className="text-right">Amount</th><th className="text-right">Status</th></tr>
-              </thead>
-              <tbody>
-                {recentOrders.map((o: any) => (
-                  <tr key={o.doc_no} className="border-b border-line/40 last:border-0">
-                    <td className="py-2.5 font-mono text-xs">{o.doc_no}</td>
-                    <td className="truncate max-w-[180px]">{o.customer_name}</td>
-                    <td className="text-right num">{formatRupee(o.total_amount, { compact: true })}</td>
-                    <td className="text-right"><StatusPill status={o.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-4 h-4 text-amber-500" />
-            <h2 className="font-display font-bold text-base">Yarn Running Low</h2>
-          </div>
-          {!lowYarn?.length ? (
-            <p className="text-sm text-ink-soft">All yarn counts are above the 14-day cover threshold.</p>
-          ) : (
-            <ul className="space-y-2">
-              {lowYarn.map((y: any) => (
-                <li key={y.yarn_count_code} className="flex items-center justify-between text-sm">
-                  <span className="font-mono text-xs">{y.yarn_count_code}</span>
-                  <span className="text-ink-soft text-xs">
-                    <span className="num font-semibold text-rose-600">{Number(y.days_of_cover).toFixed(1)}</span> days
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Link href="/app/yarn" className="mt-4 block text-xs text-indigo font-semibold">Manage yarn lots &rarr;</Link>
-        </div>
-      </section>
-
-      <section className="card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Factory className="w-4 h-4 text-indigo" />
-            <h2 className="font-display font-bold text-base">Loom Utilisation</h2>
-          </div>
-          <Link href="/app/production/shift-log" className="text-xs text-indigo font-semibold">Log a shift &rarr;</Link>
-        </div>
-        {!loggedLooms.length ? (
-          <EmptyHint
-            icon={Factory}
-            text="No shifts logged yet - record loom output to see metres here."
-            href="/app/production/shift-log"
-            cta="Log a Shift"
-          />
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
-              <tr>
-                <th className="text-left py-2">Loom</th>
-                <th className="text-right">Shifts</th>
-                <th className="text-right">Metres / Shift</th>
-                <th className="text-right">Total Metres</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loggedLooms.map((l: any) => (
-                <tr key={l.loom_code} className="border-b border-line/40 last:border-0">
-                  <td className="py-2.5 font-mono text-xs">{l.loom_code}</td>
-                  <td className="text-right num">{l.shift_count}</td>
-                  <td className="text-right num">
-                    {l.avg_metres_per_shift == null ? '-' : formatMetres(l.avg_metres_per_shift)}
-                  </td>
-                  <td className="text-right num">{formatMetres(l.total_metres)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
 
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
