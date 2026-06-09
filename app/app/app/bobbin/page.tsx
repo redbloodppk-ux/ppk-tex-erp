@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
-import { Loader2, Plus, CheckCircle2, Trash2, X, Save } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check } from 'lucide-react';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -84,6 +84,19 @@ interface AddItem {
   gst_pct: string;
 }
 
+/** Inline-edit state for an existing bobbin_purchase row. The bobbin
+ *  master itself is locked — switching bobbins on a saved purchase
+ *  is an identity change, so the operator should delete + re-add. */
+interface EditRow {
+  purchase_date: string;
+  invoice_no: string;
+  supplier_party_id: string;
+  pieces_purchased: string;
+  bobbin_metre: string;
+  bobbin_price: string;
+  notes: string;
+}
+
 function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -118,6 +131,17 @@ export default function BobbinPurchasePage() {
   const [busy, setBusy] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [modePick, setModePick] = useState<ProductionMode>('inhouse');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editRow, setEditRow] = useState<EditRow>({
+    purchase_date: '',
+    invoice_no: '',
+    supplier_party_id: '',
+    pieces_purchased: '',
+    bobbin_metre: '',
+    bobbin_price: '',
+    notes: '',
+  });
+  const [savingEditId, setSavingEditId] = useState<number | null>(null);
 
   const [form, setForm] = useState<{
     purchase_date: string;
@@ -283,6 +307,60 @@ export default function BobbinPurchasePage() {
     reset();
     setOpen(false);
     await load();
+  }
+
+  function startEdit(p: PurchaseRow): void {
+    setEditingId(p.id);
+    setEditRow({
+      purchase_date:    p.purchase_date ?? '',
+      invoice_no:       p.invoice_no ?? '',
+      supplier_party_id: p.vendor_id == null ? '' : String(p.vendor_id),
+      pieces_purchased: p.pieces_purchased == null ? '' : String(p.pieces_purchased),
+      bobbin_metre:     p.bobbin_metre == null ? '' : String(p.bobbin_metre),
+      bobbin_price:     p.bobbin_price == null ? '' : String(p.bobbin_price),
+      notes:            p.notes ?? '',
+    });
+    setError(null);
+    setSavedMsg(null);
+  }
+
+  function cancelEdit(): void {
+    setEditingId(null);
+    setEditRow({
+      purchase_date: '', invoice_no: '', supplier_party_id: '',
+      pieces_purchased: '', bobbin_metre: '', bobbin_price: '', notes: '',
+    });
+  }
+
+  async function saveEdit(id: number): Promise<void> {
+    if (!editRow.purchase_date) { setError('Purchase date is required.'); return; }
+    if (!editRow.invoice_no.trim()) { setError('Invoice no. is required.'); return; }
+    const qty = Number(editRow.pieces_purchased);
+    if (!(qty > 0)) { setError('Qty (pcs) must be greater than 0.'); return; }
+    setError(null);
+    setSavedMsg(null);
+    setSavingEditId(id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const metre = editRow.bobbin_metre === '' ? null : Number(editRow.bobbin_metre);
+    const price = editRow.bobbin_price === '' ? null : Number(editRow.bobbin_price);
+    const { error: err } = await sb
+      .from('bobbin_purchase')
+      .update({
+        purchase_date:    editRow.purchase_date,
+        invoice_no:       editRow.invoice_no.trim(),
+        vendor_id:        editRow.supplier_party_id === '' ? null : Number(editRow.supplier_party_id),
+        pieces_purchased: qty,
+        bobbin_metre:     metre,
+        bobbin_price:     price,
+        notes:            editRow.notes.trim() || null,
+      })
+      .eq('id', id);
+    setSavingEditId(null);
+    if (err) { setError(err.message); return; }
+    cancelEdit();
+    await load();
+    setSavedMsg('Purchase updated.');
   }
 
   async function deleteRow(id: number, label: string): Promise<void> {
@@ -610,6 +688,99 @@ export default function BobbinPurchasePage() {
                 const label = bm
                   ? `${bm.code} (${bm.ends_per_bobbin} ends)`
                   : `Bobbin #${p.bobbin_id}`;
+                const isEditing = editingId === p.id;
+                const isSavingThis = savingEditId === p.id;
+                if (isEditing) {
+                  const editQty = Number(editRow.pieces_purchased || 0);
+                  const editMpp = Number(editRow.bobbin_metre || 0);
+                  const editPrice = Number(editRow.bobbin_price || 0);
+                  const editTotalM = editQty > 0 && editMpp > 0 ? editQty * editMpp : 0;
+                  const editTotalR = editQty > 0 && editPrice > 0 ? editQty * editPrice : 0;
+                  return (
+                    <tr key={p.id} className="border-t border-line/40 bg-amber-50/40 align-middle">
+                      <td className="px-3 py-2">
+                        <input type="date" className="input h-8 text-xs"
+                          value={editRow.purchase_date}
+                          onChange={(e) => setEditRow({ ...editRow, purchase_date: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-ink-soft">
+                        {label}
+                        <div className="text-[10px] text-ink-mute font-sans">bobbin locked</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        {bm && (
+                          <span className={
+                            'inline-block px-2 py-0.5 rounded text-[10px] ' +
+                            (bm.production_mode === 'inhouse'   ? 'bg-emerald-50 text-emerald-700' :
+                             bm.production_mode === 'jobwork'   ? 'bg-amber-50 text-amber-700' :
+                                                                  'bg-indigo-50 text-indigo-700')
+                          }>{MODE_LABEL[bm.production_mode]}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <select className="input h-8 text-xs w-full"
+                          value={editRow.supplier_party_id}
+                          onChange={(e) => setEditRow({ ...editRow, supplier_party_id: e.target.value })}>
+                          <option value="">— none —</option>
+                          {suppliers.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input className="input h-8 text-xs w-full font-mono"
+                          value={editRow.invoice_no}
+                          onChange={(e) => setEditRow({ ...editRow, invoice_no: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min={1} className="input num h-8 text-xs w-full text-right"
+                          value={editRow.pieces_purchased}
+                          onChange={(e) => setEditRow({ ...editRow, pieces_purchased: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min={0} step={0.01} className="input num h-8 text-xs w-full text-right"
+                          value={editRow.bobbin_metre}
+                          onChange={(e) => setEditRow({ ...editRow, bobbin_metre: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2 text-right num text-xs font-semibold text-indigo-700">
+                        {editTotalM > 0 ? `${editTotalM.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m` : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min={0} step={0.01} className="input num h-8 text-xs w-full text-right"
+                          value={editRow.bobbin_price}
+                          onChange={(e) => setEditRow({ ...editRow, bobbin_price: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2 text-right num text-xs font-semibold">
+                        {editTotalR > 0 ? fmtMoney(editTotalR) : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input className="input h-8 text-xs w-full"
+                          value={editRow.notes}
+                          onChange={(e) => setEditRow({ ...editRow, notes: e.target.value })} />
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(p.id)}
+                          disabled={isSavingThis}
+                          title="Save changes"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {isSavingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={isSavingThis}
+                          title="Discard changes"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-ink-soft hover:bg-haze ml-1 disabled:opacity-50"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{p.purchase_date ?? '—'}</td>
@@ -641,13 +812,22 @@ export default function BobbinPurchasePage() {
                     <td className="px-3 py-2 text-right num">{fmtMoney(p.bobbin_price)}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(p.total_amount)}</td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{p.notes ?? ''}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(p)}
+                        disabled={editingId !== null || deletingId === p.id}
+                        title="Edit this purchase"
+                        className="p-1 rounded text-indigo-700 hover:bg-indigo-50 disabled:opacity-30"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => deleteRow(p.id, label)}
-                        disabled={deletingId === p.id}
+                        disabled={deletingId === p.id || editingId !== null}
                         title="Delete this purchase"
-                        className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                        className="p-1 rounded text-rose-600 hover:bg-rose-50 ml-1 disabled:opacity-30"
                       >
                         {deletingId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
