@@ -155,7 +155,14 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
-      sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
+      // Yarn counts are tagged with default_yarn_kind ('yarn' | 'porvai')
+      // so the Porvai Yarn Stock page only surfaces porvai counts and
+      // the regular Yarn Stock page only surfaces non-porvai counts.
+      sb.from('yarn_count')
+        .select('id, code, display_name')
+        .neq('status', 'archived')
+        .eq('default_yarn_kind', yarnKind)
+        .order('code'),
       // Suppliers = parties tagged "Mill / Yarn Supplier".
       supplierTypeId
         ? sb.from('party')

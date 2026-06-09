@@ -35,6 +35,9 @@ interface CountRow {
   is_slub: boolean;
   notes: string | null;
   status: RecordStatus;
+  /** Routes the count to either the Yarn Stock page or the Porvai
+   *  Yarn Stock page. Server default = 'yarn'. */
+  default_yarn_kind: 'yarn' | 'porvai';
 }
 
 interface NewCount {
@@ -45,6 +48,7 @@ interface NewCount {
   is_doubled: boolean;
   is_slub: boolean;
   notes: string;
+  default_yarn_kind: 'yarn' | 'porvai';
 }
 
 const EMPTY_NEW: NewCount = {
@@ -55,6 +59,7 @@ const EMPTY_NEW: NewCount = {
   is_doubled: false,
   is_slub: false,
   notes: '',
+  default_yarn_kind: 'yarn',
 };
 
 function toNumOrNull(v: string): number | null {
@@ -88,7 +93,7 @@ export default function YarnCountsPage() {
     const { data, error: err } = await (supabase as any)
       .from('yarn_count')
       .select(
-        'id, code, display_name, yarn_type, ne, denier, nec_computed, is_doubled, is_slub, notes, status',
+        'id, code, display_name, yarn_type, ne, denier, nec_computed, is_doubled, is_slub, notes, status, default_yarn_kind',
       )
       .neq('status', 'archived')
       .order('code');
@@ -146,6 +151,7 @@ export default function YarnCountsPage() {
       reorder_kg: 0,
       notes: neu.notes.trim() === '' ? null : neu.notes.trim(),
       status: 'active',
+      default_yarn_kind: neu.default_yarn_kind,
     });
     setAdding(false);
 
@@ -260,6 +266,19 @@ export default function YarnCountsPage() {
             </select>
           </div>
           <div>
+            <label className="label" htmlFor="nc-kind">Kind *</label>
+            <select
+              id="nc-kind"
+              className="input w-full"
+              value={neu.default_yarn_kind}
+              onChange={(e) => setNeu((n) => ({ ...n, default_yarn_kind: e.target.value as 'yarn' | 'porvai' }))}
+              title="Routes the count to either the Yarn Stock page or the Porvai Yarn Stock page."
+            >
+              <option value="yarn">Yarn (warp / weft)</option>
+              <option value="porvai">Porvai (selvedge)</option>
+            </select>
+          </div>
+          <div>
             <label className="label">Code</label>
             <div className="input num bg-cloud/40 text-ink-mute select-none">
               Auto (YC-NNNN)
@@ -360,6 +379,7 @@ export default function YarnCountsPage() {
                   <th className="py-2 pr-3">Code</th>
                   <th className="py-2 pr-3">Display name</th>
                   <th className="py-2 pr-3">Type</th>
+                  <th className="py-2 pr-3">Kind</th>
                   <th className="py-2 pr-3">Ne</th>
                   <th className="py-2 pr-3">Denier</th>
                   <th className="py-2 pr-3">Nec</th>
@@ -392,6 +412,19 @@ export default function YarnCountsPage() {
                         <option value="cotton">Cotton</option>
                         <option value="polyester">Polyester</option>
                         <option value="blend">Blend</option>
+                      </select>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <select
+                        className="input w-24"
+                        value={c.default_yarn_kind}
+                        onChange={(e) =>
+                          updateRow(c.id, { default_yarn_kind: e.target.value as 'yarn' | 'porvai' })
+                        }
+                        title="Routes the count to either the Yarn Stock page or the Porvai Yarn Stock page."
+                      >
+                        <option value="yarn">Yarn</option>
+                        <option value="porvai">Porvai</option>
                       </select>
                     </td>
                     <td className="py-2 pr-3">
