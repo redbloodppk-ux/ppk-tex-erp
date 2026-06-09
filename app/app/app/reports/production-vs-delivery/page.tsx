@@ -113,10 +113,12 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
   const from = fromInput ?? preset?.from ?? def.from;
   const to   = toInput   ?? preset?.to   ?? def.to;
 
-  const modeFilter: 'all' | 'inhouse' | 'jobwork' | 'outsource' =
-    sp.mode === 'inhouse'   ? 'inhouse'   :
-    sp.mode === 'jobwork'   ? 'jobwork'   :
-    sp.mode === 'outsource' ? 'outsource' : 'all';
+  // Outsource is no longer surfaced — this report compares loom
+  // utilisation (shift_log) vs delivery, so only In-house and Job Work
+  // appear as real production streams.
+  const modeFilter: 'all' | 'inhouse' | 'jobwork' =
+    sp.mode === 'inhouse' ? 'inhouse' :
+    sp.mode === 'jobwork' ? 'jobwork' : 'all';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,10 +126,14 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
   const { data, error } = await sb.rpc('fn_production_vs_delivery', { p_from: from, p_to: to });
   const allRows: PvDRow[] = Array.isArray(data) ? (data as PvDRow[]) : [];
 
-  // Apply the URL mode filter. 'unattributed' rows are dropped when the
-  // user picks a specific mode — they're a data-quality flag, not a
-  // real production stream — and shown only on 'all'.
+  // Apply the URL mode filter. Outsource rows are excluded from this
+  // report entirely (the report is a loom-utilisation vs delivery
+  // comparison; outsource fabric never touches the mill's looms).
+  // 'unattributed' rows are dropped when the user picks a specific
+  // mode — they're a data-quality flag, not a real production stream
+  // — and shown only on 'all'.
   const filteredRows: PvDRow[] = allRows.filter((r) => {
+    if (r.production_mode === 'outsource') return false;
     if (modeFilter === 'all') return true;
     if (r.production_mode === 'unattributed') return false;
     return r.production_mode === modeFilter;
@@ -288,7 +294,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
 
       {/* Mode filter pills. URL state via ?mode=. */}
       <div className="mb-3 flex items-center gap-1">
-        {(['all', 'inhouse', 'jobwork', 'outsource'] as const).map((m) => {
+        {(['all', 'inhouse', 'jobwork'] as const).map((m) => {
           const qs = new URLSearchParams();
           if (sp.from)   qs.set('from',   sp.from);
           if (sp.to)     qs.set('to',     sp.to);
@@ -296,8 +302,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
           if (m !== 'all') qs.set('mode', m);
           const href = `/app/reports/production-vs-delivery${qs.toString() ? `?${qs.toString()}` : ''}`;
           const label = m === 'all' ? 'All' :
-                        m === 'inhouse' ? 'In-house' :
-                        m === 'jobwork' ? 'Job Work' : 'Outsource';
+                        m === 'inhouse' ? 'In-house' : 'Job Work';
           const active = modeFilter === m;
           return (
             <Link
@@ -489,10 +494,12 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
       <p className="text-[11px] text-ink-mute mt-4">
         Period: <strong>{from}</strong> to <strong>{to}</strong>. {lineCount} row{lineCount === 1 ? '' : 's'}.
         Variance &gt; 0 = stock building (produced more than delivered); variance &lt; 0 = stock depleting
-        (delivered more than produced this period). In-house production is sourced from shift logs joined to
-        each loom&apos;s active production batch. Jobwork / Outsource production is sourced from fabric receipts
-        on DCs of that mode. &ldquo;Unattributed&rdquo; metres are shift-log production for which no active
-        production batch exists for the loom on that day.
+        (delivered more than produced this period). <strong>Produced</strong> is sourced exclusively from
+        the production shift logs on the mill&apos;s own looms — fabric received back from external weavers
+        is <em>not</em> counted here. Row mode = the fabric quality&apos;s production_mode (In-house or
+        Job Work). <strong>Delivered</strong> is the sum of DC items (status confirmed / invoiced) for the
+        same quality and mode. &ldquo;Unattributed&rdquo; metres are shift-log production on looms with no
+        fabric quality assigned.
       </p>
     </div>
   );
