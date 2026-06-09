@@ -299,10 +299,31 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         has_bobbin: it.seed.bobbin_pcs_per_m > 0,
       };
     });
+    // Resolve the jobwork_party.id matching the DC's party (by name)
+    // so the stock_ledger rows get the right party tag. The DC's
+    // party_id points to the universal party master, while the
+    // Warehouse pivot keys by jobwork_party.id — different ID spaces
+    // for the same physical party. Looking up by name is the
+    // pragmatic bridge: every jobwork DC's party should also exist as
+    // a jobwork_party row with the same name.
+    let jwPartyId: number | null = null;
+    if (dc.production_mode === 'jobwork' || dc.production_mode === 'outsource') {
+      const partyKind = dc.production_mode === 'outsource' ? 'outsource' : 'jobwork';
+      const jwLookup = await sb
+        .from('jobwork_party')
+        .select('id')
+        .eq('name', dc.party_name)
+        .eq('kind', partyKind)
+        .maybeSingle();
+      if (jwLookup.data && jwLookup.data.id != null) {
+        jwPartyId = jwLookup.data.id as number;
+      }
+    }
     const reduction = await applyFabricReceiptStockReductions(sb, reductionItems, {
       receipt_id: receiptId,
       receipt_code: hdr.code ?? null,
       receipt_date: receiptDate,
+      jobwork_party_id: jwPartyId,
     });
 
     // Capture "after" snapshot + persist the transaction record on the

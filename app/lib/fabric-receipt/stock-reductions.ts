@@ -330,6 +330,13 @@ export interface ReceiptContext {
   receipt_id: number | null;
   receipt_code: string | null;
   receipt_date: string | null;  // YYYY-MM-DD
+  /** Jobwork party that owns this DC (jobwork_party.id, NOT party.id).
+   *  Used as a fallback for the stock_ledger.jobwork_party_id column
+   *  when the underlying issue / bobbin row's party_id is NULL —
+   *  which is the case for bobbins after migration 142 because the
+   *  bobbin master is no longer per-party. Without this fallback the
+   *  Warehouse → Job Work → Bobbin pivot can't find the outflow. */
+  jobwork_party_id?: number | null;
 }
 
 export async function applyFabricReceiptStockReductions(
@@ -364,6 +371,11 @@ export async function applyFabricReceiptStockReductions(
   const event_date = ctx?.receipt_date ?? new Date().toISOString().slice(0, 10);
   const source_id = ctx?.receipt_id ?? null;
   const reference_no = ctx?.receipt_code ?? null;
+  // Resolve once: if the caller passed a DC-level jobwork_party_id,
+  // use it as a fallback for any ledger row whose source issue row
+  // doesn't carry one. The Warehouse pivot uses this column to find
+  // outflows per jobwork party.
+  const ctxJwPartyId: number | null = ctx?.jobwork_party_id ?? null;
 
   for (const it of items) {
     if (it.fabric_quality_id == null) continue;
@@ -376,7 +388,7 @@ export async function applyFabricReceiptStockReductions(
         if (b.cut <= 0) continue;
         ledgerRows.push({
           bucket: 'warp_beam', direction: 'out',
-          jobwork_party_id: b.party_id, fabric_quality_id: b.quality_id,
+          jobwork_party_id: b.party_id ?? ctxJwPartyId, fabric_quality_id: b.quality_id,
           yarn_count_id: null, bobbin_id: null,
           quantity: Math.round(b.cut * 100) / 100, unit: 'm',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
@@ -405,7 +417,7 @@ export async function applyFabricReceiptStockReductions(
         if (b.cut <= 0) continue;
         ledgerRows.push({
           bucket: 'weft_yarn', direction: 'out',
-          jobwork_party_id: b.party_id, fabric_quality_id: it.fabric_quality_id,
+          jobwork_party_id: b.party_id ?? ctxJwPartyId, fabric_quality_id: it.fabric_quality_id,
           yarn_count_id: b.count_id, bobbin_id: null,
           quantity: Math.round(b.cut * 1000) / 1000, unit: 'kg',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
@@ -432,7 +444,7 @@ export async function applyFabricReceiptStockReductions(
         if (b.cut <= 0) continue;
         ledgerRows.push({
           bucket: 'porvai_yarn', direction: 'out',
-          jobwork_party_id: b.party_id, fabric_quality_id: it.fabric_quality_id,
+          jobwork_party_id: b.party_id ?? ctxJwPartyId, fabric_quality_id: it.fabric_quality_id,
           yarn_count_id: b.count_id, bobbin_id: null,
           quantity: Math.round(b.cut * 1000) / 1000, unit: 'kg',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
@@ -462,7 +474,7 @@ export async function applyFabricReceiptStockReductions(
         // (1 m fabric consumes 1 m of bobbin yarn.)
         ledgerRows.push({
           bucket: 'bobbin', direction: 'out',
-          jobwork_party_id: b.party_id, fabric_quality_id: it.fabric_quality_id,
+          jobwork_party_id: b.party_id ?? ctxJwPartyId, fabric_quality_id: it.fabric_quality_id,
           yarn_count_id: null, bobbin_id: b.bobbin_id,
           quantity: Math.round(b.cut_m * 100) / 100, unit: 'm',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
