@@ -22,6 +22,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
 import { OpeningStockForm, type ExistingOpeningRow, type BobbinEndsOpt } from './opening-stock-form';
+import { InhouseBobbinOpeningStockForm, type InhouseBobbinMasterOpt } from './inhouse-bobbin-form';
 import { InhouseBobbinOpeningForm, type BobbinMasterForOpening } from './inhouse-bobbin-opening-form';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
@@ -206,13 +207,24 @@ export default async function WarehousePage({
   // form. ends_count carries ends_per_bobbin so the opening_stock row
   // is saved with the right integer; id is the bobbin master id so the
   // form can save bobbin_id directly.
-  const bobbinEnds: BobbinEndsOpt[] = ((bobbinEndsRaw ?? []) as Array<{
+  const bobbinMasterRaw = ((bobbinEndsRaw ?? []) as Array<{
     id: number; code: string; ends_per_bobbin: number;
     bobbin_metre: number | null; is_lurex: boolean | null
-  }>).map((r) => ({
+  }>);
+  const bobbinEnds: BobbinEndsOpt[] = bobbinMasterRaw.map((r) => ({
     id: r.id,
     ends_count: r.ends_per_bobbin,
     label: `${r.code} (${r.ends_per_bobbin} ends${r.bobbin_metre ? ` · ${r.bobbin_metre} m/pc` : ''}${r.is_lurex ? ' · lurex' : ''})`,
+  }));
+  // Full bobbin master shape for the new multi-item in-house bobbin
+  // form. It needs the per-piece metres + lurex flag to prefill the
+  // M/pc input and label the rows clearly.
+  const inhouseBobbinMasters: InhouseBobbinMasterOpt[] = bobbinMasterRaw.map((r) => ({
+    id: r.id,
+    code: r.code,
+    ends_per_bobbin: r.ends_per_bobbin,
+    bobbin_metre: r.bobbin_metre,
+    is_lurex: Boolean(r.is_lurex),
   }));
 
   // Richer shape consumed by the new multi-item InhouseBobbinOpeningForm.
@@ -538,8 +550,11 @@ export default async function WarehousePage({
       )}
       {mode === 'inhouse' && tab === 'bobbin'      && (
         <>
-          <InhouseBobbinOpeningForm
-            bobbins={inhouseBobbinsForForm}
+          {/* Multi-item bobbin opening stock form. Mirrors the Job Work
+              Bobbin Given form: pick once for date / reference / notes,
+              then a multi-row line items table for the bobbin specs. */}
+          <InhouseBobbinOpeningStockForm
+            bobbins={inhouseBobbinMasters}
             existing={existingOpening}
           />
           <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per bobbin spec." />
