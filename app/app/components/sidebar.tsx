@@ -1,14 +1,15 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  LayoutDashboard, Users, Calculator, Package, PackageCheck, Boxes, ShoppingCart, Receipt,
+  LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
-  FileBarChart, ClockAlert, Bell, Settings, BookCheck,
+  FileBarChart, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  Building2,
+  ChevronRight,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -100,7 +101,6 @@ const NAV: NavItem[] = [
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
   { href: '/app/yarn',          label: 'Yarn Reports',       icon: Boxes,           group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
-  { href: '/app/alerts',        label: 'Stale Alerts',       icon: ClockAlert,      group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Admin
@@ -130,6 +130,29 @@ const GROUP_LABEL: Record<GroupKey, string> = {
   admin:      'Admin',
 };
 
+/** localStorage key for per-group open/closed state. Persisted so the
+ *  sidebar feels stable across navigation. The group containing the
+ *  active route always auto-expands on render regardless of stored
+ *  state — that's a render-time override, not a write-back. */
+const SIDEBAR_STATE_KEY = 'ppk_sidebar_open_groups_v1';
+
+function loadStoredOpen(): Set<GroupKey> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_STATE_KEY);
+    if (raw == null) {
+      // First visit — open Overview only. The active group will also
+      // expand below as a render-time override.
+      return new Set<GroupKey>(['overview']);
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((g): g is GroupKey => typeof g === 'string') as GroupKey[]);
+  } catch {
+    return new Set();
+  }
+}
+
 function NavBody({
   role,
   onItemClick,
@@ -144,38 +167,96 @@ function NavBody({
     items: visible.filter(i => i.group === g),
   })).filter(g => g.items.length > 0);
 
+  // Track per-group open state. Hydrate from localStorage on mount.
+  // On first server render we use an empty set so the SSR markup is
+  // deterministic; the client effect overwrites it with the persisted
+  // state on first paint.
+  const [openGroups, setOpenGroups] = useState<Set<GroupKey>>(new Set());
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setOpenGroups(loadStoredOpen());
+    setHydrated(true);
+  }, []);
+
+  // Active group = the one whose item matches the current pathname.
+  // Always rendered open so the user can see where they are.
+  const activeGroup = visible.find(
+    (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
+  )?.group;
+
+  function toggleGroup(g: GroupKey): void {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify([...next]));
+        } catch {
+          // ignore quota / disabled-storage errors
+        }
+      }
+      return next;
+    });
+  }
+
   return (
-    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-      {grouped.map(({ group, items }) => (
-        <div key={group}>
-          <div className="px-2 mb-1.5 text-[10px] uppercase tracking-wider font-semibold text-ink-mute">
-            {GROUP_LABEL[group]}
+    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      {grouped.map(({ group, items }) => {
+        // Before hydration: only the active group is open (avoids
+        // flash of all groups closed). After hydration: openGroups
+        // from localStorage + the active-group override.
+        const isOpen = hydrated
+          ? (openGroups.has(group) || activeGroup === group)
+          : (activeGroup === group);
+        return (
+          <div key={group}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(group)}
+              className={cn(
+                'w-full flex items-center justify-between px-2 py-1.5 rounded-md',
+                'text-[10px] uppercase tracking-wider font-semibold text-ink-mute',
+                'hover:bg-cloud/60 hover:text-ink-soft transition-colors',
+              )}
+              aria-expanded={isOpen}
+            >
+              <span>{GROUP_LABEL[group]}</span>
+              <ChevronRight
+                className={cn(
+                  'w-3 h-3 text-ink-mute transition-transform duration-150',
+                  isOpen ? 'rotate-90' : 'rotate-0',
+                )}
+              />
+            </button>
+            {isOpen && (
+              <ul className="mt-1 mb-2 space-y-0.5">
+                {items.map(item => {
+                  const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={onItemClick}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                          active
+                            ? 'bg-indigo/10 text-indigo'
+                            : 'text-ink-soft hover:bg-cloud hover:text-ink'
+                        )}
+                      >
+                        <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
-          <ul className="space-y-0.5">
-            {items.map(item => {
-              const active = pathname === item.href || pathname.startsWith(item.href + '/');
-              const Icon = item.icon;
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={onItemClick}
-                    className={cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                      active
-                        ? 'bg-indigo/10 text-indigo'
-                        : 'text-ink-soft hover:bg-cloud hover:text-ink'
-                    )}
-                  >
-                    <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
