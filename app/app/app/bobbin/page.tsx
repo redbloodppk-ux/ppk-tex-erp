@@ -398,11 +398,12 @@ export default function BobbinPurchasePage() {
               <colgroup>
                 <col className="w-10" />
                 <col />
-                <col className="w-28" />
-                <col className="w-28" />
-                <col className="w-28" />
-                <col className="w-20" />
-                <col className="w-28" />
+                <col className="w-24" />
+                <col className="w-24" />
+                <col className="w-24" />
+                <col className="w-24" />
+                <col className="w-16" />
+                <col className="w-24" />
                 <col className="w-10" />
               </colgroup>
               <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
@@ -411,6 +412,7 @@ export default function BobbinPurchasePage() {
                   <th className="px-2 py-2 text-left">Bobbin *</th>
                   <th className="px-2 py-2 text-right">Qty (pcs) *</th>
                   <th className="px-2 py-2 text-right">M/pc</th>
+                  <th className="px-2 py-2 text-right">Total (m)</th>
                   <th className="px-2 py-2 text-right">Price (₹/pc)</th>
                   <th className="px-2 py-2 text-right">GST %</th>
                   <th className="px-2 py-2 text-right">Total (₹)</th>
@@ -421,8 +423,10 @@ export default function BobbinPurchasePage() {
                 {form.items.map((it, idx) => {
                   const bm = it.bobbin_id === '' ? null : bobbinById.get(Number(it.bobbin_id)) ?? null;
                   const qty = Number(it.qty_pcs || 0);
+                  const mpp = Number(it.metre_per_pc || 0);
                   const price = Number(it.price_per_pc || 0);
                   const gst = Number(it.gst_pct || 0);
+                  const totalMetres = qty > 0 && mpp > 0 ? qty * mpp : 0;
                   const total = qty > 0 && price > 0
                     ? qty * price * (1 + gst / 100)
                     : 0;
@@ -462,6 +466,9 @@ export default function BobbinPurchasePage() {
                           placeholder={bm?.bobbin_metre != null ? String(bm.bobbin_metre) : ''}
                           onChange={(e) => patchItem(idx, { metre_per_pc: e.target.value })}
                         />
+                      </td>
+                      <td className="px-2 py-1.5 text-right num text-xs font-semibold text-indigo-700">
+                        {totalMetres > 0 ? totalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
                       </td>
                       <td className="px-2 py-1.5">
                         <input
@@ -503,7 +510,7 @@ export default function BobbinPurchasePage() {
               </tbody>
               <tfoot className="bg-cloud/30 border-t border-line/40">
                 <tr>
-                  <td colSpan={6} className="px-2 py-2">
+                  <td colSpan={4} className="px-2 py-2">
                     <button
                       type="button"
                       onClick={addItemRow}
@@ -512,6 +519,17 @@ export default function BobbinPurchasePage() {
                       <Plus className="w-3.5 h-3.5" /> Add line
                     </button>
                   </td>
+                  <td className="px-2 py-2 text-right num text-xs font-semibold text-indigo-700">
+                    {(() => {
+                      const grandM = form.items.reduce((s, it) => {
+                        const q = Number(it.qty_pcs || 0);
+                        const m = Number(it.metre_per_pc || 0);
+                        return s + (q > 0 && m > 0 ? q * m : 0);
+                      }, 0);
+                      return grandM > 0 ? `${grandM.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m` : '—';
+                    })()}
+                  </td>
+                  <td colSpan={2} />
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {(() => {
                       const grand = form.items.reduce((s, it) => {
@@ -578,6 +596,7 @@ export default function BobbinPurchasePage() {
                 <th className="text-left  px-3 py-3">Invoice</th>
                 <th className="text-right px-3 py-3">Qty (pcs)</th>
                 <th className="text-right px-3 py-3">M/pc</th>
+                <th className="text-right px-3 py-3">Total (m)</th>
                 <th className="text-right px-3 py-3">Price (₹/pc)</th>
                 <th className="text-right px-3 py-3">Total (₹)</th>
                 <th className="text-left  px-3 py-3">Notes</th>
@@ -611,6 +630,14 @@ export default function BobbinPurchasePage() {
                     <td className="px-3 py-2 font-mono text-xs">{p.invoice_no ?? '—'}</td>
                     <td className="px-3 py-2 text-right num">{fmtNumber(p.pieces_purchased, 2)}</td>
                     <td className="px-3 py-2 text-right num text-xs text-ink-soft">{fmtNumber(p.bobbin_metre, 0)}</td>
+                    <td className="px-3 py-2 text-right num text-xs font-semibold text-indigo-700">
+                      {(() => {
+                        const q = Number(p.pieces_purchased ?? 0);
+                        const m = Number(p.bobbin_metre ?? 0);
+                        const t = q > 0 && m > 0 ? q * m : 0;
+                        return t > 0 ? `${t.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m` : '—';
+                      })()}
+                    </td>
                     <td className="px-3 py-2 text-right num">{fmtMoney(p.bobbin_price)}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(p.total_amount)}</td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{p.notes ?? ''}</td>
