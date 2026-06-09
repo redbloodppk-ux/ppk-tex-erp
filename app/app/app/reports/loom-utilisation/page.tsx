@@ -143,6 +143,10 @@ export default async function LoomUtilisationReport() {
       <PageHeader
         title="Loom Utilisation"
         subtitle="How much work each loom has done, from production batch records. Sorted by metres woven — busiest looms first, idle looms at the bottom."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Loom Utilisation' },
+        ]}
         actions={
           <ExcelExportButton
             filename="loom-utilisation"

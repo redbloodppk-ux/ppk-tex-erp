@@ -133,6 +133,10 @@ export default async function ProfitByQualityReport() {
       <PageHeader
         title="Profit by Quality"
         subtitle="What every quality really earns once you subtract the frozen production cost. Sorted by margin in rupees — biggest contributors at the top."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Profit by Quality' },
+        ]}
         actions={
           <ExcelExportButton
             filename="profit-by-quality"

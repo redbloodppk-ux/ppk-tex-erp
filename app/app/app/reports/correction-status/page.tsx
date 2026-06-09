@@ -235,6 +235,10 @@ export default function CorrectionStatusReport() {
       <PageHeader
         title="Correction Status"
         subtitle={`Build progress against the 42-card Correction Guide v1.1. ${overall.done} of ${total} done (${pctDone}%).`}
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Correction Status' },
+        ]}
       />
 
       <div className="card p-4 mb-6">

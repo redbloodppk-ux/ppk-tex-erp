@@ -96,6 +96,10 @@ export default async function AttendanceByRoleReport({
       <PageHeader
         title="Attendance by Role"
         subtitle="Roll-up of attendance by role for one month — how each role group is showing up."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Attendance — By Role' },
+        ]}
         actions={
           rows.length > 0 ? (
             <ExcelExportButton

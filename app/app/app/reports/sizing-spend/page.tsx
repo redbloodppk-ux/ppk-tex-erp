@@ -164,6 +164,10 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
       <PageHeader
         title="Sizing Spend"
         subtitle={`Where your sizing rupees went between ${from} and ${to}. Drill down to find the cheapest vendor and spot batches that drifted from plan.`}
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Sizing Spend' },
+        ]}
         actions={
           <ExcelExportButton
             filename="sizing-spend-by-month"

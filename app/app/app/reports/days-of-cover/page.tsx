@@ -162,6 +162,10 @@ export default async function DaysOfCoverReport() {
       <PageHeader
         title="Yarn Days-of-Cover"
         subtitle="How long current yarn stock will last at the recent run-rate. Highest-risk yarns first, healthy stock at the bottom."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Days of Cover' },
+        ]}
         actions={
           <ExcelExportButton
             filename="yarn-days-of-cover"

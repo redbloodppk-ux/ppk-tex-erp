@@ -209,6 +209,10 @@ export default async function CustomerAgeingPage({
       <PageHeader
         title="Customer Ageing"
         subtitle="Outstanding receivables bucketed by invoice age. Credit notes net out."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Customer Ageing' },
+        ]}
         actions={
           <ExcelExportButton
             filename="customer-ageing"

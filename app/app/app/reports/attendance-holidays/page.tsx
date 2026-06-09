@@ -99,6 +99,10 @@ export default async function AttendanceHolidaysReport({
       <PageHeader
         title="Holidays / Non-working Days"
         subtitle="Days (or shifts) when the shed did not run — power cut, national holiday, maintenance, other."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Attendance — Holidays' },
+        ]}
         actions={
           rows.length > 0 ? (
             <ExcelExportButton

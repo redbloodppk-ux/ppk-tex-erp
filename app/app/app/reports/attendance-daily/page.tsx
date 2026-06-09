@@ -123,6 +123,10 @@ export default async function DailyAttendanceReport({
       <PageHeader
         title="Daily Attendance"
         subtitle="Everyone who was marked on one date, across both shifts. Pick any date below."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Attendance — Daily' },
+        ]}
         actions={
           totalMarked > 0 ? (
             <ExcelExportButton

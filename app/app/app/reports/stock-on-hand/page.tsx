@@ -274,6 +274,10 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
       <PageHeader
         title="Stock on Hand"
         subtitle="Per-count yarn position with weighted-average cost. Source: v_stock_on_hand (migration 012)."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Stock on Hand' },
+        ]}
         actions={
           <ExcelExportButton
             filename="stock-on-hand"

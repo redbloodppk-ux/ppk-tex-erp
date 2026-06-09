@@ -170,6 +170,10 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
       <PageHeader
         title="Period Profit & Loss"
         subtitle="Revenue minus COGS, period expenses, plus bank income. Balance-sheet items (cash withdrawals, loan principal, GST payment) are excluded so profit isn't double-counted."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Period P&L' },
+        ]}
       />
 
       {/* View toggle — Combined keeps the existing single-column report.

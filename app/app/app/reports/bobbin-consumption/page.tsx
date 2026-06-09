@@ -123,6 +123,10 @@ export default async function BobbinConsumptionReport() {
       <PageHeader
         title="Bobbin Consumption"
         subtitle="Cost per metre of each warp beam, plus a split-piece reconciliation of how many bobbins have been used up. Costliest per metre first."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Bobbin Consumption' },
+        ]}
         actions={
           <ExcelExportButton
             filename="bobbin-consumption"

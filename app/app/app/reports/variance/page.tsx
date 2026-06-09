@@ -186,6 +186,10 @@ export default async function VarianceDashboard() {
       <PageHeader
         title="Variance Dashboard"
         subtitle="Planned cost vs the cost actually frozen onto each batch. Red means you spent more than you quoted; green means you came in under. Sorted worst-first so the biggest leaks sit at the top."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Variance' },
+        ]}
         actions={
           <ExcelExportButton
             filename="variance-by-batch"

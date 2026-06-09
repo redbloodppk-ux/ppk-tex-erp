@@ -199,6 +199,10 @@ export default async function CashflowPage({
       <PageHeader
         title="Cash-flow Snapshot"
         subtitle="Money in vs out for the recent past, plus what's coming due on both sides. All amounts in INR."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Cash-flow Snapshot' },
+        ]}
         actions={
           <ExcelExportButton
             filename="cashflow-recent-payments"

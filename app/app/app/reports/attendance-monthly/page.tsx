@@ -109,6 +109,10 @@ export default async function MonthlyAttendanceReport({
       <PageHeader
         title="Monthly Attendance"
         subtitle="Per-employee summary for one month. Pick a month and optionally narrow by role."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Attendance — Monthly' },
+        ]}
         actions={
           rows.length > 0 ? (
             <ExcelExportButton

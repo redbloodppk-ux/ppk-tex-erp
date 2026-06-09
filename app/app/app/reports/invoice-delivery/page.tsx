@@ -168,6 +168,10 @@ export default async function InvoiceDeliveryReport() {
       <PageHeader
         title="Invoice Delivery Status"
         subtitle="Which sales invoices still need a Delivery Challan. Invoices awaiting dispatch are listed first, oldest at the top."
+        crumbs={[
+          { label: 'Reports', href: '/app/reports' },
+          { label: 'Invoice Delivery' },
+        ]}
         actions={
           <ExcelExportButton
             filename="invoice-delivery-status"
