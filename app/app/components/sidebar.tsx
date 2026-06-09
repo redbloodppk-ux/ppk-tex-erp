@@ -130,6 +130,20 @@ const GROUP_LABEL: Record<GroupKey, string> = {
   admin:      'Admin',
 };
 
+/** Icon shown next to each group header — gives the eye a fast visual
+ *  anchor for scanning down the sidebar, especially useful for the
+ *  collapsed groups where there's no other visual cue. */
+const GROUP_ICON: Record<GroupKey, React.ComponentType<{ className?: string }>> = {
+  overview:   LayoutDashboard,
+  sales:      ShoppingCart,
+  inventory:  Boxes,
+  production: Factory,
+  people:     ClipboardList,
+  finance:    Wallet,
+  insights:   FileBarChart,
+  admin:      Settings,
+};
+
 /** localStorage key for per-group open/closed state. Persisted so the
  *  sidebar feels stable across navigation. The group containing the
  *  active route always auto-expands on render regardless of stored
@@ -209,28 +223,32 @@ function NavBody({
         const isOpen = hydrated
           ? (openGroups.has(group) || activeGroup === group)
           : (activeGroup === group);
+        const GroupIcon = GROUP_ICON[group];
         return (
           <div key={group}>
             <button
               type="button"
               onClick={() => toggleGroup(group)}
               className={cn(
-                'w-full flex items-center justify-between px-2 py-1.5 rounded-md',
-                'text-[10px] uppercase tracking-wider font-semibold text-ink-mute',
-                'hover:bg-cloud/60 hover:text-ink-soft transition-colors',
+                'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md',
+                'text-sm font-semibold text-ink-soft',
+                'hover:bg-cloud/60 hover:text-ink transition-colors',
               )}
               aria-expanded={isOpen}
             >
-              <span>{GROUP_LABEL[group]}</span>
+              <span className="flex items-center gap-2.5 min-w-0">
+                <GroupIcon className="w-4 h-4 shrink-0 text-ink-mute" />
+                <span className="truncate">{GROUP_LABEL[group]}</span>
+              </span>
               <ChevronRight
                 className={cn(
-                  'w-3 h-3 text-ink-mute transition-transform duration-150',
+                  'w-4 h-4 shrink-0 text-ink-mute transition-transform duration-150',
                   isOpen ? 'rotate-90' : 'rotate-0',
                 )}
               />
             </button>
             {isOpen && (
-              <ul className="mt-1 mb-2 space-y-0.5">
+              <ul className="mt-1 mb-2 space-y-0.5 pl-2 border-l border-line/40 ml-3">
                 {items.map(item => {
                   const active = pathname === item.href || pathname.startsWith(item.href + '/');
                   const Icon = item.icon;
