@@ -169,10 +169,14 @@ export default function BobbinMasterPage() {
     setAdding(false);
     if (err) {
       // Surface the most common collision plainly: same (ends, mode)
-      // already exists thanks to UNIQUE(bobbin_ends_master_id,
-      // production_mode).
-      const msg = err.message.includes('bobbin_unique_ends_mode')
-        ? `A ${MODE_LABEL[neu.production_mode]} bobbin for ${e.ends_count} ends already exists.`
+      // already exists. Either UNIQUE(bobbin_ends_master_id,
+      // production_mode) OR UNIQUE(code) trips — both mean the same
+      // thing because the code is derived from (mode, ends).
+      const dupe =
+        err.message.includes('bobbin_unique_ends_mode') ||
+        err.message.includes('bobbin_code_key');
+      const msg = dupe
+        ? `A ${MODE_LABEL[neu.production_mode]} bobbin for ${e.ends_count} ends already exists (${generateCode(neu.production_mode, e.ends_count)}).`
         : err.message;
       setError(msg);
       return;
