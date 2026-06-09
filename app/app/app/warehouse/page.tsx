@@ -21,7 +21,7 @@ import { Boxes, Package, Layers, AlertTriangle, Coins, TrendingDown, Factory, Tr
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
-import { OpeningStockForm, type ExistingOpeningRow } from './opening-stock-form';
+import { OpeningStockForm, type ExistingOpeningRow, type BobbinEndsOpt } from './opening-stock-form';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
 // Force server-render on every visit so the jobwork tabs always reflect
@@ -154,6 +154,7 @@ export default async function WarehousePage({
     { data: bobbinMasters },
     { data: jobworkParties },
     { data: fabricQualities },
+    { data: bobbinEndsRaw },
   ] = await Promise.all([
     // Yarn suppliers come from the party table now (migration 098). We
     // resolve the "Mill / Yarn Supplier" party_type id inline and filter
@@ -183,7 +184,14 @@ export default async function WarehousePage({
     (supabase as any).from('jobwork_party').select('id, code, name, kind').eq('status', 'active').eq('kind', partyKind).order('name'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
+    // bobbin_ends_master — drives the "Ends per bobbin" dropdown on
+    // the bobbin opening stock form. Only active rows are surfaced.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('bobbin_ends_master').select('id, ends_count, label').eq('active', true).order('ends_count'),
   ]);
+
+  const bobbinEnds: BobbinEndsOpt[] = ((bobbinEndsRaw ?? []) as Array<{ id: number; ends_count: number; label: string }>)
+    .map((r) => ({ id: r.id, ends_count: r.ends_count, label: r.label }));
 
   // ─── Low-stock alerts (cross-cutting, in-house only) ──────────────────────
   // Alerts cover yarn_count.reorder_kg and bobbin.reorder_pieces which
@@ -496,7 +504,7 @@ export default async function WarehousePage({
       )}
       {mode === 'inhouse' && tab === 'bobbin'      && (
         <>
-          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
+          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} bobbinEndsOptions={bobbinEnds} existing={existingOpening} />
           <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
         </>
       )}

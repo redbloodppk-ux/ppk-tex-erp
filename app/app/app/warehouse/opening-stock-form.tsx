@@ -32,6 +32,10 @@ type Bucket = 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin';
 interface QualityOpt { id: number; code: string | null; name: string }
 interface CountOpt   { id: number; code: string;        display_name: string | null }
 interface BobbinMasterOpt { id: number; code: string; ends_per_bobbin: number | null }
+/** Active rows from bobbin_ends_master. Drives the Ends-per-bobbin
+ *  dropdown on the bobbin opening stock form so the operator picks
+ *  from a known list instead of free-typing an integer. */
+export interface BobbinEndsOpt { id: number; ends_count: number; label: string }
 
 export interface ExistingOpeningRow {
   id: number;
@@ -53,6 +57,11 @@ interface Props {
   qualities: QualityOpt[];
   counts: CountOpt[];
   bobbinMasters: BobbinMasterOpt[];
+  /** Catalogue of valid ends-per-bobbin specs. Used to populate the
+   *  dropdown on the bobbin bucket form. Defaults to [] so the form
+   *  still renders cleanly if the master is empty (operator will be
+   *  told to set one up). */
+  bobbinEndsOptions?: BobbinEndsOpt[];
   /** Existing opening entries for the current (bucket, mode). Rendered
    *  inline below the add form with a delete button per row. */
   existing?: ExistingOpeningRow[];
@@ -115,6 +124,7 @@ export function OpeningStockForm({
   qualities,
   counts,
   bobbinMasters,
+  bobbinEndsOptions = [],
   existing = [],
   mode = 'inhouse',
 }: Props): React.ReactElement {
@@ -345,8 +355,15 @@ export function OpeningStockForm({
                     const bid = e.target.value;
                     setForm((f) => {
                       const next = { ...f, bobbin_id: bid };
+                      // If the picked bobbin master has an ends value that
+                      // matches a row in bobbin_ends_master, pre-select
+                      // it. Otherwise leave the dropdown empty so the
+                      // operator picks explicitly.
                       const bm = bobbinMasters.find((b) => b.id === Number(bid));
-                      if (bm?.ends_per_bobbin != null) next.ends_per_bobbin = String(bm.ends_per_bobbin);
+                      if (bm?.ends_per_bobbin != null) {
+                        const match = bobbinEndsOptions.find((o) => o.ends_count === bm.ends_per_bobbin);
+                        if (match) next.ends_per_bobbin = String(match.ends_count);
+                      }
                       return next;
                     });
                   }}
@@ -359,12 +376,25 @@ export function OpeningStockForm({
               </div>
               <div>
                 <label className="label text-xs">Ends per bobbin *</label>
-                <input
-                  type="number"
-                  className="input num h-9 text-sm"
-                  value={form.ends_per_bobbin}
-                  onChange={(e) => setForm({ ...form, ends_per_bobbin: e.target.value })}
-                />
+                {bobbinEndsOptions.length === 0 ? (
+                  <div className="input h-9 text-sm bg-amber-50 text-amber-800 border-amber-200">
+                    Set up Bobbin Ends Master first.
+                  </div>
+                ) : (
+                  <select
+                    className="input h-9 text-sm"
+                    value={form.ends_per_bobbin}
+                    onChange={(e) => setForm({ ...form, ends_per_bobbin: e.target.value })}
+                  >
+                    <option value="">--- select ---</option>
+                    {bobbinEndsOptions.map((o) => (
+                      <option key={o.id} value={o.ends_count}>{o.label}</option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-[10px] text-ink-mute mt-1">
+                  Managed in Settings &rarr; Bobbin Ends Master.
+                </p>
               </div>
             </>
           )}

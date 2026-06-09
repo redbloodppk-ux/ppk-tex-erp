@@ -129,6 +129,23 @@ export default async function SettingsPage({
           <ChevronRight className="w-4 h-4 text-ink-mute" />
         </Link>
         <Link
+          href="/app/settings/bobbin-ends-master"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Ruler className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Bobbin Ends Master</div>
+              <div className="text-xs text-ink-soft">
+                Valid &ldquo;ends per bobbin&rdquo; specs (30, 40, 60, 80, 100…). Drives the dropdown on the in-house bobbin opening stock form.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
+        <Link
           href="/app/yarn-counts"
           className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition"
         >
