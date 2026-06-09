@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
+  Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
@@ -15,7 +15,7 @@ import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
-type GroupKey = 'overview' | 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
+type GroupKey = 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
 
 interface NavItem {
   href: string;
@@ -36,8 +36,9 @@ interface NavItem {
  *  Admin     → settings + audit (owner/auditor only)
  */
 const NAV: NavItem[] = [
-  // Overview
-  { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'overview',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
+  // Dashboard moved off the sidebar — operators reach it via the
+  // PPK TEX brand logo at the top of the sidebar (which is a Link to
+  // /app/dashboard) so a dedicated nav entry is redundant.
 
   // Sales
   // Customers + Jobwork Parties moved into the unified Parties master
@@ -116,11 +117,10 @@ const NAV: NavItem[] = [
 ];
 
 const GROUP_ORDER: readonly GroupKey[] = [
-  'overview', 'sales', 'inventory', 'production', 'people', 'finance', 'insights', 'admin',
+  'sales', 'inventory', 'production', 'people', 'finance', 'insights', 'admin',
 ];
 
 const GROUP_LABEL: Record<GroupKey, string> = {
-  overview:   'Overview',
   sales:      'Sales & Customers',
   inventory:  'Inventory & Purchases',
   production: 'Production',
@@ -134,7 +134,6 @@ const GROUP_LABEL: Record<GroupKey, string> = {
  *  anchor for scanning down the sidebar, especially useful for the
  *  collapsed groups where there's no other visual cue. */
 const GROUP_ICON: Record<GroupKey, React.ComponentType<{ className?: string }>> = {
-  overview:   LayoutDashboard,
   sales:      ShoppingCart,
   inventory:  Boxes,
   production: Factory,
@@ -155,9 +154,9 @@ function loadStoredOpen(): Set<GroupKey> {
   try {
     const raw = window.localStorage.getItem(SIDEBAR_STATE_KEY);
     if (raw == null) {
-      // First visit — open Overview only. The active group will also
-      // expand below as a render-time override.
-      return new Set<GroupKey>(['overview']);
+      // First visit — open Sales as a sensible default. The active
+      // group will also expand below as a render-time override.
+      return new Set<GroupKey>(['sales']);
     }
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return new Set();
