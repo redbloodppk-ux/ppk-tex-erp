@@ -22,6 +22,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
 import { OpeningStockForm, type ExistingOpeningRow, type BobbinEndsOpt } from './opening-stock-form';
+import { InhouseBobbinOpeningForm, type BobbinMasterForOpening } from './inhouse-bobbin-opening-form';
 
 export const metadata = { title: 'Warehouse — Unified Stock' };
 // Force server-render on every visit so the jobwork tabs always reflect
@@ -212,6 +213,18 @@ export default async function WarehousePage({
     id: r.id,
     ends_count: r.ends_per_bobbin,
     label: `${r.code} (${r.ends_per_bobbin} ends${r.bobbin_metre ? ` · ${r.bobbin_metre} m/pc` : ''}${r.is_lurex ? ' · lurex' : ''})`,
+  }));
+
+  // Richer shape consumed by the new multi-item InhouseBobbinOpeningForm.
+  const inhouseBobbinsForForm: BobbinMasterForOpening[] = ((bobbinEndsRaw ?? []) as Array<{
+    id: number; code: string; ends_per_bobbin: number;
+    bobbin_metre: number | null; is_lurex: boolean | null
+  }>).map((r) => ({
+    id: r.id,
+    code: r.code,
+    ends_per_bobbin: r.ends_per_bobbin,
+    bobbin_metre: r.bobbin_metre,
+    is_lurex: Boolean(r.is_lurex),
   }));
 
   // ─── Low-stock alerts (cross-cutting, in-house only) ──────────────────────
@@ -525,8 +538,11 @@ export default async function WarehousePage({
       )}
       {mode === 'inhouse' && tab === 'bobbin'      && (
         <>
-          <OpeningStockForm bucket="bobbin"      qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} bobbinEndsOptions={bobbinEnds} existing={existingOpening} />
-          <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per ends spec." />
+          <InhouseBobbinOpeningForm
+            bobbins={inhouseBobbinsForForm}
+            existing={existingOpening}
+          />
+          <PivotView data={inBobbinRows!} emptyMessage="No in-house bobbin stock yet. Use Add opening stock to enter your starting balance per bobbin spec." />
         </>
       )}
       {mode === 'sizing' && tab === 'yarn'         && (
