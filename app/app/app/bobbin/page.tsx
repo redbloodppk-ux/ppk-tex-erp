@@ -1,53 +1,49 @@
 'use client';
 /**
- * Bobbin Stock - purchase log of every bobbin batch the mill has bought.
+ * Bobbin Purchase Log — every batch of bobbin pieces the mill buys.
  *
- * Each row is one purchase: code BB-{ends}-{metres} auto-generated, the
- * description (display name) auto-formats as "{ends}-ends x {metres}m",
- * plus purchase date, supplier (mill), invoice no, quantity, price/pc,
- * GST % and total (auto = qty * price * (1 + gst/100), stored as a
- * Postgres GENERATED column).
+ * After migration 140 the bobbin table is a 1:1 master keyed by
+ * (ends_per_bobbin, production_mode), and each restock event lives in
+ * bobbin_purchase. This page:
  *
- * Mandatory fields: ends, metres, quantity, purchase_date, invoice_no.
+ *   • Add Purchase form (multi-item): pick a bobbin from the master,
+ *     enter qty (pcs) + price/pc + gst. Top section (date, supplier,
+ *     invoice) is shared across all lines. One Save inserts N
+ *     bobbin_purchase rows in a single batch.
  *
- * The form is hidden by default. Click "Add Purchase" to reveal a blank
- * form, or click "Edit" on any row to load it into the form for changes.
+ *   • Purchases list: chronological bobbin_purchase rows joined to the
+ *     bobbin master for code / ends / m/pc display. Inline edit and
+ *     soft-delete.
  *
- * RLS: anyone authenticated reads; owner / mill_manager writes.
+ *   • By default the master picker shows In-house bobbins
+ *     (production_mode = 'inhouse') because this page sits under the
+ *     In-house Stock sidebar. Toggle pills let you switch the mode if
+ *     you also want to log a Job Work or Outsource bobbin purchase.
+ *
+ * RLS: anyone authenticated reads; owner / mill_manager writes
+ * (enforced on the bobbin_purchase table).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
-import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, X, Save } from 'lucide-react';
 
-// Columns the operator can sort by — falls back to default (purchase_date desc)
-// when no sort key is set in the URL.
-const SORTABLE_COLUMNS = new Set(['code', 'description']);
+type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
-type RecordStatus = 'active' | 'inactive' | 'archived';
+const MODE_LABEL: Record<ProductionMode, string> = {
+  inhouse: 'In-house',
+  jobwork: 'Job Work',
+  outsource: 'Outsource',
+};
 
-interface Bobbin {
+interface BobbinMasterOpt {
   id: number;
   code: string;
-  description: string;
   ends_per_bobbin: number;
-  bobbin_metre: number;
-  bobbin_price: number;
-  quantity: number;
-  gst_pct: number;
-  total_amount: number;
+  bobbin_metre: number | null;
   is_lurex: boolean;
-  vendor_id: number | null;
-  supplier_party_id: number | null;
-  purchase_date: string | null;
-  invoice_no: string | null;
-  production_mode: 'inhouse' | 'jobwork' | null;
-  jobwork_party_id: number | null;
-  status: RecordStatus;
-  notes: string | null;
+  production_mode: ProductionMode;
 }
 
 interface PartyOption {
@@ -56,638 +52,583 @@ interface PartyOption {
   name: string;
 }
 
-interface JobworkPartyOption {
+interface PurchaseRow {
   id: number;
-  code: string;
-  name: string;
+  bobbin_id: number;
+  purchase_date: string | null;
+  invoice_no: string | null;
+  vendor_id: number | null;
+  pieces_purchased: number | string | null;
+  bobbin_metre: number | string | null;
+  bobbin_price: number | string | null;
+  total_amount: number | string | null;
+  notes: string | null;
+  bobbin: {
+    id: number;
+    code: string;
+    ends_per_bobbin: number;
+    bobbin_metre: number | null;
+    is_lurex: boolean;
+    production_mode: ProductionMode;
+  } | null;
 }
 
-interface FormState {
-  ends_per_bobbin: string;
-  bobbin_metre: string;
-  bobbin_price: string;
-  quantity: string;
+interface AddItem {
+  bobbin_id: string;
+  qty_pcs: string;
+  /** Per-piece metres, prefills from the picked bobbin master. Editable
+   *  so partial bobbins / short pieces can be recorded for this
+   *  purchase — the master's m/pc is NOT changed. */
+  metre_per_pc: string;
+  price_per_pc: string;
   gst_pct: string;
-  supplier_party_id: string;
-  purchase_date: string;
-  invoice_no: string;
-  is_lurex: boolean;
-  notes: string;
-  production_mode: 'inhouse' | 'jobwork';
-  jobwork_party_id: string;
-}
-
-const EMPTY_FORM: FormState = {
-  ends_per_bobbin: '',
-  bobbin_metre: '',
-  bobbin_price: '0',
-  quantity: '',
-  gst_pct: '18',
-  supplier_party_id: '',
-  purchase_date: '',
-  invoice_no: '',
-  is_lurex: false,
-  notes: '',
-  production_mode: 'inhouse',
-  jobwork_party_id: '',
-};
-
-function toNumOrNull(v: string): number | null {
-  const t = v.trim();
-  if (t === '') return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function buildDescription(ends: number | null, metres: number | null): string {
-  if (ends === null || metres === null) return '';
-  return String(ends) + '-ends x ' + String(metres) + 'm';
+function makeEmptyItem(): AddItem {
+  return { bobbin_id: '', qty_pcs: '', metre_per_pc: '', price_per_pc: '', gst_pct: '18' };
 }
 
-function fmtDate(s: string | null): string {
-  if (s === null || s === '') return '-';
-  const d = new Date(s + 'T00:00:00');
-  if (Number.isNaN(d.getTime())) return s;
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + String(d.getFullYear());
+function fmtMoney(v: unknown): string {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n)) return '0';
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtMoney(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '-';
-  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+function fmtNumber(v: unknown, fractionDigits = 0): string {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n)) return '0';
+  return n.toLocaleString('en-IN', { maximumFractionDigits: fractionDigits });
 }
 
-export default function BobbinPage() {
+export default function BobbinPurchasePage() {
   const supabase = createClient();
-  const searchParams = useSearchParams();
-  const rawSort = searchParams.get('sort') ?? '';
-  const sort: string = SORTABLE_COLUMNS.has(rawSort) ? rawSort : '';
-  const dir: SortDir = searchParams.get('dir') === 'desc' ? 'desc' : 'asc';
-
-  const [rows, setRows] = useState<Bobbin[]>([]);
-  const [bobbinSuppliers, setBobbinSuppliers] = useState<PartyOption[]>([]);
-  const [jobworkParties, setJobworkParties] = useState<JobworkPartyOption[]>([]);
+  const [bobbinMasters, setBobbinMasters] = useState<BobbinMasterOpt[]>([]);
+  const [suppliers, setSuppliers] = useState<PartyOption[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<boolean>(false);
+  const [busy, setBusy] = useState<boolean>(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [modePick, setModePick] = useState<ProductionMode>('inhouse');
+
+  const [form, setForm] = useState<{
+    purchase_date: string;
+    invoice_no: string;
+    supplier_party_id: string;
+    notes: string;
+    items: AddItem[];
+  }>({
+    purchase_date: todayISO(),
+    invoice_no: '',
+    supplier_party_id: '',
+    notes: '',
+    items: [makeEmptyItem()],
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
-
-    // Step 1: find the party_type_master row whose name is 'Bobbin Supplier'
-    // so we can filter the parties dropdown to just those suppliers. If the
-    // type row doesn't exist yet we just show an empty list - the user can
-    // create it on the Party Types settings page.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ptRes = await (supabase as any)
+    const sb = supabase as any;
+
+    // Resolve the Bobbin Supplier party_type id so the supplier dropdown
+    // stays focused. Falls back to all parties if the type row isn't
+    // present yet.
+    const ptRes = await sb
       .from('party_type_master')
       .select('id')
       .eq('name', 'Bobbin Supplier')
       .maybeSingle();
+    const bobbinSupplierTypeId: number | null = ptRes.data?.id ?? null;
 
-    const bobbinSupplierTypeId: number | null =
-      ptRes.data && typeof ptRes.data.id === 'number' ? ptRes.data.id : null;
-
-    // Step 2: pull bobbin rows, parties of that type, and jobwork parties
-    // in parallel.
-    const [bobbinRes, partyRes, jwpRes] = await Promise.all([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
-        .from('bobbin')
-        .select('id, code, description, ends_per_bobbin, bobbin_metre, bobbin_price, quantity, gst_pct, total_amount, is_lurex, vendor_id, supplier_party_id, purchase_date, invoice_no, production_mode, jobwork_party_id, status, notes')
-        // Bobbin stock page is for IN-HOUSE bobbins only. Jobwork
-        // bobbins are managed from /app/jobwork → Bobbin given tab.
-        // Filter out rows tagged production_mode='jobwork' so the list
-        // and totals here reflect only in-house stock.
+    const [bmRes, supRes, purRes] = await Promise.all([
+      sb.from('bobbin')
+        .select('id, code, ends_per_bobbin, bobbin_metre, is_lurex, production_mode')
         .neq('status', 'archived')
-        .neq('production_mode', 'jobwork')
-        .order('purchase_date', { ascending: false, nullsFirst: false })
-        .order('id', { ascending: false }),
+        .order('production_mode')
+        .order('ends_per_bobbin'),
       bobbinSupplierTypeId === null
-        ? Promise.resolve({ data: [], error: null })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        : (supabase as any)
-            .from('party')
-            .select('id, code, name')
+        ? sb.from('party').select('id, code, name').eq('status', 'active').order('name')
+        : sb.from('party').select('id, code, name')
             .eq('status', 'active')
-            // Use array containment so parties tagged with multiple
-            // types (e.g. Customer + Bobbin Supplier) still show here.
             .contains('party_type_ids', [bobbinSupplierTypeId])
             .order('name'),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
-        .from('jobwork_party')
-        .select('id, code, name')
-        .eq('status', 'active')
-        .order('name'),
+      sb.from('bobbin_purchase')
+        .select(`id, bobbin_id, purchase_date, invoice_no, vendor_id, pieces_purchased,
+                 bobbin_metre, bobbin_price, total_amount, notes,
+                 bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex, production_mode )`)
+        .order('purchase_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false }),
     ]);
-    if (bobbinRes.error) {
-      setError(bobbinRes.error.message);
-    } else if (partyRes.error) {
-      setError(partyRes.error.message);
-    } else if (jwpRes.error) {
-      setError(jwpRes.error.message);
-    } else {
-      setRows((bobbinRes.data ?? []) as unknown as Bobbin[]);
-      setBobbinSuppliers((partyRes.data ?? []) as unknown as PartyOption[]);
-      setJobworkParties((jwpRes.data ?? []) as unknown as JobworkPartyOption[]);
-      setError(null);
-    }
+
+    if (bmRes.error)  { setError(bmRes.error.message); setLoading(false); return; }
+    if (supRes.error) { setError(supRes.error.message); setLoading(false); return; }
+    if (purRes.error) { setError(purRes.error.message); setLoading(false); return; }
+
+    setBobbinMasters((bmRes.data ?? []) as BobbinMasterOpt[]);
+    setSuppliers((supRes.data ?? []) as PartyOption[]);
+    setPurchases((purRes.data ?? []) as PurchaseRow[]);
+    setError(null);
     setLoading(false);
   }, [supabase]);
 
   useEffect(() => { void load(); }, [load]);
 
-  // Client-side sort: SortableTh navigates with ?sort=&dir= and we apply it
-  // to the rows already in memory so the operator gets instant feedback
-  // without a full reload.
-  const sortedRows = useMemo<Bobbin[]>(() => {
-    if (sort === '') return rows;
-    const copy = [...rows];
-    copy.sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[sort];
-      const bv = (b as unknown as Record<string, unknown>)[sort];
-      if (av === bv) return 0;
-      if (av === null || av === undefined) return 1;
-      if (bv === null || bv === undefined) return -1;
-      const cmp = av < bv ? -1 : 1;
-      return dir === 'asc' ? cmp : -cmp;
-    });
-    return copy;
-  }, [rows, sort, dir]);
+  const bobbinById = useMemo<Map<number, BobbinMasterOpt>>(() => {
+    const m = new Map<number, BobbinMasterOpt>();
+    bobbinMasters.forEach((b) => m.set(b.id, b));
+    return m;
+  }, [bobbinMasters]);
 
-  const ends = useMemo<number | null>(() => toNumOrNull(form.ends_per_bobbin), [form.ends_per_bobbin]);
-  const metres = useMemo<number | null>(() => toNumOrNull(form.bobbin_metre), [form.bobbin_metre]);
-  const descPreview = useMemo<string>(() => buildDescription(ends, metres), [ends, metres]);
+  const supplierById = useMemo<Map<number, PartyOption>>(() => {
+    const m = new Map<number, PartyOption>();
+    suppliers.forEach((s) => m.set(s.id, s));
+    return m;
+  }, [suppliers]);
 
-  const totalPreview = useMemo<number>(() => {
-    const qty = toNumOrNull(form.quantity) ?? 0;
-    const price = toNumOrNull(form.bobbin_price) ?? 0;
-    const gst = toNumOrNull(form.gst_pct) ?? 0;
-    const raw = qty * price * (1 + gst / 100);
-    return Math.round(raw * 100) / 100;
-  }, [form.quantity, form.bobbin_price, form.gst_pct]);
+  // Bobbins filtered to the active mode pill (so the line dropdown only
+  // surfaces the bobbins matching the current purchase scope).
+  const visibleBobbins = useMemo<BobbinMasterOpt[]>(
+    () => bobbinMasters.filter((b) => b.production_mode === modePick),
+    [bobbinMasters, modePick],
+  );
 
-  function openNewForm() {
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, purchase_date: todayISO() });
-    setFormOpen(true);
-    setSavedMsg(null);
-    setError(null);
-  }
-
-  function openEditForm(b: Bobbin) {
-    setEditingId(b.id);
+  function reset(): void {
     setForm({
-      ends_per_bobbin: String(b.ends_per_bobbin),
-      bobbin_metre:    String(b.bobbin_metre),
-      bobbin_price:    String(b.bobbin_price),
-      quantity:        String(b.quantity),
-      gst_pct:         String(b.gst_pct),
-      supplier_party_id: b.supplier_party_id === null ? '' : String(b.supplier_party_id),
-      purchase_date:   b.purchase_date ?? '',
-      invoice_no:      b.invoice_no ?? '',
-      is_lurex:        b.is_lurex,
-      notes:           b.notes ?? '',
-      production_mode: b.production_mode === 'jobwork' ? 'jobwork' : 'inhouse',
-      jobwork_party_id: b.jobwork_party_id === null ? '' : String(b.jobwork_party_id),
+      purchase_date: todayISO(),
+      invoice_no: '',
+      supplier_party_id: '',
+      notes: '',
+      items: [makeEmptyItem()],
     });
-    setFormOpen(true);
-    setSavedMsg(null);
-    setError(null);
   }
 
-  function closeForm() {
-    setFormOpen(false);
-    setEditingId(null);
-    setForm(EMPTY_FORM);
+  function addItemRow(): void {
+    setForm((f) => ({ ...f, items: [...f.items, makeEmptyItem()] }));
+  }
+  function removeItemRow(idx: number): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.length > 1 ? f.items.filter((_, i) => i !== idx) : f.items,
+    }));
+  }
+  function patchItem(idx: number, patch: Partial<AddItem>): void {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+    }));
+  }
+  function pickBobbinForItem(idx: number, bobbinId: string): void {
+    const bm = bobbinId === '' ? null : bobbinMasters.find((b) => b.id === Number(bobbinId)) ?? null;
+    const prefill = bm?.bobbin_metre != null ? String(bm.bobbin_metre) : '';
+    patchItem(idx, { bobbin_id: bobbinId, metre_per_pc: prefill });
   }
 
-  async function handleSave() {
+  async function save(): Promise<void> {
     setError(null);
     setSavedMsg(null);
+    if (!form.purchase_date) { setError('Purchase date is required.'); return; }
+    if (!form.invoice_no.trim()) { setError('Invoice no. is required.'); return; }
 
-    if (ends === null || ends <= 0) { setError('Enter a positive ends-per-bobbin.'); return; }
-    if (metres === null || metres <= 0) { setError('Enter a positive bobbin length (metres).'); return; }
-
-    const qty = toNumOrNull(form.quantity);
-    if (qty === null || qty <= 0) { setError('Quantity is required.'); return; }
-    if (form.purchase_date.trim() === '') { setError('Purchase date is required.'); return; }
-    if (form.invoice_no.trim() === '')    { setError('Invoice number is required.'); return; }
-    if (form.production_mode === 'jobwork' && form.jobwork_party_id === '') {
-      setError('Pick the jobwork party for this purchase.');
+    const validItems = form.items.filter(
+      (it) => it.bobbin_id !== '' && Number(it.qty_pcs) > 0,
+    );
+    if (validItems.length === 0) {
+      setError('Pick a bobbin and enter a positive quantity for at least one line.');
+      return;
+    }
+    const badIdx = form.items.findIndex(
+      (it) => it.bobbin_id !== '' && !(Number(it.qty_pcs) > 0),
+    );
+    if (badIdx !== -1) {
+      setError(`Line ${badIdx + 1}: quantity must be greater than zero.`);
       return;
     }
 
-    const description = buildDescription(ends, metres);
-
-    const payload = {
-      // code omitted - trg_bobbin_autogen_code fills it server-side (BB-NNNN).
-      description,
-      ends_per_bobbin: ends,
-      bobbin_metre: metres,
-      bobbin_price: toNumOrNull(form.bobbin_price) ?? 0,
-      quantity: Math.trunc(qty),
-      gst_pct: toNumOrNull(form.gst_pct) ?? 0,
-      // New unified-party FK; the legacy mill vendor_id is left untouched.
-      supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
-      purchase_date: form.purchase_date,
-      invoice_no: form.invoice_no.trim(),
-      is_lurex: form.is_lurex,
-      notes: form.notes.trim() === '' ? null : form.notes.trim(),
-      production_mode: form.production_mode,
-      jobwork_party_id: form.production_mode === 'jobwork' && form.jobwork_party_id !== ''
-        ? Number(form.jobwork_party_id) : null,
-      status: 'active' as const,
-    };
-
     setBusy(true);
-    if (editingId === null) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('bobbin').insert(payload);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Added purchase ' + description + '.');
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('bobbin').update(payload).eq('id', editingId);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Updated ' + description + '.');
-    }
-    closeForm();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const payloads = validItems.map((it) => {
+      const qtyPcs = Number(it.qty_pcs);
+      const metre = it.metre_per_pc === '' ? null : Number(it.metre_per_pc);
+      const price = it.price_per_pc === '' ? 0 : Number(it.price_per_pc);
+      // total_amount is a generated column on bobbin_purchase (pcs *
+      // price), so we don't need to write it. GST isn't a column on
+      // bobbin_purchase either — capture it in notes so the rate
+      // isn't lost.
+      const gst = it.gst_pct === '' ? 0 : Number(it.gst_pct);
+      const noteSuffix = gst > 0 ? ` · GST ${gst}%` : '';
+      return {
+        bobbin_id: Number(it.bobbin_id),
+        purchase_date: form.purchase_date,
+        invoice_no: form.invoice_no.trim(),
+        vendor_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+        pieces_purchased: qtyPcs,
+        bobbin_metre: metre,
+        bobbin_price: price,
+        notes: (form.notes.trim() || '') + noteSuffix || null,
+      };
+    });
+    const { error: err } = await sb.from('bobbin_purchase').insert(payloads);
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    setSavedMsg(`Saved ${payloads.length} purchase line${payloads.length === 1 ? '' : 's'}.`);
+    reset();
+    setOpen(false);
     await load();
   }
 
-  async function deleteRow(id: number, code: string) {
-    const ok = window.confirm('Delete bobbin purchase ' + code + '?\n\nIf bobbin_stock rows reference this, the database will block the delete.');
-    if (ok === false) return;
+  async function deleteRow(id: number, label: string): Promise<void> {
+    const ok = window.confirm(`Delete purchase entry ${label}?\n\nThis hard-deletes the bobbin_purchase row.`);
+    if (!ok) return;
     setError(null);
     setSavedMsg(null);
-
+    setDeletingId(id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase as any).from('bobbin').delete().eq('id', id);
-    if (err) {
-      const archiveOk = window.confirm('Hard delete failed (' + err.message + ').\n\nArchive it instead so it stops appearing in lists?');
-      if (archiveOk) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any).from('bobbin').update({ status: 'archived' }).eq('id', id);
-        setRows((prev) => prev.filter((r) => r.id !== id));
-        setSavedMsg('Archived ' + code + '.');
-      } else {
-        setError(err.message);
-      }
-      return;
-    }
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    setSavedMsg('Deleted ' + code + '.');
-  }
-
-  function supplierLabel(id: number | null): string {
-    if (id === null) return '-';
-    const p = bobbinSuppliers.find((x) => x.id === id);
-    return p ? p.code + ' - ' + p.name : '#' + String(id);
+    const { error: err } = await (supabase as any).from('bobbin_purchase').delete().eq('id', id);
+    setDeletingId(null);
+    if (err) { setError(err.message); return; }
+    setPurchases((prev) => prev.filter((r) => r.id !== id));
+    setSavedMsg(`Deleted ${label}.`);
   }
 
   return (
-    <div className="space-y-6">
-      <InhouseStockTabs />
+    <div>
+      <InhouseStockTabs current="bobbin" />
       <PageHeader
         title="Bobbin Stock"
-        subtitle="Log of every bobbin batch purchased. Code, display name and total auto-calculate."
+        subtitle="Every bobbin batch purchased. Pick a bobbin from the master, enter qty + price; multiple lines per purchase share the invoice."
         actions={
-          formOpen ? (
-            <button type="button" className="btn-ghost" onClick={closeForm}>
-              <X className="w-4 h-4" /> Close form
-            </button>
-          ) : (
-            <button type="button" className="btn-primary" onClick={openNewForm}>
-              <Plus className="w-4 h-4" /> Add Purchase
-            </button>
-          )
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="btn-primary text-xs flex items-center gap-1"
+          >
+            {open ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {open ? 'Close form' : 'Add Purchase'}
+          </button>
         }
       />
 
-      {error && <p className="text-sm text-err">{error}</p>}
+      {error && <p className="text-sm text-err mb-2">{error}</p>}
       {savedMsg && (
-        <p className="flex items-center gap-1.5 text-sm text-green-600">
+        <p className="flex items-center gap-1.5 text-sm text-green-600 mb-2">
           <CheckCircle2 className="h-4 w-4" />
           {savedMsg}
         </p>
       )}
 
-      {formOpen && (
-        <div className="card p-5 space-y-3">
-          <h2 className="font-display font-bold text-base">
-            {editingId === null ? 'New bobbin purchase' : 'Edit bobbin purchase'}
-          </h2>
+      {open && (
+        <div className="card p-3 mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display font-bold text-base">New bobbin purchase</h2>
+            <div className="flex items-center gap-1">
+              {(['inhouse', 'jobwork', 'outsource'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setModePick(m)}
+                  className={
+                    'px-2.5 py-1 rounded text-[11px] font-semibold border ' +
+                    (modePick === m
+                      ? 'bg-ink text-white border-ink'
+                      : 'bg-paper text-ink-soft border-line hover:bg-haze')
+                  }
+                >
+                  {MODE_LABEL[m]}
+                </button>
+              ))}
+            </div>
+          </div>
 
+          {/* Top section — shared across every line in this submission */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
-              <label className="label">Code (auto)</label>
-              <div className="input bg-cloud/40 text-ink-mute select-none">
-                Auto (BB-NNNN)
-              </div>
-            </div>
-            <div>
-              <label className="label" htmlFor="b-ends">Ends per bobbin *</label>
+              <label className="label text-xs">Purchase date *</label>
               <input
-                id="b-ends"
-                type="number"
-                min={1}
-                step="1"
-                className="input num w-full"
-                placeholder="60"
-                value={form.ends_per_bobbin}
-                onChange={(e) => setForm((f) => ({ ...f, ends_per_bobbin: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="b-metre">Length (m) *</label>
-              <input
-                id="b-metre"
-                type="number"
-                min={0}
-                step="0.01"
-                className="input num w-full"
-                placeholder="200"
-                value={form.bobbin_metre}
-                onChange={(e) => setForm((f) => ({ ...f, bobbin_metre: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label">Display name (auto)</label>
-              <div className="input bg-cloud/40 text-ink-soft select-none">
-                {descPreview || '-'}
-              </div>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="b-qty">Quantity (pcs) *</label>
-              <input
-                id="b-qty"
-                type="number"
-                min={1}
-                step="1"
-                className="input num w-full"
-                placeholder="500"
-                value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="b-price">Price (Rs/pc)</label>
-              <input
-                id="b-price"
-                type="number"
-                min={0}
-                step="0.01"
-                className="input num w-full"
-                value={form.bobbin_price}
-                onChange={(e) => setForm((f) => ({ ...f, bobbin_price: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="b-gst">GST %</label>
-              <input
-                id="b-gst"
-                type="number"
-                min={0}
-                step="0.01"
-                className="input num w-full"
-                value={form.gst_pct}
-                onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label">Total (auto)</label>
-              <div className="input num bg-emerald-50 text-emerald-800 font-semibold select-none">
-                {fmtMoney(totalPreview)}
-              </div>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="b-supplier">Supplier</label>
-              <div className="flex items-stretch gap-1.5">
-                <select
-                  id="b-supplier"
-                  className="input w-full"
-                  value={form.supplier_party_id}
-                  onChange={(e) => setForm((f) => ({ ...f, supplier_party_id: e.target.value }))}
-                >
-                  <option value="">--- none ---</option>
-                  {bobbinSuppliers.map((p) => (
-                    <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
-                  ))}
-                </select>
-                <a
-                  href="/app/parties/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Add new bobbin supplier"
-                  className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0"
-                >
-                  +
-                </a>
-              </div>
-              {bobbinSuppliers.length === 0 && (
-                <p className="mt-1 text-[11px] text-ink-mute">
-                  No active parties with type <span className="font-semibold">Bobbin Supplier</span> yet.
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="label" htmlFor="b-date">Purchase date *</label>
-              <input
-                id="b-date"
                 type="date"
-                required
-                className="input w-full"
+                className="input h-9 text-sm"
                 value={form.purchase_date}
-                onChange={(e) => setForm((f) => ({ ...f, purchase_date: e.target.value }))}
+                onChange={(e) => setForm({ ...form, purchase_date: e.target.value })}
               />
             </div>
             <div>
-              <label className="label" htmlFor="b-inv">Invoice no *</label>
+              <label className="label text-xs">Invoice no. *</label>
               <input
-                id="b-inv"
-                type="text"
-                required
-                className="input w-full"
+                className="input h-9 text-sm"
                 placeholder="INV-12345"
                 value={form.invoice_no}
-                onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))}
+                onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
               />
             </div>
-            <div className="flex items-end">
-              <label className="inline-flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={form.is_lurex}
-                  onChange={(e) => setForm((f) => ({ ...f, is_lurex: e.target.checked }))}
-                />
-                <span className="text-xs text-ink-soft">Lurex bobbin</span>
-              </label>
-            </div>
-
             <div>
-              <label className="label" htmlFor="b-mode">Production mode</label>
-              {/* In-house only. Jobwork bobbins are entered from
-                  /app/jobwork → Bobbin given tab. */}
-              <div className="input bg-cloud/40 text-ink-soft">In-house</div>
+              <label className="label text-xs">Supplier (optional)</label>
+              <select
+                className="input h-9 text-sm"
+                value={form.supplier_party_id}
+                onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}
+              >
+                <option value="">--- none ---</option>
+                {suppliers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
-            {form.production_mode === 'jobwork' && (
-              <div className="md:col-span-3">
-                <label className="label" htmlFor="b-jwp">Jobwork party *</label>
-                <div className="flex items-stretch gap-1.5">
-                  <select
-                    id="b-jwp"
-                    className="input w-full"
-                    value={form.jobwork_party_id}
-                    onChange={(e) => setForm((f) => ({ ...f, jobwork_party_id: e.target.value }))}
-                  >
-                    <option value="">--- pick a party ---</option>
-                    {jobworkParties.map((p) => (
-                      <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
-                    ))}
-                  </select>
-                  <a href="/app/jobwork-parties" target="_blank" rel="noopener noreferrer"
-                    title="Add new jobwork party"
-                    className="inline-flex items-center justify-center w-9 px-2 rounded-lg border border-line bg-white text-indigo-700 hover:bg-indigo-50 text-base font-bold shrink-0">
-                    +
-                  </a>
-                </div>
-              </div>
-            )}
-
-            <div className="md:col-span-4">
-              <label className="label" htmlFor="b-notes">Notes</label>
+            <div>
+              <label className="label text-xs">Notes</label>
               <input
-                id="b-notes"
-                type="text"
-                className="input w-full"
+                className="input h-9 text-sm"
                 placeholder="(optional)"
                 value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="btn-ghost" onClick={closeForm} disabled={busy}>
+          {/* Line items */}
+          <div className="border border-line/40 rounded-md overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-10" />
+                <col />
+                <col className="w-28" />
+                <col className="w-28" />
+                <col className="w-28" />
+                <col className="w-20" />
+                <col className="w-28" />
+                <col className="w-10" />
+              </colgroup>
+              <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="px-2 py-2 text-left">#</th>
+                  <th className="px-2 py-2 text-left">Bobbin *</th>
+                  <th className="px-2 py-2 text-right">Qty (pcs) *</th>
+                  <th className="px-2 py-2 text-right">M/pc</th>
+                  <th className="px-2 py-2 text-right">Price (₹/pc)</th>
+                  <th className="px-2 py-2 text-right">GST %</th>
+                  <th className="px-2 py-2 text-right">Total (₹)</th>
+                  <th className="px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {form.items.map((it, idx) => {
+                  const bm = it.bobbin_id === '' ? null : bobbinById.get(Number(it.bobbin_id)) ?? null;
+                  const qty = Number(it.qty_pcs || 0);
+                  const price = Number(it.price_per_pc || 0);
+                  const gst = Number(it.gst_pct || 0);
+                  const total = qty > 0 && price > 0
+                    ? qty * price * (1 + gst / 100)
+                    : 0;
+                  return (
+                    <tr key={idx} className="border-t border-line/40 align-middle">
+                      <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
+                      <td className="px-2 py-1.5">
+                        <select
+                          className="input h-8 text-xs w-full"
+                          value={it.bobbin_id}
+                          onChange={(e) => pickBobbinForItem(idx, e.target.value)}
+                        >
+                          <option value="">--- pick ---</option>
+                          {visibleBobbins.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          className="input num h-8 text-xs w-full text-right"
+                          value={it.qty_pcs}
+                          onChange={(e) => patchItem(idx, { qty_pcs: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="input num h-8 text-xs w-full text-right"
+                          value={it.metre_per_pc}
+                          placeholder={bm?.bobbin_metre != null ? String(bm.bobbin_metre) : ''}
+                          onChange={(e) => patchItem(idx, { metre_per_pc: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="input num h-8 text-xs w-full text-right"
+                          value={it.price_per_pc}
+                          onChange={(e) => patchItem(idx, { price_per_pc: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="input num h-8 text-xs w-full text-right"
+                          value={it.gst_pct}
+                          onChange={(e) => patchItem(idx, { gst_pct: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-right num text-xs font-semibold">
+                        {total > 0 ? fmtMoney(total) : '—'}
+                      </td>
+                      <td className="px-1 py-1.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeItemRow(idx)}
+                          disabled={form.items.length === 1}
+                          title="Remove line"
+                          className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-cloud/30 border-t border-line/40">
+                <tr>
+                  <td colSpan={6} className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={addItemRow}
+                      className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add line
+                    </button>
+                  </td>
+                  <td className="px-2 py-2 text-right num text-xs font-semibold">
+                    {(() => {
+                      const grand = form.items.reduce((s, it) => {
+                        const q = Number(it.qty_pcs || 0);
+                        const p = Number(it.price_per_pc || 0);
+                        const g = Number(it.gst_pct || 0);
+                        return s + (q > 0 && p > 0 ? q * p * (1 + g / 100) : 0);
+                      }, 0);
+                      return grand > 0 ? `₹ ${fmtMoney(grand)}` : '—';
+                    })()}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <p className="text-[10px] text-ink-mute">
+            Bobbins are managed in Settings &rarr; Bobbin Master. Mode pills above the form let you switch between
+            In-house / Job Work / Outsource bobbins; the line dropdown is filtered to the picked mode.
+            M/pc prefills from the bobbin master but can be overridden for partial bobbins.
+          </p>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); reset(); }}
+              className="btn-secondary text-xs"
+            >
               Cancel
             </button>
-            <button type="button" className="btn-primary" onClick={handleSave} disabled={busy}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {editingId === null ? 'Save Purchase' : 'Save Changes'}
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className="btn-primary text-xs flex items-center gap-1"
+            >
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              Save all
             </button>
           </div>
         </div>
       )}
 
+      {/* Purchase log */}
       {loading ? (
         <div className="card p-6 flex items-center gap-2 text-ink-mute">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading purchases...
         </div>
-      ) : rows.length === 0 ? (
+      ) : purchases.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">
-          No bobbin purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
+          No bobbin purchases yet. Click <strong>Add Purchase</strong> above to log your first one.
         </div>
       ) : (
         <div className="card overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
+          <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/bobbin" className="text-left px-3 py-3" />
-                <SortableTh column="description" label="Description" sort={sort} dir={dir} basePath="/app/bobbin" className="text-left px-3 py-3" />
+                <th className="text-left  px-3 py-3">Date</th>
+                <th className="text-left  px-3 py-3">Bobbin</th>
+                <th className="text-left  px-3 py-3">Mode</th>
+                <th className="text-left  px-3 py-3">Supplier</th>
+                <th className="text-left  px-3 py-3">Invoice</th>
                 <th className="text-right px-3 py-3">Qty (pcs)</th>
-                <th className="text-right px-3 py-3" title="Metres per piece × qty">Metres</th>
-                <th className="text-right px-3 py-3">Price Rs</th>
-                <th className="text-right px-3 py-3">GST %</th>
-                <th className="text-right px-3 py-3">Total Rs</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Supplier</th>
-                <th className="text-left px-3 py-3">Purchase date</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Invoice no</th>
+                <th className="text-right px-3 py-3">M/pc</th>
+                <th className="text-right px-3 py-3">Price (₹/pc)</th>
+                <th className="text-right px-3 py-3">Total (₹)</th>
+                <th className="text-left  px-3 py-3">Notes</th>
                 <th className="text-right px-3 py-3" />
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((b) => {
-                // Per-row metres = qty × bobbin_metre. Treat missing
-                // bobbin_metre as 0 so the column shows '-' rather than NaN.
-                const perPc = Number(b.bobbin_metre ?? 0);
-                const qty = Number(b.quantity ?? 0);
-                const rowMetres = perPc > 0 ? qty * perPc : 0;
+              {purchases.map((p) => {
+                const bm = p.bobbin;
+                const sup = p.vendor_id != null ? supplierById.get(p.vendor_id) : null;
+                const label = bm
+                  ? `${bm.code} (${bm.ends_per_bobbin} ends)`
+                  : `Bobbin #${p.bobbin_id}`;
                 return (
-                  <tr key={b.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-3 font-mono text-xs">{b.code}</td>
-                    <td className="px-3 py-3 font-semibold">
-                      {b.description}
-                      {perPc > 0 && (
-                        <div className="text-[10px] font-normal text-ink-mute">{perPc} m/pc</div>
+                  <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{p.purchase_date ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold">{label}</td>
+                    <td className="px-3 py-2">
+                      {bm && (
+                        <span className={
+                          'inline-block px-2 py-0.5 rounded text-[10px] ' +
+                          (bm.production_mode === 'inhouse'   ? 'bg-emerald-50 text-emerald-700' :
+                           bm.production_mode === 'jobwork'   ? 'bg-amber-50 text-amber-700' :
+                                                                'bg-indigo-50 text-indigo-700')
+                        }>
+                          {MODE_LABEL[bm.production_mode]}
+                        </span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-right num">{qty}</td>
-                    <td className="px-3 py-3 text-right num text-indigo-700 font-semibold">
-                      {rowMetres > 0
-                        ? rowMetres.toLocaleString('en-IN', { maximumFractionDigits: 0 })
-                        : <span className="text-ink-mute">-</span>}
-                    </td>
-                    <td className="px-3 py-3 text-right num">{fmtMoney(b.bobbin_price)}</td>
-                    <td className="px-3 py-3 text-right num">{b.gst_pct}</td>
-                    <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(b.total_amount)}</td>
-                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(b.supplier_party_id)}</td>
-                    <td className="px-3 py-3 text-ink-soft">{fmtDate(b.purchase_date)}</td>
-                    <td className="px-3 py-3 hidden md:table-cell text-ink-soft font-mono text-xs">{b.invoice_no ?? '-'}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
-                          title="Edit this purchase"
-                          onClick={() => openEditForm(b)}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          className="p-1 rounded hover:bg-red-50 text-red-600"
-                          title="Delete this purchase"
-                          onClick={() => deleteRow(b.id, b.code)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                    <td className="px-3 py-2 text-xs">{sup?.name ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{p.invoice_no ?? '—'}</td>
+                    <td className="px-3 py-2 text-right num">{fmtNumber(p.pieces_purchased, 2)}</td>
+                    <td className="px-3 py-2 text-right num text-xs text-ink-soft">{fmtNumber(p.bobbin_metre, 0)}</td>
+                    <td className="px-3 py-2 text-right num">{fmtMoney(p.bobbin_price)}</td>
+                    <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(p.total_amount)}</td>
+                    <td className="px-3 py-2 text-xs text-ink-soft">{p.notes ?? ''}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => deleteRow(p.id, label)}
+                        disabled={deletingId === p.id}
+                        title="Delete this purchase"
+                        className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                      >
+                        {deletingId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-            {rows.length > 0 && (
-              <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
-                <tr>
-                  <td colSpan={2} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
-                  <td className="px-3 py-3 text-right num font-bold">
-                    {rows.reduce((s, r) => s + Number(r.quantity ?? 0), 0).toLocaleString('en-IN')} pcs
-                  </td>
-                  <td className="px-3 py-3 text-right num font-bold text-indigo-700">
-                    {rows.reduce((s, r) => s + Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0), 0)
-                      .toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
-                  </td>
-                  <td colSpan={7} />
-                </tr>
-              </tfoot>
-            )}
           </table>
         </div>
       )}
