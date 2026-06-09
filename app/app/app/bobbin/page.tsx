@@ -27,7 +27,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
-import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check, ArrowLeft } from 'lucide-react';
+import React from 'react';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -97,6 +98,28 @@ interface EditRow {
   notes: string;
 }
 
+/** A "Return to Supplier" event — empty / unwanted bobbin pieces being
+ *  shipped back to the bobbin's original supplier. Mirrors the jobwork
+ *  bobbin_return path but with jobwork_party_id = NULL because the
+ *  bobbins were at the mill (in-house), not at a jobworker. */
+interface BobbinReturnRow {
+  id: number;
+  bobbin_id: number;
+  supplier_party_id: number | null;
+  return_date: string;
+  quantity_pcs: number;
+  reference_no: string | null;
+  notes: string | null;
+  status: string;
+}
+
+interface ReturnForm {
+  return_date: string;
+  quantity_pcs: string;
+  reference_no: string;
+  notes: string;
+}
+
 function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -142,6 +165,13 @@ export default function BobbinPurchasePage() {
     notes: '',
   });
   const [savingEditId, setSavingEditId] = useState<number | null>(null);
+  const [returns, setReturns] = useState<BobbinReturnRow[]>([]);
+  const [returnOpenId, setReturnOpenId] = useState<number | null>(null);
+  const [returnForm, setReturnForm] = useState<ReturnForm>({
+    return_date: todayISO(), quantity_pcs: '', reference_no: '', notes: '',
+  });
+  const [returnBusyId, setReturnBusyId] = useState<number | null>(null);
+  const [deletingReturnId, setDeletingReturnId] = useState<number | null>(null);
 
   const [form, setForm] = useState<{
     purchase_date: string;
@@ -172,7 +202,7 @@ export default function BobbinPurchasePage() {
       .maybeSingle();
     const bobbinSupplierTypeId: number | null = ptRes.data?.id ?? null;
 
-    const [bmRes, supRes, purRes] = await Promise.all([
+    const [bmRes, supRes, purRes, retRes] = await Promise.all([
       sb.from('bobbin')
         .select('id, code, ends_per_bobbin, bobbin_metre, is_lurex, production_mode')
         .neq('status', 'archived')
@@ -190,15 +220,27 @@ export default function BobbinPurchasePage() {
                  bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex, production_mode )`)
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
+      // In-house returns: bobbin_return rows where jobwork_party_id IS NULL
+      // (the bobbins were at the mill, going back to the supplier, no
+      // jobworker involved). Tolerate the table not existing yet.
+      sb.from('bobbin_return')
+        .select('id, bobbin_id, supplier_party_id, return_date, quantity_pcs, reference_no, notes, status')
+        .is('jobwork_party_id', null)
+        .eq('status', 'active')
+        .order('return_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false }),
     ]);
 
     if (bmRes.error)  { setError(bmRes.error.message); setLoading(false); return; }
     if (supRes.error) { setError(supRes.error.message); setLoading(false); return; }
     if (purRes.error) { setError(purRes.error.message); setLoading(false); return; }
+    // retRes failure is tolerated — if the bobbin_return table doesn't
+    // exist on this DB the return UI just stays empty.
 
     setBobbinMasters((bmRes.data ?? []) as BobbinMasterOpt[]);
     setSuppliers((supRes.data ?? []) as PartyOption[]);
     setPurchases((purRes.data ?? []) as PurchaseRow[]);
+    setReturns(((retRes?.data ?? []) as BobbinReturnRow[]) ?? []);
     setError(null);
     setLoading(false);
   }, [supabase]);
@@ -361,6 +403,64 @@ export default function BobbinPurchasePage() {
     cancelEdit();
     await load();
     setSavedMsg('Purchase updated.');
+  }
+
+  function openReturnFor(p: PurchaseRow): void {
+    // Toggle the inline return form for this purchase row. Pre-fill the
+    // date as today and clear the qty / reference / notes so the
+    // operator only has to type the returned-pcs count.
+    if (returnOpenId === p.id) { setReturnOpenId(null); return; }
+    setReturnOpenId(p.id);
+    setReturnForm({ return_date: todayISO(), quantity_pcs: '', reference_no: '', notes: '' });
+    setError(null);
+    setSavedMsg(null);
+  }
+
+  function cancelReturn(): void {
+    setReturnOpenId(null);
+    setReturnForm({ return_date: todayISO(), quantity_pcs: '', reference_no: '', notes: '' });
+  }
+
+  async function saveReturn(p: PurchaseRow): Promise<void> {
+    const qty = Math.trunc(Number(returnForm.quantity_pcs));
+    if (!returnForm.return_date) { setError('Return date is required.'); return; }
+    if (!(qty > 0)) { setError('Returned qty (pcs) must be greater than 0.'); return; }
+    setError(null);
+    setSavedMsg(null);
+    setReturnBusyId(p.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const payload = {
+      bobbin_id:         p.bobbin_id,
+      // Supplier defaults to the purchase's vendor — the same party
+      // the bobbins came from. Operator can override later if needed.
+      supplier_party_id: p.vendor_id ?? null,
+      jobwork_party_id:  null,
+      return_date:       returnForm.return_date,
+      quantity_pcs:      qty,
+      reference_no:      returnForm.reference_no.trim() || null,
+      notes:             returnForm.notes.trim() || null,
+      status:            'active',
+    };
+    const { error: err } = await sb.from('bobbin_return').insert(payload);
+    setReturnBusyId(null);
+    if (err) { setError(err.message); return; }
+    cancelReturn();
+    await load();
+    setSavedMsg('Return logged.');
+  }
+
+  async function deleteReturn(id: number): Promise<void> {
+    if (!window.confirm('Delete this return entry?\n\nThis hard-deletes the bobbin_return row.')) return;
+    setError(null);
+    setSavedMsg(null);
+    setDeletingReturnId(id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: err } = await (supabase as any).from('bobbin_return').delete().eq('id', id);
+    setDeletingReturnId(null);
+    if (err) { setError(err.message); return; }
+    setReturns((prev) => prev.filter((r) => r.id !== id));
+    setSavedMsg('Return deleted.');
   }
 
   async function deleteRow(id: number, label: string): Promise<void> {
@@ -781,8 +881,10 @@ export default function BobbinPurchasePage() {
                     </tr>
                   );
                 }
+                const isReturnOpen = returnOpenId === p.id;
                 return (
-                  <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <React.Fragment key={p.id}>
+                  <tr className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{p.purchase_date ?? '—'}</td>
                     <td className="px-3 py-2 font-mono text-xs font-semibold">{label}</td>
                     <td className="px-3 py-2">
@@ -815,10 +917,19 @@ export default function BobbinPurchasePage() {
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
                         type="button"
+                        onClick={() => openReturnFor(p)}
+                        disabled={editingId !== null || deletingId === p.id}
+                        title="Return to supplier"
+                        className="p-1 rounded text-amber-700 hover:bg-amber-50 disabled:opacity-30"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => startEdit(p)}
                         disabled={editingId !== null || deletingId === p.id}
                         title="Edit this purchase"
-                        className="p-1 rounded text-indigo-700 hover:bg-indigo-50 disabled:opacity-30"
+                        className="p-1 rounded text-indigo-700 hover:bg-indigo-50 ml-1 disabled:opacity-30"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -830,6 +941,120 @@ export default function BobbinPurchasePage() {
                         className="p-1 rounded text-rose-600 hover:bg-rose-50 ml-1 disabled:opacity-30"
                       >
                         {deletingId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </td>
+                  </tr>
+                  {isReturnOpen && (
+                    <tr className="bg-amber-50/60 border-t border-amber-200/60">
+                      <td colSpan={12} className="px-3 py-3">
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wide text-ink-mute block">Return date *</label>
+                            <input type="date" className="input h-8 text-xs"
+                              value={returnForm.return_date}
+                              onChange={(e) => setReturnForm({ ...returnForm, return_date: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wide text-ink-mute block">Returned pcs *</label>
+                            <input type="number" min={1} className="input num h-8 text-xs w-28 text-right"
+                              value={returnForm.quantity_pcs}
+                              onChange={(e) => setReturnForm({ ...returnForm, quantity_pcs: e.target.value })} />
+                          </div>
+                          <div className="flex-1 min-w-[140px]">
+                            <label className="text-[10px] uppercase tracking-wide text-ink-mute block">Reference</label>
+                            <input className="input h-8 text-xs w-full"
+                              placeholder="DR / DC no, optional"
+                              value={returnForm.reference_no}
+                              onChange={(e) => setReturnForm({ ...returnForm, reference_no: e.target.value })} />
+                          </div>
+                          <div className="flex-1 min-w-[180px]">
+                            <label className="text-[10px] uppercase tracking-wide text-ink-mute block">Notes</label>
+                            <input className="input h-8 text-xs w-full"
+                              value={returnForm.notes}
+                              onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })} />
+                          </div>
+                          <div className="text-[10px] text-ink-mute">
+                            Supplier: <strong>{sup?.name ?? '— (none on purchase)'}</strong>
+                          </div>
+                          <div className="flex gap-1">
+                            <button type="button"
+                              onClick={() => saveReturn(p)}
+                              disabled={returnBusyId === p.id}
+                              className="btn-primary text-xs h-8 px-3 flex items-center gap-1">
+                              {returnBusyId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              Save return
+                            </button>
+                            <button type="button"
+                              onClick={cancelReturn}
+                              disabled={returnBusyId === p.id}
+                              className="btn-secondary text-xs h-8 px-3 flex items-center gap-1">
+                              <X className="h-3.5 w-3.5" />
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Returns history — in-house bobbin returns to supplier. Shows
+          past bobbin_return rows (jobwork_party_id IS NULL) with a
+          delete button so mistakes can be rolled back. */}
+      {returns.length > 0 && (
+        <div className="card mt-4 overflow-x-auto">
+          <div className="px-3 py-2 border-b border-line/40 flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-1.5">
+              <ArrowLeft className="h-4 w-4 text-amber-700" />
+              Returns to Supplier
+            </h3>
+            <span className="text-[11px] text-ink-mute">
+              {returns.length} {returns.length === 1 ? 'return' : 'returns'} ·{' '}
+              {returns.reduce((s, r) => s + Number(r.quantity_pcs ?? 0), 0).toLocaleString('en-IN')} pcs total
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left  px-3 py-3">Date</th>
+                <th className="text-left  px-3 py-3">Bobbin</th>
+                <th className="text-left  px-3 py-3">Supplier</th>
+                <th className="text-right px-3 py-3">Qty (pcs)</th>
+                <th className="text-left  px-3 py-3">Reference</th>
+                <th className="text-left  px-3 py-3">Notes</th>
+                <th className="text-right px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {returns.map((r) => {
+                const bm = bobbinById.get(r.bobbin_id) ?? null;
+                const sup = r.supplier_party_id != null ? supplierById.get(r.supplier_party_id) : null;
+                const lbl = bm ? `${bm.code} (${bm.ends_per_bobbin} ends)` : `Bobbin #${r.bobbin_id}`;
+                return (
+                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.return_date}</td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold">{lbl}</td>
+                    <td className="px-3 py-2 text-xs">{sup?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-right num font-semibold text-amber-700">
+                      {Number(r.quantity_pcs ?? 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs text-ink-soft">{r.notes ?? ''}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => deleteReturn(r.id)}
+                        disabled={deletingReturnId === r.id}
+                        title="Delete this return"
+                        className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                      >
+                        {deletingReturnId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
                     </td>
                   </tr>
