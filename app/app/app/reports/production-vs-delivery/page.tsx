@@ -19,11 +19,23 @@ interface PvDRow {
   fabric_quality_id: number | null;
   quality_code: string | null;
   quality_name: string | null;
+  /** True when this row was produced by collapsing several fabric_quality
+   *  rows that share a merged_name. The quality_code/_name field is then
+   *  the merged_name, not an individual FQ code. */
+  is_merged: boolean | null;
+  /** Metres per finished piece (towel length, dhoti length, etc.).
+   *  NULL when the quality is sold as running metres. When non-null,
+   *  produced_pcs / delivered_pcs / variance_pcs are populated and the
+   *  page renders the pcs comparison alongside the metres figure. */
+  meter_per_pc: number | string | null;
   production_mode: 'inhouse' | 'jobwork' | 'outsource' | 'unattributed';
   produced_m: number | string;
   delivered_m: number | string;
   variance_m: number | string;
   variance_pct: number | string | null;
+  produced_pcs: number | string | null;
+  delivered_pcs: number | string | null;
+  variance_pcs: number | string | null;
   last_activity: string | null;
 }
 
@@ -85,6 +97,13 @@ function fmtMetres(n: number): string {
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+function fmtPcs(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  // Pieces are usually whole-ish but the conversion produces fractions;
+  // show 1 decimal to surface partials without being noisy.
+  return n.toLocaleString('en-IN', { maximumFractionDigits: 1 }) + ' pcs';
+}
+
 export default async function ProductionVsDeliveryPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const preset = sp.preset ? presetRange(sp.preset) : null;
@@ -131,13 +150,16 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
 
   // ── Excel export: quality-grouped sections ────────────────────────
   const exportColumns: ExcelColumn[] = [
-    { key: 'quality',       label: 'Quality',       type: 'text',   width: 28 },
-    { key: 'mode',          label: 'Mode',          type: 'text',   width: 14 },
-    { key: 'produced_m',    label: 'Produced (m)',  type: 'number', total: true },
-    { key: 'delivered_m',   label: 'Delivered (m)', type: 'number', total: true },
-    { key: 'variance_m',    label: 'Variance (m)',  type: 'number', total: true },
-    { key: 'variance_pct',  label: 'Var %',         type: 'number' },
-    { key: 'last_activity', label: 'Last activity', type: 'text',   width: 14 },
+    { key: 'quality',        label: 'Quality',        type: 'text',   width: 28 },
+    { key: 'mode',           label: 'Mode',           type: 'text',   width: 14 },
+    { key: 'produced_m',     label: 'Produced (m)',   type: 'number', total: true },
+    { key: 'produced_pcs',   label: 'Produced (pcs)', type: 'number', total: true },
+    { key: 'delivered_m',    label: 'Delivered (m)',  type: 'number', total: true },
+    { key: 'delivered_pcs',  label: 'Delivered (pcs)',type: 'number', total: true },
+    { key: 'variance_m',     label: 'Variance (m)',   type: 'number', total: true },
+    { key: 'variance_pcs',   label: 'Variance (pcs)', type: 'number', total: true },
+    { key: 'variance_pct',   label: 'Var %',          type: 'number' },
+    { key: 'last_activity',  label: 'Last activity',  type: 'text',   width: 14 },
   ];
 
   const byQuality = new Map<string, PvDRow[]>();
@@ -159,6 +181,11 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
     const cb = byQuality.get(b)?.[0]?.quality_code ?? '';
     return ca.localeCompare(cb);
   });
+  // Track grand-total pieces too so the bottom-row pcs cells reconcile.
+  let grandProducedPcs  = 0;
+  let grandDeliveredPcs = 0;
+  let grandVariancePcs  = 0;
+
   for (const key of qualityOrder) {
     const bucket = byQuality.get(key) ?? [];
     if (bucket.length === 0) continue;
@@ -168,44 +195,72 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
       : (first.quality_name ?? 'Unattributed');
     exportRows.push({
       quality: header, mode: '',
-      produced_m: '', delivered_m: '', variance_m: '', variance_pct: '',
-      last_activity: '',
+      produced_m: '', produced_pcs: '',
+      delivered_m: '', delivered_pcs: '',
+      variance_m: '', variance_pcs: '',
+      variance_pct: '', last_activity: '',
     });
     let prodSum = 0, delivSum = 0, varSum = 0;
+    let prodPcsSum = 0, delivPcsSum = 0, varPcsSum = 0;
+    let anyPcs = false;
     for (const r of bucket) {
       const p = num(r.produced_m);
       const d = num(r.delivered_m);
       const v = num(r.variance_m);
       prodSum += p; delivSum += d; varSum += v;
+      const pPcs = r.produced_pcs  == null ? null : Number(r.produced_pcs);
+      const dPcs = r.delivered_pcs == null ? null : Number(r.delivered_pcs);
+      const vPcs = r.variance_pcs  == null ? null : Number(r.variance_pcs);
+      if (pPcs != null) { prodPcsSum  += pPcs; anyPcs = true; }
+      if (dPcs != null) { delivPcsSum += dPcs; anyPcs = true; }
+      if (vPcs != null) { varPcsSum   += vPcs; anyPcs = true; }
       exportRows.push({
         quality: '',
         mode: r.production_mode === 'inhouse'   ? 'In-house'
             : r.production_mode === 'jobwork'   ? 'Job Work'
             : r.production_mode === 'outsource' ? 'Outsource'
             :                                     'Unattributed',
-        produced_m: p,
-        delivered_m: d,
-        variance_m: v,
-        variance_pct: r.variance_pct == null ? '' : Number(r.variance_pct),
+        produced_m:    p,
+        produced_pcs:  pPcs == null ? '' : pPcs,
+        delivered_m:   d,
+        delivered_pcs: dPcs == null ? '' : dPcs,
+        variance_m:    v,
+        variance_pcs:  vPcs == null ? '' : vPcs,
+        variance_pct:  r.variance_pct == null ? '' : Number(r.variance_pct),
         last_activity: r.last_activity ?? '',
       });
     }
+    grandProducedPcs  += prodPcsSum;
+    grandDeliveredPcs += delivPcsSum;
+    grandVariancePcs  += varPcsSum;
     exportRows.push({
       quality: 'Quality total', mode: '',
-      produced_m: prodSum, delivered_m: delivSum, variance_m: varSum,
-      variance_pct: prodSum > 0 ? Number(((varSum / prodSum) * 100).toFixed(2)) : '',
+      produced_m:    prodSum,
+      produced_pcs:  anyPcs ? prodPcsSum  : '',
+      delivered_m:   delivSum,
+      delivered_pcs: anyPcs ? delivPcsSum : '',
+      variance_m:    varSum,
+      variance_pcs:  anyPcs ? varPcsSum   : '',
+      variance_pct:  prodSum > 0 ? Number(((varSum / prodSum) * 100).toFixed(2)) : '',
       last_activity: '',
     });
     exportRows.push({
       quality: '', mode: '',
-      produced_m: '', delivered_m: '', variance_m: '', variance_pct: '',
-      last_activity: '',
+      produced_m: '', produced_pcs: '',
+      delivered_m: '', delivered_pcs: '',
+      variance_m: '', variance_pcs: '',
+      variance_pct: '', last_activity: '',
     });
   }
   exportRows.push({
     quality: 'GRAND TOTAL', mode: '',
-    produced_m: totalProduced, delivered_m: totalDelivered, variance_m: netVariance,
-    variance_pct: totalProduced > 0
+    produced_m:    totalProduced,
+    produced_pcs:  grandProducedPcs  > 0 ? grandProducedPcs  : '',
+    delivered_m:   totalDelivered,
+    delivered_pcs: grandDeliveredPcs > 0 ? grandDeliveredPcs : '',
+    variance_m:    netVariance,
+    variance_pcs:  grandVariancePcs !== 0 ? grandVariancePcs : '',
+    variance_pct:  totalProduced > 0
       ? Number(((netVariance / totalProduced) * 100).toFixed(2))
       : '',
     last_activity: '',
@@ -355,6 +410,13 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                   r.production_mode === 'outsource'    ? 'bg-indigo-50 text-indigo-700' :
                                                           'bg-rose-50 text-rose-700';
                 const varClass = v > 0 ? 'text-emerald-700' : v < 0 ? 'text-rose-700' : 'text-ink-soft';
+                // Pieces conversion — only when meter_per_pc is set.
+                // Renders a faded sub-line below each metres cell.
+                const mpp = r.meter_per_pc == null ? null : Number(r.meter_per_pc);
+                const showPcs = mpp != null && mpp > 0;
+                const producedPcs  = showPcs && r.produced_pcs  != null ? Number(r.produced_pcs)  : null;
+                const deliveredPcs = showPcs && r.delivered_pcs != null ? Number(r.delivered_pcs) : null;
+                const variancePcs  = showPcs && r.variance_pcs  != null ? Number(r.variance_pcs)  : null;
                 const qualityCell = r.fabric_quality_id != null && r.quality_code
                   ? (
                     <Link
@@ -367,11 +429,19 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                   )
                   : <span className="font-semibold text-ink-mute">{r.quality_name ?? '—'}</span>;
                 return (
-                  <tr key={`${r.fabric_quality_id ?? 'na'}-${r.production_mode}`} className="border-t border-line/40 hover:bg-haze/60">
+                  <tr key={`${r.fabric_quality_id ?? 'na'}-${r.production_mode}`} className="border-t border-line/40 hover:bg-haze/60 align-top">
                     <td className="px-3 py-2">
-                      {qualityCell}
-                      {r.quality_name && r.quality_code && (
+                      <div className="flex items-center gap-1.5">
+                        {qualityCell}
+                        {r.is_merged && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 uppercase tracking-wide">merged</span>
+                        )}
+                      </div>
+                      {r.quality_name && r.quality_code && r.quality_name !== r.quality_code && (
                         <div className="text-[10px] text-ink-mute">{r.quality_name}</div>
+                      )}
+                      {showPcs && (
+                        <div className="text-[10px] text-ink-mute">@ {mpp} m/pc</div>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -379,10 +449,25 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                         {modeLabel}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right num">{fmtMetres(num(r.produced_m))}</td>
-                    <td className="px-3 py-2 text-right num">{fmtMetres(num(r.delivered_m))}</td>
+                    <td className="px-3 py-2 text-right num">
+                      {fmtMetres(num(r.produced_m))}
+                      {producedPcs != null && (
+                        <div className="text-[10px] text-ink-mute">{fmtPcs(producedPcs)}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right num">
+                      {fmtMetres(num(r.delivered_m))}
+                      {deliveredPcs != null && (
+                        <div className="text-[10px] text-ink-mute">{fmtPcs(deliveredPcs)}</div>
+                      )}
+                    </td>
                     <td className={'px-3 py-2 text-right num font-semibold ' + varClass}>
                       {v >= 0 ? '+' : ''}{fmtMetres(v)}
+                      {variancePcs != null && (
+                        <div className={'text-[10px] font-normal ' + varClass}>
+                          {variancePcs >= 0 ? '+' : ''}{fmtPcs(variancePcs)}
+                        </div>
+                      )}
                     </td>
                     <td className={'px-3 py-2 text-right num ' + varClass}>
                       {variancePct == null ? '—' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}
