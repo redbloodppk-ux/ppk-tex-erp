@@ -143,19 +143,10 @@ export default async function DashboardPage() {
             No jobwork activity yet this financial year.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
-              <tr>
-                <th className="text-left py-2">Party</th>
-                <th className="text-right">Received (m) YTD</th>
-                <th className="text-right">Paid YTD</th>
-                <th className="text-right">Last Receipt</th>
-                <th className="text-right">Last Payment</th>
-                <th className="text-right">Days Unpaid</th>
-                <th className="text-right" />
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Card layout for small screens — the 7-column table doesn't
+                fit phone widths so we render each row as a stacked card. */}
+            <ul className="md:hidden space-y-2">
               {activeJobworkRows.map((r) => {
                 const daysUnpaid = r.days_since_last_payment;
                 const tone = daysUnpaid == null
@@ -166,29 +157,85 @@ export default async function DashboardPage() {
                       ? 'text-amber-600'
                       : 'text-emerald-700';
                 return (
-                  <tr key={r.party_id} className="border-b border-line/40 last:border-0">
-                    <td className="py-2.5 font-medium truncate max-w-[220px]" title={r.party_name}>{r.party_name}</td>
-                    <td className="text-right num">{formatMetres(Number(r.metres_received_ytd ?? 0))}</td>
-                    <td className="text-right num">{formatRupee(Number(r.payments_out_ytd ?? 0), { compact: true })}</td>
-                    <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_receipt_date ?? '—'}</td>
-                    <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_payment_date ?? '—'}</td>
-                    <td className={'text-right num font-semibold ' + tone}>
-                      {daysUnpaid == null ? 'never' : `${daysUnpaid}d`}
-                    </td>
-                    <td className="text-right">
+                  <li key={r.party_id} className="border border-line/40 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="font-semibold text-sm truncate" title={r.party_name}>{r.party_name}</div>
                       <Link
                         href={`/app/payments?party=${r.party_id}`}
-                        className="text-xs text-indigo font-semibold hover:underline"
-                        title={`Open payments filtered to ${r.party_name}`}
+                        className="text-xs text-indigo font-semibold hover:underline shrink-0"
                       >
                         Pay &rarr;
                       </Link>
-                    </td>
-                  </tr>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-y-1 text-xs">
+                      <dt className="text-ink-soft">Received YTD</dt>
+                      <dd className="text-right num">{formatMetres(Number(r.metres_received_ytd ?? 0))}</dd>
+                      <dt className="text-ink-soft">Paid YTD</dt>
+                      <dd className="text-right num">{formatRupee(Number(r.payments_out_ytd ?? 0), { compact: true })}</dd>
+                      <dt className="text-ink-soft">Last Receipt</dt>
+                      <dd className="text-right text-ink-soft">{r.last_receipt_date ?? '—'}</dd>
+                      <dt className="text-ink-soft">Last Payment</dt>
+                      <dd className="text-right text-ink-soft">{r.last_payment_date ?? '—'}</dd>
+                      <dt className="text-ink-soft">Days Unpaid</dt>
+                      <dd className={'text-right num font-semibold ' + tone}>
+                        {daysUnpaid == null ? 'never' : `${daysUnpaid}d`}
+                      </dd>
+                    </dl>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
+            </ul>
+
+            {/* Table layout for md+ screens. */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
+                  <tr>
+                    <th className="text-left py-2">Party</th>
+                    <th className="text-right">Received (m) YTD</th>
+                    <th className="text-right">Paid YTD</th>
+                    <th className="text-right">Last Receipt</th>
+                    <th className="text-right">Last Payment</th>
+                    <th className="text-right">Days Unpaid</th>
+                    <th className="text-right" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeJobworkRows.map((r) => {
+                    const daysUnpaid = r.days_since_last_payment;
+                    const tone = daysUnpaid == null
+                      ? 'text-rose-600'
+                      : daysUnpaid > 30
+                        ? 'text-rose-600'
+                        : daysUnpaid > 14
+                          ? 'text-amber-600'
+                          : 'text-emerald-700';
+                    return (
+                      <tr key={r.party_id} className="border-b border-line/40 last:border-0">
+                        <td className="py-2.5 font-medium truncate max-w-[220px]" title={r.party_name}>{r.party_name}</td>
+                        <td className="text-right num">{formatMetres(Number(r.metres_received_ytd ?? 0))}</td>
+                        <td className="text-right num">{formatRupee(Number(r.payments_out_ytd ?? 0), { compact: true })}</td>
+                        <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_receipt_date ?? '—'}</td>
+                        <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_payment_date ?? '—'}</td>
+                        <td className={'text-right num font-semibold ' + tone}>
+                          {daysUnpaid == null ? 'never' : `${daysUnpaid}d`}
+                        </td>
+                        <td className="text-right">
+                          <Link
+                            href={`/app/payments?party=${r.party_id}`}
+                            className="text-xs text-indigo font-semibold hover:underline"
+                            title={`Open payments filtered to ${r.party_name}`}
+                          >
+                            Pay &rarr;
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
         <p className="text-[10px] text-ink-mute mt-3">
           YTD = from 1-April of the running financial year. &ldquo;Days Unpaid&rdquo; counts from the last payment to today; &ldquo;never&rdquo; means no payment has ever been recorded for this party.

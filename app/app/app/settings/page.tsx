@@ -295,10 +295,15 @@ export default async function SettingsPage({
             <dt className="text-ink-soft">Legal Name</dt>
             <dd className="font-semibold">{(company as { legal_name: string }).legal_name}</dd>
             <dt className="text-ink-soft">GSTIN</dt>
-            <dd className="num flex items-center gap-1.5">
-              <span>{(company as { gstin: string }).gstin}</span>
+            {/* Allow the GSTIN + verified badge to wrap on narrow phones
+                so the badge doesn't spill past the right edge of the
+                card. flex-wrap drops the badge to its own line below
+                ~360 px screens; min-w-0 lets the GSTIN string truncate
+                if it ever overflows. */}
+            <dd className="num flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
+              <span className="break-all">{(company as { gstin: string }).gstin}</span>
               {(company as { gstin_verified_at?: string | null }).gstin_verified_at && (
-                <span title="GSTIN verified against the GST portal" className="inline-flex items-center gap-0.5 text-emerald-600 font-semibold text-[11px]">
+                <span title="GSTIN verified against the GST portal" className="inline-flex items-center gap-0.5 text-emerald-600 font-semibold text-[11px] shrink-0">
                   &#x2713; verified
                 </span>
               )}

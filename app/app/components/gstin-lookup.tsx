@@ -125,7 +125,10 @@ export function GstinLookup({
           </span>
         )}
       </label>
-      <div className="flex gap-2">
+      {/* Stack vertically on narrow phones so the GSTIN input gets the
+          full row width (15 chars don't fit alongside the Verify button
+          on screens below ~400 px). Side-by-side from sm: up. */}
+      <div className="flex flex-col sm:flex-row gap-2">
         <input
           name={name}
           value={value}
@@ -164,7 +167,7 @@ export function GstinLookup({
           type="button"
           onClick={lookup}
           disabled={!isValid || busy}
-          className="btn-primary px-3 whitespace-nowrap text-xs"
+          className="btn-primary px-3 whitespace-nowrap text-xs shrink-0 sm:w-auto w-full justify-center"
           title={isValid ? 'Fetch business details from GST portal' : 'Enter a valid 15-char GSTIN first'}
         >
           {busy ? (
