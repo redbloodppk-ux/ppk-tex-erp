@@ -226,6 +226,20 @@ function NavBody({
     });
   }
 
+  /** Click handler for the flat top items (Dashboard). Clears every
+   *  open group so the sidebar collapses back to its tidy "home"
+   *  state when the operator goes back to the dashboard. */
+  function collapseAllGroups(): void {
+    setOpenGroups(new Set());
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify([]));
+      } catch {
+        // ignore quota / disabled-storage errors
+      }
+    }
+  }
+
   return (
     <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
       {/* Flat top items (Dashboard) — no group header above them. */}
@@ -238,7 +252,12 @@ function NavBody({
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  onClick={onItemClick}
+                  onClick={() => {
+                    // Clicking Dashboard collapses every open group so
+                    // the sidebar returns to a tidy home state.
+                    collapseAllGroups();
+                    if (onItemClick) onItemClick();
+                  }}
                   className={cn(
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     active
