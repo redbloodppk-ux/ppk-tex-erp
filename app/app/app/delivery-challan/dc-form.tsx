@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
+import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 
 export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -267,6 +268,17 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   }, [allParties, form.production_mode, customerTypeId, jobworkTypeId, outsourceTypeId]);
 
   const partyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
+
+  // Options for the type-ahead party pickers: "CODE - NAME" labels so the
+  // operator can search by either the party code or any word of the name.
+  const partyOptions = useMemo<SearchSelectOption[]>(
+    () => filteredParties.map((p) => ({ value: String(p.id), label: `${p.code} - ${p.name}` })),
+    [filteredParties],
+  );
+  const shipToOptions = useMemo<SearchSelectOption[]>(
+    () => allParties.map((p) => ({ value: String(p.id), label: `${p.code} - ${p.name}` })),
+    [allParties],
+  );
 
   // Peek the next DC code from doc_sequence whenever the production
   // mode changes (or on first paint, when the form is new). Each mode
@@ -858,13 +870,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
              : form.production_mode === 'outsource' ? 'Outsource party *'
              : 'Customer *'}
           </label>
-          <select className="input w-full" required value={form.party_id}
-            onChange={(e) => pickParty(e.target.value)}>
-            <option value="">--- pick a {form.production_mode === 'jobwork' ? 'jobwork party' : form.production_mode === 'outsource' ? 'outsource party' : 'customer'} ---</option>
-            {filteredParties.map((p) => (
-              <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
-            ))}
-          </select>
+          {/* Type-ahead picker: typing any words of the name (or the
+              party code) narrows the list — much faster than scrolling
+              a long native dropdown. */}
+          <SearchSelect
+            options={partyOptions}
+            value={form.party_id}
+            onChange={pickParty}
+            required
+            placeholder={`Type to search ${form.production_mode === 'jobwork' ? 'jobwork party' : form.production_mode === 'outsource' ? 'outsource party' : 'customer'} name…`}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
@@ -906,13 +921,12 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           <>
             <div>
               <label className="label">Ship-To Party</label>
-              <select className="input w-full" value={form.ship_to_party_id}
-                onChange={(e) => pickShipToParty(e.target.value)}>
-                <option value="">--- pick a shipping party ---</option>
-                {allParties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
-                ))}
-              </select>
+              <SearchSelect
+                options={shipToOptions}
+                value={form.ship_to_party_id}
+                onChange={pickShipToParty}
+                placeholder="Type to search shipping party name…"
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
