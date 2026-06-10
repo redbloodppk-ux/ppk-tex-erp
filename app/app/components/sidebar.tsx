@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
+  LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
@@ -15,7 +15,11 @@ import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
-type GroupKey = 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
+type GroupKey = 'home' | 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
+/** Groups that actually render as a labelled, collapsible section.
+ *  The 'home' group is rendered flat at the top of the sidebar with
+ *  no header / chevron and is intentionally excluded from this set. */
+type LabelledGroupKey = Exclude<GroupKey, 'home'>;
 
 interface NavItem {
   href: string;
@@ -36,9 +40,10 @@ interface NavItem {
  *  Admin     → settings + audit (owner/auditor only)
  */
 const NAV: NavItem[] = [
-  // Dashboard moved off the sidebar — operators reach it via the
-  // PPK TEX brand logo at the top of the sidebar (which is a Link to
-  // /app/dashboard) so a dedicated nav entry is redundant.
+  // Dashboard — rendered as a standalone item at the top of the
+  // sidebar with no group header (Sales is the first labelled group).
+  // Marked with a special group key 'home' that NavBody renders flat.
+  { href: '/app/dashboard',     label: 'Dashboard',          icon: LayoutDashboard, group: 'home',       roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 
   // Sales
   // Customers + Jobwork Parties moved into the unified Parties master
@@ -116,11 +121,11 @@ const NAV: NavItem[] = [
   { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
 ];
 
-const GROUP_ORDER: readonly GroupKey[] = [
+const GROUP_ORDER: readonly LabelledGroupKey[] = [
   'sales', 'inventory', 'production', 'people', 'finance', 'insights', 'admin',
 ];
 
-const GROUP_LABEL: Record<GroupKey, string> = {
+const GROUP_LABEL: Record<LabelledGroupKey, string> = {
   sales:      'Sales & Customers',
   inventory:  'Inventory & Purchases',
   production: 'Production',
@@ -133,7 +138,7 @@ const GROUP_LABEL: Record<GroupKey, string> = {
 /** Icon shown next to each group header — gives the eye a fast visual
  *  anchor for scanning down the sidebar, especially useful for the
  *  collapsed groups where there's no other visual cue. */
-const GROUP_ICON: Record<GroupKey, React.ComponentType<{ className?: string }>> = {
+const GROUP_ICON: Record<LabelledGroupKey, React.ComponentType<{ className?: string }>> = {
   sales:      ShoppingCart,
   inventory:  Boxes,
   production: Factory,
@@ -175,6 +180,9 @@ function NavBody({
 }) {
   const pathname = usePathname();
   const visible = NAV.filter(n => n.roles.includes(role));
+  // 'home' is special: items with this group key render as flat links
+  // at the very top of the sidebar without a group header (Dashboard).
+  const flatItems = visible.filter(i => i.group === 'home');
   const grouped = GROUP_ORDER.map(g => ({
     group: g,
     items: visible.filter(i => i.group === g),
@@ -197,11 +205,16 @@ function NavBody({
     (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
   )?.group;
 
-  function toggleGroup(g: GroupKey): void {
+  /** Accordion behaviour: opening a group auto-closes every other
+   *  group. Clicking an already-open group collapses it (so all
+   *  groups can be closed at once). The active group still
+   *  auto-expands as a render-time override regardless of stored
+   *  state, so navigating into a different group's page won't leave
+   *  the operator looking at a sidebar that hides where they are. */
+  function toggleGroup(g: LabelledGroupKey): void {
     setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(g)) next.delete(g);
-      else next.add(g);
+      const next = new Set<GroupKey>();
+      if (!prev.has(g)) next.add(g);
       if (typeof window !== 'undefined') {
         try {
           window.localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify([...next]));
@@ -215,6 +228,32 @@ function NavBody({
 
   return (
     <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      {/* Flat top items (Dashboard) — no group header above them. */}
+      {flatItems.length > 0 && (
+        <ul className="space-y-0.5 mb-2">
+          {flatItems.map(item => {
+            const active = pathname === item.href || pathname.startsWith(item.href + '/');
+            const Icon = item.icon;
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onItemClick}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-indigo/10 text-indigo'
+                      : 'text-ink-soft hover:bg-cloud hover:text-ink'
+                  )}
+                >
+                  <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {grouped.map(({ group, items }) => {
         // Before hydration: only the active group is open (avoids
         // flash of all groups closed). After hydration: openGroups

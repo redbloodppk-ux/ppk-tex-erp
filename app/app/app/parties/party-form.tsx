@@ -30,7 +30,15 @@ export interface PartyFormValues {
   contact_person: string;
   phone: string;
   email: string;
+  /** Legacy single-field postal address — kept for back-compat with
+   *  any downstream code (invoices, DCs) still reading it. Newly
+   *  added structured lines below are the canonical source going
+   *  forward and mirror the ledger.address1..4 shape. */
   billing_address: string;
+  address1: string;
+  address2: string;
+  address3: string;
+  address4: string;
   city: string;
   state: string;
   state_code: string;
@@ -58,6 +66,10 @@ const EMPTY: PartyFormValues = {
   phone: '',
   email: '',
   billing_address: '',
+  address1: '',
+  address2: '',
+  address3: '',
+  address4: '',
   city: '',
   state: 'Tamil Nadu',
   state_code: '33',
@@ -105,7 +117,10 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
-  const billingRef = useRef<HTMLTextAreaElement>(null);
+  const addr1Ref = useRef<HTMLInputElement>(null);
+  const addr2Ref = useRef<HTMLInputElement>(null);
+  const addr3Ref = useRef<HTMLInputElement>(null);
+  const addr4Ref = useRef<HTMLInputElement>(null);
   const cityRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef<HTMLInputElement>(null);
   const stateCodeRef = useRef<HTMLInputElement>(null);
@@ -152,9 +167,13 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
 
     const a = d.address;
     if (a) {
-      if (billingRef.current) {
-        const line = [a.building, a.street, a.locality].filter(Boolean).join(', ');
-        if (line) billingRef.current.value = line;
+      // Spread the GST-portal address across four structured lines
+      // (mirroring the ledger.address1..4 shape).
+      if (addr1Ref.current && a.building) addr1Ref.current.value = a.building;
+      if (addr2Ref.current && a.street)   addr2Ref.current.value = a.street;
+      if (addr3Ref.current && a.locality) addr3Ref.current.value = a.locality;
+      if (addr4Ref.current && (a.city || a.pincode)) {
+        addr4Ref.current.value = [a.city, a.pincode].filter(Boolean).join(' - ');
       }
       if (cityRef.current && a.city) cityRef.current.value = a.city;
       if (stateRef.current && a.state) stateRef.current.value = a.state;
@@ -175,13 +194,49 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
     }
     const typeIdNums = selectedTypeIds.map((s) => Number(s)).filter((n) => Number.isFinite(n));
 
+    const gstinRaw = String(fd.get('gstin') ?? '').trim().toUpperCase() || null;
+    // Address lines come from the structured 4-line inputs. The legacy
+    // billing_address column is kept in sync as line1, line2, ... joined
+    // by ', ' so any downstream code still reading it (e.g. invoice/DC
+    // print templates) keeps working unchanged.
+    let address1: string | null = String(fd.get('address1') ?? '').trim() || null;
+    let address2: string | null = String(fd.get('address2') ?? '').trim() || null;
+    let address3: string | null = String(fd.get('address3') ?? '').trim() || null;
+    let address4: string | null = String(fd.get('address4') ?? '').trim() || null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+
+    // GSTIN → ledger sync: when this party's GSTIN matches an existing
+    // ledger row, treat the ledger as the canonical address source and
+    // overlay its address1..4 onto the payload (overriding whatever was
+    // typed in the form). Matching is case-insensitive on GSTIN.
+    if (gstinRaw) {
+      const { data: led } = await sb
+        .from('ledger')
+        .select('address1, address2, address3, address4')
+        .ilike('gstin', gstinRaw)
+        .limit(1)
+        .maybeSingle();
+      if (led && (led.address1 || led.address2 || led.address3 || led.address4)) {
+        address1 = (led.address1 as string | null) ?? null;
+        address2 = (led.address2 as string | null) ?? null;
+        address3 = (led.address3 as string | null) ?? null;
+        address4 = (led.address4 as string | null) ?? null;
+      }
+    }
+
+    const billingJoined = [address1, address2, address3, address4]
+      .filter((s): s is string => s != null && s !== '')
+      .join(', ');
+
     const payload = {
       // Multi-type array (canonical). The DB trigger keeps party_type_id
       // in sync with the first element, so we send both for safety.
       party_type_ids: typeIdNums,
       party_type_id: typeIdNums[0],
       name: String(fd.get('name') ?? '').trim(),
-      gstin: String(fd.get('gstin') ?? '').trim().toUpperCase() || null,
+      gstin: gstinRaw,
       // Persist verification timestamp from the lookup widget. An empty
       // string means the user never clicked Verify (or cleared the field)
       // so we save NULL. A DB trigger (migration 099) also clears this
@@ -190,7 +245,11 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       contact_person: String(fd.get('contact_person') ?? '').trim() || null,
       phone: String(fd.get('phone') ?? '').trim() || null,
       email: String(fd.get('email') ?? '').trim() || null,
-      billing_address: String(fd.get('billing_address') ?? '').trim(),
+      address1, address2, address3, address4,
+      // Keep the legacy single-line column in sync (joined view of the
+      // structured lines) so the rest of the app keeps rendering it
+      // until those call sites are migrated to address1..4.
+      billing_address: billingJoined,
       city: String(fd.get('city') ?? '').trim() || null,
       state: String(fd.get('state') ?? 'Tamil Nadu').trim() || null,
       state_code: String(fd.get('state_code') ?? '').trim() || null,
@@ -201,9 +260,6 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       status: String(fd.get('status') ?? 'active') as 'active' | 'inactive' | 'archived',
       notes: String(fd.get('notes') ?? '').trim() || null,
     };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
 
     // Helper — propagate the picked ledger_type to the party's linked
     // ledger row. Best-effort: if the party has no linked ledger yet
@@ -222,7 +278,9 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       if (err) { setBusy(false); setError(err.message); return; }
       await syncLedgerType(partyId as number);
       setBusy(false);
-      setSavedMsg('Saved.');
+      // Auto-close on save: redirect back to the parties list instead
+      // of staying on the form (matches the same flow as Create).
+      router.push('/app/parties');
       router.refresh();
     } else {
       const { data: inserted, error: err } = await sb.from('party').insert(payload).select('id').single();
@@ -407,9 +465,21 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       </div>
 
       <div>
-        <label className="label">Billing Address</label>
-        <textarea ref={billingRef} name="billing_address" rows={2} className="input mb-2"
-          placeholder="Door / street / locality" defaultValue={values.billing_address} />
+        <label className="label">Address</label>
+        <div className="grid grid-cols-1 gap-2 mb-2">
+          <input ref={addr1Ref} name="address1" className="input"
+            placeholder="Address line 1 (e.g. door no, building)"
+            defaultValue={values.address1} />
+          <input ref={addr2Ref} name="address2" className="input"
+            placeholder="Address line 2 (street)"
+            defaultValue={values.address2} />
+          <input ref={addr3Ref} name="address3" className="input"
+            placeholder="Address line 3 (locality)"
+            defaultValue={values.address3} />
+          <input ref={addr4Ref} name="address4" className="input"
+            placeholder="Address line 4 (city - pincode)"
+            defaultValue={values.address4} />
+        </div>
         <div className="grid grid-cols-4 gap-2">
           <input ref={cityRef} name="city" className="input" placeholder="City"
             defaultValue={values.city} />
@@ -423,8 +493,10 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
             placeholder="Pincode" maxLength={6} defaultValue={values.pincode} />
         </div>
         <p className="text-[10px] text-ink-mute mt-1">
-          State code auto-fills when you Verify the GSTIN. It's the first 2 digits
-          (e.g. 33 = Tamil Nadu) and drives IGST vs CGST/SGST on invoices.
+          Address lines 1-4 mirror the ledger address shape. When the GSTIN matches
+          an existing ledger row, that ledger&apos;s address overrides whatever
+          is typed here on save (ledger is the source of truth).
+          State code auto-fills when you Verify the GSTIN.
         </p>
       </div>
 

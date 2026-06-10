@@ -149,7 +149,9 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       const { error: err } = await (supabase as any).from('ledger').update(payload).eq('id', ledgerId);
       setBusy(false);
       if (err) { setError(err.message); return; }
-      setSavedMsg('Saved.');
+      // Auto-close on save: redirect back to the ledgers list, matching
+      // the same flow as Create.
+      router.push('/app/ledgers');
       router.refresh();
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
