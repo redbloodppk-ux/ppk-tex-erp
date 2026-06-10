@@ -129,7 +129,9 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
       const { error: err } = await sb.from('jobwork_party').update(payload).eq('id', partyId);
       setBusy(false);
       if (err) { setError(err.message); return; }
-      setSavedMsg('Saved.');
+      // Auto-close on save: redirect back to the list, matching the
+      // same flow as Create (and the Parties / Ledger / Customer forms).
+      router.push(kind === 'outsource' ? '/app/outsource' : '/app/jobwork-parties');
       router.refresh();
     } else {
       // code omitted - trg_jobwork_party_autogen_code fills it.

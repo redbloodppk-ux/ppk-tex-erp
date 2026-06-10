@@ -141,7 +141,9 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
         setError(err.message);
         return;
       }
-      setSavedMsg('Saved.');
+      // Auto-close on save: redirect back to the customers list, matching
+      // the same flow as Create (and the Parties / Ledger forms).
+      router.push('/app/customers');
       router.refresh();
     } else {
       // code omitted for create — trg_customer_autogen_code fills it.
