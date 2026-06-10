@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -117,6 +118,24 @@ export default function NewInvoicePage() {
 
   // ── line rows ──────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([newRow()]);
+
+  // Type-ahead options for the party pickers (Customer / Vendor).
+  // Labels keep the same text the old <option>s showed so search works
+  // on name, state and ledger type alike.
+  const customerOptions = useMemo<SearchSelectOption[]>(
+    () => customers.map((c) => ({
+      value: String(c.id),
+      label: `${c.is_vip ? '★ ' : ''}${c.name}${c.state ? ` · ${c.state}` : ''}`,
+    })),
+    [customers],
+  );
+  const vendorOptions = useMemo<SearchSelectOption[]>(
+    () => vendors.map((v) => ({
+      value: String(v.id),
+      label: `${v.name}${v.ledger_type?.name ? ` (${v.ledger_type.name})` : ''}`,
+    })),
+    [vendors],
+  );
 
   // ── ui state ───────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -559,24 +578,24 @@ export default function NewInvoicePage() {
               {docType === 'debit_note' ? (
                 <div className="sm:col-span-2">
                   <label className="label">Vendor (supplier) *</label>
-                  <select required value={vendorId} onChange={e => setVendorId(e.target.value)} className="input">
-                    <option value="" disabled>Select vendor…</option>
-                    {vendors.map(v => (
-                      <option key={v.id} value={v.id}>{v.name}{v.ledger_type?.name ? ' (' + v.ledger_type.name + ')' : ''}</option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    options={vendorOptions}
+                    value={vendorId}
+                    onChange={setVendorId}
+                    required
+                    placeholder="Type to search vendor name…"
+                  />
                 </div>
               ) : (
                 <div className="sm:col-span-2">
                   <label className="label">Customer *</label>
-                  <select required value={customerId} onChange={e => setCustomerId(e.target.value)} className="input">
-                    <option value="" disabled>Select customer…</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.is_vip ? '★ ' : ''}{c.name} {c.state ? `· ${c.state}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    options={customerOptions}
+                    value={customerId}
+                    onChange={setCustomerId}
+                    required
+                    placeholder="Type to search customer name…"
+                  />
                   {currentCustomer && (
                     <p className="text-[11px] text-ink-mute mt-1">
                       GSTIN: <span className="font-mono">{currentCustomer.gstin ?? '—'}</span>
