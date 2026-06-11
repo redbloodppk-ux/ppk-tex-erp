@@ -1887,22 +1887,46 @@ async function loadInhouseOpeningStock(
   // stock.
   if (bucket === 'warp_beam') {
     // In-house warp beam purchases (Inhouse Stock → Warp Beam tab).
-    // Every metre bought lands as an inflow on the matching
-    // (ends + warp count) column — same key the pavu inflows use.
+    // Each IN-HOUSE QUALITY gets its OWN column — purchases are NOT
+    // merged by (ends + count). The column is labelled with the quality
+    // and sub-labelled with its warp ends & yarn count, so two
+    // qualities sharing the same warp spec still show separately.
     const beamPurchases = await safeSelect<{
       id: number; code: string | null; purchase_date: string | null;
       metres: number | string | null; yarn_count_id: number | null;
+      fabric_quality_id: number | null;
       ends: { ends_count: number | null } | null;
     }>(
       supabase.from('inhouse_warp_beam_purchase')
-        .select('id, code, purchase_date, metres, yarn_count_id, ends:ends_id ( ends_count )')
+        .select('id, code, purchase_date, metres, yarn_count_id, fabric_quality_id, ends:ends_id ( ends_count )')
         .eq('status', 'active'),
     );
     for (const b of beamPurchases) {
       const ends = Number(b.ends?.ends_count ?? 0);
       const metres = Number(b.metres ?? 0);
-      if (ends <= 0 || metres <= 0) continue;
-      const colId = ensureEndsCountCol(ends, b.yarn_count_id);
+      if (metres <= 0) continue;
+      let colId: string;
+      if (b.fabric_quality_id != null) {
+        colId = `fq:${b.fabric_quality_id}`;
+        if (!colMap.has(colId)) {
+          const fq = qualityById.get(b.fabric_quality_id);
+          const c = b.yarn_count_id != null ? countById.get(b.yarn_count_id) : null;
+          const spec = [
+            ends > 0 ? `${ends} ends` : null,
+            c?.code ?? null,
+          ].filter(Boolean).join(' · ');
+          colMap.set(colId, {
+            id: colId,
+            label: fq?.code ?? fq?.name ?? `FQ #${b.fabric_quality_id}`,
+            sublabel: spec,
+          });
+        }
+      } else {
+        // Legacy purchase rows without a quality fall back to the
+        // shared (ends + count) column.
+        if (ends <= 0) continue;
+        colId = ensureEndsCountCol(ends, b.yarn_count_id);
+      }
       events.push({
         event_date: b.purchase_date ?? '',
         column_id: colId,
@@ -2008,11 +2032,21 @@ async function loadInhouseOpeningStock(
       for (const it of items) {
         const ends = Number(it.ends_count_snapshot ?? 0);
         const m    = Number(it.received_metres ?? 0);
-        if (ends <= 0 || m <= 0) continue;
-        const warpCountId = it.fabric_quality_id != null
-          ? (warpCountByQuality.get(it.fabric_quality_id) ?? null)
-          : null;
-        const colId = ensureEndsCountCol(ends, warpCountId);
+        if (m <= 0) continue;
+        // If this quality has its own column (created by a warp beam
+        // purchase inflow above), consume from THAT column so the
+        // per-quality stock nets correctly. Otherwise fall back to the
+        // legacy (ends + count) column that matches pavu inflows.
+        let colId: string;
+        if (it.fabric_quality_id != null && colMap.has(`fq:${it.fabric_quality_id}`)) {
+          colId = `fq:${it.fabric_quality_id}`;
+        } else {
+          if (ends <= 0) continue;
+          const warpCountId = it.fabric_quality_id != null
+            ? (warpCountByQuality.get(it.fabric_quality_id) ?? null)
+            : null;
+          colId = ensureEndsCountCol(ends, warpCountId);
+        }
         events.push({
           event_date: r.receipt_date ?? '',
           column_id: colId,
