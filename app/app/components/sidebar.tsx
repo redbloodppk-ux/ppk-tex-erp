@@ -100,6 +100,7 @@ const NAV: NavItem[] = [
   { href: '/app/payments',         label: 'Payments',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','sales_manager','auditor'] },
   { href: '/app/wages',            label: 'Wages',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/wages/weekly',     label: 'Weekly Summary',     icon: Calendar,        group: 'finance',    roles: ['owner','accounts','auditor'] },
+  { href: '/app/bonus',            label: 'Bonus',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',         label: 'Expenses',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/bank-entries',     label: 'Bank Entries',       icon: BookCheck,       group: 'finance',    roles: ['owner','accounts','auditor'] },
 
