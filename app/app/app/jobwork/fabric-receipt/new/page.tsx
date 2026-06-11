@@ -244,7 +244,14 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     const snap = fqById.get(qId)?.calc_snapshot;
     if (snap) {
       if (snap.warpCountId != null && snap.warpCountId !== '') warpCountIds.add(Number(snap.warpCountId));
-      if (snap.bobbinId    != null && snap.bobbinId    !== '') bobbinIds.add(Number(snap.bobbinId));
+      // New shape: bobbinIds[] (one per "Bobbin needed" slot); legacy
+      // rows carry a single bobbinId.
+      const rawBobbinIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
+        ? (snap.bobbinIds as unknown[])
+        : [snap.bobbinId];
+      for (const v of rawBobbinIds) {
+        if (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0) bobbinIds.add(Number(v));
+      }
     }
     const weft = fqWeftById.get(qId);
     if (weft?.yarn_count_id != null) weftCountIds.add(weft.yarn_count_id);
@@ -296,54 +303,65 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
-  // Bobbin stock = sum of (quantity x bobbin_metre) across ALL jobwork
-  // bobbins whose spec (ends_per_bobbin + bobbin_metre) matches the
-  // bobbin assigned to the fabric quality in calc_snapshot.bobbinId.
-  // Same idea as warp beam given: multiple batches of the same bobbin
-  // spec accumulate to a single stock total. FIFO reduction by
-  // purchase_date is wired in stock-reductions.ts.
+  // Bobbin "ends" display per quality = the FIRST selected bobbin's
+  // ends_per_bobbin (informational only).
   const bobbinEndsByQId = new Map<number, number | null>();
   if (bobbinIds.size > 0) {
-    // Step 1 - look up the assigned bobbin's spec (ends + metre).
     const { data: assignedRows } = await sb
       .from('bobbin')
-      .select('id, ends_per_bobbin, bobbin_metre')
+      .select('id, ends_per_bobbin')
       .in('id', Array.from(bobbinIds));
-    const assignedById = new Map<number, { ends_per_bobbin: number | null; bobbin_metre: number | string | null }>();
-    for (const r of (assignedRows ?? []) as Array<{ id: number; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>) {
-      assignedById.set(r.id, r);
+    const assignedById = new Map<number, number | null>();
+    for (const r of (assignedRows ?? []) as Array<{ id: number; ends_per_bobbin: number | null }>) {
+      assignedById.set(r.id, r.ends_per_bobbin ?? null);
     }
-    // Map each fabric_quality to its bobbin's ends_per_bobbin.
-    const specsKey = new Set<string>();
-    const specs: Array<{ ends_per_bobbin: number; bobbin_metre: number }> = [];
     for (const qId of qIds) {
-      const bId = fqById.get(qId)?.calc_snapshot?.bobbinId;
-      if (bId == null || bId === '') continue;
-      const a = assignedById.get(Number(bId));
-      if (!a) continue;
-      bobbinEndsByQId.set(qId, a.ends_per_bobbin ?? null);
-      const e = Number(a.ends_per_bobbin ?? 0);
-      const m = Number(a.bobbin_metre ?? 0);
-      if (e > 0 && m > 0) {
-        const key = e + ':' + m;
-        if (!specsKey.has(key)) {
-          specsKey.add(key);
-          specs.push({ ends_per_bobbin: e, bobbin_metre: m });
-        }
+      const snap = fqById.get(qId)?.calc_snapshot;
+      if (!snap) continue;
+      const rawBobbinIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
+        ? (snap.bobbinIds as unknown[])
+        : [snap.bobbinId];
+      for (const v of rawBobbinIds) {
+        if (v == null || v === '') continue;
+        const ends = assignedById.get(Number(v));
+        if (ends != null) { bobbinEndsByQId.set(qId, ends); break; }
       }
     }
-    // Step 2 - sum stock across every jobwork bobbin matching any spec.
-    for (const spec of specs) {
-      const { data: bobs } = await sb
-        .from('bobbin')
-        .select('quantity, bobbin_metre')
-        .eq('production_mode', 'outsource')
-        .eq('ends_per_bobbin', spec.ends_per_bobbin)
-        .eq('bobbin_metre', spec.bobbin_metre)
-        .gt('quantity', 0);
-      for (const r of (bobs ?? []) as Array<{ quantity: number | null; bobbin_metre: number | string | null }>) {
-        stock_bobbin_m += Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0);
+  }
+
+  // Bobbin stock for the card = the party's DERIVED pool, mirroring the
+  // Warehouse → Job Work → Bobbin pivot: active jobwork_bobbin_issue
+  // pieces × m/pc minus stock_ledger bobbin outflows. (bobbin.quantity
+  // is godown stock and is NOT the party's pool.)
+  if (dc.production_mode === 'jobwork' || dc.production_mode === 'outsource') {
+    const partyKind = dc.production_mode === 'outsource' ? 'outsource' : 'jobwork';
+    const { data: jwParty } = await sb
+      .from('jobwork_party')
+      .select('id')
+      .eq('name', dc.party?.name ?? dc.bill_to_name ?? '')
+      .eq('kind', partyKind)
+      .maybeSingle();
+    if (jwParty?.id != null) {
+      const [issuesRes, outsRes] = await Promise.all([
+        sb.from('jobwork_bobbin_issue')
+          .select('pieces_issued, bobbin:bobbin_id ( bobbin_metre )')
+          .eq('status', 'active')
+          .eq('jobwork_party_id', jwParty.id),
+        sb.from('stock_ledger')
+          .select('quantity')
+          .eq('bucket', 'bobbin')
+          .eq('direction', 'out')
+          .eq('jobwork_party_id', jwParty.id),
+      ]);
+      let issued_m = 0;
+      for (const r of ((issuesRes.data ?? []) as Array<{ pieces_issued: number | string | null; bobbin: { bobbin_metre: number | string | null } | null }>)) {
+        const per = Number(r.bobbin?.bobbin_metre ?? 0);
+        const pcs = Number(r.pieces_issued ?? 0);
+        issued_m += per > 0 ? pcs * per : pcs;
       }
+      const consumed_m = ((outsRes.data ?? []) as Array<{ quantity: number | string | null }>)
+        .reduce((s: number, r: { quantity: number | string | null }) => s + Number(r.quantity ?? 0), 0);
+      stock_bobbin_m = Math.max(0, issued_m - consumed_m);
     }
   }
 

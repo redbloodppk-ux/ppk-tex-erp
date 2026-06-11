@@ -36,9 +36,14 @@ export interface ReceiptItemForReduction {
   porvai_consumed_kg: number | null;
   /** Whether to fire bobbin reduction at all - set from the form when
    *  the quality has a bobbin assigned (bobbin_pcs_per_m > 0). The
-   *  actual bobbin row is resolved inside reduceBobbin via the fabric
-   *  quality's calc_snapshot. */
+   *  actual bobbin rows are resolved inside reduceBobbin via the fabric
+   *  quality's calc_snapshot (bobbinIds / bobbinId). */
   has_bobbin: boolean;
+  /** Number of bobbins the quality runs ("Bobbin needed" on the Fabric
+   *  Quality master = bobbin_pcs_per_m). Each consumes 1 m per fabric
+   *  metre, so total expected bobbin consumption = metres × factor.
+   *  Defaults to 1 for legacy rows. */
+  bobbin_factor?: number;
 }
 
 export interface Shortfall {
@@ -250,22 +255,112 @@ async function reduceBobbin(
 ): Promise<{ applied_pcs: number; applied_m: number; perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> }> {
   if (metres <= 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
 
-  // Step 1: pool the pool. Each quality may assign a different bobbin
-  // (id) - we collect all assigned bobbin ids across the pool.
+  // Step 1: collect this quality's selected bobbin SLOTS (bobbinIds[]
+  // from the Fabric Quality form's "Bobbin needed" pickers, with the
+  // legacy single bobbinId as fallback) plus, across the merged pool,
+  // every assigned bobbin id (spec candidates for the unscoped path).
   const pooledQIds = await getPooledQualityIds(sb, fabric_quality_id);
   const { data: fqs } = await sb
     .from('fabric_quality')
     .select('id, calc_snapshot')
     .in('id', pooledQIds);
   const assignedBobbinIds = new Set<number>();
+  let slotIds: number[] = [];
   for (const r of ((fqs ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
-    const bid = r.calc_snapshot?.bobbinId;
-    if (bid != null && bid !== '') {
-      const n = Number(bid);
-      if (Number.isFinite(n) && n > 0) assignedBobbinIds.add(n);
+    const snap = r.calc_snapshot;
+    if (!snap) continue;
+    const rawIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
+      ? (snap.bobbinIds as unknown[])
+      : [snap.bobbinId];
+    const ids: number[] = [];
+    for (const v of rawIds) {
+      if (v == null || v === '') continue;
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) { ids.push(n); assignedBobbinIds.add(n); }
     }
+    if (r.id === fabric_quality_id) slotIds = ids;
   }
-  if (assignedBobbinIds.size === 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+  if (assignedBobbinIds.size === 0 && jobworkPartyId == null) {
+    return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+  }
+
+  // ── Party-scoped path ─────────────────────────────────────────────
+  // Consume `metres` from EACH selected bobbin's own issued pool — one
+  // ledger row per bobbin (so 2 bobbins on a 1,000 m receipt write two
+  // 1,000 m outflows). If none of the selected ids match what was
+  // actually issued to the party (stale ids from the bobbin
+  // consolidation), fall back to the party-wide pool so the receipt
+  // never silently consumes nothing.
+  if (jobworkPartyId != null) {
+    const { data: pIssues } = await sb
+      .from('jobwork_bobbin_issue')
+      .select('bobbin_id, pieces_issued, issue_date, bobbin:bobbin_id ( bobbin_metre )')
+      .eq('status', 'active')
+      .eq('jobwork_party_id', jobworkPartyId)
+      .order('issue_date', { ascending: true });
+    type PIssue = { bobbin_id: number; pieces_issued: number | string | null; issue_date: string | null; bobbin: { bobbin_metre: number | string | null } | null };
+    const issuedByBobbin = new Map<number, { m: number; per: number }>();
+    let issuedTotal = 0;
+    let firstIssuedBobbin: number | null = null;
+    for (const r of ((pIssues ?? []) as PIssue[])) {
+      const per = Number(r.bobbin?.bobbin_metre ?? 0);
+      const pcs = Number(r.pieces_issued ?? 0);
+      const m = per > 0 ? pcs * per : pcs;
+      issuedTotal += m;
+      const cur = issuedByBobbin.get(r.bobbin_id);
+      if (cur) cur.m += m;
+      else issuedByBobbin.set(r.bobbin_id, { m, per });
+      if (firstIssuedBobbin == null && pcs > 0) firstIssuedBobbin = r.bobbin_id;
+    }
+    if (firstIssuedBobbin == null) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+
+    const { data: pOuts } = await sb
+      .from('stock_ledger')
+      .select('bobbin_id, quantity')
+      .eq('bucket', 'bobbin')
+      .eq('direction', 'out')
+      .eq('jobwork_party_id', jobworkPartyId);
+    const outByBobbin = new Map<number, number>();
+    let outTotal = 0;
+    for (const o of ((pOuts ?? []) as Array<{ bobbin_id: number | null; quantity: number | string | null }>)) {
+      const q = Number(o.quantity ?? 0);
+      outTotal += q;
+      if (o.bobbin_id != null) outByBobbin.set(o.bobbin_id, (outByBobbin.get(o.bobbin_id) ?? 0) + q);
+    }
+
+    const perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> = [];
+    let applied_m = 0;
+    let applied_pcs = 0;
+    const usableSlots = slotIds.filter((id) => issuedByBobbin.has(id));
+    if (usableSlots.length > 0) {
+      for (const id of usableSlots) {
+        const info = issuedByBobbin.get(id);
+        if (!info) continue;
+        const avail = Math.max(0, info.m - (outByBobbin.get(id) ?? 0));
+        const cut = Math.min(metres, avail);
+        if (cut <= 0) continue;
+        const pcs = info.per > 0 ? Math.round((cut / info.per) * 100) / 100 : cut;
+        applied_m += cut;
+        applied_pcs += pcs;
+        perBobbin.push({ bobbin_id: id, cut_pcs: pcs, cut_m: Math.round(cut * 100) / 100, party_id: jobworkPartyId });
+        // Track within this call so the same bobbin picked in two
+        // slots can't be consumed past its availability.
+        outByBobbin.set(id, (outByBobbin.get(id) ?? 0) + cut);
+      }
+    } else {
+      const slotCount = Math.max(1, slotIds.length);
+      const avail = Math.max(0, issuedTotal - outTotal);
+      const cut = Math.min(metres * slotCount, avail);
+      if (cut > 0) {
+        const per = issuedByBobbin.get(firstIssuedBobbin)?.per ?? 0;
+        const pcs = per > 0 ? Math.round((cut / per) * 100) / 100 : cut;
+        applied_m = cut;
+        applied_pcs = pcs;
+        perBobbin.push({ bobbin_id: firstIssuedBobbin, cut_pcs: pcs, cut_m: Math.round(cut * 100) / 100, party_id: jobworkPartyId });
+      }
+    }
+    return { applied_pcs, applied_m: Math.round(applied_m * 100) / 100, perBobbin };
+  }
 
   // Step 2: every spec (ends_per_bobbin + bobbin_metre) the pool uses.
   const { data: assignedRows } = await sb
@@ -513,10 +608,10 @@ export async function applyFabricReceiptStockReductions(
       const r = await reduceBobbin(sb, it.fabric_quality_id, it.received_metres, ctxJwPartyId);
       result.applied.bobbin_pcs += r.applied_pcs;
       for (const b of r.perBobbin) {
-        if (b.cut_pcs <= 0) continue;
+        if (b.cut_m <= 0) continue;
         // Store bobbin consumption in METRES so the warehouse pivot
         // reads it directly without needing to multiply by bobbin_metre.
-        // (1 m fabric consumes 1 m of bobbin yarn.)
+        // (1 m fabric consumes 1 m of bobbin yarn per selected bobbin.)
         ledgerRows.push({
           bucket: 'bobbin', direction: 'out',
           jobwork_party_id: b.party_id ?? ctxJwPartyId, fabric_quality_id: it.fabric_quality_id,
@@ -526,11 +621,14 @@ export async function applyFabricReceiptStockReductions(
           notes: `${b.cut_pcs} pcs × bobbin spec`,
         });
       }
-      if (r.applied_m + 0.005 < it.received_metres) {
+      // Expected consumption = metres × number of bobbins the quality
+      // runs (legacy rows have factor 1).
+      const neededBobbinM = it.received_metres * Math.max(1, Number(it.bobbin_factor ?? 1));
+      if (r.applied_m + 0.005 < neededBobbinM) {
         result.shortfalls.push({
           bucket: 'bobbin', fabric_quality_id: it.fabric_quality_id,
-          needed: it.received_metres, applied: r.applied_m, unit: 'm',
-          note: 'Available bobbin metres in Jobwork \u2192 Bobbin given less than received for this spec (pool includes merged siblings).',
+          needed: neededBobbinM, applied: r.applied_m, unit: 'm',
+          note: 'Available bobbin metres in Jobwork \u2192 Bobbin given less than needed - check the issues for this party and the bobbins picked on the Fabric Quality master.',
         });
       }
     }

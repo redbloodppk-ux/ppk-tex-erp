@@ -57,6 +57,14 @@ interface CalcSnapshot {
   code?: string; fabricType?: string;
   productionMode?: 'inhouse' | 'job_work' | 'outsourcing';
   useBobbin?: boolean; bobbinMetres?: number; bobbinId?: string;
+  /** How many bobbins run alongside the warp (1–4). Each selected
+   *  bobbin consumes 1 m of bobbin yarn per metre of fabric, so total
+   *  consumption per metre = bobbinNeeded. */
+  bobbinNeeded?: number;
+  /** One picked bobbin id per slot, length = bobbinNeeded. bobbinId
+   *  (above) keeps carrying the FIRST selection so older readers
+   *  (ledger rebuild, reports) stay compatible. */
+  bobbinIds?: string[];
   // Lurex (metallic accent yarn) is wound on a second bobbin/cone
   // alongside the primary one. When `isLurex` is on, `bobbinId2`
   // holds the lurex bobbin picked from the master. Disabling the
@@ -96,12 +104,25 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [tapeLengthIn, setTapeLengthIn] = useState(41.5);
 
   const [useBobbin, setUseBobbin] = useState(false);
-  // Bobbin metres defaults to 1 and is non-editable on this form. The
-  // costing flow stores the true bobbin metres on the Bobbin master
-  // record; here we only need a non-zero divisor so the bobbin pcs/m
-  // calculation behaves consistently.
-  const [bobbinMetres] = useState(1);
-  const [bobbinId, setBobbinId] = useState('');
+  // "Bobbin needed" = how many bobbins run alongside the warp (1–4).
+  // One picker appears per bobbin. Each selected bobbin consumes 1 m
+  // of bobbin yarn per metre of fabric, so the total bobbin metres
+  // consumed per fabric metre equals this number.
+  const [bobbinNeeded, setBobbinNeededRaw] = useState(1);
+  const [bobbinIds, setBobbinIds] = useState<string[]>(['']);
+  function setBobbinNeeded(n: number): void {
+    const clamped = Math.max(1, Math.min(4, Math.round(n) || 1));
+    setBobbinNeededRaw(clamped);
+    // Resize the selections array, preserving what's already picked.
+    setBobbinIds((prev) => {
+      const next = prev.slice(0, clamped);
+      while (next.length < clamped) next.push('');
+      return next;
+    });
+  }
+  function setBobbinIdAt(idx: number, value: string): void {
+    setBobbinIds((prev) => prev.map((v, i) => (i === idx ? value : v)));
+  }
   // Lurex (a metallic-thread cone wound alongside the primary bobbin)
   // is opt-in per fabric quality. The Bobbin 2 picker below is only
   // enabled while `isLurex` is true; unticking the box clears the
@@ -204,7 +225,18 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       if (s.reedCount         != null) setReedCount(s.reedCount);
       if (s.tapeLengthIn      != null) setTapeLengthIn(s.tapeLengthIn);
       if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
-      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
+      // New shape: bobbinNeeded + bobbinIds[]. Legacy rows only carry a
+      // single bobbinId — surface it as slot 1 with bobbinNeeded = 1.
+      {
+        const n = Math.max(1, Math.min(4, Number(s.bobbinNeeded ?? 0) || 1));
+        const ids = Array.isArray(s.bobbinIds) && s.bobbinIds.length > 0
+          ? s.bobbinIds.map((v) => String(v ?? ''))
+          : [String(s.bobbinId ?? '')];
+        const sized = ids.slice(0, n);
+        while (sized.length < n) sized.push('');
+        setBobbinNeededRaw(n);
+        setBobbinIds(sized);
+      }
       if (s.isLurex           != null) setIsLurex(s.isLurex);
       if (s.bobbinId2         != null) setBobbinId2(s.bobbinId2);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
@@ -243,7 +275,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
     const gramsPerTowel = isTowel ? gramsPerM * towelLength : null;
     const endsCheck = reedCount * finishedWidthIn + 50;
 
-    const bobbinPcsPerM = useBobbin && bobbinMetres > 0 ? 1 / bobbinMetres : 0;
+    // Bobbin metres consumed per metre of fabric = number of bobbins
+    // running alongside the warp (each consumes 1 m per fabric metre).
+    const bobbinPcsPerM = useBobbin ? bobbinNeeded : 0;
 
     return {
       warpMPerKg, warpKgPerM, weftMPerKg, weftKgPerM,
@@ -255,7 +289,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   }, [
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
     finishedWidthIn, reedCount, tapeLengthIn,
-    useBobbin, bobbinMetres,
+    useBobbin, bobbinNeeded,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
     porvaiPick, selvedgeLengthIn,
     isTowel, towelLength,
@@ -292,12 +326,20 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       weft_kg_per_m: Number(r.weftKgPerM.toFixed(6)),
       porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
         ? Number(r.porvaiKgPerM.toFixed(6)) : null,
-      bobbin_pcs_per_m: useBobbin && bobbinMetres > 0
-        ? Number(r.bobbinPcsPerM.toFixed(6)) : null,
+      // bobbin_pcs_per_m = bobbin metres consumed per fabric metre
+      // (= number of bobbins selected). Legacy rows hold 1.
+      bobbin_pcs_per_m: useBobbin && bobbinNeeded > 0
+        ? bobbinNeeded : null,
       calc_snapshot: {
         warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
         finishedWidthIn, reedCount, tapeLengthIn,
-        useBobbin, bobbinMetres, bobbinId,
+        useBobbin,
+        bobbinNeeded,
+        // Only persist as many slots as needed; empty slots stay ''.
+        bobbinIds: bobbinIds.slice(0, bobbinNeeded),
+        // First non-empty selection doubles as the legacy single
+        // bobbinId so older readers keep working.
+        bobbinId: bobbinIds.find((v) => v !== '') ?? '',
         // Lurex is a per-fabric flag; bobbinId2 only travels when the
         // checkbox is on (we cleared it in the UI when unticked but
         // belt-and-braces it here too so a stale FK can't sneak in).
@@ -390,29 +432,35 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
               <div className="mt-2 space-y-2">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                   <Row>
-                    <L>Bobbin metres</L>
-                    <input type="number" value={bobbinMetres} disabled readOnly
-                      className="input num text-right h-8 text-sm w-28 bg-cloud/40 text-ink-soft cursor-not-allowed" />
+                    <L title="How many bobbins run alongside the warp. One picker appears per bobbin; each consumes 1 m of bobbin yarn per metre of fabric.">
+                      Bobbin needed <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
+                    </L>
+                    <input type="number" value={bobbinNeeded} min={1} max={4} step={1}
+                      onChange={(e) => setBobbinNeeded(Number(e.target.value))}
+                      className="input num text-right h-8 text-sm w-28" />
                   </Row>
                 </div>
-                <div>
-                  <label className="label text-xs">Bobbin</label>
-                  <div className="flex items-stretch gap-1.5">
-                    {/* Primary bobbin = the regular, non-lurex cone.
-                        Lurex bobbins are reserved for the "Bobbin 2"
-                        picker below, so we filter them out here. We
-                        treat is_lurex IS NULL the same as false (legacy
-                        rows pre-dating the lurex flag are not lurex). */}
-                    <select className="input w-full" value={bobbinId}
-                      onChange={(e) => setBobbinId(e.target.value)}>
-                      <option value="">--- pick a bobbin ---</option>
-                      {bobbins
-                        .filter((b) => b.is_lurex !== true)
-                        .map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
-                    </select>
-                    <NewLink href="/app/bobbin" title="Add new bobbin" />
+                {/* One picker per needed bobbin. Lurex bobbins are
+                    reserved for the "Lurex" picker below, so we filter
+                    them out here. is_lurex IS NULL is treated as false
+                    (legacy rows pre-dating the lurex flag). */}
+                {bobbinIds.map((value, idx) => (
+                  <div key={idx}>
+                    <label className="label text-xs">
+                      {bobbinNeeded > 1 ? `Bobbin ${idx + 1}` : 'Bobbin'}
+                    </label>
+                    <div className="flex items-stretch gap-1.5">
+                      <select className="input w-full" value={value}
+                        onChange={(e) => setBobbinIdAt(idx, e.target.value)}>
+                        <option value="">--- pick a bobbin ---</option>
+                        {bobbins
+                          .filter((b) => b.is_lurex !== true)
+                          .map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
+                      </select>
+                      <NewLink href="/app/bobbin" title="Add new bobbin" />
+                    </div>
                   </div>
-                </div>
+                ))}
 
                 {/* Lurex (metallic accent yarn) toggle. When ticked, a
                     second Bobbin picker becomes active and is restricted
@@ -432,7 +480,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                   />
                   <div className="mt-1.5">
                     <label className={'label text-xs ' + (isLurex ? '' : 'text-ink-mute')}>
-                      Bobbin 2 (lurex)
+                      Lurex bobbin
                     </label>
                     <div className="flex items-stretch gap-1.5">
                       <select
@@ -521,7 +569,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           {useBobbin && r.bobbinPcsPerM > 0 && (
             <>
               <Divider />
-              <ResultRow label="Bobbin pcs / m" value={r.bobbinPcsPerM.toFixed(4)} small />
+              <ResultRow label="Bobbin m / m fabric" value={r.bobbinPcsPerM.toFixed(0)} small />
             </>
           )}
           {isTowel && r.gramsPerTowel !== null && (

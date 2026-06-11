@@ -169,11 +169,11 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       pieces += towelLen > 0 ? Math.round(num(it.received_metres)) : 0;
       weftKg   += m * it.seed.weft_kg_per_m;
       porvaiKg += m * it.seed.porvai_kg_per_m;
-      // Bobbin stock is reduced 1:1 in metres against the received fabric
-      // metres - only counted when the quality actually uses a bobbin
-      // (bobbin_pcs_per_m on the master is > 0). The "pcs_per_m" column
-      // is treated as a 0/1 flag for "this quality has a bobbin assigned".
-      if (it.seed.bobbin_pcs_per_m > 0) bobbinMtrs += m;
+      // Bobbin stock is reduced 1:1 in metres PER SELECTED BOBBIN against
+      // the received fabric metres. bobbin_pcs_per_m on the master holds
+      // the number of bobbins the quality runs (legacy rows hold 1), so
+      // total bobbin metres = fabric metres × bobbin count.
+      if (it.seed.bobbin_pcs_per_m > 0) bobbinMtrs += m * it.seed.bobbin_pcs_per_m;
     }
     return {
       metres: round2(metres),
@@ -256,7 +256,9 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       const weftKg   = round2(m * it.seed.weft_kg_per_m);
       const porvaiKg = round2(m * it.seed.porvai_kg_per_m);
       const hasBobbin = it.seed.bobbin_pcs_per_m > 0;
-      const bobMtrs  = hasBobbin ? m : 0;
+      // Total bobbin metres = fabric metres × number of bobbins the
+      // quality runs (bobbin_pcs_per_m; legacy rows hold 1).
+      const bobMtrs  = hasBobbin ? round2(m * it.seed.bobbin_pcs_per_m) : 0;
       // If towel length is set, the typed received_metres is the towel
       // count; otherwise it's actual metres and we save 0 as the count.
       const towelLen = round2(num(it.towel_length));
@@ -281,7 +283,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         porvai_kg_per_m:    it.seed.porvai_kg_per_m   > 0 ? it.seed.porvai_kg_per_m   : null,
         porvai_consumed_kg: porvaiKg > 0 ? porvaiKg : null,
         bobbin_id: null,
-        bobbin_pcs_per_m:    hasBobbin ? 1 : null,
+        bobbin_pcs_per_m:    hasBobbin ? it.seed.bobbin_pcs_per_m : null,
         bobbin_consumed_pcs: bobMtrs > 0 ? bobMtrs : null,
         product: null,
         qty: null,
@@ -312,10 +314,12 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         received_metres: m,
         weft_consumed_kg:   it.seed.weft_kg_per_m   > 0 ? round2(m * it.seed.weft_kg_per_m)   : null,
         porvai_consumed_kg: it.seed.porvai_kg_per_m > 0 ? round2(m * it.seed.porvai_kg_per_m) : null,
-        // Bobbin row is resolved inside reduceBobbin via the fabric
-        // quality's calc_snapshot.bobbinId. We just signal whether
-        // bobbin reduction should run for this item.
+        // Bobbin rows are resolved inside reduceBobbin via the fabric
+        // quality's calc_snapshot (bobbinIds / bobbinId). We signal
+        // whether bobbin reduction should run and how many bobbins the
+        // quality runs (each consumes 1 m per fabric metre).
         has_bobbin: it.seed.bobbin_pcs_per_m > 0,
+        bobbin_factor: it.seed.bobbin_pcs_per_m > 0 ? it.seed.bobbin_pcs_per_m : 1,
       };
     });
     const reduction = await applyFabricReceiptStockReductions(sb, reductionItems, {
@@ -405,7 +409,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
               const m = resolvedMetres(it);
               const consumed = round2(m * it.seed.weft_kg_per_m);
               const hasBobbin = it.seed.bobbin_pcs_per_m > 0;
-              const bobbinMtrs = hasBobbin ? m : 0;
+              const bobbinMtrs = hasBobbin ? round2(m * it.seed.bobbin_pcs_per_m) : 0;
               return (
                 <tr key={idx} className="border-t border-line/40 align-top">
                   <td className="px-2 py-2 text-xs text-ink-mute">{it.seed.sno || idx + 1}</td>
