@@ -63,6 +63,29 @@ interface PaymentRow {
   reference: string | null;
   notes: string | null;
 }
+/** An unpaid (or part-paid) bill of the selected party, offered for
+ *  bill-to-bill adjustment when recording a payment. Invoices are
+ *  matched to the unified party master by the party_name stamped on
+ *  every invoice. */
+interface UnpaidBill {
+  id: number;
+  invoice_no: string;
+  invoice_date: string;
+  doc_type: string;
+  total: number | string;
+  amount_paid: number | string;
+  balance: number | string;
+}
+
+const DOC_TYPE_LABEL: Record<string, string> = {
+  tax_invoice:     'Fabric Sale',
+  yarn_sale:       'Yarn Sale',
+  general_sale:    'General Sale',
+  credit_note:     'Credit Note',
+  debit_note:      'Debit Note',
+  jobwork_invoice: 'Jobwork Bill',
+  weaving_bill:    'Weaving Bill',
+};
 
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }
 
@@ -157,6 +180,14 @@ function NewPaymentTab(): React.ReactElement {
   const [error,        setError]        = useState<string | null>(null);
   const [savedMsg,     setSavedMsg]     = useState<string | null>(null);
 
+  // ── Bill-to-bill adjustment state ────────────────────────────────────────
+  // Unpaid bills of the picked party, which of them are ticked, and how
+  // much of this payment is adjusted against each (invoice id → amount).
+  const [bills,        setBills]        = useState<UnpaidBill[]>([]);
+  const [billsLoading, setBillsLoading] = useState<boolean>(false);
+  const [checkedBills, setCheckedBills] = useState<Set<number>>(new Set());
+  const [alloc,        setAlloc]        = useState<Record<number, string>>({});
+
   // ── Load party types, parties, and mode (BANK / CASH) ledgers ───────────
   useEffect(() => {
     void (async () => {
@@ -202,6 +233,95 @@ function NewPaymentTab(): React.ReactElement {
     }
   }, [filteredParties, partyId]);
 
+  // ── Load the party's unpaid bills whenever the party changes ─────────────
+  // Invoices stamp party_name at creation, so we match the picked party
+  // by name (case-insensitive). Only open bills with a balance left.
+  const loadBills = useCallback(async (): Promise<void> => {
+    setCheckedBills(new Set());
+    setAlloc({});
+    if (!partyId) { setBills([]); return; }
+    const party = parties.find((p) => String(p.id) === partyId);
+    if (!party) { setBills([]); return; }
+    setBillsLoading(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { data, error: err } = await sb.from('invoice')
+      .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
+      .ilike('party_name', party.name)
+      .in('status', ['issued', 'partial_paid', 'overdue'])
+      .gt('balance', 0)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true });
+    setBillsLoading(false);
+    if (err) { setError(err.message); return; }
+    setBills((data ?? []) as UnpaidBill[]);
+  }, [partyId, parties, supabase]);
+
+  useEffect(() => { void loadBills(); }, [loadBills]);
+
+  /** Spread `amt` across the given bills oldest-first (each bill takes
+   *  up to its open balance). Returns the invoice-id → amount map. */
+  function distribute(amt: number, billIds: Set<number>): Record<number, string> {
+    const next: Record<number, string> = {};
+    let remaining = amt;
+    for (const b of bills) {
+      if (!billIds.has(b.id)) continue;
+      const bal = Number(b.balance);
+      const take = Math.min(bal, Math.max(remaining, 0));
+      next[b.id] = take > 0 ? String(Math.round(take * 100) / 100) : '';
+      remaining -= take;
+    }
+    return next;
+  }
+
+  function toggleBill(b: UnpaidBill): void {
+    const next = new Set(checkedBills);
+    if (next.has(b.id)) next.delete(b.id);
+    else next.add(b.id);
+    setCheckedBills(next);
+
+    const amt = Number(amount);
+    if (amount.trim() === '' || !Number.isFinite(amt) || amt <= 0) {
+      // No amount typed yet → bill-to-bill mode: amount becomes the sum
+      // of the ticked bills' balances, fully adjusted.
+      const sum = bills.filter((x) => next.has(x.id))
+        .reduce((s, x) => s + Number(x.balance), 0);
+      setAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
+      setAlloc(distribute(sum, next));
+    } else {
+      // Amount already typed → spread it across the ticked bills.
+      setAlloc(distribute(amt, next));
+    }
+  }
+
+  function handleAmountChange(v: string): void {
+    setAmount(v);
+    const amt = Number(v);
+    if (checkedBills.size > 0 && Number.isFinite(amt)) {
+      setAlloc(distribute(amt, checkedBills));
+    }
+  }
+
+  function handleAllocChange(billId: number, v: string): void {
+    setAlloc((a) => ({ ...a, [billId]: v }));
+  }
+
+  const allocatedTotal = useMemo<number>(() => {
+    let s = 0;
+    for (const b of bills) {
+      if (!checkedBills.has(b.id)) continue;
+      const n = Number(alloc[b.id] ?? '');
+      if (Number.isFinite(n) && n > 0) s += n;
+    }
+    return Math.round(s * 100) / 100;
+  }, [bills, checkedBills, alloc]);
+
+  const unallocated = useMemo<number>(() => {
+    const amt = Number(amount);
+    if (!Number.isFinite(amt)) return 0;
+    return Math.round((amt - allocatedTotal) * 100) / 100;
+  }, [amount, allocatedTotal]);
+
   async function handleSave(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
@@ -213,6 +333,30 @@ function NewPaymentTab(): React.ReactElement {
     if (!date) { setError('Pick a payment date.'); return; }
     if (!modeLedgerId) {
       setError('Pick a Bank / Cash ledger. Add one from the Ledgers page if the dropdown is empty.');
+      return;
+    }
+
+    // Validate the bill-to-bill adjustments before writing anything.
+    const allocations: { invoice_id: number; amount: number }[] = [];
+    for (const b of bills) {
+      if (!checkedBills.has(b.id)) continue;
+      const raw = (alloc[b.id] ?? '').trim();
+      if (raw === '') continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        setError(`Bill ${b.invoice_no}: adjusted amount is not a valid number.`);
+        return;
+      }
+      if (n === 0) continue;
+      if (n > Number(b.balance) + 0.005) {
+        setError(`Bill ${b.invoice_no}: adjusted ₹${fmtINR(n)} is more than its balance ₹${fmtINR(b.balance)}.`);
+        return;
+      }
+      allocations.push({ invoice_id: b.id, amount: Math.round(n * 100) / 100 });
+    }
+    const allocSum = allocations.reduce((s, a) => s + a.amount, 0);
+    if (allocSum > amt + 0.005) {
+      setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
     }
 
@@ -235,12 +379,32 @@ function NewPaymentTab(): React.ReactElement {
       .insert(payload)
       .select('id, payment_no')
       .single();
+    if (err) { setBusy(false); setError(err.message); return; }
+
+    // Write the bill-to-bill adjustments. A DB trigger bumps each
+    // invoice's amount_paid / balance / status automatically.
+    if (allocations.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: allocErr } = await (supabase as any)
+        .from('payment_allocation')
+        .insert(allocations.map((a) => ({ ...a, payment_id: data.id })));
+      if (allocErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the bill adjustment failed: ${allocErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
     setBusy(false);
-    if (err) { setError(err.message); return; }
-    setSavedMsg(`Saved ${data?.payment_no ?? 'payment'}.`);
+    setSavedMsg(
+      allocations.length > 0
+        ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${allocations.length} bill${allocations.length === 1 ? '' : 's'}${allocSum < amt ? `, ₹${fmtINR(amt - allocSum)} kept on account` : ''}.`
+        : `Saved ${data?.payment_no ?? 'payment'}.`,
+    );
     // Reset only the volatile fields; keep the direction + party so the
     // operator can log several payments to the same party in a row.
     setAmount(''); setReference(''); setNotes('');
+    await loadBills();
   }
 
   if (loading) {
@@ -252,7 +416,7 @@ function NewPaymentTab(): React.ReactElement {
   }
 
   return (
-    <form onSubmit={handleSave} className="card p-6 space-y-4 max-w-2xl">
+    <form onSubmit={handleSave} className="card p-6 space-y-4 max-w-4xl">
       {/* Direction toggle */}
       <div className="grid grid-cols-2 gap-2">
         <DirectionPill
@@ -320,9 +484,14 @@ function NewPaymentTab(): React.ReactElement {
             step="0.01"
             className="input num"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => handleAmountChange(e.target.value)}
             placeholder="e.g. 25000"
           />
+          {checkedBills.size > 0 && (
+            <p className="text-[11px] text-ink-mute mt-1">
+              Typing here re-spreads the amount across the ticked bills, oldest first.
+            </p>
+          )}
         </div>
 
         <div>
@@ -372,6 +541,109 @@ function NewPaymentTab(): React.ReactElement {
           />
         </div>
       </div>
+
+      {/* ── Unpaid bills of the picked party — bill-to-bill adjustment ── */}
+      {partyId !== '' && (
+        billsLoading ? (
+          <div className="border border-line/40 rounded-md p-4 flex items-center gap-2 text-sm text-ink-mute">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading unpaid bills…
+          </div>
+        ) : bills.length === 0 ? (
+          <div className="border border-line/40 rounded-md p-4 text-sm text-ink-soft">
+            No unpaid bills for this party — the payment will be saved on account.
+          </div>
+        ) : (
+          <div className="border border-line/40 rounded-md overflow-hidden">
+            <div className="px-3 py-2 bg-cloud/40 border-b border-line/40 flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                Unpaid bills — tick to adjust this {direction === 'in' ? 'receipt' : 'payment'} against them
+              </span>
+              <span className="text-xs text-ink-mute">
+                Tick bills with no amount typed → amount auto-fills from the bills.
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
+                  <tr>
+                    <th className="px-3 py-2" />
+                    <th className="text-left  px-3 py-2">Bill no</th>
+                    <th className="text-left  px-3 py-2">Date</th>
+                    <th className="text-left  px-3 py-2 hidden md:table-cell">Type</th>
+                    <th className="text-right px-3 py-2">Bill (₹)</th>
+                    <th className="text-right px-3 py-2">Paid (₹)</th>
+                    <th className="text-right px-3 py-2">Balance (₹)</th>
+                    <th className="text-right px-3 py-2">Adjust now (₹)</th>
+                    <th className="text-right px-3 py-2">Left after (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bills.map((b) => {
+                    const isChecked = checkedBills.has(b.id);
+                    const allocNum = Number(alloc[b.id] ?? '');
+                    const adj = isChecked && Number.isFinite(allocNum) && allocNum > 0 ? allocNum : 0;
+                    const leftAfter = Math.round((Number(b.balance) - adj) * 100) / 100;
+                    const overAlloc = adj > Number(b.balance) + 0.005;
+                    return (
+                      <tr key={b.id} className={cn('border-t border-line/40', isChecked ? 'bg-indigo-50/40' : 'hover:bg-haze/60')}>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 accent-indigo-600"
+                            checked={isChecked}
+                            onChange={() => toggleBill(b)}
+                          />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">{b.invoice_no}</td>
+                        <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{fmtDate(b.invoice_date)}</td>
+                        <td className="px-3 py-2 hidden md:table-cell text-xs text-ink-soft">
+                          {DOC_TYPE_LABEL[b.doc_type] ?? b.doc_type}
+                        </td>
+                        <td className="px-3 py-2 text-right num">{fmtINR(b.total)}</td>
+                        <td className="px-3 py-2 text-right num text-ink-soft">{fmtINR(b.amount_paid)}</td>
+                        <td className="px-3 py-2 text-right num font-semibold text-rose-700">{fmtINR(b.balance)}</td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            disabled={!isChecked}
+                            className={cn('input num h-8 text-xs w-28 text-right inline-block', overAlloc && 'ring-2 ring-rose-400')}
+                            value={isChecked ? (alloc[b.id] ?? '') : ''}
+                            onChange={(e) => handleAllocChange(b.id, e.target.value)}
+                          />
+                        </td>
+                        <td className={cn('px-3 py-2 text-right num font-semibold', leftAfter <= 0.005 ? 'text-emerald-700' : 'text-amber-700')}>
+                          {isChecked ? fmtINR(Math.max(leftAfter, 0)) : fmtINR(b.balance)}
+                          {isChecked && leftAfter <= 0.005 && <span className="ml-1 text-[10px]">✓ settled</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {checkedBills.size > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-line/60 bg-cloud/30 text-xs font-semibold">
+                      <td colSpan={7} className="px-3 py-2 text-right">
+                        Adjusted against bills: <span className="num text-indigo-700">₹ {fmtINR(allocatedTotal)}</span>
+                      </td>
+                      <td colSpan={2} className="px-3 py-2 text-right">
+                        {unallocated > 0.005 ? (
+                          <span className="text-amber-700">On account (unadjusted): ₹ {fmtINR(unallocated)}</span>
+                        ) : unallocated < -0.005 ? (
+                          <span className="text-rose-700">Over-adjusted by ₹ {fmtINR(Math.abs(unallocated))}</span>
+                        ) : (
+                          <span className="text-emerald-700">Fully adjusted ✓</span>
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        )
+      )}
 
       {error && <p className="text-sm text-err">{error}</p>}
       {savedMsg && (
