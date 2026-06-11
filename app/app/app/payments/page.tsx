@@ -159,10 +159,13 @@ function NewPaymentTab(): React.ReactElement {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const initialDirection: Direction = searchParams.get('direction') === 'out' ? 'out' : 'in';
+  // Other pages (e.g. Jobwork → Payment Status) deep-link here with the
+  // party pre-selected so its unpaid bills show up immediately.
+  const initialParty: string = searchParams.get('party') ?? '';
 
   const [direction,    setDirection]   = useState<Direction>(initialDirection);
   const [partyTypeId,  setPartyTypeId] = useState<string>('');
-  const [partyId,      setPartyId]     = useState<string>('');
+  const [partyId,      setPartyId]     = useState<string>(initialParty);
   const [date,         setDate]        = useState<string>(todayISO());
   const [amount,       setAmount]      = useState<string>('');
   // Replaces the old free-text Mode enum. The picked ledger is what
