@@ -17,6 +17,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Eye, PackageCheck } from 'lucide-react';
 import { BackfillSnapshotsButton } from './backfill-button';
 import { EditReceiptButton } from './[id]/edit-button';
+import { DeleteReceiptButton } from './[id]/delete-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
 import { RebuildLedgerButton } from './rebuild-ledger-button';
 
@@ -372,6 +373,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
                           reversed, the form reopens pre-loaded, and the
                           corrected entry keeps the same receipt code. */}
                       <EditReceiptButton receiptId={r.id} receiptCode={r.code} dcId={r.dc?.id ?? null} />
+                      <DeleteReceiptButton receiptId={r.id} receiptCode={r.code} dcCode={r.dc?.code ?? null} />
                     </div>
                   </td>
                 </tr>

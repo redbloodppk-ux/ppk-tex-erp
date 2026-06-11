@@ -50,7 +50,7 @@ async function reverseReceiptStock(sb: any, receiptId: number): Promise<string |
   try {
     const res = await sb
       .from('stock_ledger')
-      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, quantity')
+      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, quantity, jobwork_party_id, notes')
       .eq('source_kind', 'fabric_receipt')
       .eq('source_id', receiptId);
     if (res.error) ledgerRows = [];
@@ -77,16 +77,45 @@ async function reverseReceiptStock(sb: any, receiptId: number): Promise<string |
           await sb.from('jobwork_warp_beam').update({ total_metres: next }).eq('id', beam.id);
         }
       } else if ((row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') && row.yarn_count_id != null) {
-        const { data: bag } = await sb
-          .from('jobwork_weft_bag')
-          .select('id, total_kg')
-          .eq('yarn_count_id', row.yarn_count_id)
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (bag) {
-          const next = Number(bag.total_kg ?? 0) + qty;
-          await sb.from('jobwork_weft_bag').update({ total_kg: next }).eq('id', bag.id);
+        // IN-HOUSE rows (jobwork_party_id NULL, written by the in-house
+        // reducer) came out of yarn_lot.current_kg — put the kgs back
+        // there, preferring the exact lot named in the ledger note.
+        const isInhouse = row.jobwork_party_id == null && /in-house/i.test(String(row.notes ?? ''));
+        if (isInhouse) {
+          const lotIdMatch = /lot #(\d+)/i.exec(String(row.notes ?? ''));
+          const exactLotId = lotIdMatch?.[1] != null ? Number(lotIdMatch[1]) : null;
+          let lot: { id: number; current_kg: number | string | null } | null = null;
+          if (exactLotId != null) {
+            const { data } = await sb.from('yarn_lot').select('id, current_kg').eq('id', exactLotId).maybeSingle();
+            lot = data ?? null;
+          }
+          if (!lot) {
+            const { data } = await sb.from('yarn_lot')
+              .select('id, current_kg')
+              .eq('yarn_count_id', row.yarn_count_id)
+              .eq('delivery_destination', 'in_house')
+              .eq('yarn_kind', row.bucket === 'porvai_yarn' ? 'porvai' : 'yarn')
+              .order('id', { ascending: true })
+              .limit(1)
+              .maybeSingle();
+            lot = data ?? null;
+          }
+          if (lot) {
+            const next = Number(lot.current_kg ?? 0) + qty;
+            await sb.from('yarn_lot').update({ current_kg: next }).eq('id', lot.id);
+          }
+        } else {
+          const { data: bag } = await sb
+            .from('jobwork_weft_bag')
+            .select('id, total_kg')
+            .eq('yarn_count_id', row.yarn_count_id)
+            .order('id', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (bag) {
+            const next = Number(bag.total_kg ?? 0) + qty;
+            await sb.from('jobwork_weft_bag').update({ total_kg: next }).eq('id', bag.id);
+          }
         }
       }
       // bucket === 'bobbin': nothing to restore here. The job-work
@@ -144,6 +173,19 @@ export async function cancelFabricReceipt(receiptId: number): Promise<CancelRece
     .maybeSingle();
   if (hdrErr || !hdr) return { ok: false, error: hdrErr?.message ?? 'Receipt not found.' };
   const dcId: number | null = hdr.dc_id ?? null;
+
+  // Guard: a receipt whose DC is already invoiced cannot be deleted —
+  // the bill references this fabric. Delete the invoice first.
+  if (dcId != null) {
+    const { data: dcRow } = await sb
+      .from('delivery_challan')
+      .select('status, invoice_id')
+      .eq('id', dcId)
+      .maybeSingle();
+    if (dcRow && (dcRow.status === 'invoiced' || dcRow.invoice_id != null)) {
+      return { ok: false, error: 'This receipt\u2019s DC is already invoiced. Delete the invoice first, then delete the receipt.' };
+    }
+  }
 
   const revErr = await reverseReceiptStock(sb, receiptId);
   if (revErr) return { ok: false, error: revErr };
