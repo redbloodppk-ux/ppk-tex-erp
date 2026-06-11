@@ -104,6 +104,10 @@ interface FabricReceiptFormProps {
   /** Edit mode only: the DCs this receipt can be re-pointed to (every
    *  free challan of the same production mode + the current one). */
   dcOptions?: Array<{ id: number; code: string; party_name: string; total_metres: number; dc_date: string }>;
+  /** Set when the currently loaded DC is locked to a DIFFERENT receipt
+   *  (legacy duplicate data). Holds that receipt's code. Saving is
+   *  blocked until the operator picks a free DC from the picker. */
+  dcConflict?: string | null;
 }
 
 function num(v: string): number {
@@ -135,7 +139,7 @@ function resolvedMetres(it: ItemState): number {
   return round2(t > 0 ? m * t : m);
 }
 
-export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceiptFormProps): React.ReactElement {
+export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: FabricReceiptFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
@@ -195,6 +199,10 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceipt
 
   async function handleSave(): Promise<void> {
     setError(null);
+    if (dcConflict) {
+      setError(`${dc.code} is already receipted by ${dcConflict}. Pick a free DC from the Source DC list before saving.`);
+      return;
+    }
     if (totals.metres <= 0) {
       setError('Total received metres must be greater than zero.');
       return;
@@ -415,6 +423,12 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceipt
             Editing receipt <span className="font-mono font-semibold">{reuse.code}</span> — the previous stock reductions were
             restored. Saving will re-apply consumption under the same receipt code.
           </div>
+          {dcConflict && (
+            <div className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1.5">
+              {dc.code} is already receipted by {dcConflict} — one DC can only have one fabric receipt.
+              Pick a free DC below; saving is blocked until you do.
+            </div>
+          )}
           {dcOptions && dcOptions.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <label className="label text-xs text-amber-800 mb-0">Source DC</label>
@@ -429,9 +443,9 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceipt
                 }}
               >
                 {dcOptions.map((o) => (
-                  <option key={o.id} value={String(o.id)}>
+                  <option key={o.id} value={String(o.id)} disabled={dcConflict != null && o.id === dc.id}>
                     {o.code} · {o.party_name || '—'} · {o.total_metres > 0 ? `${o.total_metres} m` : '-'}{o.dc_date ? ` · ${o.dc_date}` : ''}
-                    {reuse.originalDcId === o.id ? ' (current)' : ''}
+                    {dcConflict != null && o.id === dc.id ? ` (held by ${dcConflict})` : reuse.originalDcId === o.id ? ' (current)' : ''}
                   </option>
                 ))}
               </select>
@@ -679,7 +693,8 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceipt
       )}
 
       <div className="flex items-center gap-2">
-        <button type="submit" disabled={busy} className="btn-primary">
+        <button type="submit" disabled={busy || dcConflict != null} className="btn-primary"
+          title={dcConflict != null ? `${dc.code} is held by ${dcConflict} — pick a free DC first.` : undefined}>
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save fabric receipt
         </button>

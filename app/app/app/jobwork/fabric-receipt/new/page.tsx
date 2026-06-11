@@ -84,12 +84,23 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       : null;
 
   // Already received? Redirect back to the outsource DC tab — UNLESS
-  // this is the edit-in-place flow and the DC's lock points at the very
-  // receipt being edited. The DC stays locked to its receipt throughout
-  // the edit (one DC = one fabric receipt, always); only that receipt
-  // may re-enter it.
-  if (dc.fabric_receipt_id !== null && !(reuse && Number(dc.fabric_receipt_id) === reuse.id)) {
+  // this is a valid edit-in-place flow. Editing may legitimately land
+  // on a DC that is locked to a DIFFERENT receipt (legacy duplicates
+  // where two receipts were cut from one challan): in that case we
+  // still render the page so the operator can re-point the receipt to
+  // a free DC via the picker, but saving is blocked while the conflict
+  // stands — the other receipt's lock is never stolen.
+  if (dc.fabric_receipt_id !== null && !reuse) {
     redirect(`/app/outsource?already_received=${dc.code}`);
+  }
+  let dcConflict: string | null = null;
+  if (reuse && dc.fabric_receipt_id !== null && Number(dc.fabric_receipt_id) !== reuse.id) {
+    const { data: holder } = await sb
+      .from('fabric_receipt')
+      .select('code')
+      .eq('id', dc.fabric_receipt_id)
+      .maybeSingle();
+    dcConflict = (holder?.code as string | undefined) ?? `receipt #${dc.fabric_receipt_id}`;
   }
 
   // Edit mode: list the DCs the receipt could be re-pointed to — every
@@ -492,7 +503,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
           React reuses the component instance and the old DC's
           quantities survive in state — the bug where a re-pointed
           receipt consumed the previous DC's metres. */}
-      <FabricReceiptForm key={`dc-${dcInfo.id}`} dc={dcInfo} seeds={seeds} reuse={reuse} dcOptions={dcOptions} />
+      <FabricReceiptForm key={`dc-${dcInfo.id}`} dc={dcInfo} seeds={seeds} reuse={reuse} dcOptions={dcOptions} dcConflict={dcConflict} />
     </div>
   );
 }
