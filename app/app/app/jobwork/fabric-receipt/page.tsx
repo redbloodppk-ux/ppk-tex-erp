@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Eye, PackageCheck } from 'lucide-react';
 import { BackfillSnapshotsButton } from './backfill-button';
+import { EditReceiptButton } from './[id]/edit-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
 import { RebuildLedgerButton } from './rebuild-ledger-button';
 
@@ -363,9 +364,15 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
                     {noSnapshot ? <span className="text-ink-mute">-</span> : bobbinΔ > 0 ? '\u2212 ' + fmtMetres(bobbinΔ) + ' m' : '-'}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">
-                      <Eye className="w-4 h-4" />
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                      {/* Same edit concept as the jobwork receipts: stock is
+                          reversed, the form reopens pre-loaded, and the
+                          corrected entry keeps the same receipt code. */}
+                      <EditReceiptButton receiptId={r.id} receiptCode={r.code} dcId={r.dc?.id ?? null} />
+                    </div>
                   </td>
                 </tr>
               );

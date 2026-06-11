@@ -20,7 +20,7 @@ import { SearchSelect, type SearchSelectOption } from '@/app/components/search-s
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
-type SourceKind = 'sales_order' | 'fabric_stock' | 'yarn_lot' | 'free' | 'return';
+type SourceKind = 'sales_order' | 'fabric_stock' | 'fabric_receipt' | 'yarn_lot' | 'free' | 'return';
 
 interface Customer { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null; is_vip?: boolean | null; ledger_type_name?: string | null }
 interface Vendor   { id: number; name: string; gstin: string | null; ledger_type?: { name: string } | null }
@@ -39,6 +39,32 @@ interface OriginalInvoice { id: number; invoice_no: string; doc_type: string; cu
 interface OriginalLine    { id: number; description: string; hsn_sac: string | null; uom: string;
                             quantity: number; rate: number; gst_rate_pct: number; total_amount: number }
 
+/** In-house fabric receipt offered on a Fabric Sale invoice. One row
+ *  per CONFIRMED, un-invoiced in-house DC that has a fabric receipt.
+ *  Ticking it seeds invoice lines from the receipt items; on save the
+ *  DC is stamped invoice_id + status='invoiced'. */
+interface InhouseReceiptItem {
+  id: number;
+  received_metres: number | string | null;
+  no_of_pieces: number | null;
+  entry_mode: string | null;
+  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null } | null;
+}
+interface InhouseReceiptDc {
+  id: number;
+  code: string;
+  dc_date: string;
+  bill_to_name: string | null;
+  total_metres: number | string | null;
+  total_pieces: number | null;
+  receipt: {
+    id: number;
+    code: string;
+    receipt_date: string;
+    items: InhouseReceiptItem[];
+  } | null;
+}
+
 interface Row {
   id: string;                    // local key only
   description: string;
@@ -53,6 +79,9 @@ interface Row {
   fabric_stock_id: string;
   so_line_id: string;
   original_line_id: string;
+  /** Set when the row was seeded from an in-house fabric receipt — the
+   *  source DC id, so unticking the receipt removes its rows. */
+  dc_id: string;
 }
 
 const DOC_OPTIONS: { key: DocType; label: string; icon: any; tagline: string }[] = [
@@ -71,7 +100,7 @@ const newRow = (): Row => ({
   id: Math.random().toString(36).slice(2),
   description: '', hsn_sac: '', uom: 'mtr',
   quantity: '', rate: '', discount_pct: '0', gst_rate_pct: GST_DEFAULT,
-  yarn_lot_id: '', fabric_stock_id: '', so_line_id: '', original_line_id: '',
+  yarn_lot_id: '', fabric_stock_id: '', so_line_id: '', original_line_id: '', dc_id: '',
 });
 
 export default function NewInvoicePage() {
@@ -97,6 +126,9 @@ export default function NewInvoicePage() {
   const [pickedSoId,  setPickedSoId]  = useState('');
   const [fabricStock, setFabricStock] = useState<FabricStock[]>([]);
   const [yarnLots,    setYarnLots]    = useState<YarnLot[]>([]);
+  // Un-invoiced in-house fabric receipts (via their confirmed DCs).
+  const [inhouseDcs,  setInhouseDcs]  = useState<InhouseReceiptDc[]>([]);
+  const [pickedDcIds, setPickedDcIds] = useState<Set<number>>(new Set());
 
   // ── credit_note: original invoice picker ───────────────────────────────────
   const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
@@ -145,7 +177,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -187,6 +219,27 @@ export default function NewInvoicePage() {
         `).gt('current_kg', 0).order('received_date', { ascending: false }).limit(100),
         supabase.from('invoice').select('id, invoice_no, doc_type, customer_id, total, party_state, is_interstate')
           .in('doc_type', ['tax_invoice','yarn_sale','general_sale']).order('invoice_date', { ascending: false }).limit(100),
+        // Un-invoiced in-house fabric receipts. Pipeline: DC goes
+        // draft → confirmed when its fabric receipt is saved →
+        // invoiced when picked onto a Fabric Sale invoice here.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('delivery_challan')
+          .select(`
+            id, code, dc_date, bill_to_name, total_metres, total_pieces,
+            receipt:fabric_receipt_id (
+              id, code, receipt_date,
+              items:fabric_receipt_item (
+                id, received_metres, no_of_pieces, entry_mode,
+                quality:fabric_quality_id ( code, name, rate_per_m, gst_pct )
+              )
+            )
+          `)
+          .eq('production_mode', 'inhouse')
+          .eq('status', 'confirmed')
+          .is('invoice_id', null)
+          .not('fabric_receipt_id', 'is', null)
+          .order('dc_date', { ascending: true })
+          .order('id', { ascending: true }),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -208,6 +261,7 @@ export default function NewInvoicePage() {
       setFabricStock((fs.data ?? []) as any);
       setYarnLots((yl.data ?? []) as any);
       setOriginalInvoices((oi.data ?? []) as any);
+      setInhouseDcs(((ihr as any).data ?? []) as InhouseReceiptDc[]);
       setLoading(false);
     })();
   }, [supabase]);
@@ -223,8 +277,60 @@ export default function NewInvoicePage() {
     setPickedSoId(''); setSoLines([]);
     setOriginalInvoiceId(''); setOriginalLines([]);
     setVendorId(''); setCustomerId('');
+    setPickedDcIds(new Set());
     setError(null);
   }, [docType]);
+
+  /** Tick / untick an in-house fabric receipt. Ticking appends one
+   *  invoice line per receipt item (quality, metres or pieces, rate +
+   *  GST defaults from the fabric master). Unticking removes the rows
+   *  that came from that DC. */
+  function toggleReceiptDc(dc: InhouseReceiptDc): void {
+    const next = new Set(pickedDcIds);
+    if (next.has(dc.id)) {
+      next.delete(dc.id);
+      setPickedDcIds(next);
+      setRows((prev) => {
+        const kept = prev.filter((r) => r.dc_id !== String(dc.id));
+        return kept.length > 0 ? kept : [newRow()];
+      });
+      return;
+    }
+    next.add(dc.id);
+    setPickedDcIds(next);
+
+    const items = dc.receipt?.items ?? [];
+    const seeded: Row[] = items.length > 0
+      ? items.map((it) => {
+          const pcsMode = (it.entry_mode ?? '') === 'pcs' && (it.no_of_pieces ?? 0) > 0;
+          const qty = pcsMode ? Number(it.no_of_pieces ?? 0) : Number(it.received_metres ?? 0);
+          return {
+            ...newRow(),
+            description: `${it.quality?.name ?? 'Fabric'} (${dc.receipt?.code ?? dc.code})`,
+            hsn_sac: FABRIC_HSN,
+            uom: pcsMode ? 'pcs' : 'mtr',
+            quantity: qty > 0 ? String(qty) : '',
+            rate: it.quality?.rate_per_m != null ? String(it.quality.rate_per_m) : '',
+            gst_rate_pct: it.quality?.gst_pct != null ? String(it.quality.gst_pct) : GST_DEFAULT,
+            dc_id: String(dc.id),
+          };
+        })
+      : [{
+          ...newRow(),
+          description: `Fabric (${dc.receipt?.code ?? dc.code})`,
+          hsn_sac: FABRIC_HSN,
+          quantity: dc.total_metres != null ? String(dc.total_metres) : '',
+          dc_id: String(dc.id),
+        }];
+
+    setRows((prev) => {
+      // Drop the single blank starter row when the first receipt lands.
+      const isBlank = (r: Row): boolean =>
+        r.description.trim() === '' && r.quantity.trim() === '' && r.rate.trim() === '' && r.dc_id === '';
+      const kept = prev.filter((r) => !isBlank(r));
+      return [...kept, ...seeded];
+    });
+  }
 
   // ── when an SO is picked, load its lines ──────────────────────────────────
   useEffect(() => {
@@ -396,6 +502,9 @@ export default function NewInvoicePage() {
     if (docType === 'credit_note' && !originalInvoiceId) {
       return setError('Pick the original invoice this return is against.');
     }
+    if (docType === 'tax_invoice' && sourceKind === 'fabric_receipt' && pickedDcIds.size === 0) {
+      return setError('Tick at least one in-house fabric receipt to invoice.');
+    }
 
     // Validate rows
     if (!computedRows.length) return setError('At least one line item is required.');
@@ -492,6 +601,22 @@ export default function NewInvoicePage() {
     if (lineErr) {
       setBusy(false);
       return setError(`Invoice ${inv.invoice_no} created but lines failed: ${lineErr.message}`);
+    }
+
+    // Fabric Sale from in-house receipts: advance each picked DC's
+    // workflow status — confirmed (set when the receipt was saved) →
+    // invoiced — and lock it to this invoice so it never shows up in
+    // the un-invoiced receipt picker again.
+    if (docType === 'tax_invoice' && sourceKind === 'fabric_receipt' && pickedDcIds.size > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: dcErr } = await (supabase as any)
+        .from('delivery_challan')
+        .update({ invoice_id: inv.id, status: 'invoiced' })
+        .in('id', Array.from(pickedDcIds));
+      if (dcErr) {
+        setBusy(false);
+        return setError(`Invoice ${inv.invoice_no} created but marking the DCs invoiced failed: ${dcErr.message}`);
+      }
     }
 
     // Stock deduction for yarn_sale: subtract from yarn_lot.current_kg
@@ -677,9 +802,13 @@ export default function NewInvoicePage() {
                     className={`btn-sm ${sourceKind === 'sales_order' ? 'btn-primary' : 'btn-ghost'}`}>
                     From Sales Order
                   </button>
-                  <button type="button" onClick={() => { setSourceKind('fabric_stock'); setRows([newRow()]); setPickedSoId(''); }}
+                  <button type="button" onClick={() => { setSourceKind('fabric_stock'); setRows([newRow()]); setPickedSoId(''); setPickedDcIds(new Set()); }}
                     className={`btn-sm ${sourceKind === 'fabric_stock' ? 'btn-primary' : 'btn-ghost'}`}>
                     Direct from Stock
+                  </button>
+                  <button type="button" onClick={() => { setSourceKind('fabric_receipt'); setRows([newRow()]); setPickedSoId(''); setPickedDcIds(new Set()); }}
+                    className={`btn-sm ${sourceKind === 'fabric_receipt' ? 'btn-primary' : 'btn-ghost'}`}>
+                    From Fabric Receipts (in-house)
                   </button>
                 </div>
                 {sourceKind === 'sales_order' && (
@@ -697,6 +826,49 @@ export default function NewInvoicePage() {
                       Selecting an SO will copy its delivered line items into the rows below.
                     </p>
                   </>
+                )}
+                {sourceKind === 'fabric_receipt' && (
+                  inhouseDcs.length === 0 ? (
+                    <p className="text-sm text-ink-soft">
+                      No un-invoiced in-house fabric receipts. A receipt appears here once its DC is
+                      confirmed (which happens automatically when the fabric receipt is saved).
+                    </p>
+                  ) : (
+                    <div className="border border-line/40 rounded-md overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
+                          <tr>
+                            <th className="px-2 py-2" />
+                            <th className="text-left  px-2 py-2">Receipt</th>
+                            <th className="text-left  px-2 py-2">DC</th>
+                            <th className="text-left  px-2 py-2">Date</th>
+                            <th className="text-right px-2 py-2">Metres</th>
+                            <th className="text-right px-2 py-2">Pcs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inhouseDcs.map((d) => (
+                            <tr key={d.id}
+                              className={`border-t border-line/40 cursor-pointer ${pickedDcIds.has(d.id) ? 'bg-indigo-50/50' : 'hover:bg-haze/60'}`}
+                              onClick={() => toggleReceiptDc(d)}>
+                              <td className="px-2 py-1.5">
+                                <input type="checkbox" readOnly checked={pickedDcIds.has(d.id)} className="w-4 h-4 accent-indigo-600" />
+                              </td>
+                              <td className="px-2 py-1.5 font-mono">{d.receipt?.code ?? '—'}</td>
+                              <td className="px-2 py-1.5 font-mono">{d.code}</td>
+                              <td className="px-2 py-1.5 text-ink-soft">{d.receipt?.receipt_date ?? d.dc_date}</td>
+                              <td className="px-2 py-1.5 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                              <td className="px-2 py-1.5 text-right num">{d.total_pieces ?? 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="text-[10px] text-ink-mute px-2 py-1.5 border-t border-line/40">
+                        Tick a receipt to copy its items into the lines below. On save, the picked DCs are
+                        marked <span className="font-semibold">invoiced</span> and stop appearing here.
+                      </p>
+                    </div>
+                  )
                 )}
               </div>
             )}
