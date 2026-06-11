@@ -83,6 +83,10 @@ interface AddItem {
   metre_per_pc: string;
   price_per_pc: string;
   gst_pct: string;
+  /** Set when the form is editing an existing invoice — the
+   *  bobbin_purchase row this line came from. Lines without a row_id
+   *  are new lines added during the edit and get INSERTed. */
+  row_id?: number;
 }
 
 /** Inline-edit state for an existing bobbin_purchase row. The bobbin
@@ -129,6 +133,17 @@ function makeEmptyItem(): AddItem {
   return { bobbin_id: '', qty_pcs: '', metre_per_pc: '', price_per_pc: '', gst_pct: '18' };
 }
 
+/** GST is stored as a " · GST X%" suffix on the purchase notes (there is
+ *  no gst column on bobbin_purchase). These helpers pull it back out so
+ *  an invoice edit re-hydrates the form exactly as it was entered. */
+function parseGstFromNotes(notes: string | null): string {
+  const m = /·\s*GST\s*([\d.]+)%/.exec(notes ?? '');
+  return m?.[1] ?? '0';
+}
+function stripGstSuffix(notes: string | null): string {
+  return (notes ?? '').replace(/\s*·\s*GST\s*[\d.]+%/, '').trim();
+}
+
 function fmtMoney(v: unknown): string {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n)) return '0';
@@ -152,6 +167,10 @@ export default function BobbinPurchasePage() {
 
   const [open, setOpen] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
+  /** When non-null the big form is editing an existing invoice: these are
+   *  the bobbin_purchase ids that were loaded in. On save, loaded lines
+   *  get UPDATEd, new lines INSERTed, removed lines DELETEd. */
+  const [editInvoiceIds, setEditInvoiceIds] = useState<number[] | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [modePick, setModePick] = useState<ProductionMode>('inhouse');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -274,6 +293,46 @@ export default function BobbinPurchasePage() {
       notes: '',
       items: [makeEmptyItem()],
     });
+    setEditInvoiceIds(null);
+  }
+
+  /** Click on an invoice number in the log → reopen the big purchase
+   *  form pre-filled with EVERY line that shares that invoice (same
+   *  invoice no + supplier), so the whole purchase can be edited at
+   *  once: header fields, every line, lines added or removed. */
+  function openInvoiceEdit(p: PurchaseRow): void {
+    const grouped = p.invoice_no == null || p.invoice_no === ''
+      ? [p]
+      : purchases.filter(
+          (x) => x.invoice_no === p.invoice_no && x.vendor_id === p.vendor_id,
+        );
+    const group = grouped.length > 0 ? grouped : [p];
+    const first = group[0] as PurchaseRow;
+    setForm({
+      purchase_date: first.purchase_date ?? todayISO(),
+      invoice_no: first.invoice_no ?? '',
+      supplier_party_id: first.vendor_id == null ? '' : String(first.vendor_id),
+      notes: stripGstSuffix(first.notes),
+      items: group.map((x) => ({
+        row_id: x.id,
+        bobbin_id: String(x.bobbin_id),
+        qty_pcs: x.pieces_purchased == null ? '' : String(x.pieces_purchased),
+        metre_per_pc: x.bobbin_metre == null ? '' : String(x.bobbin_metre),
+        price_per_pc: x.bobbin_price == null ? '' : String(x.bobbin_price),
+        gst_pct: parseGstFromNotes(x.notes),
+      })),
+    });
+    setEditInvoiceIds(group.map((x) => x.id));
+    // Point the mode pill at the bobbins actually on this invoice so the
+    // line dropdowns list them.
+    const mode = first.bobbin?.production_mode;
+    if (mode !== undefined) setModePick(mode);
+    cancelEdit();
+    setReturnOpenId(null);
+    setError(null);
+    setSavedMsg(null);
+    setOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function addItemRow(): void {
@@ -321,7 +380,7 @@ export default function BobbinPurchasePage() {
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const payloads = validItems.map((it) => {
+    const toPayload = (it: AddItem) => {
       const qtyPcs = Number(it.qty_pcs);
       const metre = it.metre_per_pc === '' ? null : Number(it.metre_per_pc);
       const price = it.price_per_pc === '' ? 0 : Number(it.price_per_pc);
@@ -341,11 +400,37 @@ export default function BobbinPurchasePage() {
         bobbin_price: price,
         notes: (form.notes.trim() || '') + noteSuffix || null,
       };
-    });
-    const { error: err } = await sb.from('bobbin_purchase').insert(payloads);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
-    setSavedMsg(`Saved ${payloads.length} purchase line${payloads.length === 1 ? '' : 's'}.`);
+    };
+
+    if (editInvoiceIds === null) {
+      // New purchase — plain multi-line insert.
+      const payloads = validItems.map(toPayload);
+      const { error: err } = await sb.from('bobbin_purchase').insert(payloads);
+      setBusy(false);
+      if (err) { setError(err.message); return; }
+      setSavedMsg(`Saved ${payloads.length} purchase line${payloads.length === 1 ? '' : 's'}.`);
+    } else {
+      // Invoice edit — update the lines that were loaded in, insert any
+      // newly added lines, delete lines the operator removed.
+      const keptIds = new Set(
+        validItems.map((it) => it.row_id).filter((id): id is number => id !== undefined),
+      );
+      const removedIds = editInvoiceIds.filter((id) => !keptIds.has(id));
+
+      for (const it of validItems) {
+        const payload = toPayload(it);
+        const { error: err } = it.row_id === undefined
+          ? await sb.from('bobbin_purchase').insert(payload)
+          : await sb.from('bobbin_purchase').update(payload).eq('id', it.row_id);
+        if (err) { setBusy(false); setError(err.message); return; }
+      }
+      if (removedIds.length > 0) {
+        const { error: err } = await sb.from('bobbin_purchase').delete().in('id', removedIds);
+        if (err) { setBusy(false); setError(err.message); return; }
+      }
+      setBusy(false);
+      setSavedMsg(`Invoice updated (${validItems.length} line${validItems.length === 1 ? '' : 's'}${removedIds.length > 0 ? `, ${removedIds.length} removed` : ''}).`);
+    }
     reset();
     setOpen(false);
     await load();
@@ -506,7 +591,11 @@ export default function BobbinPurchasePage() {
       {open && (
         <div className="card p-3 mb-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-display font-bold text-base">New bobbin purchase</h2>
+            <h2 className="font-display font-bold text-base">
+              {editInvoiceIds === null
+                ? 'New bobbin purchase'
+                : `Edit purchase — invoice ${form.invoice_no || '(no invoice no)'}`}
+            </h2>
             <div className="flex items-center gap-1">
               {(['inhouse', 'jobwork', 'outsource'] as const).map((m) => (
                 <button
@@ -618,6 +707,13 @@ export default function BobbinPurchasePage() {
                           onChange={(e) => pickBobbinForItem(idx, e.target.value)}
                         >
                           <option value="">--- pick ---</option>
+                          {/* Keep a loaded line's bobbin visible even when the
+                              mode pill filters it out (mixed-mode invoices). */}
+                          {bm !== null && !visibleBobbins.some((b) => b.id === bm.id) && (
+                            <option value={bm.id}>
+                              {bm.code} ({bm.ends_per_bobbin} ends{bm.is_lurex ? ' · lurex' : ''})
+                            </option>
+                          )}
                           {visibleBobbins.map((b) => (
                             <option key={b.id} value={b.id}>
                               {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
@@ -746,7 +842,7 @@ export default function BobbinPurchasePage() {
               className="btn-primary text-xs flex items-center gap-1"
             >
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              Save all
+              {editInvoiceIds === null ? 'Save all' : 'Save changes'}
             </button>
           </div>
         </div>
@@ -900,7 +996,21 @@ export default function BobbinPurchasePage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs">{sup?.name ?? '—'}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{p.invoice_no ?? '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {p.invoice_no == null || p.invoice_no === '' ? (
+                        '—'
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openInvoiceEdit(p)}
+                          disabled={editingId !== null}
+                          title="Edit all lines of this invoice"
+                          className="text-indigo-700 hover:underline disabled:opacity-50 disabled:no-underline"
+                        >
+                          {p.invoice_no}
+                        </button>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right num">{fmtNumber(p.pieces_purchased, 2)}</td>
                     <td className="px-3 py-2 text-right num text-xs text-ink-soft">{fmtNumber(p.bobbin_metre, 0)}</td>
                     <td className="px-3 py-2 text-right num text-xs font-semibold text-indigo-700">
