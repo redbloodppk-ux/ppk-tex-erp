@@ -432,6 +432,7 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
       receipt_code: receiptCode || null,
       receipt_date: receiptDate,
       jobwork_party_id: jwPartyId,
+      production_mode: dc.production_mode,
     });
 
     // Capture "after" snapshot + persist the transaction record on the

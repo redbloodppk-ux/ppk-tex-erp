@@ -463,6 +463,122 @@ async function reduceBobbin(
   };
 }
 
+/** IN-HOUSE: reduce yarn_lot.current_kg FIFO for the given counts.
+ *  In-house weft / porvai never lived in jobwork_weft_bag — the stock
+ *  is the yarn lots delivered to the in-house warehouse. */
+async function reduceInhouseYarnLots(
+  sb: Sb,
+  yarn_count_ids: number[],
+  kg: number,
+  kind: 'yarn' | 'porvai',
+): Promise<{ applied: number; perLot: Array<{ lot_id: number; cut: number; count_id: number | null }> }> {
+  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, perLot: [] };
+  const { data: lots } = await sb
+    .from('yarn_lot')
+    .select('id, current_kg, yarn_count_id')
+    .in('yarn_count_id', yarn_count_ids)
+    .eq('yarn_kind', kind)
+    .eq('delivery_destination', 'in_house')
+    .gt('current_kg', 0)
+    .order('received_date', { ascending: true })
+    .order('id', { ascending: true });
+  let remaining = kg;
+  let applied = 0;
+  const perLot: Array<{ lot_id: number; cut: number; count_id: number | null }> = [];
+  for (const l of ((lots ?? []) as Array<{ id: number; current_kg: number | string; yarn_count_id: number | null }>)) {
+    if (remaining <= 0) break;
+    const avail = Number(l.current_kg);
+    const cut = Math.min(avail, remaining);
+    const next = Math.max(0, avail - cut);
+    const { error } = await sb.from('yarn_lot').update({ current_kg: next }).eq('id', l.id);
+    if (error) break;
+    applied += cut;
+    remaining -= cut;
+    perLot.push({ lot_id: l.id, cut, count_id: l.yarn_count_id });
+  }
+  return { applied: Math.round(applied * 1000) / 1000, perLot };
+}
+
+/** IN-HOUSE: consume `metres` from EACH bobbin assigned to the quality
+ *  (1 m of bobbin yarn per fabric metre, per matched bobbin — so 2
+ *  bobbins on a 1,000 m receipt cut 2 × 1,000 m). The in-house pool per
+ *  bobbin = opening_stock + purchases (pcs × m/pc) − returns − prior
+ *  in-house ledger outflows. Consumption is recorded as a stock_ledger
+ *  outflow per bobbin (jobwork_party_id NULL); bobbin.quantity is
+ *  untouched (godown master). */
+async function reduceInhouseBobbin(
+  sb: Sb,
+  fabric_quality_id: number,
+  metres: number,
+): Promise<{ applied_m: number; perBobbin: Array<{ bobbin_id: number; cut_m: number }> }> {
+  if (metres <= 0) return { applied_m: 0, perBobbin: [] };
+
+  // Slot ids from the quality's calc_snapshot (bobbinIds[] / bobbinId).
+  const { data: fqRow } = await sb
+    .from('fabric_quality')
+    .select('calc_snapshot')
+    .eq('id', fabric_quality_id)
+    .maybeSingle();
+  const snap = (fqRow?.calc_snapshot ?? {}) as Record<string, unknown>;
+  const rawIds: unknown[] = Array.isArray(snap.bobbinIds) && (snap.bobbinIds as unknown[]).length > 0
+    ? (snap.bobbinIds as unknown[])
+    : [snap.bobbinId];
+  const slotIds = rawIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  if (slotIds.length === 0) return { applied_m: 0, perBobbin: [] };
+
+  const uniqueIds = Array.from(new Set(slotIds));
+  const [perRes, openRes, purRes, retRes, outRes] = await Promise.all([
+    sb.from('bobbin').select('id, bobbin_metre').in('id', uniqueIds),
+    sb.from('opening_stock').select('bobbin_id, quantity')
+      .eq('bucket', 'bobbin').eq('mode', 'inhouse').eq('status', 'active')
+      .in('bobbin_id', uniqueIds),
+    sb.from('bobbin_purchase').select('bobbin_id, pieces_purchased').in('bobbin_id', uniqueIds),
+    sb.from('bobbin_return').select('bobbin_id, quantity_pcs')
+      .is('jobwork_party_id', null).eq('status', 'active')
+      .in('bobbin_id', uniqueIds),
+    sb.from('stock_ledger').select('bobbin_id, quantity')
+      .eq('bucket', 'bobbin').eq('direction', 'out')
+      .is('jobwork_party_id', null)
+      .in('bobbin_id', uniqueIds),
+  ]);
+
+  const perById = new Map<number, number>();
+  for (const r of ((perRes.data ?? []) as Array<{ id: number; bobbin_metre: number | string | null }>)) {
+    perById.set(r.id, Number(r.bobbin_metre ?? 0));
+  }
+  const availById = new Map<number, number>();
+  const add = (id: number | null, m: number): void => {
+    if (id == null) return;
+    availById.set(id, (availById.get(id) ?? 0) + m);
+  };
+  for (const r of ((openRes.data ?? []) as Array<{ bobbin_id: number | null; quantity: number | string | null }>)) {
+    add(r.bobbin_id, Number(r.quantity ?? 0)); // opening stock is stored in metres
+  }
+  for (const r of ((purRes.data ?? []) as Array<{ bobbin_id: number | null; pieces_purchased: number | string | null }>)) {
+    const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
+    add(r.bobbin_id, Number(r.pieces_purchased ?? 0) * per);
+  }
+  for (const r of ((retRes.data ?? []) as Array<{ bobbin_id: number | null; quantity_pcs: number | string | null }>)) {
+    const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
+    add(r.bobbin_id, -Number(r.quantity_pcs ?? 0) * per);
+  }
+  for (const r of ((outRes.data ?? []) as Array<{ bobbin_id: number | null; quantity: number | string | null }>)) {
+    add(r.bobbin_id, -Number(r.quantity ?? 0));
+  }
+
+  let applied_m = 0;
+  const perBobbin: Array<{ bobbin_id: number; cut_m: number }> = [];
+  for (const id of slotIds) {
+    const avail = Math.max(0, availById.get(id) ?? 0);
+    const cut = Math.min(metres, avail);
+    if (cut <= 0) continue;
+    applied_m += cut;
+    perBobbin.push({ bobbin_id: id, cut_m: Math.round(cut * 100) / 100 });
+    availById.set(id, avail - cut); // same bobbin in two slots can't overdraw
+  }
+  return { applied_m: Math.round(applied_m * 100) / 100, perBobbin };
+}
+
 /* ───────────────────── orchestrator ───────────────────── */
 
 /** Optional receipt context used to tag every ledger entry we write. */
@@ -477,6 +593,12 @@ export interface ReceiptContext {
    *  bobbin master is no longer per-party. Without this fallback the
    *  Warehouse → Job Work → Bobbin pivot can't find the outflow. */
   jobwork_party_id?: number | null;
+  /** DC production mode. 'inhouse' switches every reducer to the
+   *  IN-HOUSE stock sources: warp is derived (receipt items are the
+   *  outflow record, nothing to reduce), weft/porvai reduce
+   *  yarn_lot.current_kg FIFO, bobbin consumes the in-house pool and
+   *  writes party-less ledger outflows. */
+  production_mode?: 'inhouse' | 'jobwork' | 'outsource';
 }
 
 export async function applyFabricReceiptStockReductions(
@@ -516,12 +638,20 @@ export async function applyFabricReceiptStockReductions(
   // doesn't carry one. The Warehouse pivot uses this column to find
   // outflows per jobwork party.
   const ctxJwPartyId: number | null = ctx?.jobwork_party_id ?? null;
+  const inhouse = ctx?.production_mode === 'inhouse';
 
   for (const it of items) {
     if (it.fabric_quality_id == null) continue;
 
     // PAVU
     if (it.received_metres > 0) {
+      if (inhouse) {
+        // In-house warp stock is DERIVED: the fabric_receipt_item rows
+        // themselves are the outflow record the Warehouse → In-house →
+        // Warp Metre pivot reads. There is no row to decrement, so the
+        // full amount counts as applied and no shortfall fires.
+        result.applied.pavu_m += it.received_metres;
+      } else {
       const r = await reducePavu(sb, it.fabric_quality_id, it.received_metres);
       result.applied.pavu_m += r.applied;
       for (const b of r.perBeam) {
@@ -542,15 +672,41 @@ export async function applyFabricReceiptStockReductions(
           note: 'Available warp-beam metres less than received - check Jobwork \u2192 Warp beam given for this fabric quality.',
         });
       }
+      }
     }
 
     // Resolve all three yarn-count sets once per item. Each set is
     // already pooled across merged-delivery siblings inside the helper.
     const { weftCountIds, porvaiCountIds } = await getQualityYarnCounts(sb, it.fabric_quality_id);
 
-    // WEFT YARN - reduces jobwork_weft_bag.total_kg FIFO across every
-    // yarn count in the pool.
+    // WEFT YARN - in-house reduces yarn_lot.current_kg FIFO; jobwork
+    // reduces jobwork_weft_bag.total_kg FIFO across every count in the
+    // pool.
     if (it.weft_consumed_kg && it.weft_consumed_kg > 0) {
+      if (inhouse) {
+        const r = await reduceInhouseYarnLots(sb, weftCountIds, it.weft_consumed_kg, 'yarn');
+        result.applied.weft_kg += r.applied;
+        for (const l of r.perLot) {
+          if (l.cut <= 0) continue;
+          ledgerRows.push({
+            bucket: 'weft_yarn', direction: 'out',
+            jobwork_party_id: null, fabric_quality_id: it.fabric_quality_id,
+            yarn_count_id: l.count_id, bobbin_id: null,
+            quantity: Math.round(l.cut * 1000) / 1000, unit: 'kg',
+            event_date, source_kind: 'fabric_receipt', source_id, reference_no,
+            notes: `From yarn lot #${l.lot_id} (in-house)`,
+          });
+        }
+        if (r.applied + 0.005 < it.weft_consumed_kg) {
+          result.shortfalls.push({
+            bucket: 'weft_yarn', fabric_quality_id: it.fabric_quality_id,
+            needed: it.weft_consumed_kg, applied: r.applied, unit: 'kg',
+            note: weftCountIds.length === 0
+              ? 'No weft yarn count linked to this fabric quality.'
+              : 'Available in-house yarn lot kgs less than consumed - check Yarn Stock for this count.',
+          });
+        }
+      } else {
       const r = await reduceWeftBag(sb, weftCountIds, it.weft_consumed_kg);
       result.applied.weft_kg += r.applied;
       for (const b of r.perBag) {
@@ -573,11 +729,36 @@ export async function applyFabricReceiptStockReductions(
             : 'Available weft kgs in Jobwork \u2192 Weft bag given less than consumed - check stock for this count (pool includes merged siblings).',
         });
       }
+      }
     }
 
-    // PORVAI YARN - same table as weft, FIFO across the pooled porvai
-    // counts.
+    // PORVAI YARN - in-house reduces porvai yarn lots FIFO; jobwork uses
+    // the same weft-bag table, FIFO across the pooled porvai counts.
     if (it.porvai_consumed_kg && it.porvai_consumed_kg > 0) {
+      if (inhouse) {
+        const r = await reduceInhouseYarnLots(sb, porvaiCountIds, it.porvai_consumed_kg, 'porvai');
+        result.applied.porvai_kg += r.applied;
+        for (const l of r.perLot) {
+          if (l.cut <= 0) continue;
+          ledgerRows.push({
+            bucket: 'porvai_yarn', direction: 'out',
+            jobwork_party_id: null, fabric_quality_id: it.fabric_quality_id,
+            yarn_count_id: l.count_id, bobbin_id: null,
+            quantity: Math.round(l.cut * 1000) / 1000, unit: 'kg',
+            event_date, source_kind: 'fabric_receipt', source_id, reference_no,
+            notes: `From porvai lot #${l.lot_id} (in-house)`,
+          });
+        }
+        if (r.applied + 0.005 < it.porvai_consumed_kg) {
+          result.shortfalls.push({
+            bucket: 'porvai_yarn', fabric_quality_id: it.fabric_quality_id,
+            needed: it.porvai_consumed_kg, applied: r.applied, unit: 'kg',
+            note: porvaiCountIds.length === 0
+              ? 'No porvai yarn count assigned on the fabric quality master.'
+              : 'Available in-house porvai lot kgs less than consumed - check Porvai Yarn Stock for this count.',
+          });
+        }
+      } else {
       const r = await reduceWeftBag(sb, porvaiCountIds, it.porvai_consumed_kg);
       result.applied.porvai_kg += r.applied;
       for (const b of r.perBag) {
@@ -600,11 +781,34 @@ export async function applyFabricReceiptStockReductions(
             : 'Available porvai kgs in Jobwork \u2192 Weft bag given less than consumed for this count (pool includes merged siblings).',
         });
       }
+      }
     }
 
-    // BOBBIN - spec match (ends_per_bobbin + bobbin_metre), FIFO by
-    // purchase_date across jobwork bobbins.
-    if (it.has_bobbin && it.received_metres > 0) {
+    // BOBBIN — in-house consumes the in-house pool 1:1 per matched
+    // bobbin; jobwork spec-matches FIFO across jobwork bobbins.
+    if (it.has_bobbin && it.received_metres > 0 && inhouse) {
+      const r = await reduceInhouseBobbin(sb, it.fabric_quality_id, it.received_metres);
+      for (const b of r.perBobbin) {
+        if (b.cut_m <= 0) continue;
+        ledgerRows.push({
+          bucket: 'bobbin', direction: 'out',
+          jobwork_party_id: null, fabric_quality_id: it.fabric_quality_id,
+          yarn_count_id: null, bobbin_id: b.bobbin_id,
+          quantity: b.cut_m, unit: 'm',
+          event_date, source_kind: 'fabric_receipt', source_id, reference_no,
+          notes: 'In-house bobbin consumption (1 m per fabric metre)',
+        });
+      }
+      const neededBobbinM = it.received_metres * Math.max(1, Number(it.bobbin_factor ?? 1));
+      result.applied.bobbin_pcs += r.applied_m;
+      if (r.applied_m + 0.005 < neededBobbinM) {
+        result.shortfalls.push({
+          bucket: 'bobbin', fabric_quality_id: it.fabric_quality_id,
+          needed: neededBobbinM, applied: r.applied_m, unit: 'm',
+          note: 'Available in-house bobbin metres less than needed - check Bobbin Stock (opening + purchases) and the bobbins picked on the Fabric Quality master.',
+        });
+      }
+    } else if (it.has_bobbin && it.received_metres > 0) {
       const r = await reduceBobbin(sb, it.fabric_quality_id, it.received_metres, ctxJwPartyId);
       result.applied.bobbin_pcs += r.applied_pcs;
       for (const b of r.perBobbin) {
