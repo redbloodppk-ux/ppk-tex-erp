@@ -290,7 +290,7 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
         jwPartyId = jwLookup.data.id as number;
       }
     }
-    const stockBefore = await measureStock(sb, qualityIdsOnReceipt, jwPartyId);
+    const stockBefore = await measureStock(sb, qualityIdsOnReceipt, jwPartyId, dc.production_mode);
 
     const headerPayload = {
       receipt_date: receiptDate,
@@ -439,7 +439,7 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
     // receipt itself. Best-effort: if the column doesn't exist yet
     // (migration 091 not applied) we just skip the update.
     try {
-      const stockAfter = await measureStock(sb, qualityIdsOnReceipt, jwPartyId);
+      const stockAfter = await measureStock(sb, qualityIdsOnReceipt, jwPartyId, dc.production_mode);
       const snapshot = buildSnapshot(stockBefore, stockAfter);
       await sb
         .from('fabric_receipt')

@@ -119,6 +119,159 @@ async function resolveKeysForQualities(
   return { pooledQIds, weftCountIds: weftSet, porvaiCountIds: porvaiSet, bobbinSpecs };
 }
 
+/** Measure the current IN-HOUSE stock balance across all four buckets
+ *  for the union of the provided fabric qualities (pooled with merged-
+ *  delivery siblings). Mirrors the Warehouse → In-house pivots:
+ *    warp   = opening stock + warp beam purchases + in-stock pavu
+ *             − previous in-house receipt items
+ *    weft   = opening stock + in-house yarn_lot.current_kg (kind=yarn)
+ *    porvai = opening stock + in-house yarn_lot.current_kg (kind=porvai)
+ *    bobbin = opening stock + purchases − returns − in-house ledger outs */
+async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<BucketSnapshot> {
+  const result: BucketSnapshot = { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_pcs: 0, bobbin_m: 0 };
+  const pooledQIds = await pooledQualityIds(sb, fabricQualityIds);
+  if (pooledQIds.length === 0) return result;
+
+  // Warp specs (totalEnds + warpCountId) and bobbin ids from snapshots;
+  // weft / porvai counts via the shared resolver.
+  const { weftCountIds, porvaiCountIds } = await resolveKeysForQualities(sb, fabricQualityIds);
+  const { data: fqRows } = await sb
+    .from('fabric_quality')
+    .select('id, calc_snapshot')
+    .in('id', pooledQIds);
+  const specKeys = new Set<string>();
+  const specEnds = new Set<number>();
+  const bobbinIds = new Set<number>();
+  for (const r of ((fqRows ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
+    const snap = r.calc_snapshot ?? {};
+    const ends = Number(snap['totalEnds']);
+    const countId = Number(snap['warpCountId']);
+    if (Number.isFinite(ends) && ends > 0) {
+      specKeys.add(`${ends}|${Number.isFinite(countId) && countId > 0 ? countId : ''}`);
+      specEnds.add(ends);
+    }
+    const rawIds: unknown[] = Array.isArray(snap['bobbinIds']) && (snap['bobbinIds'] as unknown[]).length > 0
+      ? (snap['bobbinIds'] as unknown[])
+      : [snap['bobbinId']];
+    for (const v of rawIds) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) bobbinIds.add(n);
+    }
+  }
+
+  // ── Warp metres ───────────────────────────────────────────────
+  if (specKeys.size > 0) {
+    const [openRes, purRes, pavuRes, outRes] = await Promise.all([
+      sb.from('opening_stock')
+        .select('warp_ends, yarn_count_id, quantity')
+        .eq('bucket', 'warp_beam').eq('mode', 'inhouse').eq('status', 'active'),
+      sb.from('inhouse_warp_beam_purchase')
+        .select('metres, yarn_count_id, ends:ends_id ( ends_count )')
+        .eq('status', 'active'),
+      sb.from('pavu')
+        .select('meters, ends, sizing_job:sizing_job_id ( warp_count_id )')
+        .eq('production_mode', 'in_house')
+        .eq('status', 'in_stock'),
+      sb.from('fabric_receipt_item')
+        .select('received_metres, receipt:receipt_id!inner ( status, dc:dc_id!inner ( production_mode ) )')
+        .in('fabric_quality_id', pooledQIds),
+    ]);
+    for (const r of ((openRes.data ?? []) as Array<{ warp_ends: number | null; yarn_count_id: number | null; quantity: number | string | null }>)) {
+      if (r.warp_ends == null) continue;
+      if (!specKeys.has(`${Number(r.warp_ends)}|${r.yarn_count_id ?? ''}`)) continue;
+      result.warp_m += Number(r.quantity ?? 0);
+    }
+    for (const r of ((purRes.data ?? []) as Array<{ metres: number | string | null; yarn_count_id: number | null; ends: { ends_count: number | null } | null }>)) {
+      const e = Number(r.ends?.ends_count ?? 0);
+      if (e <= 0 || !specKeys.has(`${e}|${r.yarn_count_id ?? ''}`)) continue;
+      result.warp_m += Number(r.metres ?? 0);
+    }
+    for (const r of ((pavuRes.data ?? []) as Array<{ meters: number | string | null; ends: number | null; sizing_job: { warp_count_id: number | null } | null }>)) {
+      const e = Number(r.ends ?? 0);
+      if (e <= 0 || !specEnds.has(e)) continue;
+      const wc = r.sizing_job?.warp_count_id ?? null;
+      if (!(specKeys.has(`${e}|${wc ?? ''}`) || wc == null)) continue;
+      result.warp_m += Number(r.meters ?? 0);
+    }
+    for (const r of ((outRes.data ?? []) as Array<{ received_metres: number | string | null; receipt: { status: string; dc: { production_mode: string | null } | null } | null }>)) {
+      if (r.receipt?.dc?.production_mode !== 'inhouse') continue;
+      if (r.receipt?.status === 'draft') continue;
+      result.warp_m -= Number(r.received_metres ?? 0);
+    }
+  }
+
+  // ── Weft / porvai kgs ─────────────────────────────────────────
+  const measureYarn = async (countIds: Set<number>, kind: 'yarn' | 'porvai'): Promise<number> => {
+    if (countIds.size === 0) return 0;
+    const ids = Array.from(countIds);
+    const [oRes, lRes] = await Promise.all([
+      sb.from('opening_stock').select('quantity')
+        .eq('bucket', kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn')
+        .eq('mode', 'inhouse').eq('status', 'active')
+        .in('yarn_count_id', ids),
+      sb.from('yarn_lot').select('current_kg')
+        .in('yarn_count_id', ids)
+        .eq('delivery_destination', 'in_house')
+        .eq('yarn_kind', kind),
+    ]);
+    let kg = 0;
+    for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) kg += Number(r.quantity ?? 0);
+    for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) kg += Number(r.current_kg ?? 0);
+    return kg;
+  };
+  result.weft_kg   = await measureYarn(weftCountIds, 'yarn');
+  result.porvai_kg = await measureYarn(porvaiCountIds, 'porvai');
+
+  // ── Bobbin metres ─────────────────────────────────────────────
+  if (bobbinIds.size > 0) {
+    const ids = Array.from(bobbinIds);
+    const [perRes, openRes, purRes, retRes, outRes] = await Promise.all([
+      sb.from('bobbin').select('id, bobbin_metre').in('id', ids),
+      sb.from('opening_stock').select('quantity')
+        .eq('bucket', 'bobbin').eq('mode', 'inhouse').eq('status', 'active')
+        .in('bobbin_id', ids),
+      sb.from('bobbin_purchase').select('bobbin_id, pieces_purchased').in('bobbin_id', ids),
+      sb.from('bobbin_return').select('bobbin_id, quantity_pcs')
+        .is('jobwork_party_id', null).eq('status', 'active')
+        .in('bobbin_id', ids),
+      sb.from('stock_ledger').select('quantity')
+        .eq('bucket', 'bobbin').eq('direction', 'out')
+        .is('jobwork_party_id', null)
+        .in('bobbin_id', ids),
+    ]);
+    const perById = new Map<number, number>();
+    let per0 = 0;
+    for (const r of ((perRes.data ?? []) as Array<{ id: number; bobbin_metre: number | string | null }>)) {
+      const p = Number(r.bobbin_metre ?? 0);
+      perById.set(r.id, p);
+      if (per0 === 0 && p > 0) per0 = p;
+    }
+    for (const r of ((openRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
+      result.bobbin_m += Number(r.quantity ?? 0);
+    }
+    for (const r of ((purRes.data ?? []) as Array<{ bobbin_id: number | null; pieces_purchased: number | string | null }>)) {
+      const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
+      result.bobbin_m += Number(r.pieces_purchased ?? 0) * per;
+    }
+    for (const r of ((retRes.data ?? []) as Array<{ bobbin_id: number | null; quantity_pcs: number | string | null }>)) {
+      const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
+      result.bobbin_m -= Number(r.quantity_pcs ?? 0) * per;
+    }
+    for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
+      result.bobbin_m -= Number(r.quantity ?? 0);
+    }
+    result.bobbin_m = Math.max(0, result.bobbin_m);
+    result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : 0;
+  }
+
+  result.warp_m     = Math.round(result.warp_m     * 100) / 100;
+  result.weft_kg    = Math.round(result.weft_kg    * 1000) / 1000;
+  result.porvai_kg  = Math.round(result.porvai_kg  * 1000) / 1000;
+  result.bobbin_pcs = Math.round(result.bobbin_pcs * 100) / 100;
+  result.bobbin_m   = Math.round(result.bobbin_m   * 100) / 100;
+  return result;
+}
+
 /** Measure the current jobwork stock balance across all four buckets
  *  for the union of the provided fabric qualities (pooled with merged-
  *  delivery siblings). All values are positive numbers; rounding is
@@ -129,9 +282,13 @@ export async function measureStock(
   /** When provided, the bobbin pool is scoped to this jobwork party —
    *  matching the per-party pool the Warehouse → Job Work pivot shows. */
   jobworkPartyId?: number | null,
+  /** 'inhouse' switches every bucket to the IN-HOUSE stock sources so
+   *  in-house receipts snapshot the right before/after figures. */
+  productionMode?: 'inhouse' | 'jobwork' | 'outsource',
 ): Promise<BucketSnapshot> {
   const result: BucketSnapshot = { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_pcs: 0, bobbin_m: 0 };
   if (fabricQualityIds.length === 0) return result;
+  if (productionMode === 'inhouse') return measureInhouseStock(sb, fabricQualityIds);
 
   const { pooledQIds, weftCountIds, porvaiCountIds, bobbinSpecs } =
     await resolveKeysForQualities(sb, fabricQualityIds);
