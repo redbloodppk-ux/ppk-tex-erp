@@ -99,18 +99,13 @@ export async function cancelFabricReceipt(receiptId: number): Promise<CancelRece
           const next = Number(bag.total_kg ?? 0) + qty;
           await sb.from('jobwork_weft_bag').update({ total_kg: next }).eq('id', bag.id);
         }
-      } else if (row.bucket === 'bobbin' && row.bobbin_id != null) {
-        const { data: bob } = await sb
-          .from('bobbin')
-          .select('id, quantity')
-          .eq('id', row.bobbin_id)
-          .maybeSingle();
-        if (bob) {
-          // stock_ledger.quantity for bobbin is in pcs.
-          const next = Number(bob.quantity ?? 0) + qty;
-          await sb.from('bobbin').update({ quantity: next }).eq('id', bob.id);
-        }
       }
+      // bucket === 'bobbin': nothing to restore here. The job-work
+      // bobbin pool is DERIVED (jobwork_bobbin_issue inflows −
+      // stock_ledger outflows), so deleting this receipt's ledger rows
+      // in step 4 puts the metres back automatically. bobbin.quantity
+      // is godown stock and is no longer reduced by receipts — adding
+      // metres into that pcs column would corrupt the master.
     } catch {
       // Best effort - keep going on individual failures.
     }

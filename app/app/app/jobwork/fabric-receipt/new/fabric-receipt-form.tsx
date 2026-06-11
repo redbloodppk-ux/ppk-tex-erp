@@ -202,7 +202,26 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     const qualityIdsOnReceipt = Array.from(new Set(
       items.map((it) => it.seed.fabric_quality_id).filter((x): x is number => x != null),
     ));
-    const stockBefore = await measureStock(sb, qualityIdsOnReceipt);
+    // Resolve the jobwork_party.id matching the DC's party (by name)
+    // BEFORE measuring stock so the bobbin pool is scoped to this party
+    // — same scoping the Warehouse pivot uses. The DC's party_id points
+    // to the universal party master, while jobwork stock keys by
+    // jobwork_party.id — different ID spaces for the same physical
+    // party. Looking up by name is the pragmatic bridge.
+    let jwPartyId: number | null = null;
+    if (dc.production_mode === 'jobwork' || dc.production_mode === 'outsource') {
+      const partyKind = dc.production_mode === 'outsource' ? 'outsource' : 'jobwork';
+      const jwLookup = await sb
+        .from('jobwork_party')
+        .select('id')
+        .eq('name', dc.party_name)
+        .eq('kind', partyKind)
+        .maybeSingle();
+      if (jwLookup.data && jwLookup.data.id != null) {
+        jwPartyId = jwLookup.data.id as number;
+      }
+    }
+    const stockBefore = await measureStock(sb, qualityIdsOnReceipt, jwPartyId);
 
     const headerPayload = {
       receipt_date: receiptDate,
@@ -299,26 +318,6 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
         has_bobbin: it.seed.bobbin_pcs_per_m > 0,
       };
     });
-    // Resolve the jobwork_party.id matching the DC's party (by name)
-    // so the stock_ledger rows get the right party tag. The DC's
-    // party_id points to the universal party master, while the
-    // Warehouse pivot keys by jobwork_party.id — different ID spaces
-    // for the same physical party. Looking up by name is the
-    // pragmatic bridge: every jobwork DC's party should also exist as
-    // a jobwork_party row with the same name.
-    let jwPartyId: number | null = null;
-    if (dc.production_mode === 'jobwork' || dc.production_mode === 'outsource') {
-      const partyKind = dc.production_mode === 'outsource' ? 'outsource' : 'jobwork';
-      const jwLookup = await sb
-        .from('jobwork_party')
-        .select('id')
-        .eq('name', dc.party_name)
-        .eq('kind', partyKind)
-        .maybeSingle();
-      if (jwLookup.data && jwLookup.data.id != null) {
-        jwPartyId = jwLookup.data.id as number;
-      }
-    }
     const reduction = await applyFabricReceiptStockReductions(sb, reductionItems, {
       receipt_id: receiptId,
       receipt_code: hdr.code ?? null,
@@ -330,7 +329,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     // receipt itself. Best-effort: if the column doesn't exist yet
     // (migration 091 not applied) we just skip the update.
     try {
-      const stockAfter = await measureStock(sb, qualityIdsOnReceipt);
+      const stockAfter = await measureStock(sb, qualityIdsOnReceipt, jwPartyId);
       const snapshot = buildSnapshot(stockBefore, stockAfter);
       await sb
         .from('fabric_receipt')

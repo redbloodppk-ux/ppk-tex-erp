@@ -554,16 +554,10 @@ async function internalCancelReceipt(sb: any, receiptId: number, resetDc: boolea
         if (bag) {
           await sb.from('jobwork_weft_bag').update({ total_kg: Number(bag.total_kg ?? 0) + qty }).eq('id', bag.id);
         }
-      } else if (row.bucket === 'bobbin' && row.bobbin_id != null) {
-        const { data: bob } = await sb
-          .from('bobbin')
-          .select('id, quantity')
-          .eq('id', row.bobbin_id)
-          .maybeSingle();
-        if (bob) {
-          await sb.from('bobbin').update({ quantity: Number(bob.quantity ?? 0) + qty }).eq('id', bob.id);
-        }
       }
+      // bucket === 'bobbin': nothing to restore — the job-work bobbin
+      // pool is derived (issues − ledger outflows); deleting the ledger
+      // rows below restores it. bobbin.quantity is godown stock.
     } catch { /* keep going */ }
   }
 

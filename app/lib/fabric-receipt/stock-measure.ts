@@ -126,6 +126,9 @@ async function resolveKeysForQualities(
 export async function measureStock(
   sb: Sb,
   fabricQualityIds: number[],
+  /** When provided, the bobbin pool is scoped to this jobwork party —
+   *  matching the per-party pool the Warehouse → Job Work pivot shows. */
+  jobworkPartyId?: number | null,
 ): Promise<BucketSnapshot> {
   const result: BucketSnapshot = { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_pcs: 0, bobbin_m: 0 };
   if (fabricQualityIds.length === 0) return result;
@@ -163,19 +166,85 @@ export async function measureStock(
       .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
   }
 
-  for (const spec of bobbinSpecs) {
-    const { data: bobs } = await sb
+  // ── Bobbin pool ──────────────────────────────────────────────────
+  // The job-work bobbin balance is DERIVED, mirroring the Warehouse →
+  // Job Work → Bobbin pivot exactly:
+  //   inflow  = active jobwork_bobbin_issue pieces × bobbin_metre
+  //   outflow = stock_ledger rows (bucket='bobbin', stored in metres)
+  // bobbin.quantity is NOT read here — since migration 141/142 it only
+  // tracks godown/master stock, not what's sitting with a jobwork
+  // party. (Reading it was the bug that made receipts snapshot 0.)
+  if (jobworkPartyId != null) {
+    // Party-scoped: the pool is everything issued to THIS party (any
+    // spec) minus the party's recorded outflows — exactly what the
+    // Warehouse pivot shows for the party. This path does not depend
+    // on calc_snapshot.bobbinId, which can go stale (migration 140
+    // consolidated bobbin ids but couldn't re-point the JSON field).
+    const { data: issues } = await sb
+      .from('jobwork_bobbin_issue')
+      .select('pieces_issued, bobbin:bobbin_id ( bobbin_metre )')
+      .eq('status', 'active')
+      .eq('jobwork_party_id', jobworkPartyId);
+    let issued_m = 0;
+    let per0 = 0;
+    for (const r of ((issues ?? []) as Array<{ pieces_issued: number | string | null; bobbin: { bobbin_metre: number | string | null } | null }>)) {
+      const per = Number(r.bobbin?.bobbin_metre ?? 0);
+      const pcs = Number(r.pieces_issued ?? 0);
+      issued_m += per > 0 ? pcs * per : pcs;
+      if (per0 === 0 && per > 0) per0 = per;
+    }
+    const { data: outs } = await sb
+      .from('stock_ledger')
+      .select('quantity')
+      .eq('bucket', 'bobbin')
+      .eq('direction', 'out')
+      .eq('jobwork_party_id', jobworkPartyId);
+    const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
+      .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+    result.bobbin_m = Math.max(0, issued_m - consumed_m);
+    result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : 0;
+  } else if (bobbinSpecs.length > 0) {
+    // Unscoped (backfill): match by spec. Resolve every bobbin master
+    // id matching any assigned spec, in ANY production mode — legacy
+    // ledger rows may reference the in-house twin (same ends + m/pc)
+    // of the job-work bobbin.
+    const { data: masterRows } = await sb
       .from('bobbin')
-      .select('quantity, bobbin_metre')
-      .eq('production_mode', 'jobwork')
-      .eq('ends_per_bobbin', spec.ends)
-      .eq('bobbin_metre', spec.per)
-      .gt('quantity', 0);
-    for (const r of (bobs ?? []) as Array<{ quantity: number | null; bobbin_metre: number | string | null }>) {
-      const pcs = Number(r.quantity ?? 0);
-      const per = Number(r.bobbin_metre ?? 0);
-      result.bobbin_pcs += pcs;
-      result.bobbin_m   += pcs * per;
+      .select('id, ends_per_bobbin, bobbin_metre');
+    const perById = new Map<number, number>();
+    for (const r of ((masterRows ?? []) as Array<{ id: number; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>)) {
+      const e = Number(r.ends_per_bobbin) || 0;
+      const p = Number(r.bobbin_metre)   || 0;
+      if (bobbinSpecs.some((s) => s.ends === e && s.per === p)) perById.set(r.id, p);
+    }
+    const matchIds = Array.from(perById.keys());
+    if (matchIds.length > 0) {
+      const { data: issues } = await sb
+        .from('jobwork_bobbin_issue')
+        .select('bobbin_id, pieces_issued')
+        .eq('status', 'active')
+        .in('bobbin_id', matchIds);
+      let issued_m = 0;
+      let issued_pcs = 0;
+      for (const r of ((issues ?? []) as Array<{ bobbin_id: number; pieces_issued: number | string | null }>)) {
+        const per = perById.get(r.bobbin_id) ?? 0;
+        const pcs = Number(r.pieces_issued ?? 0);
+        issued_pcs += pcs;
+        issued_m   += per > 0 ? pcs * per : pcs;
+      }
+
+      const { data: outs } = await sb
+        .from('stock_ledger')
+        .select('quantity')
+        .eq('bucket', 'bobbin')
+        .eq('direction', 'out')
+        .in('bobbin_id', matchIds);
+      const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
+        .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+
+      result.bobbin_m = Math.max(0, issued_m - consumed_m);
+      const per0 = bobbinSpecs[0]?.per ?? 0;
+      result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : issued_pcs;
     }
   }
 

@@ -11,7 +11,8 @@
  *   pavu.meters         -= received_metres                  (warp fabric)
  *   yarn_lot.current_kg -= weft_consumed_kg   (kind != 'porvai')
  *   yarn_lot.current_kg -= porvai_consumed_kg (kind  = 'porvai')
- *   bobbin.quantity     -= ceil(metres / bobbin.bobbin_metre)
+ *   bobbin (job-work pool, derived) — consumption recorded via the
+ *   stock_ledger row only; bobbin.quantity (godown stock) is untouched
  *
  * Matching strategy
  *   pavu     - via fabric_quality_warp_count.yarn_count_id ->
@@ -229,14 +230,23 @@ async function reduceWeftBag(
   return { applied: Math.round(applied * 100) / 100, perBag };
 }
 
-/** Reduce bobbin.quantity FIFO across every jobwork bobbin whose spec
- *  (ends_per_bobbin + bobbin_metre) matches a bobbin assigned to ANY
- *  fabric quality in the merged pool. Pool defaults to the single
- *  quality if it's not part of a merged group. */
+/** Consume from the job-work bobbin pool for every spec (ends_per_bobbin
+ *  + bobbin_metre) assigned to ANY fabric quality in the merged pool.
+ *
+ *  The pool is DERIVED (mirrors the Warehouse → Job Work → Bobbin pivot
+ *  and measureStock):
+ *    available = active jobwork_bobbin_issue pieces × m/pc
+ *              − stock_ledger bobbin outflows (metres)
+ *  Nothing is mutated here — the consumption is recorded by the ledger
+ *  row the orchestrator writes, which itself reduces the derived pool.
+ *  bobbin.quantity is never touched: since migration 141/142 it tracks
+ *  godown stock, not the party's pool (reading it was the bug that
+ *  zeroed bobbin on receipts). */
 async function reduceBobbin(
   sb: Sb,
   fabric_quality_id: number,
   metres: number,
+  jobworkPartyId: number | null,
 ): Promise<{ applied_pcs: number; applied_m: number; perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> }> {
   if (metres <= 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
 
@@ -273,53 +283,88 @@ async function reduceBobbin(
     seen.add(k);
     specs.push({ ends: e, per: p });
   }
-  if (specs.length === 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+  // The assigned bobbin id can be STALE — migration 140 consolidated
+  // bobbin ids but couldn't re-point calc_snapshot.bobbinId (JSON).
+  // When we know the jobwork party we therefore don't depend on the
+  // spec at all: the pool is whatever was issued to the party.
+  if (specs.length === 0 && jobworkPartyId == null) {
+    return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+  }
 
-  // Step 3: FIFO across every jobwork bobbin matching any spec. We need
-  // to issue one query per spec because PostgREST doesn't support
-  // matching on (col1, col2) tuples; results are interleaved + sorted.
-  type BobRow = { id: number; quantity: number | string; bobbin_metre: number | string; purchase_date: string | null; jobwork_party_id: number | null };
-  const allBobs: BobRow[] = [];
-  for (const s of specs) {
-    const { data: bobs } = await sb
+  // Step 3 (unscoped fallback only): resolve every bobbin master id
+  // matching any spec, in ANY production mode — legacy ledger outflows
+  // may reference the in-house twin (same ends + m/pc).
+  const matchIds: number[] = [];
+  if (jobworkPartyId == null) {
+    const { data: masterRows } = await sb
       .from('bobbin')
-      .select('id, quantity, bobbin_metre, purchase_date, jobwork_party_id')
-      .eq('production_mode', 'jobwork')
-      .eq('ends_per_bobbin', s.ends)
-      .eq('bobbin_metre', s.per)
-      .gt('quantity', 0);
-    for (const r of (bobs ?? []) as BobRow[]) allBobs.push(r);
+      .select('id, ends_per_bobbin, bobbin_metre');
+    for (const r of ((masterRows ?? []) as Array<{ id: number; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>)) {
+      const e = Number(r.ends_per_bobbin) || 0;
+      const p = Number(r.bobbin_metre)   || 0;
+      if (specs.some((s) => s.ends === e && s.per === p)) matchIds.push(r.id);
+    }
+    if (matchIds.length === 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
   }
-  allBobs.sort((a, b) => {
-    const da = a.purchase_date ?? '';
-    const db = b.purchase_date ?? '';
-    if (da !== db) return da < db ? -1 : 1;
-    return a.id - b.id;
-  });
 
-  let remaining_m = metres;
-  let total_pcs = 0;
-  let total_m_consumed = 0;
-  const perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> = [];
-  for (const b of allBobs) {
-    if (remaining_m <= 0) break;
-    const rowPer = Number(b.bobbin_metre);
-    const avail  = Number(b.quantity);
-    const pcsNeeded = Math.ceil(remaining_m / rowPer);
-    const pcsToCut  = Math.min(avail, pcsNeeded);
-    const next = Math.max(0, avail - pcsToCut);
-    const { error } = await sb.from('bobbin').update({ quantity: next }).eq('id', b.id);
-    if (error) break;
-    total_pcs += pcsToCut;
-    const mCut = pcsToCut * rowPer;
-    total_m_consumed += mCut;
-    remaining_m -= mCut;
-    perBobbin.push({ bobbin_id: b.id, cut_pcs: pcsToCut, cut_m: mCut, party_id: b.jobwork_party_id });
+  // Step 4: derive the available pool = issued metres − consumed metres
+  // (mirrors the Warehouse pivot and measureStock).
+  let qIn = sb
+    .from('jobwork_bobbin_issue')
+    .select('bobbin_id, pieces_issued, jobwork_party_id, issue_date, bobbin:bobbin_id ( bobbin_metre )')
+    .eq('status', 'active')
+    .order('issue_date', { ascending: true });
+  qIn = jobworkPartyId != null
+    ? qIn.eq('jobwork_party_id', jobworkPartyId)
+    : qIn.in('bobbin_id', matchIds);
+  const { data: issues } = await qIn;
+  type IssueRow = {
+    bobbin_id: number; pieces_issued: number | string | null;
+    jobwork_party_id: number | null; issue_date: string | null;
+    bobbin: { bobbin_metre: number | string | null } | null;
+  };
+  let issued_m = 0;
+  let attrBobbinId: number | null = null;
+  let attrPartyId: number | null = null;
+  let attrPer = 0;
+  for (const r of ((issues ?? []) as IssueRow[])) {
+    const per = Number(r.bobbin?.bobbin_metre ?? 0);
+    const pcs = Number(r.pieces_issued ?? 0);
+    issued_m += per > 0 ? pcs * per : pcs;
+    if (attrBobbinId == null && pcs > 0) {
+      attrBobbinId = r.bobbin_id;
+      attrPartyId  = r.jobwork_party_id;
+      attrPer      = per;
+    }
   }
+  if (attrBobbinId == null) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+
+  let qOut = sb
+    .from('stock_ledger')
+    .select('quantity')
+    .eq('bucket', 'bobbin')
+    .eq('direction', 'out');
+  qOut = jobworkPartyId != null
+    ? qOut.eq('jobwork_party_id', jobworkPartyId)
+    : qOut.in('bobbin_id', matchIds);
+  const { data: outs } = await qOut;
+  const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
+    .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
+
+  const available_m = Math.max(0, issued_m - consumed_m);
+  const cut_m = Math.min(metres, available_m);
+  if (cut_m <= 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+
+  const cut_pcs = attrPer > 0 ? Math.round((cut_m / attrPer) * 100) / 100 : cut_m;
   return {
-    applied_pcs: total_pcs,
-    applied_m: Math.round(total_m_consumed * 100) / 100,
-    perBobbin,
+    applied_pcs: cut_pcs,
+    applied_m: Math.round(cut_m * 100) / 100,
+    perBobbin: [{
+      bobbin_id: attrBobbinId,
+      cut_pcs,
+      cut_m: Math.round(cut_m * 100) / 100,
+      party_id: attrPartyId ?? jobworkPartyId,
+    }],
   };
 }
 
@@ -465,7 +510,7 @@ export async function applyFabricReceiptStockReductions(
     // BOBBIN - spec match (ends_per_bobbin + bobbin_metre), FIFO by
     // purchase_date across jobwork bobbins.
     if (it.has_bobbin && it.received_metres > 0) {
-      const r = await reduceBobbin(sb, it.fabric_quality_id, it.received_metres);
+      const r = await reduceBobbin(sb, it.fabric_quality_id, it.received_metres, ctxJwPartyId);
       result.applied.bobbin_pcs += r.applied_pcs;
       for (const b of r.perBobbin) {
         if (b.cut_pcs <= 0) continue;
