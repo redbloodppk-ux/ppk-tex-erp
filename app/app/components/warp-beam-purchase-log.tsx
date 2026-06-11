@@ -21,6 +21,7 @@ interface BeamRow {
   id: number;
   code: string | null;
   purchase_date: string;
+  fabric_quality_id: number | null;
   ends_id: number | null;
   yarn_count_id: number | null;
   supplier_party_id: number | null;
@@ -34,9 +35,20 @@ interface BeamRow {
 interface EndsOption { id: number; code: string; name: string; ends_count: number; }
 interface CountOption { id: number; code: string; display_name: string; }
 interface PartyOption { id: number; code: string; name: string; }
+/** In-house fabric quality. Its costing calc_snapshot stores the warp
+ *  spec — endsId (→ ends_master) and warpCountId (→ yarn_count) — which
+ *  this form auto-fetches when a quality is picked. */
+interface QualityOption {
+  id: number;
+  code: string | null;
+  name: string;
+  ends_id: number | null;
+  warp_count_id: number | null;
+}
 
 interface FormState {
   purchase_date:     string;
+  fabric_quality_id: string;
   ends_id:           string;
   yarn_count_id:     string;
   supplier_party_id: string;
@@ -48,6 +60,7 @@ interface FormState {
 
 const EMPTY: FormState = {
   purchase_date:     '',
+  fabric_quality_id: '',
   ends_id:           '',
   yarn_count_id:     '',
   supplier_party_id: '',
@@ -83,6 +96,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
   const supabase = createClient();
 
   const [rows, setRows] = useState<BeamRow[]>([]);
+  const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [endsOpts, setEndsOpts] = useState<EndsOption[]>([]);
   const [countOpts, setCountOpts] = useState<CountOption[]>([]);
   const [parties, setParties] = useState<PartyOption[]>([]);
@@ -100,12 +114,19 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    const [rowsRes, eRes, cRes, pRes] = await Promise.all([
+    const [rowsRes, qRes, eRes, cRes, pRes] = await Promise.all([
       sb.from('inhouse_warp_beam_purchase')
-        .select('id, code, purchase_date, ends_id, yarn_count_id, supplier_party_id, metres, rate_per_metre, gst_pct, total_amount, notes')
+        .select('id, code, purchase_date, fabric_quality_id, ends_id, yarn_count_id, supplier_party_id, metres, rate_per_metre, gst_pct, total_amount, notes')
         .eq('status', 'active')
         .order('purchase_date', { ascending: false })
         .order('id', { ascending: false }),
+      // Only IN-HOUSE fabric qualities; their costing snapshot supplies
+      // the warp ends + count which auto-fill when a quality is picked.
+      sb.from('fabric_quality')
+        .select('id, code, name, calc_snapshot')
+        .eq('active', true)
+        .eq('production_mode', 'inhouse')
+        .order('name'),
       sb.from('ends_master')
         .select('id, code, name, ends_count')
         .eq('active', true)
@@ -120,11 +141,25 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
         .order('name'),
     ]);
     if (rowsRes.error)   setError(rowsRes.error.message);
+    else if (qRes.error) setError(qRes.error.message);
     else if (eRes.error) setError(eRes.error.message);
     else if (cRes.error) setError(cRes.error.message);
     else if (pRes.error) setError(pRes.error.message);
     else {
       setRows((rowsRes.data ?? []) as unknown as BeamRow[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setQualities(((qRes.data ?? []) as any[]).map((q) => {
+        const snap = (q.calc_snapshot ?? {}) as Record<string, unknown>;
+        const endsId  = Number(snap['endsId']);
+        const countId = Number(snap['warpCountId']);
+        return {
+          id: q.id as number,
+          code: (q.code ?? null) as string | null,
+          name: q.name as string,
+          ends_id:       Number.isFinite(endsId)  && endsId  > 0 ? endsId  : null,
+          warp_count_id: Number.isFinite(countId) && countId > 0 ? countId : null,
+        };
+      }));
       setEndsOpts((eRes.data ?? []) as unknown as EndsOption[]);
       setCountOpts((cRes.data ?? []) as unknown as CountOption[]);
       setParties((pRes.data ?? []) as unknown as PartyOption[]);
@@ -158,10 +193,23 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     setError(null);
   }
 
+  /** Picking an in-house quality auto-fetches its warp ends + count
+   *  from the costing snapshot. */
+  function pickQuality(qualityId: string): void {
+    const q = qualityId === '' ? null : qualities.find((x) => x.id === Number(qualityId)) ?? null;
+    setForm((f) => ({
+      ...f,
+      fabric_quality_id: qualityId,
+      ends_id:       q?.ends_id       != null ? String(q.ends_id)       : '',
+      yarn_count_id: q?.warp_count_id != null ? String(q.warp_count_id) : '',
+    }));
+  }
+
   function openEditForm(r: BeamRow): void {
     setEditingId(r.id);
     setForm({
       purchase_date:     r.purchase_date,
+      fabric_quality_id: r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
       ends_id:           r.ends_id === null ? '' : String(r.ends_id),
       yarn_count_id:     r.yarn_count_id === null ? '' : String(r.yarn_count_id),
       supplier_party_id: r.supplier_party_id === null ? '' : String(r.supplier_party_id),
@@ -185,6 +233,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     setError(null);
     setSavedMsg(null);
 
+    const qualityId  = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
     const endsId     = form.ends_id === '' ? null : Number(form.ends_id);
     const countId    = form.yarn_count_id === '' ? null : Number(form.yarn_count_id);
     const supplierId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
@@ -193,14 +242,16 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     const gst        = toNumOrNull(form.gst_pct) ?? 0;
 
     if (form.purchase_date.trim() === '')  { setError('Date is required.'); return; }
-    if (endsId === null)                   { setError('Ends is required.'); return; }
-    if (countId === null)                  { setError('Yarn count is required.'); return; }
+    if (qualityId === null)                { setError('Fabric quality is required.'); return; }
+    if (endsId === null)                   { setError('This quality has no warp ends in its costing — set it in Fabric Master first.'); return; }
+    if (countId === null)                  { setError('This quality has no warp count in its costing — set it in Fabric Master first.'); return; }
     if (supplierId === null)               { setError('Supplier is required.'); return; }
     if (metres === null || metres <= 0)    { setError('Metre must be greater than zero.'); return; }
     if (rate === null || rate < 0)         { setError('Rate per metre is required.'); return; }
 
     const payload = {
       purchase_date:     form.purchase_date,
+      fabric_quality_id: qualityId,
       ends_id:           endsId,
       yarn_count_id:     countId,
       supplier_party_id: supplierId,
@@ -241,6 +292,11 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     setSavedMsg('Deleted ' + label + '.');
   }
 
+  function qualityLabel(id: number | null): string {
+    if (id === null) return '-';
+    const q = qualities.find((x) => x.id === id);
+    return q ? (q.code ?? q.name) : '#' + String(id);
+  }
   function endsLabel(id: number | null): string {
     if (id === null) return '-';
     const e = endsOpts.find((x) => x.id === id);
@@ -303,27 +359,30 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                   : (rows.find((r) => r.id === editingId)?.code ?? '-')}
               </div>
             </div>
-            <div>
-              <label className="label" htmlFor="wb-ends">Ends *</label>
-              <select id="wb-ends" className="input w-full"
-                value={form.ends_id}
-                onChange={(e) => setForm((f) => ({ ...f, ends_id: e.target.value }))}>
+            <div className="md:col-span-2">
+              <label className="label" htmlFor="wb-quality">Fabric quality (in-house) *</label>
+              <select id="wb-quality" className="input w-full"
+                value={form.fabric_quality_id}
+                onChange={(e) => pickQuality(e.target.value)}>
                 <option value="">--- pick ---</option>
-                {endsOpts.map((o) => (
-                  <option key={o.id} value={String(o.id)}>{o.ends_count} ends</option>
+                {qualities.map((q) => (
+                  <option key={q.id} value={String(q.id)}>
+                    {q.code ?? '#' + q.id} - {q.name}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="wb-count">Yarn count *</label>
-              <select id="wb-count" className="input w-full"
-                value={form.yarn_count_id}
-                onChange={(e) => setForm((f) => ({ ...f, yarn_count_id: e.target.value }))}>
-                <option value="">--- pick ---</option>
-                {countOpts.map((o) => (
-                  <option key={o.id} value={String(o.id)}>{o.display_name}</option>
-                ))}
-              </select>
+              <label className="label">Ends (auto)</label>
+              <div className="input bg-cloud/40 text-ink select-none">
+                {form.ends_id === '' ? '—' : endsLabel(Number(form.ends_id))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Yarn count (auto)</label>
+              <div className="input bg-cloud/40 text-ink select-none">
+                {form.yarn_count_id === '' ? '—' : countLabel(Number(form.yarn_count_id))}
+              </div>
             </div>
 
             <div>
@@ -393,6 +452,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
               <tr>
                 <th className="text-left  px-3 py-3">ID</th>
                 <th className="text-left  px-3 py-3">Date</th>
+                <th className="text-left  px-3 py-3">Quality</th>
                 <th className="text-left  px-3 py-3">Ends</th>
                 <th className="text-left  px-3 py-3">Yarn count</th>
                 <th className="text-left  px-3 py-3 hidden md:table-cell">Supplier</th>
@@ -408,7 +468,8 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 font-mono text-xs">{r.code ?? '-'}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(r.purchase_date)}</td>
-                  <td className="px-3 py-3 font-semibold">{endsLabel(r.ends_id)}</td>
+                  <td className="px-3 py-3 font-semibold">{qualityLabel(r.fabric_quality_id)}</td>
+                  <td className="px-3 py-3">{endsLabel(r.ends_id)}</td>
                   <td className="px-3 py-3">{countLabel(r.yarn_count_id)}</td>
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(r.supplier_party_id)}</td>
                   <td className="px-3 py-3 text-right num">{fmtMoney(Number(r.metres))}</td>

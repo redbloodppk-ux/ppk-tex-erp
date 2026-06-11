@@ -1886,6 +1886,33 @@ async function loadInhouseOpeningStock(
   // the metres received become an outflow against the warp metre
   // stock.
   if (bucket === 'warp_beam') {
+    // In-house warp beam purchases (Inhouse Stock → Warp Beam tab).
+    // Every metre bought lands as an inflow on the matching
+    // (ends + warp count) column — same key the pavu inflows use.
+    const beamPurchases = await safeSelect<{
+      id: number; code: string | null; purchase_date: string | null;
+      metres: number | string | null; yarn_count_id: number | null;
+      ends: { ends_count: number | null } | null;
+    }>(
+      supabase.from('inhouse_warp_beam_purchase')
+        .select('id, code, purchase_date, metres, yarn_count_id, ends:ends_id ( ends_count )')
+        .eq('status', 'active'),
+    );
+    for (const b of beamPurchases) {
+      const ends = Number(b.ends?.ends_count ?? 0);
+      const metres = Number(b.metres ?? 0);
+      if (ends <= 0 || metres <= 0) continue;
+      const colId = ensureEndsCountCol(ends, b.yarn_count_id);
+      events.push({
+        event_date: b.purchase_date ?? '',
+        column_id: colId,
+        direction: 'in',
+        quantity: metres,
+        reference: b.code ?? `WB #${b.id}`,
+        notes: 'Warp beam purchase',
+      });
+    }
+
     // Pavu inflows — in-house, in_stock, with a real meters value.
     const inhousePavus = await safeSelect<{
       id: number; pavu_code: string | null; ends: number | null;
