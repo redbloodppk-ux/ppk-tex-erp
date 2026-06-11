@@ -36,24 +36,13 @@ export interface CancelReceiptResult {
   error?: string;
 }
 
-export async function cancelFabricReceipt(receiptId: number): Promise<CancelReceiptResult> {
-  if (!Number.isInteger(receiptId) || receiptId <= 0) {
-    return { ok: false, error: 'Invalid receipt id.' };
-  }
-  const supabase = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any;
-
-  // 1. Load the receipt header so we know which DC to free + any items.
-  const { data: hdr, error: hdrErr } = await sb
-    .from('fabric_receipt')
-    .select('id, dc_id')
-    .eq('id', receiptId)
-    .maybeSingle();
-  if (hdrErr || !hdr) return { ok: false, error: hdrErr?.message ?? 'Receipt not found.' };
-  const dcId: number | null = hdr.dc_id ?? null;
-
-  // 2. Load all stock_ledger rows for this receipt. If the table doesn't
+/** Reverse a receipt's stock effects: restore warp/weft pools from the
+ *  ledger rows, delete the ledger rows, delete the receipt items. The
+ *  header itself is NOT touched — callers decide whether to delete it
+ *  (cancel) or keep it for re-entry under the same code (edit). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function reverseReceiptStock(sb: any, receiptId: number): Promise<string | null> {
+  // Load all stock_ledger rows for this receipt. If the table doesn't
   //    exist yet (migration 090 not applied) we just skip the reversal -
   //    there were no recorded outflows to reverse.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,7 +100,7 @@ export async function cancelFabricReceipt(receiptId: number): Promise<CancelRece
     }
   }
 
-  // 4. Delete the ledger rows.
+  // Delete the ledger rows.
   try {
     await sb.from('stock_ledger')
       .delete()
@@ -121,23 +110,90 @@ export async function cancelFabricReceipt(receiptId: number): Promise<CancelRece
     // ignore
   }
 
-  // 5. Delete items.
+  // Delete items.
   const { error: itErr } = await sb.from('fabric_receipt_item').delete().eq('receipt_id', receiptId);
-  if (itErr) return { ok: false, error: `Could not delete items: ${itErr.message}` };
+  if (itErr) return `Could not delete items: ${itErr.message}`;
+  return null;
+}
 
-  // 6. Free the DC (so it can be receipted again) and clear its
-  //    fabric_receipt_id pointer.
-  if (dcId != null) {
-    const { error: dcErr } = await sb
-      .from('delivery_challan')
-      .update({ fabric_receipt_id: null, status: 'draft' })
-      .eq('id', dcId);
-    if (dcErr) return { ok: false, error: `Could not reset DC: ${dcErr.message}` };
+/** Free a receipt's source DC so it can be receipted again. The DC is
+ *  only ever released by its own receipt — this is the single place
+ *  that clears the fabric_receipt_id lock. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function releaseDc(sb: any, dcId: number | null): Promise<string | null> {
+  if (dcId == null) return null;
+  const { error: dcErr } = await sb
+    .from('delivery_challan')
+    .update({ fabric_receipt_id: null, status: 'draft' })
+    .eq('id', dcId);
+  return dcErr ? `Could not reset DC: ${dcErr.message}` : null;
+}
+
+export async function cancelFabricReceipt(receiptId: number): Promise<CancelReceiptResult> {
+  if (!Number.isInteger(receiptId) || receiptId <= 0) {
+    return { ok: false, error: 'Invalid receipt id.' };
   }
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
 
-  // 7. Finally delete the header.
+  const { data: hdr, error: hdrErr } = await sb
+    .from('fabric_receipt')
+    .select('id, dc_id')
+    .eq('id', receiptId)
+    .maybeSingle();
+  if (hdrErr || !hdr) return { ok: false, error: hdrErr?.message ?? 'Receipt not found.' };
+  const dcId: number | null = hdr.dc_id ?? null;
+
+  const revErr = await reverseReceiptStock(sb, receiptId);
+  if (revErr) return { ok: false, error: revErr };
+
+  const dcErr = await releaseDc(sb, dcId);
+  if (dcErr) return { ok: false, error: dcErr };
+
+  // Cancel = the receipt ceases to exist; its code is retired.
   const { error: rmErr } = await sb.from('fabric_receipt').delete().eq('id', receiptId);
   if (rmErr) return { ok: false, error: `Could not delete receipt: ${rmErr.message}` };
+
+  revalidatePath('/app/jobwork/fabric-receipt');
+  revalidatePath('/app/jobwork');
+  return { ok: true, dc_id: dcId ?? undefined };
+}
+
+/** Edit-in-place: reverse the stock and free the DC exactly like a
+ *  cancel, but KEEP the receipt header (same id + code) marked as
+ *  'draft'. The re-entry form then updates this header on save, so the
+ *  receipt code (e.g. FR/26-27/0018) is preserved and no new number is
+ *  drawn from the sequence. */
+export async function editFabricReceipt(receiptId: number): Promise<CancelReceiptResult> {
+  if (!Number.isInteger(receiptId) || receiptId <= 0) {
+    return { ok: false, error: 'Invalid receipt id.' };
+  }
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+
+  const { data: hdr, error: hdrErr } = await sb
+    .from('fabric_receipt')
+    .select('id, dc_id')
+    .eq('id', receiptId)
+    .maybeSingle();
+  if (hdrErr || !hdr) return { ok: false, error: hdrErr?.message ?? 'Receipt not found.' };
+  const dcId: number | null = hdr.dc_id ?? null;
+
+  const revErr = await reverseReceiptStock(sb, receiptId);
+  if (revErr) return { ok: false, error: revErr };
+
+  const dcErr = await releaseDc(sb, dcId);
+  if (dcErr) return { ok: false, error: dcErr };
+
+  // Keep the header so the code survives; clear the stale snapshot and
+  // park it as draft until the corrected entry is saved.
+  const { error: upErr } = await sb
+    .from('fabric_receipt')
+    .update({ status: 'draft', stock_snapshot: null })
+    .eq('id', receiptId);
+  if (upErr) return { ok: false, error: `Could not mark receipt as draft: ${upErr.message}` };
 
   revalidatePath('/app/jobwork/fabric-receipt');
   revalidatePath('/app/jobwork');

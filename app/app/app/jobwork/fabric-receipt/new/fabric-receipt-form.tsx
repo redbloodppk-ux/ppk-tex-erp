@@ -95,6 +95,10 @@ interface ItemState {
 interface FabricReceiptFormProps {
   dc: DcInfo;
   seeds: ReceiptItemSeed[];
+  /** Edit-in-place: when set, save UPDATES this existing receipt header
+   *  (same id + code, e.g. FR/26-27/0018) instead of inserting a new
+   *  one — so the receipt code survives an edit. */
+  reuse?: { id: number; code: string } | null;
 }
 
 function num(v: string): number {
@@ -126,7 +130,7 @@ function resolvedMetres(it: ItemState): number {
   return round2(t > 0 ? m * t : m);
 }
 
-export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.ReactElement {
+export function FabricReceiptForm({ dc, seeds, reuse }: FabricReceiptFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
@@ -239,17 +243,41 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
       status: 'received',
     };
 
-    const { data: hdr, error: hdrErr } = await sb
-      .from('fabric_receipt')
-      .insert(headerPayload)
-      .select('id, code')
-      .single();
-    if (hdrErr || !hdr?.id) {
-      setBusy(false);
-      setError(hdrErr?.message ?? 'Failed to create fabric receipt.');
-      return;
+    // Edit-in-place: the Edit button parked the original header as
+    // 'draft' (stock reversed, DC freed). UPDATE it so the receipt
+    // keeps its code instead of drawing a new number; otherwise INSERT
+    // a fresh header as usual.
+    let receiptId: number;
+    let receiptCode: string;
+    if (reuse) {
+      const { error: upErr } = await sb
+        .from('fabric_receipt')
+        .update(headerPayload)
+        .eq('id', reuse.id);
+      if (upErr) {
+        setBusy(false);
+        setError(upErr.message ?? 'Failed to update fabric receipt.');
+        return;
+      }
+      receiptId = reuse.id;
+      receiptCode = reuse.code;
+      // Belt-and-braces: the edit action already removed the old items,
+      // but make sure none linger before re-inserting.
+      await sb.from('fabric_receipt_item').delete().eq('receipt_id', receiptId);
+    } else {
+      const { data: hdr, error: hdrErr } = await sb
+        .from('fabric_receipt')
+        .insert(headerPayload)
+        .select('id, code')
+        .single();
+      if (hdrErr || !hdr?.id) {
+        setBusy(false);
+        setError(hdrErr?.message ?? 'Failed to create fabric receipt.');
+        return;
+      }
+      receiptId = hdr.id as number;
+      receiptCode = (hdr.code as string) ?? '';
     }
-    const receiptId = hdr.id as number;
 
     const itemPayload = items.map((it, idx) => {
       const m = resolvedMetres(it);
@@ -292,7 +320,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     const { error: itemErr } = await sb.from('fabric_receipt_item').insert(itemPayload);
     if (itemErr) {
       setBusy(false);
-      setError(`Receipt ${hdr.code} saved, but items failed: ${itemErr.message}`);
+      setError(`Receipt ${receiptCode} saved, but items failed: ${itemErr.message}`);
       return;
     }
 
@@ -324,7 +352,7 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
     });
     const reduction = await applyFabricReceiptStockReductions(sb, reductionItems, {
       receipt_id: receiptId,
-      receipt_code: hdr.code ?? null,
+      receipt_code: receiptCode || null,
       receipt_date: receiptDate,
       jobwork_party_id: jwPartyId,
     });
@@ -363,12 +391,21 @@ export function FabricReceiptForm({ dc, seeds }: FabricReceiptFormProps): React.
   // ── Render ──────────────────────────────────────────────────────────
   return (
     <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
+      {/* Edit-in-place banner */}
+      {reuse && (
+        <div className="card border-amber-200 bg-amber-50/40 px-4 py-2.5 text-xs text-amber-800">
+          Editing receipt <span className="font-mono font-semibold">{reuse.code}</span> — the previous stock reductions were
+          restored. Saving will re-apply consumption under the same receipt code.
+        </div>
+      )}
       {/* Header card */}
       <div className="card p-4 space-y-3">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div>
             <label className="label">Receipt no</label>
-            <div className="input bg-cloud/40 text-ink-mute">Auto (FR/26-27/NNNN)</div>
+            <div className="input bg-cloud/40 text-ink-mute">
+              {reuse ? <span className="font-mono text-ink">{reuse.code}</span> : 'Auto (FR/26-27/NNNN)'}
+            </div>
           </div>
           <div>
             <label className="label">Receipt date</label>

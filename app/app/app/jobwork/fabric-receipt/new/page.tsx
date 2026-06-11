@@ -15,7 +15,7 @@ export const metadata = { title: 'New Fabric Receipt' };
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
-  searchParams: Promise<{ dc?: string }>;
+  searchParams: Promise<{ dc?: string; receipt?: string }>;
 }
 
 export default async function NewFabricReceiptPage({ searchParams }: PageProps) {
@@ -24,10 +24,29 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   if (!Number.isInteger(dcId) || dcId <= 0) {
     redirect('/app/outsource');
   }
+  // ?receipt=<id> — edit-in-place flow. The Edit button on a saved
+  // receipt reverses its stock, frees the DC and parks the header as
+  // 'draft'; this form then UPDATES that header on save so the receipt
+  // keeps its original code instead of drawing a new number.
+  const reuseReceiptId = sp.receipt ? Number(sp.receipt) : NaN;
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
+
+  let reuse: { id: number; code: string } | null = null;
+  if (Number.isInteger(reuseReceiptId) && reuseReceiptId > 0) {
+    const { data: reuseHdr } = await sb
+      .from('fabric_receipt')
+      .select('id, code, status, dc_id')
+      .eq('id', reuseReceiptId)
+      .maybeSingle();
+    // Only honour the param if the receipt really is parked for
+    // re-entry on THIS DC — otherwise fall through to a fresh receipt.
+    if (reuseHdr && reuseHdr.status === 'draft' && Number(reuseHdr.dc_id) === dcId) {
+      reuse = { id: reuseHdr.id as number, code: reuseHdr.code as string };
+    }
+  }
 
   const [dcRes, itemsRes] = await Promise.all([
     // Fabric receipt now supports all three production modes:
@@ -427,7 +446,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
           { label: 'Fabric Receipt' },
         ]}
       />
-      <FabricReceiptForm dc={dcInfo} seeds={seeds} />
+      <FabricReceiptForm dc={dcInfo} seeds={seeds} reuse={reuse} />
     </div>
   );
 }

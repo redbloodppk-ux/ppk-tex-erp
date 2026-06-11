@@ -1,17 +1,18 @@
 'use client';
 /**
  * "Edit" button for a saved fabric receipt. Clicking it pops a confirm
- * dialog (the action is destructive: stock will be restored, ledger
- * rows removed, items deleted, then the DC freed for a fresh receipt).
+ * dialog, then reverses the receipt's stock effects and frees the DC —
+ * but KEEPS the receipt header, so the same receipt code is reused
+ * when the corrected entry is saved.
  *
- * On confirm we call cancelFabricReceipt(); on success we redirect the
- * user to /app/jobwork/fabric-receipt/new?dc=<id> pre-loaded with the
- * source DC so they can re-enter the receipt cleanly.
+ * On confirm we call editFabricReceipt(); on success we redirect the
+ * user to /app/jobwork/fabric-receipt/new?dc=<id>&receipt=<id> so the
+ * form re-enters under the existing receipt code.
  */
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Pencil, AlertTriangle } from 'lucide-react';
-import { cancelFabricReceipt } from './actions';
+import { editFabricReceipt } from './actions';
 
 interface EditButtonProps {
   receiptId: number;
@@ -29,16 +30,17 @@ export function EditReceiptButton({ receiptId, receiptCode, dcId }: EditButtonPr
     setError(null);
     setShowConfirm(false);
     startTransition(async () => {
-      const res = await cancelFabricReceipt(receiptId);
+      const res = await editFabricReceipt(receiptId);
       if (!res.ok) {
-        setError(res.error ?? 'Could not cancel the receipt.');
+        setError(res.error ?? 'Could not prepare the receipt for editing.');
         return;
       }
-      // Take the operator to the new-receipt form for the same DC so
-      // they can re-enter the corrected values.
+      // Take the operator to the entry form for the same DC, carrying
+      // the receipt id so the corrected entry is saved under the SAME
+      // receipt code.
       const targetDc = res.dc_id ?? dcId;
       if (targetDc) {
-        router.push(`/app/jobwork/fabric-receipt/new?dc=${targetDc}`);
+        router.push(`/app/jobwork/fabric-receipt/new?dc=${targetDc}&receipt=${receiptId}`);
       } else {
         router.push('/app/jobwork/fabric-receipt');
       }
@@ -66,8 +68,8 @@ export function EditReceiptButton({ receiptId, receiptCode, dcId }: EditButtonPr
               <div>
                 <h3 className="font-display font-bold text-sm">Edit receipt {receiptCode}?</h3>
                 <p className="text-xs text-ink-soft mt-1">
-                  Editing will cancel this receipt: stock that was reduced will be restored, the source DC will be freed for a new receipt, and you&apos;ll be taken to a fresh entry form pre-loaded with that DC. The receipt code{' '}
-                  <span className="font-mono">{receiptCode}</span> will not be reused.
+                  Stock that was reduced will be restored and the source DC will be released for re-entry. You&apos;ll be taken to the entry form pre-loaded with that DC, and on save the corrected receipt keeps the same code{' '}
+                  <span className="font-mono">{receiptCode}</span>. The DC stays locked to this receipt and cannot be used by any other receipt.
                 </p>
               </div>
             </div>
