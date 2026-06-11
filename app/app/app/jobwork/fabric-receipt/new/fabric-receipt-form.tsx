@@ -52,6 +52,12 @@ export interface DcInfo {
     porvai_kg: number;
     bobbin_m: number;
   };
+  /** In-house DCs only: stock per fabric quality (keyed by
+   *  fabric_quality_id), measured against the IN-HOUSE warehouse —
+   *  drives the Before / Consumed / After columns per quality. */
+  per_quality_stock?: Record<number, {
+    warp_m: number; weft_kg: number; porvai_kg: number; bobbin_m: number;
+  }> | null;
 }
 
 export interface ReceiptItemSeed {
@@ -206,6 +212,9 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
     return items
       .map((it) => {
         const m = resolvedMetres(it);
+        const stock = it.seed.fabric_quality_id != null
+          ? dc.per_quality_stock?.[it.seed.fabric_quality_id] ?? null
+          : null;
         return {
           key: it.seed.dc_item_id,
           label: it.seed.fabric_quality_code || it.seed.fabric_quality_name,
@@ -215,10 +224,30 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
           weftKg: round2(m * it.seed.weft_kg_per_m),
           porvaiKg: round2(m * it.seed.porvai_kg_per_m),
           bobbinM: it.seed.bobbin_pcs_per_m > 0 ? round2(m * it.seed.bobbin_pcs_per_m) : 0,
+          bobbinCount: it.seed.bobbin_pcs_per_m > 0 ? it.seed.bobbin_pcs_per_m : 0,
+          stock,
         };
       })
       .filter((q) => q.metres > 0);
-  }, [items]);
+  }, [items, dc.per_quality_stock]);
+
+  /** Render one per-quality cell: Before / − Consumed / After when the
+   *  quality's in-house stock is known, plain − Consumed otherwise. */
+  function qtyCell(before: number | null, consumed: number, unit: string): React.ReactElement {
+    if (before === null) {
+      return <span className="num text-amber-700">{consumed > 0 ? '\u2212 ' + fmtMoney(consumed) + ' ' + unit : '-'}</span>;
+    }
+    const after = round2(before - consumed);
+    return (
+      <span className="inline-block text-right">
+        <span className="block text-[10px] text-ink-mute num">{fmtMoney(before)} {unit}</span>
+        <span className="block num text-amber-700">{consumed > 0 ? '\u2212 ' + fmtMoney(consumed) : '-'}</span>
+        <span className={'block num font-semibold ' + (after < 0 ? 'text-rose-700' : 'text-emerald-700')}>
+          {fmtMoney(after)} {unit}
+        </span>
+      </span>
+    );
+  }
 
   async function handleSave(): Promise<void> {
     setError(null);
@@ -666,6 +695,9 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
           <div className="mt-4">
             <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">
               Reduction by fabric quality
+              {dc.per_quality_stock != null && (
+                <span className="ml-2 normal-case text-ink-mute">(each cell: before / − consumed / after, from in-house stock)</span>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[520px]">
@@ -690,8 +722,8 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
                       <div className="text-[10px] text-ink-mute font-normal">outflow on each ends column</div>
                     </td>
                     {perQuality.map((q) => (
-                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
-                        {'\u2212 '}{fmtMoney(q.metres)} m
+                      <td key={q.key} className="px-2 py-1.5 text-right">
+                        {qtyCell(q.stock?.warp_m ?? null, q.metres, 'm')}
                       </td>
                     ))}
                     <td className="px-2 py-1.5 text-right num font-semibold">{'\u2212 '}{fmtMoney(totals.metres)} m</td>
@@ -699,8 +731,9 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
                   <tr className="border-t border-line/40">
                     <td className="px-2 py-1.5 font-medium">Weft yarn</td>
                     {perQuality.map((q) => (
-                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
-                        {q.weftKg > 0 ? <>{'\u2212 '}{fmtMoney(q.weftKg)} kg{q.weftCode ? <span className="text-[10px] text-ink-mute"> ({q.weftCode})</span> : null}</> : '-'}
+                      <td key={q.key} className="px-2 py-1.5 text-right">
+                        {qtyCell(q.stock?.weft_kg ?? null, q.weftKg, 'kg')}
+                        {q.weftCode ? <span className="block text-[10px] text-ink-mute">({q.weftCode})</span> : null}
                       </td>
                     ))}
                     <td className="px-2 py-1.5 text-right num font-semibold">
@@ -710,8 +743,8 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
                   <tr className="border-t border-line/40">
                     <td className="px-2 py-1.5 font-medium">Porvai yarn</td>
                     {perQuality.map((q) => (
-                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
-                        {q.porvaiKg > 0 ? '\u2212 ' + fmtMoney(q.porvaiKg) + ' kg' : '-'}
+                      <td key={q.key} className="px-2 py-1.5 text-right">
+                        {qtyCell(q.stock?.porvai_kg ?? null, q.porvaiKg, 'kg')}
                       </td>
                     ))}
                     <td className="px-2 py-1.5 text-right num font-semibold">
@@ -719,10 +752,18 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
                     </td>
                   </tr>
                   <tr className="border-t border-line/40">
-                    <td className="px-2 py-1.5 font-medium">Bobbin metres</td>
+                    <td className="px-2 py-1.5 font-medium">
+                      Bobbin metres
+                      <div className="text-[10px] text-ink-mute font-normal">1 m per fabric metre, per matched bobbin</div>
+                    </td>
                     {perQuality.map((q) => (
-                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
-                        {q.bobbinM > 0 ? '\u2212 ' + fmtMoney(q.bobbinM) + ' m' : '-'}
+                      <td key={q.key} className="px-2 py-1.5 text-right">
+                        {qtyCell(q.stock?.bobbin_m ?? null, q.bobbinM, 'm')}
+                        {q.bobbinCount > 1 && (
+                          <span className="block text-[10px] text-ink-mute">
+                            {q.bobbinCount} bobbins × {fmtMoney(q.metres)} m each (1:1)
+                          </span>
+                        )}
                       </td>
                     ))}
                     <td className="px-2 py-1.5 text-right num font-semibold">

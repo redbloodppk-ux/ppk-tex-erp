@@ -435,6 +435,165 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     }
   }
 
+  // ── In-house per-quality stock (Before figures) ──
+  // For an in-house DC the jobwork pools above are empty — the real
+  // stock lives in the IN-HOUSE warehouse. Mirror its maths per quality:
+  //   warp   = opening_stock(warp_beam) + inhouse_warp_beam_purchase
+  //            + in-stock pavu  −  previous in-house receipt outflows
+  //   weft   = opening_stock(weft_yarn) + yarn_lot.current_kg (in_house, kind=yarn)
+  //   porvai = opening_stock(porvai_yarn) + yarn_lot.current_kg (in_house, kind=porvai)
+  //   bobbin = bobbin.quantity × m/pc across the quality's assigned bobbins
+  const perQualityStock: Record<number, { warp_m: number; weft_kg: number; porvai_kg: number; bobbin_m: number }> = {};
+  if (dc.production_mode === 'inhouse' && qIds.length > 0) {
+    // Pool ids per quality (self + merged siblings share one stock pool).
+    const poolByQ = new Map<number, number[]>();
+    for (const qId of qIds) {
+      const fq = fqById.get(qId) as (FqRow & { is_merged?: boolean; merged_name?: string | null }) | undefined;
+      const mn = fq?.is_merged === true ? (fq.merged_name ?? '').trim() : '';
+      if (mn === '') { poolByQ.set(qId, [qId]); continue; }
+      const sibs: number[] = [];
+      for (const [id, row] of fqById.entries()) {
+        const r = row as FqRow & { is_merged?: boolean; merged_name?: string | null };
+        if (r.is_merged === true && (r.merged_name ?? '').trim() === mn) sibs.push(id);
+      }
+      poolByQ.set(qId, sibs.length > 0 ? sibs : [qId]);
+    }
+
+    for (const qId of qIds) {
+      const snap = fqById.get(qId)?.calc_snapshot;
+      const ends = fqEndsById.get(qId)?.ends_count
+        ?? (snap?.totalEnds != null && snap.totalEnds !== '' ? Number(snap.totalEnds) : null);
+      const warpCountId = snap?.warpCountId != null && snap.warpCountId !== '' ? Number(snap.warpCountId) : null;
+      const weftCountId = fqWeftById.get(qId)?.yarn_count_id ?? null;
+      const porvaiCountId = snap?.porvaiCountId != null && snap.porvaiCountId !== '' ? Number(snap.porvaiCountId) : null;
+      const rawBobbinIds: unknown[] = Array.isArray(snap?.bobbinIds) && (snap?.bobbinIds as unknown[]).length > 0
+        ? (snap?.bobbinIds as unknown[])
+        : [snap?.bobbinId];
+      const qBobbinIds = rawBobbinIds
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const pool = poolByQ.get(qId) ?? [qId];
+
+      let warp = 0;
+      if (ends != null && ends > 0) {
+        let openQ = sb.from('opening_stock').select('quantity')
+          .eq('bucket', 'warp_beam').eq('mode', 'inhouse').eq('status', 'active')
+          .eq('warp_ends', ends);
+        openQ = warpCountId != null ? openQ.eq('yarn_count_id', warpCountId) : openQ.is('yarn_count_id', null);
+        const [openRes, purRes, pavuRes, outRes] = await Promise.all([
+          openQ,
+          sb.from('inhouse_warp_beam_purchase')
+            .select('metres, yarn_count_id, ends:ends_id ( ends_count )')
+            .eq('status', 'active'),
+          sb.from('pavu')
+            .select('meters, ends, sizing_job_id, sizing_job:sizing_job_id ( warp_count_id )')
+            .eq('production_mode', 'in_house')
+            .eq('status', 'in_stock')
+            .eq('ends', ends),
+          sb.from('fabric_receipt_item')
+            .select('received_metres, fabric_quality_id, receipt:receipt_id!inner ( id, status, dc:dc_id!inner ( production_mode ) )')
+            .in('fabric_quality_id', pool),
+        ]);
+        for (const r of ((openRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
+          warp += Number(r.quantity ?? 0);
+        }
+        for (const r of ((purRes.data ?? []) as Array<{ metres: number | string | null; yarn_count_id: number | null; ends: { ends_count: number | null } | null }>)) {
+          if (Number(r.ends?.ends_count ?? 0) !== ends) continue;
+          if ((r.yarn_count_id ?? null) !== warpCountId) continue;
+          warp += Number(r.metres ?? 0);
+        }
+        for (const r of ((pavuRes.data ?? []) as Array<{ meters: number | string | null; sizing_job: { warp_count_id: number | null } | null }>)) {
+          const wc = r.sizing_job?.warp_count_id ?? null;
+          if (wc != null && warpCountId != null && wc !== warpCountId) continue;
+          warp += Number(r.meters ?? 0);
+        }
+        for (const r of ((outRes.data ?? []) as Array<{ received_metres: number | string | null; receipt: { status: string; dc: { production_mode: string | null } | null } | null }>)) {
+          if (r.receipt?.dc?.production_mode !== 'inhouse') continue;
+          if (r.receipt?.status === 'draft') continue; // parked for edit — already reversed
+          warp -= Number(r.received_metres ?? 0);
+        }
+      }
+
+      let weft = 0;
+      if (weftCountId != null) {
+        const [oRes, lRes] = await Promise.all([
+          sb.from('opening_stock').select('quantity')
+            .eq('bucket', 'weft_yarn').eq('mode', 'inhouse').eq('status', 'active')
+            .eq('yarn_count_id', weftCountId),
+          sb.from('yarn_lot').select('current_kg')
+            .eq('yarn_count_id', weftCountId)
+            .eq('delivery_destination', 'in_house')
+            .eq('yarn_kind', 'yarn'),
+        ]);
+        for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) weft += Number(r.quantity ?? 0);
+        for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) weft += Number(r.current_kg ?? 0);
+      }
+
+      let porvai = 0;
+      if (porvaiCountId != null) {
+        const [oRes, lRes] = await Promise.all([
+          sb.from('opening_stock').select('quantity')
+            .eq('bucket', 'porvai_yarn').eq('mode', 'inhouse').eq('status', 'active')
+            .eq('yarn_count_id', porvaiCountId),
+          sb.from('yarn_lot').select('current_kg')
+            .eq('yarn_count_id', porvaiCountId)
+            .eq('delivery_destination', 'in_house')
+            .eq('yarn_kind', 'porvai'),
+        ]);
+        for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) porvai += Number(r.quantity ?? 0);
+        for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) porvai += Number(r.current_kg ?? 0);
+      }
+
+      let bobbinM = 0;
+      if (qBobbinIds.length > 0) {
+        const [bRes, outRes2] = await Promise.all([
+          sb.from('bobbin')
+            .select('quantity, bobbin_metre')
+            .in('id', qBobbinIds),
+          // In-house consumption is recorded as stock_ledger outflows
+          // (jobwork_party_id NULL) — net them off the godown stock.
+          sb.from('stock_ledger')
+            .select('quantity')
+            .eq('bucket', 'bobbin')
+            .eq('direction', 'out')
+            .is('jobwork_party_id', null)
+            .in('bobbin_id', qBobbinIds),
+        ]);
+        for (const r of ((bRes.data ?? []) as Array<{ quantity: number | string | null; bobbin_metre: number | string | null }>)) {
+          bobbinM += Number(r.quantity ?? 0) * Number(r.bobbin_metre ?? 0);
+        }
+        for (const r of ((outRes2.data ?? []) as Array<{ quantity: number | string | null }>)) {
+          bobbinM -= Number(r.quantity ?? 0);
+        }
+        bobbinM = Math.max(0, bobbinM);
+      }
+
+      perQualityStock[qId] = {
+        warp_m:    Math.round(warp   * 100) / 100,
+        weft_kg:   Math.round(weft   * 1000) / 1000,
+        porvai_kg: Math.round(porvai * 1000) / 1000,
+        bobbin_m:  Math.round(bobbinM * 100) / 100,
+      };
+    }
+
+    // The pooled Stock impact card should show the IN-HOUSE totals, not
+    // the (empty) jobwork pools. Merged siblings share a pool — count
+    // each pool once.
+    const seenPool = new Set<string>();
+    stock_pavu_m = 0; stock_weft_kg = 0; stock_porvai_kg = 0; stock_bobbin_m = 0;
+    for (const qId of qIds) {
+      const s = perQualityStock[qId];
+      if (!s) continue;
+      const poolKey = (poolByQ.get(qId) ?? [qId]).slice().sort().join(',');
+      if (seenPool.has(poolKey)) continue;
+      seenPool.add(poolKey);
+      stock_pavu_m    += s.warp_m;
+      stock_weft_kg   += s.weft_kg;
+      stock_porvai_kg += s.porvai_kg;
+      stock_bobbin_m  += s.bobbin_m;
+    }
+  }
+
   const seeds: ReceiptItemSeed[] = items.map((it) => {
     const fq = it.fabric_quality_id != null ? fqById.get(it.fabric_quality_id) ?? null : null;
     const ends = it.fabric_quality_id != null ? fqEndsById.get(it.fabric_quality_id) ?? null : null;
@@ -485,6 +644,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       porvai_kg: Math.round(stock_porvai_kg * 100) / 100,
       bobbin_m:  Math.round(stock_bobbin_m * 100) / 100,
     },
+    per_quality_stock: dc.production_mode === 'inhouse' ? perQualityStock : null,
   };
 
   return (
