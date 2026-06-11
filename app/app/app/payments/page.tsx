@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -491,19 +492,18 @@ function NewPaymentTab(): React.ReactElement {
         </div>
         <div>
           <label className="label">Party *</label>
-          <select
-            required
-            className="input"
+          {/* Type-ahead: type any words of the name (or the code) in any
+              order and matching parties auto-suggest. */}
+          <SearchSelect
+            options={filteredParties.map((p): SearchSelectOption => ({
+              value: String(p.id),
+              label: `${p.code} — ${p.name}`,
+            }))}
             value={partyId}
-            onChange={(e) => setPartyId(e.target.value)}
-          >
-            <option value="" disabled>
-              {filteredParties.length ? 'Select party…' : 'No parties match this type'}
-            </option>
-            {filteredParties.map((p) => (
-              <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
-            ))}
-          </select>
+            onChange={setPartyId}
+            placeholder={filteredParties.length ? 'Type party name…' : 'No parties match this type'}
+            required
+          />
         </div>
 
         <div>
@@ -862,12 +862,15 @@ function StatusTab(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <label className="label">Party *</label>
-          <select className="input" value={partyId} onChange={(e) => setPartyId(e.target.value)}>
-            <option value="">— Pick a party to see its ledger —</option>
-            {filteredParties.map((p) => (
-              <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
-            ))}
-          </select>
+          <SearchSelect
+            options={filteredParties.map((p): SearchSelectOption => ({
+              value: String(p.id),
+              label: `${p.code} — ${p.name}`,
+            }))}
+            value={partyId}
+            onChange={setPartyId}
+            placeholder="Type party name to see its ledger…"
+          />
         </div>
       </div>
 
