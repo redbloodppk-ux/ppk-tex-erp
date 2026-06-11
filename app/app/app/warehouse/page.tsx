@@ -1896,30 +1896,36 @@ async function loadInhouseOpeningStock(
       metres: number | string | null; yarn_count_id: number | null;
       fabric_quality_id: number | null;
       ends: { ends_count: number | null } | null;
+      quality: { is_merged: boolean | null; merged_name: string | null } | null;
     }>(
       supabase.from('inhouse_warp_beam_purchase')
-        .select('id, code, purchase_date, metres, yarn_count_id, fabric_quality_id, ends:ends_id ( ends_count )')
+        .select('id, code, purchase_date, metres, yarn_count_id, fabric_quality_id, ends:ends_id ( ends_count ), quality:fabric_quality_id ( is_merged, merged_name )')
         .eq('status', 'active'),
     );
+    /** Column key for a quality: merged siblings share ONE column keyed
+     *  and labelled by the merged_name; standalone qualities get their
+     *  own fq:<id> column. */
+    const qualityColKey = (qid: number, isMerged: boolean, mergedName: string | null): { id: string; label: string } => {
+      const mn = isMerged ? (mergedName ?? '').trim() : '';
+      if (mn !== '') return { id: `fqm:${mn}`, label: mn };
+      const fq = qualityById.get(qid);
+      return { id: `fq:${qid}`, label: fq?.code ?? fq?.name ?? `FQ #${qid}` };
+    };
     for (const b of beamPurchases) {
       const ends = Number(b.ends?.ends_count ?? 0);
       const metres = Number(b.metres ?? 0);
       if (metres <= 0) continue;
       let colId: string;
       if (b.fabric_quality_id != null) {
-        colId = `fq:${b.fabric_quality_id}`;
+        const key = qualityColKey(b.fabric_quality_id, b.quality?.is_merged === true, b.quality?.merged_name ?? null);
+        colId = key.id;
         if (!colMap.has(colId)) {
-          const fq = qualityById.get(b.fabric_quality_id);
           const c = b.yarn_count_id != null ? countById.get(b.yarn_count_id) : null;
           const spec = [
             ends > 0 ? `${ends} ends` : null,
             c?.code ?? null,
           ].filter(Boolean).join(' · ');
-          colMap.set(colId, {
-            id: colId,
-            label: fq?.code ?? fq?.name ?? `FQ #${b.fabric_quality_id}`,
-            sublabel: spec,
-          });
+          colMap.set(colId, { id: colId, label: key.label, sublabel: spec });
         }
       } else {
         // Legacy purchase rows without a quality fall back to the
@@ -2017,14 +2023,23 @@ async function loadInhouseOpeningStock(
         .filter((x): x is number => x != null),
     ));
     const warpCountByQuality = new Map<number, number | null>();
+    const mergeByQuality = new Map<number, { is_merged: boolean; merged_name: string | null }>();
     if (receiptQualityIds.length > 0) {
-      const links = await safeSelect<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>(
-        supabase.from('fabric_quality_warp_count')
-          .select('fabric_quality_id, yarn_count_id, sno')
-          .in('fabric_quality_id', receiptQualityIds)
-          .eq('sno', 1),
-      );
+      const [links, mergeRows] = await Promise.all([
+        safeSelect<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>(
+          supabase.from('fabric_quality_warp_count')
+            .select('fabric_quality_id, yarn_count_id, sno')
+            .in('fabric_quality_id', receiptQualityIds)
+            .eq('sno', 1),
+        ),
+        safeSelect<{ id: number; is_merged: boolean | null; merged_name: string | null }>(
+          supabase.from('fabric_quality')
+            .select('id, is_merged, merged_name')
+            .in('id', receiptQualityIds),
+        ),
+      ]);
       for (const l of links) warpCountByQuality.set(l.fabric_quality_id, l.yarn_count_id);
+      for (const m of mergeRows) mergeByQuality.set(m.id, { is_merged: m.is_merged === true, merged_name: m.merged_name ?? null });
     }
 
     for (const r of receipts) {
@@ -2034,12 +2049,19 @@ async function loadInhouseOpeningStock(
         const m    = Number(it.received_metres ?? 0);
         if (m <= 0) continue;
         // If this quality has its own column (created by a warp beam
-        // purchase inflow above), consume from THAT column so the
-        // per-quality stock nets correctly. Otherwise fall back to the
-        // legacy (ends + count) column that matches pavu inflows.
+        // purchase inflow above — per quality, or per merged group),
+        // consume from THAT column so the per-quality stock nets
+        // correctly. Otherwise fall back to the legacy (ends + count)
+        // column that matches pavu inflows.
+        let qualityKey: string | null = null;
+        if (it.fabric_quality_id != null) {
+          const m = mergeByQuality.get(it.fabric_quality_id);
+          const mn = m !== undefined && m.is_merged ? (m.merged_name ?? '').trim() : '';
+          qualityKey = mn !== '' ? `fqm:${mn}` : `fq:${it.fabric_quality_id}`;
+        }
         let colId: string;
-        if (it.fabric_quality_id != null && colMap.has(`fq:${it.fabric_quality_id}`)) {
-          colId = `fq:${it.fabric_quality_id}`;
+        if (qualityKey !== null && colMap.has(qualityKey)) {
+          colId = qualityKey;
         } else {
           if (ends <= 0) continue;
           const warpCountId = it.fabric_quality_id != null

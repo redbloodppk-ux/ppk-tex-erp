@@ -42,6 +42,8 @@ interface QualityOption {
   id: number;
   code: string | null;
   name: string;
+  is_merged: boolean;
+  merged_name: string | null;
   ends_id: number | null;
   warp_count_id: number | null;
 }
@@ -123,7 +125,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
       // Only IN-HOUSE fabric qualities; their costing snapshot supplies
       // the warp ends + count which auto-fill when a quality is picked.
       sb.from('fabric_quality')
-        .select('id, code, name, calc_snapshot')
+        .select('id, code, name, is_merged, merged_name, calc_snapshot')
         .eq('active', true)
         .eq('production_mode', 'inhouse')
         .order('name'),
@@ -156,6 +158,8 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
           id: q.id as number,
           code: (q.code ?? null) as string | null,
           name: q.name as string,
+          is_merged: q.is_merged === true,
+          merged_name: (q.merged_name ?? null) as string | null,
           ends_id:       Number.isFinite(endsId)  && endsId  > 0 ? endsId  : null,
           warp_count_id: Number.isFinite(countId) && countId > 0 ? countId : null,
         };
@@ -169,6 +173,37 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
   }, [supabase]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /** Dropdown entries — merged qualities collapse into ONE entry that
+   *  shows ONLY the merged name (e.g. "COLOR OE"); the first sibling's
+   *  id is what gets stored. Standalone qualities show code - name. */
+  const qualityOptions = useMemo<{ value: string; label: string }[]>(() => {
+    const out: { value: string; label: string }[] = [];
+    const seenMerged = new Set<string>();
+    for (const q of qualities) {
+      const mn = q.is_merged && q.merged_name !== null && q.merged_name.trim() !== ''
+        ? q.merged_name.trim() : null;
+      if (mn !== null) {
+        if (seenMerged.has(mn)) continue;
+        seenMerged.add(mn);
+        out.push({ value: String(q.id), label: mn });
+      } else {
+        out.push({ value: String(q.id), label: `${q.code ?? '#' + q.id} - ${q.name}` });
+      }
+    }
+    return out;
+  }, [qualities]);
+
+  /** Map any merge-group sibling to the group's representative id (the
+   *  one used as the dropdown value), so editing old rows re-selects
+   *  the merged entry correctly. */
+  function mergeRepresentativeId(id: number): number {
+    const q = qualities.find((x) => x.id === id);
+    const mn = q !== undefined && q.is_merged ? (q.merged_name ?? '').trim() : '';
+    if (q === undefined || mn === '') return id;
+    const rep = qualities.find((x) => x.is_merged && (x.merged_name ?? '').trim() === mn);
+    return rep !== undefined ? rep.id : id;
+  }
 
   // Type-ahead options for the supplier picker (all active parties).
   const partyOptions = useMemo(
@@ -209,7 +244,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     setEditingId(r.id);
     setForm({
       purchase_date:     r.purchase_date,
-      fabric_quality_id: r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
+      fabric_quality_id: r.fabric_quality_id === null ? '' : String(mergeRepresentativeId(r.fabric_quality_id)),
       ends_id:           r.ends_id === null ? '' : String(r.ends_id),
       yarn_count_id:     r.yarn_count_id === null ? '' : String(r.yarn_count_id),
       supplier_party_id: r.supplier_party_id === null ? '' : String(r.supplier_party_id),
@@ -295,7 +330,9 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
   function qualityLabel(id: number | null): string {
     if (id === null) return '-';
     const q = qualities.find((x) => x.id === id);
-    return q ? (q.code ?? q.name) : '#' + String(id);
+    if (q === undefined) return '#' + String(id);
+    const mn = q.is_merged ? (q.merged_name ?? '').trim() : '';
+    return mn !== '' ? mn : (q.code ?? q.name);
   }
   function endsLabel(id: number | null): string {
     if (id === null) return '-';
@@ -365,10 +402,8 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                 value={form.fabric_quality_id}
                 onChange={(e) => pickQuality(e.target.value)}>
                 <option value="">--- pick ---</option>
-                {qualities.map((q) => (
-                  <option key={q.id} value={String(q.id)}>
-                    {q.code ?? '#' + q.id} - {q.name}
-                  </option>
+                {qualityOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </div>
