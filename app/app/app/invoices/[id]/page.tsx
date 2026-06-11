@@ -13,6 +13,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { EditInvoiceForm } from './edit-invoice-form';
+import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 import { EwaybillCard } from './ewaybill-card';
 import { DeleteInvoiceButton } from '../delete-invoice-button';
 
@@ -95,9 +96,9 @@ export default async function InvoiceDetailPage({
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
-        customer:customer_id ( id, name, gstin, state, billing_address ),
-        vendor:ledger_id     ( id, name ),
-        jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address )
+        customer:customer_id ( id, name, gstin, state, billing_address, phone, whatsapp ),
+        vendor:ledger_id     ( id, name, phone ),
+        jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address, phone, whatsapp )
       `)
       .eq('id', numericId)
       .maybeSingle(),
@@ -135,6 +136,24 @@ export default async function InvoiceDetailPage({
     ?? null;
   const partyAddress = inv.customer?.billing_address ?? inv.jobwork_party?.billing_address ?? null;
 
+  // WhatsApp share: prefer the party's dedicated WhatsApp number, fall
+  // back to their phone. The message is plain text — the operator can
+  // also print the PDF and attach it in the opened chat.
+  const partyWhatsApp: string | null =
+    inv.customer?.whatsapp ?? inv.customer?.phone
+    ?? inv.jobwork_party?.whatsapp ?? inv.jobwork_party?.phone
+    ?? inv.vendor?.phone
+    ?? null;
+  const waMessage = [
+    `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
+    `Party: ${partyName}`,
+    `Date: ${fmtDate(inv.invoice_date)}`,
+    `Total: Rs ${fmtRupees(inv.total)}`,
+    Number(inv.balance ?? 0) > 0
+      ? `Balance due: Rs ${fmtRupees(inv.balance)}${inv.due_date ? ` (due ${fmtDate(inv.due_date)})` : ''}`
+      : 'Fully paid. Thank you!',
+  ].join('\n');
+
   return (
     <div>
       <PageHeader
@@ -160,6 +179,7 @@ export default async function InvoiceDetailPage({
             >
               <Printer className="w-3.5 h-3.5" /> View / Print / PDF
             </Link>
+            <WhatsAppShareButton phone={partyWhatsApp} message={waMessage} />
             <DeleteInvoiceButton
               invoiceId={inv.id}
               invoiceNo={inv.invoice_no}

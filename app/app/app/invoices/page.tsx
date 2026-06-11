@@ -3,6 +3,7 @@ import { Plus, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft, Hammer, Pen
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { DeleteInvoiceButton } from './delete-invoice-button';
+import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 
 export const metadata = { title: 'Invoices' };
 
@@ -68,9 +69,9 @@ export default async function InvoicesPage({
     .select(`
       id, invoice_no, doc_type, invoice_date, due_date,
       taxable_value, cgst_amount, sgst_amount, igst_amount, total, balance, status,
-      customer:customer_id ( name ),
-      vendor:ledger_id     ( name ),
-      jobwork_party:jobwork_party_id ( name ),
+      customer:customer_id ( name, phone, whatsapp ),
+      vendor:ledger_id     ( name, phone ),
+      jobwork_party:jobwork_party_id ( name, phone, whatsapp ),
       party_name,
       original_invoice_id
     `)
@@ -170,6 +171,16 @@ export default async function InvoicesPage({
                   ?? inv.jobwork_party?.name
                   ?? inv.party_name
                   ?? '—';
+                const partyWhatsApp = inv.customer?.whatsapp ?? inv.customer?.phone
+                  ?? inv.jobwork_party?.whatsapp ?? inv.jobwork_party?.phone
+                  ?? inv.vendor?.phone
+                  ?? null;
+                const waMessage = [
+                  `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
+                  `Party: ${partyName}`,
+                  `Date: ${inv.invoice_date}`,
+                  `Total: Rs ${Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+                ].join('\n');
                 return (
                   <tr key={inv.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-ink">
@@ -200,6 +211,7 @@ export default async function InvoicesPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <WhatsAppShareButton phone={partyWhatsApp} message={waMessage} variant="icon" />
                       <Link
                         href={`/app/invoices/${inv.id}/print`}
                         target="_blank"
