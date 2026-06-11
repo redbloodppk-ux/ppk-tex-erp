@@ -73,7 +73,48 @@ export function EwaybillCard({
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── GSP API generation inputs ──
+  const [vehicleNo, setVehicleNo] = useState<string>('');
+  const [distanceKm, setDistanceKm] = useState<string>('');
+  const [transporterId, setTransporterId] = useState<string>('');
+  const [apiBusy, setApiBusy] = useState<boolean>(false);
+  const [apiMsg, setApiMsg] = useState<string | null>(null);
+
   const requiresEwb = invoiceTotal > 50000;
+
+  /** Generate through the GSP API. On success the server already
+   *  stamped ewaybill_no on the invoice — refresh and the card flips
+   *  to the captured state, and the print shows the number. */
+  async function handleApiGenerate(): Promise<void> {
+    setError(null);
+    setApiMsg(null);
+    if (vehicleNo.trim() === '') { setError('Enter the vehicle number for the e-way bill.'); return; }
+    setApiBusy(true);
+    try {
+      const res = await fetch('/app/api/ewaybill/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          vehicle_no: vehicleNo,
+          distance_km: distanceKm === '' ? 0 : Number(distanceKm),
+          transporter_id: transporterId,
+        }),
+      });
+      const json: { ok?: boolean; ewb_no?: string; error?: string; warning?: string } =
+        await res.json().catch(() => ({}));
+      setApiBusy(false);
+      if (json.ok && json.ewb_no) {
+        setApiMsg(json.warning ?? `E-way bill ${json.ewb_no} generated and saved.`);
+        router.refresh();
+        return;
+      }
+      setError(json.error ?? `Generation failed (HTTP ${res.status}).`);
+    } catch (e: unknown) {
+      setApiBusy(false);
+      setError(e instanceof Error ? e.message : 'Generation request failed.');
+    }
+  }
 
   async function save(payload: {
     ewaybill_no: string | null;
@@ -205,8 +246,48 @@ export function EwaybillCard({
           className="mt-2 space-y-3"
           onSubmit={(e) => { e.preventDefault(); void handleSave(); }}
         >
+          {/* ── Path 1: direct GSP API generation ── */}
+          <div className="rounded-md bg-indigo-50/40 border border-indigo-200 p-3 space-y-2">
+            <div className="font-semibold text-ink text-xs">Generate via GSP API</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="label">Vehicle no <span className="text-rose-600">*</span></label>
+                <input type="text" value={vehicleNo}
+                  onChange={(e) => setVehicleNo(e.target.value.toUpperCase())}
+                  placeholder="TN39AB1234" className="input font-mono" />
+              </div>
+              <div>
+                <label className="label">Distance (km)</label>
+                <input type="number" min={0} step={1} value={distanceKm}
+                  onChange={(e) => setDistanceKm(e.target.value)}
+                  placeholder="0 = auto by PIN" className="input num" />
+              </div>
+              <div>
+                <label className="label">Transporter ID (optional)</label>
+                <input type="text" value={transporterId}
+                  onChange={(e) => setTransporterId(e.target.value.toUpperCase())}
+                  placeholder="GSTIN of transporter" className="input font-mono" />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleApiGenerate()}
+              disabled={apiBusy}
+              className="btn-primary text-xs"
+            >
+              {apiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
+              Generate now (API)
+            </button>
+            {apiMsg && <div className="text-xs text-emerald-700">{apiMsg}</div>}
+            <p className="text-[11px] text-ink-mute">
+              Uses the GSP credentials configured on the server (EWB_* environment variables).
+              The EWB number, date and validity save onto this invoice automatically and appear on the print.
+            </p>
+          </div>
+
+          {/* ── Path 2: manual capture from the portal ── */}
           <div className="rounded-md bg-cloud/40 border border-line p-3 text-xs text-ink-soft">
-            <div className="font-semibold text-ink mb-1">How to generate</div>
+            <div className="font-semibold text-ink mb-1">Or capture manually from the portal</div>
             <ol className="list-decimal list-inside space-y-0.5">
               <li>Open the e-waybill portal:&nbsp;
                 <a href={EWB_PORTAL} target="_blank" rel="noopener noreferrer" className="text-indigo hover:underline inline-flex items-center gap-1">
@@ -216,10 +297,6 @@ export function EwaybillCard({
               <li>Generate a new e-waybill for invoice <b>{invoiceNo}</b>.</li>
               <li>Copy the 12-digit EWB number and validity, then paste below + Save.</li>
             </ol>
-            <div className="mt-2 text-[11px] text-ink-mute italic">
-              Direct API generation (without the portal step) needs GSP credentials -
-              I&apos;ll wire that in once you pick a GSP (Sandbox, Cygnet, ClearTax).
-            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

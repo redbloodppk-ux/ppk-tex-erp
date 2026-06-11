@@ -95,6 +95,9 @@ interface InvoiceRow {
   party_gstin: string | null;
   party_state: string | null;
   place_of_supply: string | null;
+  ewaybill_no: string | null;
+  ewaybill_date: string | null;
+  ewaybill_valid_till: string | null;
   original_invoice_id: number | null;
   customer: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   vendor: { id: number; name: string } | null;
@@ -178,6 +181,7 @@ export default async function InvoicePrintPage({
         id, invoice_no, doc_type, invoice_date, due_date, status, notes,
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
+        ewaybill_no, ewaybill_date, ewaybill_valid_till,
         original_invoice_id,
         customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id ( id, name ),
@@ -420,6 +424,16 @@ export default async function InvoicePrintPage({
           <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
           <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
         </div>
+
+        {/* ───── E-way bill strip (when generated) ───── */}
+        {inv.ewaybill_no && (
+          <div className="inv-meta">
+            <div><div className="lbl">E-WAY BILL #</div><div className="val">{inv.ewaybill_no}</div></div>
+            <div><div className="lbl">EWB DATE</div><div className="val">{fmtDate(inv.ewaybill_date)}</div></div>
+            <div><div className="lbl">EWB VALID TILL</div><div className="val">{inv.ewaybill_valid_till ? fmtDate(inv.ewaybill_valid_till) : '-'}</div></div>
+            <div></div>
+          </div>
+        )}
 
         {/* ───── Bill To / Ship To (DC-style) ───── */}
         {/* The old solid-black "BILL TO :" header bar is now an empty
