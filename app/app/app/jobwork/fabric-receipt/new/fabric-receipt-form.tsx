@@ -97,8 +97,13 @@ interface FabricReceiptFormProps {
   seeds: ReceiptItemSeed[];
   /** Edit-in-place: when set, save UPDATES this existing receipt header
    *  (same id + code, e.g. FR/26-27/0018) instead of inserting a new
-   *  one — so the receipt code survives an edit. */
-  reuse?: { id: number; code: string } | null;
+   *  one — so the receipt code survives an edit. originalDcId is the DC
+   *  the receipt held before the edit; if the operator re-points the
+   *  receipt to a different DC, the original is released at save time. */
+  reuse?: { id: number; code: string; originalDcId: number | null } | null;
+  /** Edit mode only: the DCs this receipt can be re-pointed to (every
+   *  free challan of the same production mode + the current one). */
+  dcOptions?: Array<{ id: number; code: string; party_name: string; total_metres: number; dc_date: string }>;
 }
 
 function num(v: string): number {
@@ -130,7 +135,7 @@ function resolvedMetres(it: ItemState): number {
   return round2(t > 0 ? m * t : m);
 }
 
-export function FabricReceiptForm({ dc, seeds, reuse }: FabricReceiptFormProps): React.ReactElement {
+export function FabricReceiptForm({ dc, seeds, reuse, dcOptions }: FabricReceiptFormProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
@@ -324,6 +329,18 @@ export function FabricReceiptForm({ dc, seeds, reuse }: FabricReceiptFormProps):
       return;
     }
 
+    // Edit: if the receipt was re-pointed to a DIFFERENT DC, release the
+    // one it previously held — only now, at save time, does the old DC
+    // become free again (one DC = one fabric receipt at every moment).
+    // The fabric_receipt_id guard makes sure we only unlock a DC that is
+    // still ours.
+    if (reuse && reuse.originalDcId != null && reuse.originalDcId !== dc.id) {
+      await sb.from('delivery_challan')
+        .update({ fabric_receipt_id: null, status: 'draft' })
+        .eq('id', reuse.originalDcId)
+        .eq('fabric_receipt_id', reuse.id);
+    }
+
     // Link the DC back to this receipt + advance its workflow status to
     // 'confirmed' so the next step (jobwork bill) can pick it up. The DC
     // status pipeline is automatic now: draft -> confirmed on receipt ->
@@ -391,11 +408,38 @@ export function FabricReceiptForm({ dc, seeds, reuse }: FabricReceiptFormProps):
   // ── Render ──────────────────────────────────────────────────────────
   return (
     <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
-      {/* Edit-in-place banner */}
+      {/* Edit-in-place banner + DC re-pointing picker */}
       {reuse && (
-        <div className="card border-amber-200 bg-amber-50/40 px-4 py-2.5 text-xs text-amber-800">
-          Editing receipt <span className="font-mono font-semibold">{reuse.code}</span> — the previous stock reductions were
-          restored. Saving will re-apply consumption under the same receipt code.
+        <div className="card border-amber-200 bg-amber-50/40 px-4 py-2.5 space-y-2">
+          <div className="text-xs text-amber-800">
+            Editing receipt <span className="font-mono font-semibold">{reuse.code}</span> — the previous stock reductions were
+            restored. Saving will re-apply consumption under the same receipt code.
+          </div>
+          {dcOptions && dcOptions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="label text-xs text-amber-800 mb-0">Source DC</label>
+              <select
+                className="input h-8 text-xs w-auto min-w-[260px]"
+                value={String(dc.id)}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next) && next > 0 && next !== dc.id) {
+                    router.push(`/app/jobwork/fabric-receipt/new?dc=${next}&receipt=${reuse.id}`);
+                  }
+                }}
+              >
+                {dcOptions.map((o) => (
+                  <option key={o.id} value={String(o.id)}>
+                    {o.code} · {o.party_name || '—'} · {o.total_metres > 0 ? `${o.total_metres} m` : '-'}{o.dc_date ? ` · ${o.dc_date}` : ''}
+                    {reuse.originalDcId === o.id ? ' (current)' : ''}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-amber-700">
+                Quantities come from the DC — to change metres, edit the DC itself, then pick it here.
+              </span>
+            </div>
+          )}
         </div>
       )}
       {/* Header card */}
@@ -470,15 +514,20 @@ export function FabricReceiptForm({ dc, seeds, reuse }: FabricReceiptFormProps):
                     )}
                   </td>
                   <td className="px-2 py-2">
-                    <input type="number" step="0.01" min="0" value={it.received_metres}
-                      onChange={(e) => patch(idx, { received_metres: e.target.value })}
-                      className="input h-8 text-xs num w-28 text-right"
-                      placeholder={num(it.towel_length) > 0 ? 'towel count' : 'metres'} />
-                    {num(it.towel_length) > 0 && (
-                      <div className="text-[10px] text-ink-mute text-right mt-0.5">
-                        = {fmtMoney(m)} m
-                      </div>
-                    )}
+                    {/* Received quantity mirrors the source DC item and is
+                        NOT editable here — the DC is the single source of
+                        truth. To change the quantity, edit the DC itself
+                        (then, on an edit, re-pick it via the Source DC
+                        selector above). */}
+                    <div
+                      className="input h-8 text-xs num w-28 text-right bg-cloud/40 text-ink cursor-not-allowed flex items-center justify-end"
+                      title="From the DC — edit the DC to change this quantity."
+                    >
+                      {it.received_metres}
+                    </div>
+                    <div className="text-[10px] text-ink-mute text-right mt-0.5">
+                      {num(it.towel_length) > 0 ? <>= {fmtMoney(m)} m · </> : null}from DC
+                    </div>
                   </td>
                   <td className="px-2 py-2 text-xs">
                     {it.seed.weft_count_ne != null

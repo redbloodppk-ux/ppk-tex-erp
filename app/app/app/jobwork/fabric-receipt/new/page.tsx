@@ -35,17 +35,17 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  let reuse: { id: number; code: string } | null = null;
+  let reuseHdr: { id: number; code: string; status: string; dc_id: number | null } | null = null;
   if (Number.isInteger(reuseReceiptId) && reuseReceiptId > 0) {
-    const { data: reuseHdr } = await sb
+    const { data } = await sb
       .from('fabric_receipt')
       .select('id, code, status, dc_id')
       .eq('id', reuseReceiptId)
       .maybeSingle();
     // Only honour the param if the receipt really is parked for
-    // re-entry on THIS DC — otherwise fall through to a fresh receipt.
-    if (reuseHdr && reuseHdr.status === 'draft' && Number(reuseHdr.dc_id) === dcId) {
-      reuse = { id: reuseHdr.id as number, code: reuseHdr.code as string };
+    // re-entry — otherwise fall through to a fresh receipt.
+    if (data && data.status === 'draft') {
+      reuseHdr = data as { id: number; code: string; status: string; dc_id: number | null };
     }
   }
 
@@ -70,6 +70,19 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   const dc = dcRes.data;
   if (!dc) notFound();
 
+  // Edit-in-place is valid when the target DC is either the one this
+  // receipt already holds, or a FREE DC (the operator is re-pointing
+  // the receipt to a different challan — the old DC is released only
+  // at save time).
+  const reuse: { id: number; code: string; originalDcId: number | null } | null =
+    reuseHdr && (Number(reuseHdr.dc_id) === dcId || dc.fabric_receipt_id == null)
+      ? {
+          id: reuseHdr.id,
+          code: reuseHdr.code,
+          originalDcId: reuseHdr.dc_id != null ? Number(reuseHdr.dc_id) : null,
+        }
+      : null;
+
   // Already received? Redirect back to the outsource DC tab — UNLESS
   // this is the edit-in-place flow and the DC's lock points at the very
   // receipt being edited. The DC stays locked to its receipt throughout
@@ -77,6 +90,28 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   // may re-enter it.
   if (dc.fabric_receipt_id !== null && !(reuse && Number(dc.fabric_receipt_id) === reuse.id)) {
     redirect(`/app/outsource?already_received=${dc.code}`);
+  }
+
+  // Edit mode: list the DCs the receipt could be re-pointed to — every
+  // FREE challan of the same production mode, plus the one currently
+  // held. Receipted DCs never appear (one DC = one fabric receipt).
+  let dcOptions: Array<{ id: number; code: string; party_name: string; total_metres: number; dc_date: string }> = [];
+  if (reuse) {
+    const { data: freeDcs } = await sb
+      .from('delivery_challan')
+      .select('id, code, dc_date, total_metres, fabric_receipt_id, party:party_id ( name )')
+      .eq('production_mode', dc.production_mode)
+      .or(`fabric_receipt_id.is.null,id.eq.${dcId}`)
+      .order('dc_date', { ascending: false })
+      .order('id', { ascending: false });
+    dcOptions = ((freeDcs ?? []) as Array<{ id: number; code: string; dc_date: string | null; total_metres: number | string | null; party: { name: string } | null }>)
+      .map((r) => ({
+        id: r.id,
+        code: r.code,
+        party_name: r.party?.name ?? '',
+        total_metres: Number(r.total_metres ?? 0),
+        dc_date: r.dc_date ?? '',
+      }));
   }
 
   const items = (itemsRes.data ?? []) as Array<{
@@ -451,7 +486,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
           { label: 'Fabric Receipt' },
         ]}
       />
-      <FabricReceiptForm dc={dcInfo} seeds={seeds} reuse={reuse} />
+      <FabricReceiptForm dc={dcInfo} seeds={seeds} reuse={reuse} dcOptions={dcOptions} />
     </div>
   );
 }
