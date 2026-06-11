@@ -160,11 +160,13 @@ export async function cancelFabricReceipt(receiptId: number): Promise<CancelRece
   return { ok: true, dc_id: dcId ?? undefined };
 }
 
-/** Edit-in-place: reverse the stock and free the DC exactly like a
- *  cancel, but KEEP the receipt header (same id + code) marked as
- *  'draft'. The re-entry form then updates this header on save, so the
- *  receipt code (e.g. FR/26-27/0018) is preserved and no new number is
- *  drawn from the sequence. */
+/** Edit-in-place: reverse the stock exactly like a cancel, but KEEP
+ *  the receipt header (same id + code) marked as 'draft' AND keep the
+ *  DC locked to this receipt (fabric_receipt_id stays set). One DC =
+ *  one fabric receipt at all times — even mid-edit no other receipt
+ *  can grab the DC. The re-entry form updates this header on save, so
+ *  the receipt code (e.g. FR/26-27/0018) is preserved and no new
+ *  number is drawn from the sequence. */
 export async function editFabricReceipt(receiptId: number): Promise<CancelReceiptResult> {
   if (!Number.isInteger(receiptId) || receiptId <= 0) {
     return { ok: false, error: 'Invalid receipt id.' };
@@ -184,8 +186,16 @@ export async function editFabricReceipt(receiptId: number): Promise<CancelReceip
   const revErr = await reverseReceiptStock(sb, receiptId);
   if (revErr) return { ok: false, error: revErr };
 
-  const dcErr = await releaseDc(sb, dcId);
-  if (dcErr) return { ok: false, error: dcErr };
+  // Park the DC as draft for re-entry but DO NOT clear its
+  // fabric_receipt_id — the lock to this receipt must survive the edit
+  // window so no other receipt can take the DC meanwhile.
+  if (dcId != null) {
+    const { error: dcErr } = await sb
+      .from('delivery_challan')
+      .update({ status: 'draft' })
+      .eq('id', dcId);
+    if (dcErr) return { ok: false, error: `Could not park DC for re-entry: ${dcErr.message}` };
+  }
 
   // Keep the header so the code survives; clear the stale snapshot and
   // park it as draft until the corrected entry is saved.

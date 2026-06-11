@@ -68,8 +68,8 @@ export function EditReceiptButton({ receiptId, receiptCode, dcId }: EditButtonPr
               <div>
                 <h3 className="font-display font-bold text-sm">Edit receipt {receiptCode}?</h3>
                 <p className="text-xs text-ink-soft mt-1">
-                  Stock that was reduced will be restored and the source DC will be released for re-entry. You&apos;ll be taken to the entry form pre-loaded with that DC, and on save the corrected receipt keeps the same code{' '}
-                  <span className="font-mono">{receiptCode}</span>. The DC stays locked to this receipt and cannot be used by any other receipt.
+                  Stock that was reduced will be restored. You&apos;ll be taken to the entry form pre-loaded with the source DC, and on save the corrected receipt keeps the same code{' '}
+                  <span className="font-mono">{receiptCode}</span>. The DC remains locked to this receipt the whole time — no other receipt can use it.
                 </p>
               </div>
             </div>

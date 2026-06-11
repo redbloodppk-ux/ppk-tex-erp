@@ -25,9 +25,10 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     redirect('/app/outsource');
   }
   // ?receipt=<id> — edit-in-place flow. The Edit button on a saved
-  // receipt reverses its stock, frees the DC and parks the header as
-  // 'draft'; this form then UPDATES that header on save so the receipt
-  // keeps its original code instead of drawing a new number.
+  // receipt reverses its stock and parks the header as 'draft' while
+  // the DC stays LOCKED to that receipt (fabric_receipt_id kept); this
+  // form then UPDATES that header on save so the receipt keeps its
+  // original code instead of drawing a new number.
   const reuseReceiptId = sp.receipt ? Number(sp.receipt) : NaN;
 
   const supabase = await createClient();
@@ -69,8 +70,12 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
   const dc = dcRes.data;
   if (!dc) notFound();
 
-  // Already received? Redirect back to the outsource DC tab.
-  if (dc.fabric_receipt_id !== null) {
+  // Already received? Redirect back to the outsource DC tab — UNLESS
+  // this is the edit-in-place flow and the DC's lock points at the very
+  // receipt being edited. The DC stays locked to its receipt throughout
+  // the edit (one DC = one fabric receipt, always); only that receipt
+  // may re-enter it.
+  if (dc.fabric_receipt_id !== null && !(reuse && Number(dc.fabric_receipt_id) === reuse.id)) {
     redirect(`/app/outsource?already_received=${dc.code}`);
   }
 
