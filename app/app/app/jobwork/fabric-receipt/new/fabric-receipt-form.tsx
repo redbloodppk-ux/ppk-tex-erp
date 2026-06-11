@@ -197,6 +197,29 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
     };
   }, [items]);
 
+  /** Per-quality reduction breakdown for the Stock impact card. Each
+   *  quality on the receipt reduces its OWN warp metres (on its ends
+   *  column in the warehouse), weft kg, porvai kg and bobbin metres —
+   *  this surfaces those numbers side by side instead of one pooled
+   *  figure. */
+  const perQuality = useMemo(() => {
+    return items
+      .map((it) => {
+        const m = resolvedMetres(it);
+        return {
+          key: it.seed.dc_item_id,
+          label: it.seed.fabric_quality_code || it.seed.fabric_quality_name,
+          ends: it.seed.ends_count,
+          weftCode: it.seed.weft_yarn_count_code,
+          metres: m,
+          weftKg: round2(m * it.seed.weft_kg_per_m),
+          porvaiKg: round2(m * it.seed.porvai_kg_per_m),
+          bobbinM: it.seed.bobbin_pcs_per_m > 0 ? round2(m * it.seed.bobbin_pcs_per_m) : 0,
+        };
+      })
+      .filter((q) => q.metres > 0);
+  }, [items]);
+
   async function handleSave(): Promise<void> {
     setError(null);
     if (dcConflict) {
@@ -634,6 +657,83 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
             </tbody>
           </table>
         </div>
+
+        {/* Per-quality reduction — one COLUMN per fabric quality on this
+            receipt. Warp metres land on each quality's own ends column
+            in the warehouse; weft / porvai / bobbin reduce from that
+            quality's masters. */}
+        {perQuality.length > 0 && (
+          <div className="mt-4">
+            <div className="text-[11px] uppercase tracking-wide text-ink-mute mb-2">
+              Reduction by fabric quality
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[520px]">
+                <thead className="text-[10px] uppercase tracking-wide text-ink-soft bg-cloud/40">
+                  <tr>
+                    <th className="text-left px-2 py-2">Bucket</th>
+                    {perQuality.map((q) => (
+                      <th key={q.key} className="text-right px-2 py-2">
+                        {q.label}
+                        <div className="font-normal normal-case text-ink-mute">
+                          {q.ends != null ? `${q.ends} ends` : ''}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="text-right px-2 py-2">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-line/40">
+                    <td className="px-2 py-1.5 font-medium">
+                      Warp metres
+                      <div className="text-[10px] text-ink-mute font-normal">outflow on each ends column</div>
+                    </td>
+                    {perQuality.map((q) => (
+                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
+                        {'\u2212 '}{fmtMoney(q.metres)} m
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right num font-semibold">{'\u2212 '}{fmtMoney(totals.metres)} m</td>
+                  </tr>
+                  <tr className="border-t border-line/40">
+                    <td className="px-2 py-1.5 font-medium">Weft yarn</td>
+                    {perQuality.map((q) => (
+                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
+                        {q.weftKg > 0 ? <>{'\u2212 '}{fmtMoney(q.weftKg)} kg{q.weftCode ? <span className="text-[10px] text-ink-mute"> ({q.weftCode})</span> : null}</> : '-'}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right num font-semibold">
+                      {totals.weftKg > 0 ? '\u2212 ' + fmtMoney(totals.weftKg) + ' kg' : '-'}
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line/40">
+                    <td className="px-2 py-1.5 font-medium">Porvai yarn</td>
+                    {perQuality.map((q) => (
+                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
+                        {q.porvaiKg > 0 ? '\u2212 ' + fmtMoney(q.porvaiKg) + ' kg' : '-'}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right num font-semibold">
+                      {totals.porvaiKg > 0 ? '\u2212 ' + fmtMoney(totals.porvaiKg) + ' kg' : '-'}
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line/40">
+                    <td className="px-2 py-1.5 font-medium">Bobbin metres</td>
+                    {perQuality.map((q) => (
+                      <td key={q.key} className="px-2 py-1.5 text-right num text-amber-700">
+                        {q.bobbinM > 0 ? '\u2212 ' + fmtMoney(q.bobbinM) + ' m' : '-'}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right num font-semibold">
+                      {totals.bobbinMtrs > 0 ? '\u2212 ' + fmtMoney(totals.bobbinMtrs) + ' m' : '-'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stock-reduction shortfalls (receipt is still saved). */}
