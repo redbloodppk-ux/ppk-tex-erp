@@ -77,6 +77,18 @@ interface UnpaidBill {
   balance: number | string;
 }
 
+/** Party types where a payment MUST be adjusted against bills — or
+ *  explicitly confirmed as an advance to the party ledger — before it
+ *  can be saved. Keeps supplier/jobwork ledgers bill-to-bill clean. */
+const BILL_ADJUST_REQUIRED_TYPES: readonly string[] = [
+  'Bobbin Supplier',
+  'Jobwork Party',
+  'Outsource Weaver',
+  'Mill / Yarn Supplier',
+  'Sizing Party',
+  'Customer',
+];
+
 const DOC_TYPE_LABEL: Record<string, string> = {
   tax_invoice:     'Fabric Sale',
   yarn_sale:       'Yarn Sale',
@@ -190,6 +202,10 @@ function NewPaymentTab(): React.ReactElement {
   const [billsLoading, setBillsLoading] = useState<boolean>(false);
   const [checkedBills, setCheckedBills] = useState<Set<number>>(new Set());
   const [alloc,        setAlloc]        = useState<Record<number, string>>({});
+  /** Operator's explicit confirmation that this payment is an ADVANCE
+   *  to the party ledger (no bill adjusted). Required for the party
+   *  types in BILL_ADJUST_REQUIRED_TYPES. */
+  const [advanceOk,    setAdvanceOk]    = useState<boolean>(false);
 
   // ── Load party types, parties, and mode (BANK / CASH) ledgers ───────────
   useEffect(() => {
@@ -242,6 +258,7 @@ function NewPaymentTab(): React.ReactElement {
   const loadBills = useCallback(async (): Promise<void> => {
     setCheckedBills(new Set());
     setAlloc({});
+    setAdvanceOk(false);
     if (!partyId) { setBills([]); return; }
     const party = parties.find((p) => String(p.id) === partyId);
     if (!party) { setBills([]); return; }
@@ -325,6 +342,18 @@ function NewPaymentTab(): React.ReactElement {
     return Math.round((amt - allocatedTotal) * 100) / 100;
   }, [amount, allocatedTotal]);
 
+  /** True when the picked party's type demands bill-to-bill adjustment
+   *  (or an explicit advance confirmation) before saving. */
+  const billAdjustRequired = useMemo<boolean>(() => {
+    if (!partyId) return false;
+    const party = parties.find((p) => String(p.id) === partyId);
+    if (!party || !Array.isArray(party.party_type_ids)) return false;
+    const requiredIds = new Set(
+      partyTypes.filter((pt) => BILL_ADJUST_REQUIRED_TYPES.includes(pt.name)).map((pt) => pt.id),
+    );
+    return party.party_type_ids.some((id) => requiredIds.has(Number(id)));
+  }, [partyId, parties, partyTypes]);
+
   async function handleSave(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
@@ -357,6 +386,15 @@ function NewPaymentTab(): React.ReactElement {
       }
       allocations.push({ invoice_id: b.id, amount: Math.round(n * 100) / 100 });
     }
+    // Supplier-type parties (and customers): no save without either a
+    // bill adjustment or an explicit "advance payment" confirmation.
+    if (billAdjustRequired && allocations.length === 0 && !advanceOk) {
+      setError(bills.length > 0
+        ? 'Tick the bill(s) this payment settles — or tick "Advance payment" to post it to the party ledger without adjusting a bill.'
+        : 'This party has no unpaid bills. Tick "Advance payment" to confirm posting this amount to the party ledger.');
+      return;
+    }
+
     const allocSum = allocations.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
@@ -646,6 +684,27 @@ function NewPaymentTab(): React.ReactElement {
             </div>
           </div>
         )
+      )}
+
+      {/* Advance-payment confirmation — shown for party types that
+          require bill-to-bill adjustment, when nothing is adjusted. */}
+      {partyId !== '' && billAdjustRequired && allocatedTotal <= 0 && !billsLoading && (
+        <label className="flex items-start gap-2 border border-amber-200 bg-amber-50/60 rounded-md p-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-4 h-4 mt-0.5 accent-amber-600"
+            checked={advanceOk}
+            onChange={(e) => setAdvanceOk(e.target.checked)}
+          />
+          <span>
+            <span className="font-semibold text-amber-800">Advance payment — no bill adjusted.</span>{' '}
+            <span className="text-ink-soft">
+              {bills.length > 0
+                ? 'This party has unpaid bills. Tick bills above to adjust, or confirm here to post the amount to the party ledger as an advance.'
+                : 'Post this amount to the party ledger as an advance.'}
+            </span>
+          </span>
+        </label>
       )}
 
       {error && <p className="text-sm text-err">{error}</p>}
