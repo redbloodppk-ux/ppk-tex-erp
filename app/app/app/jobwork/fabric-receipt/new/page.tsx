@@ -486,7 +486,13 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
           { label: 'Fabric Receipt' },
         ]}
       />
-      <FabricReceiptForm dc={dcInfo} seeds={seeds} reuse={reuse} dcOptions={dcOptions} />
+      {/* key on dc.id: when the operator re-points the receipt to a
+          different DC via the Source DC picker, the form must REMOUNT
+          so its item-row state re-seeds from the new DC. Without this,
+          React reuses the component instance and the old DC's
+          quantities survive in state — the bug where a re-pointed
+          receipt consumed the previous DC's metres. */}
+      <FabricReceiptForm key={`dc-${dcInfo.id}`} dc={dcInfo} seeds={seeds} reuse={reuse} dcOptions={dcOptions} />
     </div>
   );
 }
