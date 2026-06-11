@@ -1693,9 +1693,10 @@ function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
 //      yarn_kind ('weft' vs 'porvai').
 //   3. For bobbin: bobbin master rows with production_mode='inhouse'.
 //
-// Outflows are sourced from production_batch consumption (warp / weft /
-// porvai lot usage) for the matching bucket. Without those events the
-// in-house tabs render as "nil" even when stock physically exists.
+// Outflows: warp comes from in-house fabric receipt items; weft /
+// porvai / bobbin come from the stock_ledger rows the in-house
+// fabric-receipt reducer writes (jobwork_party_id NULL), plus bobbin
+// returns to supplier.
 async function loadInhouseOpeningStock(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
@@ -1913,12 +1914,112 @@ async function loadInhouseOpeningStock(
     }
 
     // ── 3. Outflows ───────────────────────────────────────────────
-    // production_batch only stores cost-per-metre (not kg consumed),
-    // so there's no straight outflow column to read from. Once an
-    // in-house consumption ledger is wired up (or kg-consumed columns
-    // are added to production_batch) this is where the outflow events
-    // would be appended. Until then, the in-house tabs show inflows
-    // only, plus any opening-stock entries.
+    // In-house fabric receipts write their yarn consumption to
+    // stock_ledger (bucket weft_yarn / porvai_yarn, jobwork_party_id
+    // NULL, quantity in kg). Surface those as outflows on the matching
+    // count column so the tab nets to the live balance.
+    const yarnOuts = await safeSelect<{
+      yarn_count_id: number | null; quantity: number | string | null;
+      event_date: string | null; reference_no: string | null; notes: string | null;
+    }>(
+      supabase.from('stock_ledger')
+        .select('yarn_count_id, quantity, event_date, reference_no, notes')
+        .eq('bucket', bucket)
+        .eq('direction', 'out')
+        .is('jobwork_party_id', null),
+    );
+    for (const o of yarnOuts) {
+      if (o.yarn_count_id == null) continue;
+      const kg = Number(o.quantity ?? 0);
+      if (kg <= 0) continue;
+      events.push({
+        event_date: o.event_date ?? '',
+        column_id: ensureCountCol(o.yarn_count_id),
+        direction: 'out',
+        quantity: kg,
+        reference: o.reference_no ?? 'Fabric receipt',
+        notes: o.notes ?? 'In-house consumption',
+      });
+    }
+  }
+
+  // ── Bobbin — purchases in, returns + receipt consumption out ──────
+  // Inflows: opening stock (handled above) + bobbin purchases (pcs ×
+  // m/pc). Outflows: returns to supplier and the in-house fabric
+  // receipt consumption recorded in stock_ledger (jobwork_party_id
+  // NULL, metres).
+  if (bucket === 'bobbin') {
+    const [purRows, retRows, outRows] = await Promise.all([
+      safeSelect<{
+        id: number; purchase_date: string | null; invoice_no: string | null;
+        pieces_purchased: number | string | null;
+        bobbin: { ends_per_bobbin: number | null; bobbin_metre: number | string | null; production_mode: string | null } | null;
+      }>(
+        supabase.from('bobbin_purchase')
+          .select('id, purchase_date, invoice_no, pieces_purchased, bobbin:bobbin_id ( ends_per_bobbin, bobbin_metre, production_mode )'),
+      ),
+      safeSelect<{
+        id: number; return_date: string | null; reference_no: string | null;
+        quantity_pcs: number | string | null;
+        bobbin: { ends_per_bobbin: number | null; bobbin_metre: number | string | null } | null;
+      }>(
+        supabase.from('bobbin_return')
+          .select('id, return_date, reference_no, quantity_pcs, bobbin:bobbin_id ( ends_per_bobbin, bobbin_metre )')
+          .is('jobwork_party_id', null)
+          .eq('status', 'active'),
+      ),
+      safeSelect<{
+        quantity: number | string | null; event_date: string | null;
+        reference_no: string | null; notes: string | null;
+        bobbin: { ends_per_bobbin: number | null } | null;
+      }>(
+        supabase.from('stock_ledger')
+          .select('quantity, event_date, reference_no, notes, bobbin:bobbin_id ( ends_per_bobbin )')
+          .eq('bucket', 'bobbin')
+          .eq('direction', 'out')
+          .is('jobwork_party_id', null),
+      ),
+    ]);
+    for (const p of purRows) {
+      if (p.bobbin?.production_mode !== 'inhouse') continue;
+      const ends = Number(p.bobbin?.ends_per_bobbin ?? 0);
+      const m = Number(p.pieces_purchased ?? 0) * Number(p.bobbin?.bobbin_metre ?? 0);
+      if (ends <= 0 || m <= 0) continue;
+      events.push({
+        event_date: p.purchase_date ?? '',
+        column_id: ensureEndsCol(ends),
+        direction: 'in',
+        quantity: m,
+        reference: p.invoice_no ?? `Purchase #${p.id}`,
+        notes: 'Bobbin purchase',
+      });
+    }
+    for (const r of retRows) {
+      const ends = Number(r.bobbin?.ends_per_bobbin ?? 0);
+      const m = Number(r.quantity_pcs ?? 0) * Number(r.bobbin?.bobbin_metre ?? 0);
+      if (ends <= 0 || m <= 0) continue;
+      events.push({
+        event_date: r.return_date ?? '',
+        column_id: ensureEndsCol(ends),
+        direction: 'out',
+        quantity: m,
+        reference: r.reference_no ?? `Return #${r.id}`,
+        notes: 'Returned to supplier',
+      });
+    }
+    for (const o of outRows) {
+      const ends = Number(o.bobbin?.ends_per_bobbin ?? 0);
+      const m = Number(o.quantity ?? 0);
+      if (ends <= 0 || m <= 0) continue;
+      events.push({
+        event_date: o.event_date ?? '',
+        column_id: ensureEndsCol(ends),
+        direction: 'out',
+        quantity: m,
+        reference: o.reference_no ?? 'Fabric receipt',
+        notes: o.notes ?? 'In-house consumption',
+      });
+    }
   }
 
   // ── Warp Metre — pavu inflows + in-house fabric receipt outflows ─
