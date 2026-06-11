@@ -14,7 +14,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Eye } from 'lucide-react';
+import { Eye, PackageCheck } from 'lucide-react';
 import { BackfillSnapshotsButton } from './backfill-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
 import { RebuildLedgerButton } from './rebuild-ledger-button';
@@ -214,8 +214,10 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
             <ReorganizeReceiptsButton />
             <RebuildLedgerButton />
             <BackfillSnapshotsButton />
-            <Link href={tab.pickDcHref} className="btn-secondary text-xs">
-              {tab.pickDcLabel}
+            {/* New receipt = pick the source DC first, then click the
+                amber receive icon on the DC row. */}
+            <Link href={tab.pickDcHref} className="btn-primary text-xs">
+              <PackageCheck className="w-4 h-4" /> New Fabric Receipt — {tab.pickDcLabel}
             </Link>
           </div>
         }

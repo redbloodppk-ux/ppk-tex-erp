@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
-import { Plus, Pencil, Printer } from 'lucide-react';
+import { Plus, Pencil, Printer, PackageCheck } from 'lucide-react';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -204,6 +204,18 @@ export default async function DeliveryChallanListPage({
                     <Link href={`/app/delivery-challan/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="Edit DC">
                       <Pencil className="w-4 h-4" />
                     </Link>
+                    {/* Receive fabric against this DC — opens the fabric
+                        receipt form (works for in-house, jobwork and
+                        outsource DCs alike). */}
+                    {r.status !== 'cancelled' && (
+                      <Link
+                        href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
+                        className="p-1 rounded hover:bg-amber-50 text-amber-700 inline-flex ml-1"
+                        title="Create fabric receipt from this DC"
+                      >
+                        <PackageCheck className="w-4 h-4" />
+                      </Link>
+                    )}
                   </td>
                 </tr>
               );
