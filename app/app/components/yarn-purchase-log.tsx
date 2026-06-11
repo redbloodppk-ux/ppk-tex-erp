@@ -558,6 +558,8 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
           <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
+                <th className="text-left px-3 py-3">Date</th>
+                <th className="text-left px-3 py-3">Invoice</th>
                 <th className="text-left px-3 py-3">Lot</th>
                 <th className="text-left px-3 py-3">Yarn count</th>
                 <th className="text-left px-3 py-3 hidden md:table-cell">Supplier</th>
@@ -569,15 +571,24 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <th className="text-left px-3 py-3 hidden md:table-cell">Broker</th>
                 <th className="text-right px-3 py-3">Bags</th>
                 <th className="text-right px-3 py-3">Brokerage Rs</th>
-                <th className="text-left px-3 py-3">Date</th>
                 <th className="text-left px-3 py-3">Due Date</th>
-                <th className="text-left px-3 py-3 hidden lg:table-cell">Invoice</th>
                 <th className="text-right px-3 py-3 w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((l) => (
                 <tr key={l.id} className="border-t border-line/40 hover:bg-haze/60">
+                  <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(l.received_date)}</td>
+                  <td className="px-3 py-3 font-mono text-xs">
+                    {/* Clicking the invoice id reopens the form with every
+                        field loaded for editing. */}
+                    <button type="button"
+                      onClick={() => openEditForm(l)}
+                      title="Edit this purchase"
+                      className="text-indigo-700 hover:underline">
+                      {l.invoice_no ?? '(no invoice)'}
+                    </button>
+                  </td>
                   <td className="px-3 py-3 font-mono text-xs">{l.lot_code}</td>
                   <td className="px-3 py-3 font-semibold">{countLabel(l.yarn_count_id)}</td>
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(l.supplier_party_id)}</td>
@@ -589,7 +600,6 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{brokerLabel(l.broker_ledger_id)}</td>
                   <td className="px-3 py-3 text-right num">{l.bag_count}</td>
                   <td className="px-3 py-3 text-right num text-amber-700">{fmtMoney(l.brokerage_amount)}</td>
-                  <td className="px-3 py-3 text-ink-soft">{fmtDate(l.received_date)}</td>
                   <td className={
                     'px-3 py-3 ' + (
                       l.due_date && l.due_date < todayISO()
@@ -599,7 +609,6 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   }>
                     {fmtDate(l.due_date)}
                   </td>
-                  <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{l.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3 whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1">
                       <button type="button" className="p-1.5 rounded hover:bg-indigo-50 text-indigo-600"
