@@ -205,6 +205,27 @@ function NavBody({
     (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
   )?.group;
 
+  // Auto-hide: whenever navigation lands in a group, make that group
+  // the ONLY open one. Without this, a group opened earlier (persisted
+  // in localStorage) stayed expanded alongside the active group's
+  // render-time override, so two groups appeared open at once.
+  // Manually opening another group to browse still works — it only
+  // collapses when you actually navigate to one of its pages (or
+  // elsewhere).
+  useEffect(() => {
+    if (!hydrated || !activeGroup) return;
+    setOpenGroups((prev) => {
+      if (prev.size === 1 && prev.has(activeGroup)) return prev;
+      const next = new Set<GroupKey>([activeGroup]);
+      try {
+        window.localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify([...next]));
+      } catch {
+        // ignore quota / disabled-storage errors
+      }
+      return next;
+    });
+  }, [activeGroup, hydrated]);
+
   /** Accordion behaviour: opening a group auto-closes every other
    *  group. Clicking an already-open group collapses it (so all
    *  groups can be closed at once). The active group still
