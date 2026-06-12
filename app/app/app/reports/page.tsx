@@ -89,6 +89,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/bobbin-stock',
+    title: 'Bobbin Stock',
+    description:
+      'Every bobbin: opening stock, purchases in, weaving consumption out, empty spools returned, and the metre + piece balance.',
+    ready: true,
+  },
+  {
     href: '/app/reports/bobbin-consumption',
     title: 'Bobbin Consumption',
     description:

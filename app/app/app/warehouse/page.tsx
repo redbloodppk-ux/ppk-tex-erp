@@ -1697,7 +1697,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
                 const v = totals[c.id]?.in ?? 0;
                 return (
                   <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs">
-                    {v > 0 ? '+ ' + fmtUnit(v, data.unit) : '-'}
+                    {'+ ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
@@ -1708,7 +1708,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
                 const v = totals[c.id]?.out ?? 0;
                 return (
                   <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs">
-                    {v > 0 ? '\u2212 ' + fmtUnit(v, data.unit) : '-'}
+                    {'\u2212 ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
