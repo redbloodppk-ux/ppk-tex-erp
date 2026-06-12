@@ -129,6 +129,8 @@ export default function NewInvoicePage() {
   // Un-invoiced in-house fabric receipts (via their confirmed DCs).
   const [inhouseDcs,  setInhouseDcs]  = useState<InhouseReceiptDc[]>([]);
   const [pickedDcIds, setPickedDcIds] = useState<Set<number>>(new Set());
+  // doc_sequence rows so the form can preview the NEXT invoice number.
+  const [docSequences, setDocSequences] = useState<Record<string, { prefix: string; fy_code: string; format: string; next_value: number }>>({});
 
   // ── credit_note: original invoice picker ───────────────────────────────────
   const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
@@ -177,7 +179,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi, ihr] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -240,6 +242,11 @@ export default function NewInvoicePage() {
           .not('fabric_receipt_id', 'is', null)
           .order('dc_date', { ascending: true })
           .order('id', { ascending: true }),
+        // Next-number preview per document type.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('doc_sequence')
+          .select('doc_type, prefix, fy_code, format, next_value')
+          .in('doc_type', ['invoice', 'yarn_sale', 'general_sale', 'rental_invoice', 'credit_note', 'debit_note']),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -262,6 +269,12 @@ export default function NewInvoicePage() {
       setYarnLots((yl.data ?? []) as any);
       setOriginalInvoices((oi.data ?? []) as any);
       setInhouseDcs(((ihr as any).data ?? []) as InhouseReceiptDc[]);
+      const seqMap: Record<string, { prefix: string; fy_code: string; format: string; next_value: number }> = {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const s of (((seqs as any).data ?? []) as Array<{ doc_type: string; prefix: string; fy_code: string; format: string; next_value: number }>)) {
+        seqMap[s.doc_type] = { prefix: s.prefix, fy_code: s.fy_code, format: s.format, next_value: Number(s.next_value) };
+      }
+      setDocSequences(seqMap);
       setLoading(false);
     })();
   }, [supabase]);
@@ -383,6 +396,27 @@ export default function NewInvoicePage() {
   // ── derived: customer state → interstate? ─────────────────────────────────
   const currentCustomer = customers.find(c => c.id === Number(customerId));
   const isRentalCustomer = currentCustomer?.ledger_type_name === 'RENTAL';
+
+  /** Preview of the exact invoice number the DB trigger will assign on
+   *  save, rendered from doc_sequence. Mirrors fn_invoice_auto_no's
+   *  doc_type → sequence mapping (incl. the rental-customer special
+   *  case on general sales). */
+  const nextInvoiceNo = useMemo<string | null>(() => {
+    const seqKey =
+      docType === 'tax_invoice' ? 'invoice'
+      : docType === 'general_sale' && isRentalCustomer ? 'rental_invoice'
+      : docType;
+    const s = docSequences[seqKey];
+    if (!s) return null;
+    const padMatch = /\{seq:(0+)\}/.exec(s.format);
+    const width = padMatch?.[1]?.length ?? 4;
+    let out = s.format
+      .replace('{prefix}', s.prefix)
+      .replace('{fy}', s.fy_code)
+      .replace(/\{seq:0+\}/, String(s.next_value).padStart(width, '0'));
+    out = out.replace(/([-/])\1+/g, '$1').replace(/^[-/]+|[-/]+$/g, '');
+    return out;
+  }, [docType, isRentalCustomer, docSequences]);
 
   // When a Rental customer is picked on a general-sale invoice, pre-fill
   // sensible defaults on the first row: HSN 997212 ("Renting of
@@ -684,13 +718,11 @@ export default function NewInvoicePage() {
             <h3 className="text-sm font-bold text-ink">Document header</h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="label">Doc No</label>
-                <div className="input num bg-cloud/60 text-ink-mute flex items-center cursor-not-allowed select-none">
-                  {docType === 'tax_invoice'  ? 'Auto (INV/26-27/NNNN)'
-                  : docType === 'yarn_sale'   ? 'Auto (YS/26-27/NNNN)'
-                  : docType === 'general_sale'? 'Auto (GS/26-27/NNNN)'
-                  : docType === 'credit_note' ? 'Auto (CN/26-27/NNNN)'
-                  :                             'Auto (DN/26-27/NNNN)'}
+                <label className="label">Invoice No</label>
+                {/* Shows the ACTUAL next number from doc_sequence; the
+                    DB trigger assigns this exact number on save. */}
+                <div className="input num bg-cloud/60 text-ink flex items-center cursor-not-allowed select-none font-mono">
+                  {nextInvoiceNo ?? 'Auto'}
                 </div>
               </div>
               <div>
