@@ -95,6 +95,10 @@ interface InvoiceRow {
   party_gstin: string | null;
   party_state: string | null;
   place_of_supply: string | null;
+  ship_to_name: string | null;
+  ship_to_address: string | null;
+  ship_to_gstin: string | null;
+  ship_to_state: string | null;
   ewaybill_no: string | null;
   ewaybill_date: string | null;
   ewaybill_valid_till: string | null;
@@ -179,6 +183,7 @@ export default async function InvoicePrintPage({
     sb.from('invoice')
       .select(`
         id, invoice_no, doc_type, invoice_date, due_date, status, notes,
+        ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
         ewaybill_no, ewaybill_date, ewaybill_valid_till,
@@ -457,13 +462,15 @@ export default async function InvoicePrintPage({
               PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'} &nbsp;&middot;&nbsp; {isInterstate ? 'INTERSTATE (IGST)' : 'INTRASTATE (CGST + SGST)'}
             </div>
           </div>
+          {/* Ship-to: the consignee picked on the form, falling back to
+              the bill-to party when no separate ship-to was set. */}
           <div>
             <div className="tag">SHIP TO</div>
-            <div className="gst">GSTIN : {partyGstin || '-'}</div>
-            <div className="party">{partyName || '-'}</div>
-            <div className="addr">{partyAddress || ''}</div>
+            <div className="gst">GSTIN : {(inv.ship_to_name ? inv.ship_to_gstin : partyGstin) || '-'}</div>
+            <div className="party">{inv.ship_to_name || partyName || '-'}</div>
+            <div className="addr" style={{ whiteSpace: 'pre-line' }}>{inv.ship_to_name ? (inv.ship_to_address ?? '') : (partyAddress || '')}</div>
             <div className="ps">
-              PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'}
+              PLACE OF SUPPLY : {(inv.ship_to_name ? inv.ship_to_state : null) || inv.place_of_supply || partyState || '-'}
             </div>
           </div>
         </div>

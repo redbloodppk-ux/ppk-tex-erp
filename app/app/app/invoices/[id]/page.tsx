@@ -95,6 +95,7 @@ export default async function InvoiceDetailPage({
         subtotal, gst_amount, total, amount_paid, balance,
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
+        ship_to_party_id, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
         customer:customer_id ( id, name, gstin, state, billing_address, phone, whatsapp ),
         vendor:ledger_id     ( id, name, phone ),
@@ -206,6 +207,11 @@ export default async function InvoiceDetailPage({
           round_off:     Number(inv.round_off ?? 0),
           total:         Number(inv.total ?? 0),
           is_interstate: Boolean(inv.is_interstate),
+          ship_to_party_id: inv.ship_to_party_id ?? null,
+          ship_to_name:     inv.ship_to_name ?? null,
+          ship_to_address:  inv.ship_to_address ?? null,
+          ship_to_gstin:    inv.ship_to_gstin ?? null,
+          ship_to_state:    inv.ship_to_state ?? null,
         }}
       />
 

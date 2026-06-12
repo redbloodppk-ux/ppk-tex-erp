@@ -17,6 +17,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { Loader2, Save, Calculator } from 'lucide-react';
 
 type Status = 'draft' | 'issued' | 'partial_paid' | 'paid' | 'overdue' | 'cancelled';
@@ -43,6 +44,11 @@ export interface EditInvoiceInitial {
   round_off: number;
   total: number;
   is_interstate: boolean;
+  ship_to_party_id: number | null;
+  ship_to_name: string | null;
+  ship_to_address: string | null;
+  ship_to_gstin: string | null;
+  ship_to_state: string | null;
 }
 
 /** Back-compute the payment-term length in days from the stored due date. */
@@ -99,6 +105,18 @@ export function EditInvoiceForm({
   const [dueDays, setDueDays]         = useState<string>(daysBetweenISO(initial.invoice_date, initial.due_date));
   const [status, setStatus]           = useState<Status>(initial.status);
   const [notes, setNotes]             = useState<string>(initial.notes);
+  const [shipTo, setShipTo]           = useState<ShipToValue>(
+    initial.ship_to_name != null && initial.ship_to_name !== ''
+      ? {
+          enabled: true,
+          party_id: initial.ship_to_party_id,
+          name: initial.ship_to_name,
+          address: initial.ship_to_address ?? '',
+          gstin: initial.ship_to_gstin ?? '',
+          state: initial.ship_to_state ?? '',
+        }
+      : EMPTY_SHIP_TO,
+  );
 
   // Resolved due date = invoice_date + due_days, recomputed live so the
   // operator can see what gets saved.
@@ -131,7 +149,8 @@ export function EditInvoiceForm({
     || num(igst)    !== initial.igst_amount
     || num(roundOff) !== initial.round_off
     || num(total)   !== initial.total
-    || isInterstate !== initial.is_interstate;
+    || isInterstate !== initial.is_interstate
+    || (shipTo.enabled ? shipTo.name : '') !== (initial.ship_to_name ?? '');
 
   function recomputeTotal(): void {
     // Round the bill grand total to the nearest whole rupee and let
@@ -188,6 +207,7 @@ export function EditInvoiceForm({
       subtotal: taxableN,
       gst_amount: gstSum,
       is_interstate: isInterstate,
+      ...shipToPayload(shipTo),
     };
     const { error: err } = await sb.from('invoice').update(payload).eq('id', invoiceId);
     setBusy(false);
@@ -340,6 +360,11 @@ export function EditInvoiceForm({
               <input type="number" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className="input num font-semibold" required />
             </div>
           </div>
+        </div>
+
+        {/* ───── Ship to (optional consignee) ───── */}
+        <div className="border-t border-line/40 pt-4">
+          <ShipToPicker value={shipTo} onChange={setShipTo} />
         </div>
 
         {/* ───── Notes ───── */}

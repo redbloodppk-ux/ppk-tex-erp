@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
+import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { Loader2, Save, AlertTriangle } from 'lucide-react';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -174,6 +175,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   const [billDate, setBillDate] = useState<string>(todayISO());
   const [gstPct, setGstPct]     = useState<string>('5');
   const [notes, setNotes]       = useState<string>('');
+  const [shipTo, setShipTo]     = useState<ShipToValue>(EMPTY_SHIP_TO);
   const [busy, setBusy]         = useState<boolean>(false);
   const [error, setError]       = useState<string | null>(null);
   /** Preview of the bill code the trigger will generate on save
@@ -558,6 +560,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       // later (cancelled, paid, etc.) from the invoice detail page.
       status: 'issued',
       notes: notes || null,
+      ...shipToPayload(shipTo),
     };
 
     const { data: invRow, error: invErr } = await sb
@@ -866,6 +869,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           </div>
         </div>
       )}
+
+      <div className="card p-4">
+        <ShipToPicker value={shipTo} onChange={setShipTo} />
+      </div>
 
       <div className="card p-4">
         <label className="label">Notes (optional)</label>

@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
+import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -155,6 +156,7 @@ export default function NewInvoicePage() {
   // (invoice_date + N days). Empty string = no due date.
   const [dueDays,      setDueDays]      = useState('30');
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu');
+  const [shipTo, setShipTo] = useState<ShipToValue>(EMPTY_SHIP_TO);
   const [notes,        setNotes]        = useState('');
 
   // ── line rows ──────────────────────────────────────────────────────────────
@@ -615,6 +617,7 @@ export default function NewInvoicePage() {
       notes:         notes.trim() || null,
       supplier_bill_no:   docType === 'debit_note' ? (supplierBillNo.trim() || null) : null,
       supplier_bill_date: docType === 'debit_note' && supplierBillDate ? supplierBillDate : null,
+      ...shipToPayload(shipTo),
     };
 
     const { data: inv, error: invErr } = await supabase
@@ -828,6 +831,11 @@ export default function NewInvoicePage() {
                   })()}
                 </p>
               </div>
+            </div>
+
+            {/* Optional consignee — different ship-to address. */}
+            <div className="border-t border-line/40 pt-4">
+              <ShipToPicker value={shipTo} onChange={setShipTo} />
             </div>
 
             {/* Doc-type-specific helpers */}
