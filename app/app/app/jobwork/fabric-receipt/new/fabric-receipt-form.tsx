@@ -402,12 +402,20 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
     }
 
     // Link the DC back to this receipt + advance its workflow status to
-    // 'confirmed' so the next step (jobwork bill) can pick it up. The DC
-    // status pipeline is automatic now: draft -> confirmed on receipt ->
-    // invoiced when the jobwork bill is raised.
+    // 'confirmed' so the next step (bill / invoice) can pick it up. The
+    // DC status pipeline: draft -> confirmed on receipt -> invoiced when
+    // the bill is raised. IMPORTANT: a DC that is ALREADY invoiced must
+    // stay 'invoiced' — re-saving / editing its receipt must never
+    // downgrade the status (that was the bug where an invoiced DC
+    // showed CONFIRMED again).
     await sb.from('delivery_challan')
       .update({ fabric_receipt_id: receiptId, status: 'confirmed' })
-      .eq('id', dc.id);
+      .eq('id', dc.id)
+      .is('invoice_id', null);
+    await sb.from('delivery_challan')
+      .update({ fabric_receipt_id: receiptId, status: 'invoiced' })
+      .eq('id', dc.id)
+      .not('invoice_id', 'is', null);
 
     // Apply stock reductions FIFO across pavu / yarn_lot / bobbin. If any
     // bucket can't satisfy the full amount we still keep the receipt
