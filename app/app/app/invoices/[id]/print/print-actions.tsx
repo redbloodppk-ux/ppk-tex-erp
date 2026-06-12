@@ -52,7 +52,10 @@ export function InvoicePrintActions({
     if (!ok) return;
     setBusy('print');
     const originalTitle = document.title;
-    document.title = `Print ${safeFilename(invoiceNo)}`;
+    // Same title as Download PDF — if the user picks "Save as PDF"
+    // inside the print dialog, the filename is still
+    // "PARTY NAME INV-NO DD-MM-YYYY.pdf".
+    document.title = pdfFilename();
     setTimeout(() => {
       window.print();
       document.title = originalTitle;
