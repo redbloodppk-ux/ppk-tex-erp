@@ -29,6 +29,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { applyFabricReceiptStockReductions, type ReceiptItemForReduction, type Shortfall } from '@/lib/fabric-receipt/stock-reductions';
 import { measureStock, buildSnapshot } from '@/lib/fabric-receipt/stock-measure';
+import { cancelFabricReceipt } from '../[id]/actions';
 
 export interface DcInfo {
   id: number;
@@ -169,6 +170,30 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
   const [busy, setBusy]   = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [shortfalls, setShortfalls] = useState<Shortfall[]>([]);
+  /** Set when the receipt WAS saved but stock fell short — the form
+   *  stays open to show the warnings. Save is hidden; Cancel now means
+   *  "undo": reverse the stock and delete this receipt. */
+  const [savedReceipt, setSavedReceipt] = useState<{ id: number; code: string } | null>(null);
+
+  /** Where "back" leads — the DC list scoped to this DC's mode. */
+  const dcListHref = `/app/delivery-challan?mode=${dc.production_mode}`;
+
+  async function handleCancelSavedReceipt(): Promise<void> {
+    if (!savedReceipt) return;
+    const ok = window.confirm(
+      `Cancel fabric receipt ${savedReceipt.code}?\n\nEvery stock reduction it applied will be restored, the receipt is deleted, and DC ${dc.code} becomes free again.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    const res = await cancelFabricReceipt(savedReceipt.id);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Could not cancel the receipt.');
+      return;
+    }
+    router.push(dcListHref);
+    router.refresh();
+  }
 
   function patch(idx: number, mut: Partial<ItemState>): void {
     setItems((arr) => arr.map((x, i) => i === idx ? { ...x, ...mut } : x));
@@ -462,7 +487,10 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
     setBusy(false);
     if (reduction.shortfalls.length > 0) {
       setShortfalls(reduction.shortfalls);
-      // Don't navigate away - let the operator read the warnings.
+      // Don't navigate away - let the operator read the warnings. The
+      // receipt IS saved; remember it so Save hides and Cancel can
+      // reverse + delete it if the operator decides to undo.
+      setSavedReceipt({ id: receiptId, code: receiptCode });
       return;
     }
     // Land back on the matching Fabric Receipts tab so the operator
@@ -832,11 +860,11 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
             </tbody>
           </table>
           <div className="mt-3 flex items-center gap-2">
-            <button type="button" onClick={() => router.push('/app/jobwork')} className="btn-secondary text-xs">
-              Back to Jobwork
+            <button type="button" onClick={() => router.push(dcListHref)} className="btn-secondary text-xs">
+              Back to DC list
             </button>
             <span className="text-xs text-ink-mute">
-              Or stay here to copy the warnings before navigating away.
+              Or stay here to copy the warnings — or use Cancel below to undo this receipt.
             </span>
           </div>
         </div>
@@ -849,14 +877,27 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
       )}
 
       <div className="flex items-center gap-2">
-        <button type="submit" disabled={busy || dcConflict != null} className="btn-primary"
-          title={dcConflict != null ? `${dc.code} is held by ${dcConflict} — pick a free DC first.` : undefined}>
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save fabric receipt
-        </button>
-        <button type="button" onClick={() => router.push('/app/jobwork')} className="btn-secondary">
-          <ArrowLeft className="w-4 h-4" /> Cancel
-        </button>
+        {savedReceipt === null ? (
+          <>
+            <button type="submit" disabled={busy || dcConflict != null} className="btn-primary"
+              title={dcConflict != null ? `${dc.code} is held by ${dcConflict} — pick a free DC first.` : undefined}>
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save fabric receipt
+            </button>
+            <button type="button" onClick={() => router.push(dcListHref)} className="btn-secondary">
+              <ArrowLeft className="w-4 h-4" /> Cancel
+            </button>
+          </>
+        ) : (
+          /* Receipt already saved (shortfall view): Save is hidden.
+             Cancel = restore every stock reduction + delete the receipt
+             + free the DC. */
+          <button type="button" onClick={() => void handleCancelSavedReceipt()} disabled={busy}
+            className="btn-secondary text-rose-700">
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowLeft className="w-4 h-4" />}
+            Cancel receipt {savedReceipt.code} &amp; restore stock
+          </button>
+        )}
       </div>
     </form>
   );
