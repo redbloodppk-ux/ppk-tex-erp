@@ -213,9 +213,6 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <ReorganizeReceiptsButton />
-            <RebuildLedgerButton />
-            <BackfillSnapshotsButton />
             {/* New receipt = pick the source DC first, then click the
                 amber receive icon on the DC row. */}
             <Link href={tab.pickDcHref} className="btn-primary text-xs">
@@ -224,6 +221,32 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
           </div>
         }
       />
+
+      {/* Stock repair tools — one-time maintenance, collapsed by default
+          so the daily flow stays clean. Run top to bottom: each step
+          feeds the next (codes → ledger → snapshots). */}
+      <details className="card mb-4">
+        <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-ink-soft select-none">
+          Stock repair tools <span className="font-normal text-ink-mute">— one-time fixes, run steps in order</span>
+        </summary>
+        <div className="px-4 pb-4 space-y-4 border-t border-line/60 pt-3">
+          <div>
+            <div className="text-xs font-semibold mb-1">Step 1 — Reorganize receipts <span className="font-normal text-ink-mute">(only if receipt numbers look wrong or duplicated)</span></div>
+            <p className="text-xs text-ink-mute mb-2">Removes duplicate receipts on the same DC and renumbers each FR to match its DC sequence. Clears snapshots, so finish with Step 3.</p>
+            <ReorganizeReceiptsButton />
+          </div>
+          <div>
+            <div className="text-xs font-semibold mb-1">Step 2 — Rebuild ledger <span className="font-normal text-ink-mute">(fills missing stock movements)</span></div>
+            <p className="text-xs text-ink-mute mb-2">Writes the warp / weft / porvai / bobbin outflow entries that old receipts failed to record (e.g. when the party had no stock issued). Safe to run any time — it never duplicates existing entries.</p>
+            <RebuildLedgerButton />
+          </div>
+          <div>
+            <div className="text-xs font-semibold mb-1">Step 3 — Rebuild all snapshots <span className="font-normal text-ink-mute">(refresh every receipt&rsquo;s Stock transaction)</span></div>
+            <p className="text-xs text-ink-mute mb-2">Recomputes the before / consumed / after figures on every receipt from the (repaired) ledger. Over-consumed stock shows as negative in red. Run this LAST.</p>
+            <BackfillSnapshotsButton />
+          </div>
+        </div>
+      </details>
 
       {/* Tab strip */}
       <div className="flex flex-wrap gap-1 mb-4 border-b border-line/60">

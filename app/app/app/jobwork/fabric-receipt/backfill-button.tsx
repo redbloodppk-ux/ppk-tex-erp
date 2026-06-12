@@ -12,15 +12,15 @@ export function BackfillSnapshotsButton(): React.ReactElement {
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<BackfillResult | null>(null);
 
-  function run(force: boolean): void {
-    if (force && !window.confirm(
+  function run(): void {
+    if (!window.confirm(
       'Rebuild the stock snapshot on EVERY receipt from current stock? '
       + 'Existing snapshots will be overwritten with negative-aware figures.',
     )) return;
     setResult(null);
     startTransition(async () => {
       try {
-        const res = await backfillStockSnapshots(force);
+        const res = await backfillStockSnapshots(true);
         setResult(res);
       } catch (err) {
         setResult({
@@ -35,23 +35,13 @@ export function BackfillSnapshotsButton(): React.ReactElement {
     <div className="flex items-center gap-3 flex-wrap">
       <button
         type="button"
-        onClick={() => run(false)}
-        disabled={isPending}
-        className="btn-secondary text-xs"
-        title="Reconstruct stock snapshots for receipts that don't have one yet"
-      >
-        {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <History className="w-3.5 h-3.5" />}
-        Backfill snapshots
-      </button>
-      <button
-        type="button"
-        onClick={() => run(true)}
+        onClick={run}
         disabled={isPending}
         className="btn-secondary text-xs"
         title="Recompute the snapshot on EVERY receipt (overwrites existing ones) — shows negative balances where stock was over-consumed"
       >
         {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <History className="w-3.5 h-3.5" />}
-        Rebuild ALL snapshots
+        Rebuild all snapshots
       </button>
       {result && (
         <span className="text-xs text-ink-soft">
