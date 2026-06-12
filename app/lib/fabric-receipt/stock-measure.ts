@@ -225,17 +225,16 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
   result.porvai_kg = await measureYarn(porvaiCountIds, 'porvai');
 
   // ── Bobbin metres ─────────────────────────────────────────────
+  // Bobbin returns to supplier are EMPTY spools (piece tracking only)
+  // and never reduce the yarn-metre pool, so they are excluded here.
   if (bobbinIds.size > 0) {
     const ids = Array.from(bobbinIds);
-    const [perRes, openRes, purRes, retRes, outRes] = await Promise.all([
+    const [perRes, openRes, purRes, outRes] = await Promise.all([
       sb.from('bobbin').select('id, bobbin_metre').in('id', ids),
       sb.from('opening_stock').select('quantity')
         .eq('bucket', 'bobbin').eq('mode', 'inhouse').eq('status', 'active')
         .in('bobbin_id', ids),
       sb.from('bobbin_purchase').select('bobbin_id, pieces_purchased').in('bobbin_id', ids),
-      sb.from('bobbin_return').select('bobbin_id, quantity_pcs')
-        .is('jobwork_party_id', null).eq('status', 'active')
-        .in('bobbin_id', ids),
       sb.from('stock_ledger').select('quantity')
         .eq('bucket', 'bobbin').eq('direction', 'out')
         .is('jobwork_party_id', null)
@@ -254,10 +253,6 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
     for (const r of ((purRes.data ?? []) as Array<{ bobbin_id: number | null; pieces_purchased: number | string | null }>)) {
       const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
       result.bobbin_m += Number(r.pieces_purchased ?? 0) * per;
-    }
-    for (const r of ((retRes.data ?? []) as Array<{ bobbin_id: number | null; quantity_pcs: number | string | null }>)) {
-      const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
-      result.bobbin_m -= Number(r.quantity_pcs ?? 0) * per;
     }
     for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
       result.bobbin_m -= Number(r.quantity ?? 0);

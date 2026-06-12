@@ -2067,13 +2067,15 @@ async function loadInhouseOpeningStock(
     }
   }
 
-  // ── Bobbin — purchases in, returns + receipt consumption out ──────
+  // ── Bobbin — purchases in, receipt consumption out ────────────────
   // Inflows: opening stock (handled above) + bobbin purchases (pcs ×
-  // m/pc). Outflows: returns to supplier and the in-house fabric
-  // receipt consumption recorded in stock_ledger (jobwork_party_id
-  // NULL, metres).
+  // m/pc). Outflows: ONLY the in-house fabric receipt consumption
+  // recorded in stock_ledger (jobwork_party_id NULL, metres).
+  // NOTE: bobbin RETURNS to supplier are EMPTY bobbins (the spools
+  // themselves) — a piece-count record, never a yarn-metre movement —
+  // so they deliberately do NOT appear as outflows here.
   if (bucket === 'bobbin') {
-    const [purRows, retRows, outRows] = await Promise.all([
+    const [purRows, outRows] = await Promise.all([
       safeSelect<{
         id: number; purchase_date: string | null; invoice_no: string | null;
         pieces_purchased: number | string | null;
@@ -2081,16 +2083,6 @@ async function loadInhouseOpeningStock(
       }>(
         supabase.from('bobbin_purchase')
           .select('id, purchase_date, invoice_no, pieces_purchased, bobbin:bobbin_id ( ends_per_bobbin, bobbin_metre, production_mode )'),
-      ),
-      safeSelect<{
-        id: number; return_date: string | null; reference_no: string | null;
-        quantity_pcs: number | string | null;
-        bobbin: { ends_per_bobbin: number | null; bobbin_metre: number | string | null } | null;
-      }>(
-        supabase.from('bobbin_return')
-          .select('id, return_date, reference_no, quantity_pcs, bobbin:bobbin_id ( ends_per_bobbin, bobbin_metre )')
-          .is('jobwork_party_id', null)
-          .eq('status', 'active'),
       ),
       safeSelect<{
         quantity: number | string | null; event_date: string | null;
@@ -2116,19 +2108,6 @@ async function loadInhouseOpeningStock(
         quantity: m,
         reference: p.invoice_no ?? `Purchase #${p.id}`,
         notes: 'Bobbin purchase',
-      });
-    }
-    for (const r of retRows) {
-      const ends = Number(r.bobbin?.ends_per_bobbin ?? 0);
-      const m = Number(r.quantity_pcs ?? 0) * Number(r.bobbin?.bobbin_metre ?? 0);
-      if (ends <= 0 || m <= 0) continue;
-      events.push({
-        event_date: r.return_date ?? '',
-        column_id: ensureEndsCol(ends),
-        direction: 'out',
-        quantity: m,
-        reference: r.reference_no ?? `Return #${r.id}`,
-        notes: 'Returned to supplier',
       });
     }
     for (const o of outRows) {

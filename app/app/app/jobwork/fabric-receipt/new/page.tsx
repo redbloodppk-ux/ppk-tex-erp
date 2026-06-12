@@ -548,20 +548,18 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       }
 
       // In-house bobbin pool = opening stock (stored in metres)
-      // + purchases (pcs × m/pc) − returns (pcs × m/pc)
-      // − prior in-house ledger outflows. bobbin.quantity is godown
-      // master stock and is NOT the in-house pool.
+      // + purchases (pcs × m/pc) − prior in-house ledger outflows.
+      // bobbin.quantity is godown master stock and is NOT the in-house
+      // pool. Bobbin RETURNS to supplier are empty spools (piece
+      // tracking only) and deliberately do NOT reduce this pool.
       let bobbinM = 0;
       if (qBobbinIds.length > 0) {
-        const [perRes, openRes2, purRes2, retRes2, outRes2] = await Promise.all([
+        const [perRes, openRes2, purRes2, outRes2] = await Promise.all([
           sb.from('bobbin').select('id, bobbin_metre').in('id', qBobbinIds),
           sb.from('opening_stock').select('bobbin_id, quantity')
             .eq('bucket', 'bobbin').eq('mode', 'inhouse').eq('status', 'active')
             .in('bobbin_id', qBobbinIds),
           sb.from('bobbin_purchase').select('bobbin_id, pieces_purchased').in('bobbin_id', qBobbinIds),
-          sb.from('bobbin_return').select('bobbin_id, quantity_pcs')
-            .is('jobwork_party_id', null).eq('status', 'active')
-            .in('bobbin_id', qBobbinIds),
           sb.from('stock_ledger').select('quantity')
             .eq('bucket', 'bobbin').eq('direction', 'out')
             .is('jobwork_party_id', null)
@@ -577,10 +575,6 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
         for (const r of ((purRes2.data ?? []) as Array<{ bobbin_id: number | null; pieces_purchased: number | string | null }>)) {
           const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
           bobbinM += Number(r.pieces_purchased ?? 0) * per;
-        }
-        for (const r of ((retRes2.data ?? []) as Array<{ bobbin_id: number | null; quantity_pcs: number | string | null }>)) {
-          const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
-          bobbinM -= Number(r.quantity_pcs ?? 0) * per;
         }
         for (const r of ((outRes2.data ?? []) as Array<{ quantity: number | string | null }>)) {
           bobbinM -= Number(r.quantity ?? 0);

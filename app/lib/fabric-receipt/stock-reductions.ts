@@ -536,16 +536,16 @@ async function reduceInhouseBobbin(
   const slotIds = rawIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
   if (slotIds.length === 0) return { applied_m: 0, perBobbin: [] };
 
+  // NOTE: bobbin returns to supplier are EMPTY spools (piece tracking
+  // only) — they never reduce the yarn-metre pool, so they are NOT
+  // part of this availability calculation.
   const uniqueIds = Array.from(new Set(slotIds));
-  const [perRes, openRes, purRes, retRes, outRes] = await Promise.all([
+  const [perRes, openRes, purRes, outRes] = await Promise.all([
     sb.from('bobbin').select('id, bobbin_metre').in('id', uniqueIds),
     sb.from('opening_stock').select('bobbin_id, quantity')
       .eq('bucket', 'bobbin').eq('mode', 'inhouse').eq('status', 'active')
       .in('bobbin_id', uniqueIds),
     sb.from('bobbin_purchase').select('bobbin_id, pieces_purchased').in('bobbin_id', uniqueIds),
-    sb.from('bobbin_return').select('bobbin_id, quantity_pcs')
-      .is('jobwork_party_id', null).eq('status', 'active')
-      .in('bobbin_id', uniqueIds),
     sb.from('stock_ledger').select('bobbin_id, quantity')
       .eq('bucket', 'bobbin').eq('direction', 'out')
       .is('jobwork_party_id', null)
@@ -567,10 +567,6 @@ async function reduceInhouseBobbin(
   for (const r of ((purRes.data ?? []) as Array<{ bobbin_id: number | null; pieces_purchased: number | string | null }>)) {
     const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
     add(r.bobbin_id, Number(r.pieces_purchased ?? 0) * per);
-  }
-  for (const r of ((retRes.data ?? []) as Array<{ bobbin_id: number | null; quantity_pcs: number | string | null }>)) {
-    const per = r.bobbin_id != null ? (perById.get(r.bobbin_id) ?? 0) : 0;
-    add(r.bobbin_id, -Number(r.quantity_pcs ?? 0) * per);
   }
   for (const r of ((outRes.data ?? []) as Array<{ bobbin_id: number | null; quantity: number | string | null }>)) {
     add(r.bobbin_id, -Number(r.quantity ?? 0));
