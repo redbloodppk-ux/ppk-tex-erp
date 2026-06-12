@@ -237,7 +237,7 @@ export default async function InvoicePrintPage({
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
             font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
-            font-size: 12.5px;
+            font-size: 12px;
             font-weight: 700;
             color: #222;
           }
@@ -265,13 +265,13 @@ export default async function InvoicePrintPage({
             padding: 4mm 0;
             border-bottom: 1px solid #000;
             font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 700;
             color: #111;
             background: #fff;
           }
-          .inv-print-header .ph-title { font-size: 18px; font-weight: 800; letter-spacing: 0.6px; }
-          .inv-print-header .ph-meta  { text-align: right; font-size: 14px; font-weight: 700; line-height: 1.35; color: #222; }
+          .inv-print-header .ph-title { font-size: 16px; font-weight: 800; letter-spacing: 0.6px; }
+          .inv-print-header .ph-meta  { text-align: right; font-size: 13px; font-weight: 700; line-height: 1.35; color: #222; }
           .inv-print-header .ph-meta b { color: #000; font-weight: 800; }
           .inv-print-footer {
             display: block !important;
@@ -281,13 +281,13 @@ export default async function InvoicePrintPage({
             border-top: 1px solid #000;
             text-align: center;
             font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             line-height: 1.5;
             color: #111;
             background: #fff;
           }
-          .inv-print-footer .pf-small { font-weight: 600; font-size: 12.5px; color: #222; }
+          .inv-print-footer .pf-small { font-weight: 600; font-size: 12px; color: #222; }
           /* Avoid splitting the line-items table across pages if Chrome
              can fit it on one. Header repeats on each spilled page. */
           table.items thead { display: table-header-group; }
@@ -308,7 +308,7 @@ export default async function InvoicePrintPage({
           font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
           /* Bumped further for printed legibility: base 16px / weight
              600. Most child elements scaled proportionally below. */
-          font-size: 16px;
+          font-size: 14px;
           font-weight: 600;
           line-height: 1.55;
           border: 1px solid #d4d4d4;
@@ -325,13 +325,13 @@ export default async function InvoicePrintPage({
            leftover vertical space so everything above stays where it is. */
         .inv-sheet .foot-strip { margin-top: auto; }
         /* DC-style header: centered title band + meta strip + bill/ship grid */
-        .inv-title { text-align: center; font-size: 25px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
-        .inv-orig  { text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 3px; margin-bottom: 9px; }
+        .inv-title { text-align: center; font-size: 23px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
+        .inv-orig  { text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 3px; margin-bottom: 9px; }
         .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
-        .inv-meta > div { padding: 8px 10px; border-right: 1px solid #000; font-size: 15px; font-weight: 600; }
+        .inv-meta > div { padding: 8px 10px; border-right: 1px solid #000; font-size: 14px; font-weight: 600; }
         .inv-meta > div:last-child { border-right: none; }
-        .inv-meta .lbl { font-size: 12px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
-        .inv-meta .val { font-weight: 800; color: #000; font-size: 16.5px; }
+        .inv-meta .lbl { font-size: 11px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+        .inv-meta .val { font-weight: 800; color: #000; font-size: 15px; }
         /* The old black "BILL TO :" header bar was redundant — each box
            already shows its own label inside (.tag). The bar is now an
            empty spacer: same height/border-rule but no fill, no text. */
@@ -339,37 +339,37 @@ export default async function InvoicePrintPage({
         .inv-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; }
         .inv-billship > div { padding: 8px 10px; border-right: 1px solid #000; }
         .inv-billship > div:last-child { border-right: none; }
-        .inv-billship .tag { font-size: 14px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; }
-        .inv-billship .gst { font-size: 15px; font-weight: 600; color: #111; }
-        .inv-billship .party { font-size: 18px; font-weight: 800; color: #000; margin-top: 3px; }
-        .inv-billship .addr { font-size: 15px; font-weight: 600; color: #222; white-space: pre-line; line-height: 1.55; margin-top: 3px; }
-        .inv-billship .ps { font-size: 14px; font-weight: 600; color: #333; margin-top: 5px; padding-top: 4px; border-top: 1px dashed #aaa; }
-        .inv-tag { display: inline-block; font-size: 14px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
-        .inv-lab { font-size: 12px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
+        .inv-billship .tag { font-size: 13px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; }
+        .inv-billship .gst { font-size: 14px; font-weight: 600; color: #111; }
+        .inv-billship .party { font-size: 16px; font-weight: 800; color: #000; margin-top: 3px; }
+        .inv-billship .addr { font-size: 14px; font-weight: 600; color: #222; white-space: pre-line; line-height: 1.55; margin-top: 3px; }
+        .inv-billship .ps { font-size: 13px; font-weight: 600; color: #333; margin-top: 5px; padding-top: 4px; border-top: 1px dashed #aaa; }
+        .inv-tag { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
+        .inv-lab { font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
         .refstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f7f7f9; padding: 10px 11px; border-radius: 4px; margin-top: 13px; }
-        .refstrip .lbl { font-size: 12px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
-        .refstrip .val { font-size: 15px; font-weight: 700; color: #000; }
+        .refstrip .lbl { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .refstrip .val { font-size: 14px; font-weight: 700; color: #000; }
         table.items { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        table.items th { font-size: 14px; font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 1px; text-align: left; padding: 9px 7px; border-bottom: 0.5px solid #888; }
-        table.items td { font-size: 16px; font-weight: 600; padding: 9px 7px; border-bottom: 0.5px solid #ccc; vertical-align: top; color: #111; }
+        table.items th { font-size: 13px; font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 1px; text-align: left; padding: 9px 7px; border-bottom: 0.5px solid #888; }
+        table.items td { font-size: 14px; font-weight: 600; padding: 9px 7px; border-bottom: 0.5px solid #ccc; vertical-align: top; color: #111; }
         table.items td.num, table.items th.num { text-align: right; }
-        table.items tfoot td { font-weight: 800; color: #000; border-top: 1px solid #333; border-bottom: none; padding-top: 9px; font-size: 16.5px; }
+        table.items tfoot td { font-weight: 800; color: #000; border-top: 1px solid #333; border-bottom: none; padding-top: 9px; font-size: 15px; }
         .totals-grid { display: grid; grid-template-columns: 1fr 240px; gap: 15px; margin-top: 15px; }
-        .totals-left { font-size: 15px; font-weight: 600; color: #222; }
-        .totals-left .h { font-size: 14px; color: #000; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-        .totals-right table { width: 100%; font-size: 16px; font-weight: 600; }
+        .totals-left { font-size: 14px; font-weight: 600; color: #222; }
+        .totals-left .h { font-size: 13px; color: #000; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .totals-right table { width: 100%; font-size: 14px; font-weight: 600; }
         .totals-right td { padding: 6px 0; }
         .totals-right td.v { text-align: right; font-weight: 700; color: #000; }
-        .totals-right tr.grand td { font-size: 22px; font-weight: 900; color: #000; padding-top: 9px; border-top: 1px solid #333; }
-        .words { margin-top: 11px; padding: 10px 12px; background: #fafafa; border-left: 3px solid; font-size: 15px; font-weight: 700; font-style: italic; color: #222; }
-        .foot-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; padding-top: 10px; border-top: 0.5px solid #e5e5e5; font-size: 15px; font-weight: 600; color: #222; }
-        .sig-block { text-align: right; padding-top: 32px; font-weight: 800; color: #000; font-size: 16px; }
-        .addr-foot { margin-top: 14px; padding-top: 8px; border-top: 0.5px solid #e5e5e5; text-align: center; font-size: 14px; font-weight: 600; color: #333; line-height: 1.55; }
-        .ref-original { margin-top: 6px; font-size: 10px; color: #555; }
+        .totals-right tr.grand td { font-size: 20px; font-weight: 900; color: #000; padding-top: 9px; border-top: 1px solid #333; }
+        .words { margin-top: 11px; padding: 10px 12px; background: #fafafa; border-left: 3px solid; font-size: 14px; font-weight: 700; font-style: italic; color: #222; }
+        .foot-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; padding-top: 10px; border-top: 0.5px solid #e5e5e5; font-size: 14px; font-weight: 600; color: #222; }
+        .sig-block { text-align: right; padding-top: 32px; font-weight: 800; color: #000; font-size: 14px; }
+        .addr-foot { margin-top: 14px; padding-top: 8px; border-top: 0.5px solid #e5e5e5; text-align: center; font-size: 13px; font-weight: 600; color: #333; line-height: 1.55; }
+        .ref-original { margin-top: 6px; font-size: 9px; color: #555; }
         .ref-original b { color: #111; }
         .inv-watermark { position: relative; }
-        .inv-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 110px; color: rgba(148, 163, 184, 0.16); font-weight: 900; letter-spacing: 14px; pointer-events: none; transform: rotate(-30deg); }
-        .inv-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 90px; color: rgba(220, 38, 38, 0.18); font-weight: 900; letter-spacing: 10px; pointer-events: none; transform: rotate(-30deg); }
+        .inv-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 101px; color: rgba(148, 163, 184, 0.16); font-weight: 900; letter-spacing: 14px; pointer-events: none; transform: rotate(-30deg); }
+        .inv-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 83px; color: rgba(220, 38, 38, 0.18); font-weight: 900; letter-spacing: 10px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
       <InvoicePrintActions invoiceId={inv.id} invoiceNo={inv.invoice_no} />
