@@ -26,7 +26,7 @@ type Severity = 'info' | 'warn' | 'critical';
 
 interface FeedItem {
   id: string;
-  kind: 'costing_approval' | 'yarn_low';
+  kind: 'costing_approval' | 'bill_due';
   title: string;
   body: string;
   link: string;
@@ -44,6 +44,7 @@ export function NotificationBell(): React.ReactElement {
   const [feed, setFeed] = useState<Feed>({ total: 0, worstSeverity: null, items: [] });
   const [open, setOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [clearing, setClearing] = useState<boolean>(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -90,6 +91,18 @@ export function NotificationBell(): React.ReactElement {
     if (open && feed.items.length === 0 && feed.total > 0) void refresh();
   }, [open, feed.items.length, feed.total, refresh]);
 
+  async function clearAll(): Promise<void> {
+    setClearing(true);
+    try {
+      const res = await fetch('/api/notifications/clear', { method: 'POST' });
+      if (res.ok) setFeed({ total: 0, worstSeverity: null, items: [] });
+    } catch {
+      // Network blip — feed stays; the user can retry.
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const dotClass = feed.worstSeverity === 'critical'
     ? 'bg-rose-500'
     : feed.worstSeverity === 'warn'
@@ -122,14 +135,27 @@ export function NotificationBell(): React.ReactElement {
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute right-0 mt-2 w-80 bg-paper rounded-xl border border-line shadow-card z-40 overflow-hidden">
-            <div className="px-3 py-2.5 border-b border-line/60 flex items-center justify-between">
+            <div className="px-3 py-2.5 border-b border-line/60 flex items-center justify-between gap-2">
               <div className="text-sm font-semibold text-ink">
                 Notifications
                 {feed.total > 0 && <span className="text-ink-mute font-normal"> ({feed.total})</span>}
               </div>
-              {loading && (
-                <span className="text-[10px] text-ink-mute">Refreshing…</span>
-              )}
+              <div className="flex items-center gap-2">
+                {loading && (
+                  <span className="text-[10px] text-ink-mute">Refreshing…</span>
+                )}
+                {feed.total > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void clearAll()}
+                    disabled={clearing}
+                    className="text-[11px] font-semibold text-indigo-700 hover:underline disabled:opacity-50"
+                    title="Hide everything currently listed. New events will appear again."
+                  >
+                    {clearing ? 'Clearing…' : 'Clear all'}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="max-h-96 overflow-y-auto">

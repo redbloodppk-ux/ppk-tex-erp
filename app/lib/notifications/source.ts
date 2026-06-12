@@ -1,27 +1,24 @@
 /**
- * Notification sources — CORR-H6
+ * Notification sources — CORR-H6 (v1.1)
  *
- * v1 strategy: notifications are *derived* from existing tables / views,
- * not persisted in their own `notifications` table. This avoids a
- * persistent fan-out service while still surfacing the four signals the
- * Correction Guide asked for.
+ * Notifications are *derived* from existing tables, not persisted in
+ * their own table. Sources:
+ *   - Bills due (receivable) — one item per customer with unpaid /
+ *     part-paid sale invoices: total pending amount + bill count.
+ *   - Bills due (payable)    — one item per jobwork party with unpaid
+ *     weaver bills we still owe.
+ *   - Pending costing approvals — costing_master.approval_status='pending'.
  *
- * Sources implemented in v1:
- *   - Pending costing approvals — `costing_master.approval_status='pending'`
- *   - Critical low-stock yarn   — `v_yarn_cover_dashboard.cover_status IN ('critical','out')`
+ * Yarn low-stock was removed by request (12-06-2026) — the operator
+ * tracks cover from the Days-of-Cover report instead.
  *
- * Sources deferred to v1.1 (mostly because the data model needs more
- * thought, not because the wiring is hard):
- *   - Overdue invoices — needs a due_date or terms-from-party calc.
- *   - Variance flags > 5% — depends on the CORR-P1 jsonb being populated
- *     consistently across batch sources.
- *
- * Each notification is normalised into a single shape so the bell, the
- * dropdown, and the /app/notifications list can all consume one feed.
+ * "Clear all": the notification_clear table stores ONE timestamp per
+ * user. Items whose occurred_at <= cleared_at are hidden; anything that
+ * happens after the clear (new bill, new pending costing) reappears.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type NotificationKind = 'costing_approval' | 'yarn_low';
+export type NotificationKind = 'costing_approval' | 'bill_due';
 
 export interface NotificationItem {
   /** Stable composite id for keys + dedup. Not a DB row id. */
@@ -31,7 +28,8 @@ export interface NotificationItem {
   body: string;
   /** Click target — opens the page where the operator can act on it. */
   link: string;
-  /** ISO timestamp this notification "happened" — sorts the feed. */
+  /** ISO timestamp this notification "happened" — sorts the feed and
+   *  drives Clear-all (items at or before cleared_at are hidden). */
   occurred_at: string;
   /** Visual severity. The bell colours the dot by the worst pending item. */
   severity: 'info' | 'warn' | 'critical';
@@ -43,8 +41,14 @@ export interface NotificationFeed {
   items: NotificationItem[];
 }
 
-/** Pull every active notification. Cheap enough to call on every page
- *  request for a single-tenant ERP; cap at 100 to bound payload size. */
+const RECEIVABLE_DOC_TYPES = ['tax_invoice', 'yarn_sale', 'general_sale'];
+const PAYABLE_DOC_TYPES    = ['jobwork_invoice', 'weaving_bill'];
+
+function formatINR(n: number): string {
+  return '\u20B9' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+/** Pull every active notification, minus anything the user cleared. */
 export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, 'public', any>,
@@ -52,13 +56,15 @@ export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [pendingApprovals, lowStock] = await Promise.all([
+  const [pendingApprovals, billDues, clearedAt] = await Promise.all([
     fetchPendingApprovals(sb),
-    fetchLowStock(sb),
+    fetchBillDues(sb),
+    fetchClearedAt(sb),
   ]);
 
-  const items = [...pendingApprovals, ...lowStock]
-    // Most recent / most urgent first. Critical bubbles to the top.
+  const items = [...pendingApprovals, ...billDues]
+    .filter((i) => clearedAt == null || i.occurred_at > clearedAt)
+    // Most urgent first, then most recent.
     .sort((a, b) => {
       const sev = sevRank(b.severity) - sevRank(a.severity);
       if (sev !== 0) return sev;
@@ -70,28 +76,33 @@ export async function fetchNotifications(
   return { total: items.length, worstSeverity, items };
 }
 
-/** Lightweight count-only call for the bell. Avoids fetching bodies on
- *  every poll. */
+/** Count-only call for the bell badge. Delegates to the full fetch so
+ *  Clear-all and every source rule stay in exactly one place. */
 export async function fetchNotificationCount(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, 'public', any>,
 ): Promise<{ total: number; worstSeverity: 'info' | 'warn' | 'critical' | null }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any;
+  const feed = await fetchNotifications(supabase);
+  return { total: feed.total, worstSeverity: feed.worstSeverity };
+}
 
-  const [{ count: approvals }, lowStockSev] = await Promise.all([
-    sb.from('costing_master')
-      .select('id', { count: 'exact', head: true })
-      .eq('approval_status', 'pending'),
-    countLowStock(sb),
-  ]);
-
-  const approvalCount = approvals ?? 0;
-  const total = approvalCount + lowStockSev.count;
-  let worst: 'info' | 'warn' | 'critical' | null = null;
-  if (lowStockSev.count > 0) worst = lowStockSev.worst;
-  if (approvalCount > 0 && (worst == null || sevRank('warn') > sevRank(worst))) worst = 'warn';
-  return { total, worstSeverity: worst };
+/** The user's Clear-all marker, or null if they never cleared. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchClearedAt(sb: any): Promise<string | null> {
+  try {
+    const { data: auth } = await sb.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return null;
+    const { data } = await sb
+      .from('notification_clear')
+      .select('cleared_at')
+      .eq('user_id', uid)
+      .maybeSingle();
+    return data?.cleared_at ?? null;
+  } catch {
+    // Table missing (migration 160 not applied) — show everything.
+    return null;
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,48 +127,73 @@ async function fetchPendingApprovals(sb: any): Promise<NotificationItem[]> {
   }));
 }
 
+/** One notification per party with bills still carrying a balance —
+ *  customers that owe US (receivable) and jobwork parties WE owe
+ *  (payable). occurred_at = the newest open bill's created_at, so a
+ *  fresh bill resurfaces the party even after a Clear-all. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchLowStock(sb: any): Promise<NotificationItem[]> {
+async function fetchBillDues(sb: any): Promise<NotificationItem[]> {
   const { data } = await sb
-    .from('v_yarn_cover_dashboard')
-    .select('yarn_count_id, code, display_name, available_kg, days_of_cover, cover_status')
-    .in('cover_status', ['critical', 'out'])
-    .order('days_of_cover', { ascending: true, nullsFirst: true })
-    .limit(50);
-  return ((data ?? []) as Array<{
-    yarn_count_id: number; code: string; display_name: string;
-    available_kg: number | string | null;
-    days_of_cover: number | null;
-    cover_status: 'out' | 'critical' | 'low' | 'idle' | 'ok';
-  }>).map((r) => {
-    const isOut = r.cover_status === 'out';
-    const days = r.days_of_cover != null ? Math.round(r.days_of_cover) : null;
-    const kg = Number(r.available_kg ?? 0).toFixed(1);
-    return {
-      id: `lowstock:${r.yarn_count_id}`,
-      kind: 'yarn_low' as const,
-      title: isOut
-        ? `Out of stock: ${r.code}`
-        : `Yarn cover critical: ${r.code} (${days ?? '?'} days)`,
-      body: `${r.display_name} — ${kg} kg available`,
-      link: `/app/reports/days-of-cover?count=${r.yarn_count_id}`,
-      // We don't have a precise "when did it go critical" timestamp;
-      // surface "now" so it stays near the top of the feed.
-      occurred_at: new Date().toISOString(),
-      severity: isOut ? 'critical' as const : 'warn' as const,
-    };
-  });
-}
+    .from('invoice')
+    .select('id, invoice_no, doc_type, party_name, customer_id, jobwork_party_id, balance, invoice_date, created_at')
+    .gt('balance', 0)
+    .in('doc_type', [...RECEIVABLE_DOC_TYPES, ...PAYABLE_DOC_TYPES])
+    .limit(1000);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function countLowStock(sb: any): Promise<{ count: number; worst: 'critical' | 'warn' }> {
-  const { data } = await sb
-    .from('v_yarn_cover_dashboard')
-    .select('cover_status')
-    .in('cover_status', ['critical', 'out']);
-  const rows = (data ?? []) as Array<{ cover_status: string }>;
-  const hasOut = rows.some((r) => r.cover_status === 'out');
-  return { count: rows.length, worst: hasOut ? 'critical' : 'warn' };
+  interface InvRow {
+    id: number; invoice_no: string; doc_type: string;
+    party_name: string | null; customer_id: number | null;
+    jobwork_party_id: number | null;
+    balance: number | string | null;
+    invoice_date: string | null; created_at: string | null;
+  }
+
+  interface PartyAgg {
+    name: string;
+    due: number;
+    bills: number;
+    latest: string;
+    receivable: boolean;
+    link: string;
+  }
+  const byParty = new Map<string, PartyAgg>();
+
+  for (const r of ((data ?? []) as InvRow[])) {
+    const receivable = RECEIVABLE_DOC_TYPES.includes(r.doc_type);
+    const key = receivable
+      ? `recv:${r.customer_id ?? r.party_name ?? r.id}`
+      : `pay:${r.jobwork_party_id ?? r.party_name ?? r.id}`;
+    const occurred = r.created_at ?? (r.invoice_date != null ? `${r.invoice_date}T00:00:00Z` : new Date().toISOString());
+    let agg = byParty.get(key);
+    if (!agg) {
+      agg = {
+        name: r.party_name ?? 'Unknown party',
+        due: 0,
+        bills: 0,
+        latest: occurred,
+        receivable,
+        link: receivable
+          ? '/app/invoices'
+          : (r.jobwork_party_id != null ? `/app/payments?party=${r.jobwork_party_id}` : '/app/payments'),
+      };
+      byParty.set(key, agg);
+    }
+    agg.due += Number(r.balance ?? 0);
+    agg.bills += 1;
+    if (occurred > agg.latest) agg.latest = occurred;
+  }
+
+  return Array.from(byParty.entries()).map(([key, p]) => ({
+    id: `billdue:${key}`,
+    kind: 'bill_due' as const,
+    title: p.receivable
+      ? `To collect: ${p.name} — ${formatINR(p.due)}`
+      : `To pay: ${p.name} — ${formatINR(p.due)}`,
+    body: `${p.bills} bill${p.bills === 1 ? '' : 's'} pending`,
+    link: p.link,
+    occurred_at: p.latest,
+    severity: 'warn' as const,
+  }));
 }
 
 function sevRank(s: 'info' | 'warn' | 'critical'): number {

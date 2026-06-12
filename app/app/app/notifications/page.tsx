@@ -15,13 +15,14 @@ import { PageHeader } from '@/app/components/page-header';
 import { formatDate } from '@/lib/utils';
 import { AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { fetchNotifications, type NotificationItem } from '@/lib/notifications/source';
+import { ClearAllButton } from './clear-all-button';
 
 export const metadata = { title: 'Notifications' };
 export const dynamic = 'force-dynamic';
 
 const KIND_LABEL: Record<NotificationItem['kind'], string> = {
   costing_approval: 'Costing approval',
-  yarn_low:         'Yarn low stock',
+  bill_due:         'Bill due',
 };
 
 interface PageProps {
@@ -33,7 +34,7 @@ interface PageProps {
 
 export default async function NotificationsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const kindFilter     = (sp.kind === 'costing_approval' || sp.kind === 'yarn_low') ? sp.kind : null;
+  const kindFilter     = (sp.kind === 'costing_approval' || sp.kind === 'bill_due') ? sp.kind : null;
   const sevFilter      = (sp.severity === 'info' || sp.severity === 'warn' || sp.severity === 'critical') ? sp.severity : null;
 
   const supabase = await createClient();
@@ -55,7 +56,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Notifications"
-        subtitle="Pending costing approvals, low yarn stock, and other live alerts. Refresh the page or wait — the bell in the header auto-polls every minute."
+        subtitle="Party-wise bill dues and pending costing approvals. Refresh the page or wait — the bell in the header auto-polls every minute."
+        actions={<ClearAllButton disabled={feed.items.length === 0} />}
       />
 
       {/* Severity KPIs */}
@@ -92,8 +94,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       {/* Kind filter pills */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <FilterPill href="/app/notifications" active={!kindFilter && !sevFilter} label="All sources" />
+        <FilterPill href="/app/notifications?kind=bill_due" active={kindFilter === 'bill_due'} label="Bill dues" />
         <FilterPill href="/app/notifications?kind=costing_approval" active={kindFilter === 'costing_approval'} label="Costing approvals" />
-        <FilterPill href="/app/notifications?kind=yarn_low" active={kindFilter === 'yarn_low'} label="Low stock" />
       </div>
 
       {items.length === 0 ? (
@@ -103,7 +105,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
           <div className="text-xs text-ink-mute">
             {kindFilter || sevFilter
               ? <>Nothing matches these filters. <Link href="/app/notifications" className="text-indigo-700 underline">Clear filters</Link>.</>
-              : <>Costings are approved, yarn stock is healthy. Check back later.</>}
+              : <>No bills pending and no costings waiting for approval. Check back later.</>}
           </div>
         </div>
       ) : (
@@ -148,8 +150,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       )}
 
       <p className="text-[11px] text-ink-mute mt-4">
-        v1 sources: costing approvals + low yarn stock. Overdue invoices and variance flags coming in v1.1
-        once the underlying data model is firmed up. See <code className="font-mono">lib/notifications/source.ts</code>.
+        Sources: party-wise bill dues (to collect and to pay) + pending costing approvals.
+        &ldquo;Clear all&rdquo; hides everything currently listed; a new bill or a new pending costing brings the party back automatically.
       </p>
     </div>
   );
