@@ -80,7 +80,10 @@ function consumedTotals(items: ReceiptItem[]): BucketTotals {
   );
 }
 
-export async function backfillStockSnapshots(): Promise<BackfillResult> {
+/** @param force When true, recompute the snapshot for EVERY receipt —
+ *  not just the ones missing one. Use after stock-logic changes (e.g.
+ *  negative balances) so old receipts show corrected before/after. */
+export async function backfillStockSnapshots(force = false): Promise<BackfillResult> {
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
@@ -134,7 +137,6 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
 
   for (const r of list) {
     scanned++;
-    if (r.stock_snapshot) { skipped++; continue; }
     const qIds = Array.from(new Set(
       (r.items ?? [])
         .map((it) => it.fabric_quality_id)
@@ -142,7 +144,25 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
     ));
     if (qIds.length === 0) { skipped++; continue; }
 
+    const poolKey = qIds.slice().sort((a, b) => a - b).join(',');
+    const accAfter = runningPostReceipt[poolKey] ?? { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_m: 0 };
+    const consumed = consumedTotals(r.items ?? []);
+
+    // ALWAYS roll the running total forward — even receipts we don't
+    // rewrite consumed stock, and older receipts in the same pool need
+    // that consumption on top of their own future.
+    runningPostReceipt[poolKey] = {
+      warp_m:    accAfter.warp_m    + consumed.warp_m,
+      weft_kg:   accAfter.weft_kg   + consumed.weft_kg,
+      porvai_kg: accAfter.porvai_kg + consumed.porvai_kg,
+      bobbin_m:  accAfter.bobbin_m  + consumed.bobbin_m,
+    };
+
+    if (!force && r.stock_snapshot) { skipped++; continue; }
+
     // Today's balance for this receipt's pool (handles merged siblings).
+    // measureStock is negative-aware: over-consumed pools come back as
+    // negative figures instead of being clamped at zero.
     let todayBalance: BucketTotals;
     try {
       const m = await measureStock(sb, qIds);
@@ -152,9 +172,6 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
       continue;
     }
 
-    const poolKey = qIds.slice().sort((a, b) => a - b).join(',');
-    const accAfter = runningPostReceipt[poolKey] ?? { warp_m: 0, weft_kg: 0, porvai_kg: 0, bobbin_m: 0 };
-
     // after this receipt = today + everything consumed by NEWER receipts
     const afterR = {
       warp_m:    todayBalance.warp_m    + accAfter.warp_m,
@@ -162,7 +179,6 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
       porvai_kg: todayBalance.porvai_kg + accAfter.porvai_kg,
       bobbin_m:  todayBalance.bobbin_m  + accAfter.bobbin_m,
     };
-    const consumed = consumedTotals(r.items ?? []);
     const beforeR = {
       warp_m:    afterR.warp_m    + consumed.warp_m,
       weft_kg:   afterR.weft_kg   + consumed.weft_kg,
@@ -183,15 +199,6 @@ export async function backfillStockSnapshots(): Promise<BackfillResult> {
       .eq('id', r.id);
     if (upErr) { skipped++; continue; }
     updated++;
-
-    // Roll the running total forward (older receipts saw this one's
-    // consumption on top of their own future).
-    runningPostReceipt[poolKey] = {
-      warp_m:    accAfter.warp_m    + consumed.warp_m,
-      weft_kg:   accAfter.weft_kg   + consumed.weft_kg,
-      porvai_kg: accAfter.porvai_kg + consumed.porvai_kg,
-      bobbin_m:  accAfter.bobbin_m  + consumed.bobbin_m,
-    };
   }
 
   revalidatePath('/app/jobwork/fabric-receipt');
@@ -353,7 +360,8 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
   const { data: receipts, error } = await sb
     .from('fabric_receipt')
     .select(`
-      id, code, receipt_date,
+      id, code, receipt_date, party_id,
+      party:party_id ( id, name ),
       items:fabric_receipt_item (
         fabric_quality_id, received_metres,
         weft_yarn_count_id, weft_consumed_kg,
@@ -367,6 +375,8 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
   }
   const receiptList = (receipts ?? []) as Array<{
     id: number; code: string; receipt_date: string;
+    party_id: number | null;
+    party: { id: number; name: string } | null;
     items: Array<{
       fabric_quality_id: number | null;
       received_metres: number | string | null;
@@ -396,30 +406,46 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
     }
   }
 
-  // 3. For each receipt, check if any stock_ledger rows already exist
-  //    for it. If yes, skip (don't double-count). If no, derive new
-  //    outflow rows from items.
+  // 2b. Bridge party.id → jobwork_party.id by NAME (different id
+  //     spaces for the same physical party — same pragmatic bridge the
+  //     save flow uses). The warehouse pivots find outflows via
+  //     stock_ledger.jobwork_party_id, so tagging matters.
+  const jwByName = new Map<string, number>();
+  try {
+    const { data: jwRows } = await sb.from('jobwork_party').select('id, name');
+    for (const j of ((jwRows ?? []) as Array<{ id: number; name: string | null }>)) {
+      if (j.name) jwByName.set(j.name.trim().toUpperCase(), j.id);
+    }
+  } catch { /* table may not exist */ }
+
+  // 3. For each receipt, check WHICH buckets already have ledger rows.
+  //    Buckets with rows are skipped (don't double-count); missing
+  //    buckets get rows derived from the items.
   let receipts_rebuilt = 0;
   let ledger_rows_inserted = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allRows: any[] = [];
 
   for (const r of receiptList) {
-    let existing = 0;
+    // Which buckets already have ledger rows for this receipt? Skipping
+    // per BUCKET (not per receipt) matters: older saves often wrote the
+    // warp row but silently dropped weft/bobbin when the party had no
+    // stock — those missing buckets are exactly what we backfill here.
+    const existingBuckets = new Set<string>();
     try {
-      const { count } = await sb
+      const { data: exRows } = await sb
         .from('stock_ledger')
-        .select('id', { count: 'exact', head: true })
+        .select('bucket')
         .eq('source_kind', 'fabric_receipt')
         .eq('source_id', r.id);
-      existing = Number(count ?? 0);
+      for (const e of ((exRows ?? []) as Array<{ bucket: string }>)) existingBuckets.add(e.bucket);
     } catch {
       // Ledger table may not exist - rebuild flow will fail gracefully
       // when we try to insert; we still scan items.
     }
-    if (existing > 0) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rowsForThis: any[] = [];
+    const jwParty = r.party?.name ? (jwByName.get(r.party.name.trim().toUpperCase()) ?? null) : null;
     for (const it of r.items) {
       const fqId = it.fabric_quality_id;
       const snap = fqId != null ? fqById.get(fqId)?.calc_snapshot ?? null : null;
@@ -428,9 +454,10 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
       const porvaiKg = Number(it.porvai_consumed_kg ?? 0);
       const bobbinPcs = Number(it.bobbin_consumed_pcs ?? 0);
 
-      if (metres > 0 && fqId != null) {
+      if (!existingBuckets.has('warp_beam') && metres > 0 && fqId != null) {
         rowsForThis.push({
           bucket: 'warp_beam', direction: 'out',
+          jobwork_party_id: jwParty,
           fabric_quality_id: fqId,
           quantity: Math.round(metres * 100) / 100, unit: 'm',
           event_date: r.receipt_date,
@@ -438,10 +465,17 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
           reference_no: r.code, notes: 'Backfilled from receipt items',
         });
       }
-      if (weftKg > 0 && it.weft_yarn_count_id != null) {
+      if (!existingBuckets.has('weft_yarn') && weftKg > 0) {
+        // Count id from the item, falling back to the quality snapshot.
+        let weftCountId: number | null = it.weft_yarn_count_id;
+        if (weftCountId == null && snap?.weftCountId != null && snap.weftCountId !== '') {
+          const n2 = Number(snap.weftCountId);
+          if (Number.isFinite(n2) && n2 > 0) weftCountId = n2;
+        }
         rowsForThis.push({
           bucket: 'weft_yarn', direction: 'out',
-          fabric_quality_id: fqId, yarn_count_id: it.weft_yarn_count_id,
+          jobwork_party_id: jwParty,
+          fabric_quality_id: fqId, yarn_count_id: weftCountId,
           quantity: Math.round(weftKg * 1000) / 1000, unit: 'kg',
           event_date: r.receipt_date,
           source_kind: 'fabric_receipt', source_id: r.id,
@@ -450,11 +484,12 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
       }
       // Porvai yarn count id is not stored on the item, we resolve it
       // from the fabric_quality's calc_snapshot.porvaiCountId.
-      if (porvaiKg > 0 && snap?.porvaiCountId != null && snap.porvaiCountId !== '') {
+      if (!existingBuckets.has('porvai_yarn') && porvaiKg > 0 && snap?.porvaiCountId != null && snap.porvaiCountId !== '') {
         const porvaiCountId = Number(snap.porvaiCountId);
         if (Number.isFinite(porvaiCountId) && porvaiCountId > 0) {
           rowsForThis.push({
             bucket: 'porvai_yarn', direction: 'out',
+            jobwork_party_id: jwParty,
             fabric_quality_id: fqId, yarn_count_id: porvaiCountId,
             quantity: Math.round(porvaiKg * 1000) / 1000, unit: 'kg',
             event_date: r.receipt_date,
@@ -467,19 +502,24 @@ export async function rebuildStockLedgerFromReceipts(): Promise<RebuildLedgerRes
       // bobbin_consumed_pcs column actually holds metres - one m of
       // fabric consumes one m of bobbin yarn). We write unit='m' so the
       // warehouse loader can use the value directly without trying to
-      // convert pcs → metres again.
-      if (bobbinPcs > 0 && snap?.bobbinId != null && snap.bobbinId !== '') {
-        const bobbinId = Number(snap.bobbinId);
-        if (Number.isFinite(bobbinId) && bobbinId > 0) {
-          rowsForThis.push({
-            bucket: 'bobbin', direction: 'out',
-            fabric_quality_id: fqId, bobbin_id: bobbinId,
-            quantity: Math.round(bobbinPcs * 100) / 100, unit: 'm',
-            event_date: r.receipt_date,
-            source_kind: 'fabric_receipt', source_id: r.id,
-            reference_no: r.code, notes: 'Backfilled from receipt items',
-          });
+      // convert pcs → metres again. bobbin_id may be null (stale or
+      // missing snapshot id) — the jobwork pivot matches outflows by
+      // jobwork_party_id so the row is still found.
+      if (!existingBuckets.has('bobbin') && bobbinPcs > 0) {
+        let bobbinId: number | null = null;
+        if (snap?.bobbinId != null && snap.bobbinId !== '') {
+          const n3 = Number(snap.bobbinId);
+          if (Number.isFinite(n3) && n3 > 0) bobbinId = n3;
         }
+        rowsForThis.push({
+          bucket: 'bobbin', direction: 'out',
+          jobwork_party_id: jwParty,
+          fabric_quality_id: fqId, bobbin_id: bobbinId,
+          quantity: Math.round(bobbinPcs * 100) / 100, unit: 'm',
+          event_date: r.receipt_date,
+          source_kind: 'fabric_receipt', source_id: r.id,
+          reference_no: r.code, notes: 'Backfilled from receipt items',
+        });
       }
     }
     if (rowsForThis.length > 0) {

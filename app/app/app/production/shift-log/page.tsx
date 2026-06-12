@@ -115,6 +115,26 @@ function statusPill(status: string): { label: string; cls: string } {
 const SHEDS = [1, 2, 3, 4] as const;
 const DEFAULT_WEAVER_SLOTS = 2;
 
+/** Enter moves focus to the NEXT metres/adjustment input in the shed
+ *  table (DOM order: across the row, then down) instead of submitting
+ *  the form — fast keyboard-only data entry. On the last input Enter
+ *  does nothing, so a stray key press never triggers a save. */
+function focusNextOnEnter(e: React.KeyboardEvent<HTMLInputElement>): void {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const current = e.currentTarget;
+  const scope: ParentNode = current.closest('table') ?? document;
+  const inputs = Array.from(
+    scope.querySelectorAll<HTMLInputElement>('input[type="number"]'),
+  ).filter((el) => !el.disabled);
+  const idx = inputs.indexOf(current);
+  const next = idx >= 0 ? inputs[idx + 1] : undefined;
+  if (next) {
+    next.focus();
+    next.select();
+  }
+}
+
 const today = (): string => new Date().toISOString().slice(0, 10);
 
 function emptyShed(shedNo: number, looms: Loom[]): ShedState {
@@ -884,6 +904,7 @@ function ShedCard({
                             onChange={(e) =>
                               onMetresChange(r.loom_id, slotIdx, e.target.value)
                             }
+                            onKeyDown={focusNextOnEnter}
                           />
                         </td>
                       ))}
@@ -895,6 +916,7 @@ function ShedCard({
                           placeholder="0"
                           value={r.adjustment}
                           onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
+                          onKeyDown={focusNextOnEnter}
                         />
                       </td>
                     </>
