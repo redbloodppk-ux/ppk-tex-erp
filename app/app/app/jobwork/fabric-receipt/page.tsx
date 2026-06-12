@@ -208,7 +208,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         title="Fabric Receipts"
         subtitle="Inbound fabric, segregated by production mode. Pick a tab to see only receipts of that kind."
         crumbs={[
-          { label: 'Job Work', href: '/app/jobwork' },
+          { label: 'Production', href: '/app/production' },
           { label: 'Fabric Receipts' },
         ]}
         actions={

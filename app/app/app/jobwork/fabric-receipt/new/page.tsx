@@ -673,8 +673,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
         title="New Fabric Receipt"
         subtitle={`From DC ${dc.code} \u00b7 ${dcInfo.party_name}`}
         crumbs={[
-          { label: 'Outsource Weaving', href: '/app/outsource' },
-          { label: 'Fabric Receipt' },
+          { label: 'Production', href: '/app/production' },
+          { label: 'Fabric Receipts', href: '/app/jobwork/fabric-receipt' },
+          { label: 'New' },
         ]}
       />
       {/* key on dc.id: when the operator re-points the receipt to a

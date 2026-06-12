@@ -147,7 +147,7 @@ export default async function FabricReceiptDetailPage({
         title={`Fabric Receipt ${hdr.code}`}
         subtitle={`${hdr.party?.name ?? '-'} \u00b7 from DC ${hdr.dc?.code ?? hdr.party_dc_no ?? '-'}`}
         crumbs={[
-          { label: 'Job Work', href: '/app/jobwork' },
+          { label: 'Production', href: '/app/production' },
           { label: 'Fabric Receipts', href: '/app/jobwork/fabric-receipt' },
           { label: hdr.code },
         ]}
