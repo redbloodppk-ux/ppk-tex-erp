@@ -111,11 +111,11 @@ function fmtMetres(v: unknown): string {
 
 function resolveTab(raw: string | undefined): TabConfig {
   const match = TABS.find((t) => t.kind === raw);
-  // Default to Job Work (legacy behaviour). Cast through the TabConfig
-  // union because tuple-index lookups widen to `T | undefined` under
-  // `noUncheckedIndexedAccess`, even though TABS[1] is statically
+  // Default to IN-HOUSE. Cast through the TabConfig union because
+  // tuple-index lookups widen to `T | undefined` under
+  // `noUncheckedIndexedAccess`, even though TABS[0] is statically
   // known at compile time.
-  return match ?? (TABS[1] as TabConfig);
+  return match ?? (TABS[0] as TabConfig);
 }
 
 export default async function FabricReceiptListPage({ searchParams }: PageProps) {

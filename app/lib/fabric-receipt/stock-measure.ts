@@ -151,8 +151,10 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
       specEnds.add(ends);
     }
     const rawIds: unknown[] = Array.isArray(snap['bobbinIds']) && (snap['bobbinIds'] as unknown[]).length > 0
-      ? (snap['bobbinIds'] as unknown[])
+      ? [...(snap['bobbinIds'] as unknown[])]
       : [snap['bobbinId']];
+    // Legacy second slot (bobbinId2) may not be in bobbinIds[].
+    if (snap['bobbinId2'] != null && snap['bobbinId2'] !== '') rawIds.push(snap['bobbinId2']);
     for (const v of rawIds) {
       const n = Number(v);
       if (Number.isFinite(n) && n > 0) bobbinIds.add(n);

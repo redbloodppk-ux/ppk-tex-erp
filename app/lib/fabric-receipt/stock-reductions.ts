@@ -270,8 +270,12 @@ async function reduceBobbin(
     const snap = r.calc_snapshot;
     if (!snap) continue;
     const rawIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
-      ? (snap.bobbinIds as unknown[])
+      ? [...(snap.bobbinIds as unknown[])]
       : [snap.bobbinId];
+    // Legacy second slot (bobbinId2) may not be in bobbinIds[].
+    if (snap.bobbinId2 != null && snap.bobbinId2 !== '' && !rawIds.map(String).includes(String(snap.bobbinId2))) {
+      rawIds.push(snap.bobbinId2);
+    }
     const ids: number[] = [];
     for (const v of rawIds) {
       if (v == null || v === '') continue;
@@ -521,8 +525,14 @@ async function reduceInhouseBobbin(
     .maybeSingle();
   const snap = (fqRow?.calc_snapshot ?? {}) as Record<string, unknown>;
   const rawIds: unknown[] = Array.isArray(snap.bobbinIds) && (snap.bobbinIds as unknown[]).length > 0
-    ? (snap.bobbinIds as unknown[])
+    ? [...(snap.bobbinIds as unknown[])]
     : [snap.bobbinId];
+  // Legacy two-slot shape: a second bobbin may live in bobbinId2 and be
+  // missing from bobbinIds[]. Include it so EVERY matched bobbin
+  // reduces 1:1.
+  if (snap.bobbinId2 != null && snap.bobbinId2 !== '' && !rawIds.map(String).includes(String(snap.bobbinId2))) {
+    rawIds.push(snap.bobbinId2);
+  }
   const slotIds = rawIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
   if (slotIds.length === 0) return { applied_m: 0, perBobbin: [] };
 

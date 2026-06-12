@@ -317,8 +317,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       // New shape: bobbinIds[] (one per "Bobbin needed" slot); legacy
       // rows carry a single bobbinId.
       const rawBobbinIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
-        ? (snap.bobbinIds as unknown[])
+        ? [...(snap.bobbinIds as unknown[])]
         : [snap.bobbinId];
+      if (snap.bobbinId2 != null && snap.bobbinId2 !== '') rawBobbinIds.push(snap.bobbinId2);
       for (const v of rawBobbinIds) {
         if (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0) bobbinIds.add(Number(v));
       }
@@ -389,8 +390,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       const snap = fqById.get(qId)?.calc_snapshot;
       if (!snap) continue;
       const rawBobbinIds: unknown[] = Array.isArray(snap.bobbinIds) && snap.bobbinIds.length > 0
-        ? (snap.bobbinIds as unknown[])
+        ? [...(snap.bobbinIds as unknown[])]
         : [snap.bobbinId];
+      if (snap.bobbinId2 != null && snap.bobbinId2 !== '') rawBobbinIds.push(snap.bobbinId2);
       for (const v of rawBobbinIds) {
         if (v == null || v === '') continue;
         const ends = assignedById.get(Number(v));
@@ -467,8 +469,9 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       const weftCountId = fqWeftById.get(qId)?.yarn_count_id ?? null;
       const porvaiCountId = snap?.porvaiCountId != null && snap.porvaiCountId !== '' ? Number(snap.porvaiCountId) : null;
       const rawBobbinIds: unknown[] = Array.isArray(snap?.bobbinIds) && (snap?.bobbinIds as unknown[]).length > 0
-        ? (snap?.bobbinIds as unknown[])
+        ? [...(snap?.bobbinIds as unknown[])]
         : [snap?.bobbinId];
+      if (snap?.bobbinId2 != null && snap?.bobbinId2 !== '') rawBobbinIds.push(snap.bobbinId2);
       const qBobbinIds = rawBobbinIds
         .map((v) => Number(v))
         .filter((n) => Number.isFinite(n) && n > 0);
