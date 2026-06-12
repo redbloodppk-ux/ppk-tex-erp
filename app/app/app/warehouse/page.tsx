@@ -691,7 +691,10 @@ async function loadYarn(supabase: any, sp: SP, suppliers: any[], counts: any[]):
   let q = supabase
     .from('yarn_lot')
     .select('id, supplier_party_id, yarn_count_id, current_kg, cost_per_kg')
-    .gt('current_kg', 0);
+    // neq(0): fully-consumed lots stay hidden, but over-consumed
+    // (negative) lots MUST surface so the operator sees the real
+    // position instead of a silently clamped zero.
+    .neq('current_kg', 0);
 
   // ?mill=N is kept as the search-param name for back-compat with existing
   // bookmarks; it now filters on supplier_party_id under the hood.
@@ -787,7 +790,7 @@ function YarnView({ rows }: { rows: YarnRow[] }) {
                   <div className="text-[11px] text-ink-soft">{r.count_name}</div>
                 </td>
                 <td className="px-4 py-3">{r.supplier_name}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatKg(r.available_kg, 1)}</td>
+                <td className={'px-4 py-3 text-right num font-semibold ' + (r.available_kg < 0 ? 'text-rose-700' : '')}>{formatKg(r.available_kg, 1)}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.weighted_avg_cost, { decimals: 2 })}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.available_kg * r.weighted_avg_cost, { compact: true })}</td>
                 <td className="px-4 py-3 text-right num">{r.lots_count}</td>
@@ -826,7 +829,9 @@ async function loadBobbin(
       .from('bobbin')
       .select('id, code, description, bobbin_price, quantity, jobwork_party_id, ends_per_bobbin, bobbin_metre')
       .eq('production_mode', 'jobwork')
-      .gt('quantity', 0);
+      // Show negative balances too — over-issued bobbins are a real
+      // discrepancy the operator needs to see, not hide.
+      .neq('quantity', 0);
     if (sp.party) bq = bq.eq('jobwork_party_id', Number(sp.party));
     const { data: jwBobs } = await bq;
 
@@ -854,7 +859,7 @@ async function loadBobbin(
   let q = supabase
     .from('bobbin_stock')
     .select('bobbin_id, location, vendor_id, customer_id, quantity_pcs')
-    .gt('quantity_pcs', 0);
+    .neq('quantity_pcs', 0);
 
   if (sp.location)                                  q = q.eq('location', sp.location);
   if (sp.mill && sp.location === 'at_vendor')       q = q.eq('vendor_id', Number(sp.mill));
@@ -952,7 +957,7 @@ function BobbinView({ rows }: { rows: BobbinRow[] }) {
                   </span>
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell text-ink-soft">{r.party_name || '—'}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{r.total_pcs.toFixed(2)}</td>
+                <td className={'px-4 py-3 text-right num font-semibold ' + (r.total_pcs < 0 ? 'text-rose-700' : '')}>{r.total_pcs.toFixed(2)}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.bobbin_price, { decimals: 0 })}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.total_pcs * r.bobbin_price, { compact: true })}</td>
               </tr>
@@ -987,7 +992,7 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
       costing_id, source_type, metres_available, cost_per_m_frozen,
       costing:costing_id ( quality_code, quality_name )
     `)
-    .gt('metres_available', 0)
+    .neq('metres_available', 0)
     .order('received_at', { ascending: false });
   // In-house fabric warehouse holds EVERY quality the mill owns,
   // regardless of how it was produced:
@@ -1043,7 +1048,7 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
       .select('id, current_metres, rate, fabric_quality_id, quality:fabric_quality_id ( code, name )')
       .eq('status', 'active')
       .eq('delivery_destination', 'in_house')
-      .gt('current_metres', 0);
+      .neq('current_metres', 0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of ((purchases ?? []) as any[])) {
       const key = `fp|${p.fabric_quality_id ?? 'x'}`;
@@ -1151,7 +1156,7 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
                     {SOURCE_LABEL[r.source_type] ?? r.source_type}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatMetres(r.metres_available, 1)}</td>
+                <td className={'px-4 py-3 text-right num font-semibold ' + (r.metres_available < 0 ? 'text-rose-700' : '')}>{formatMetres(r.metres_available, 1)}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.avg_cost_per_m, { decimals: 2 })}</td>
                 <td className="px-4 py-3 text-right num hidden md:table-cell">{formatRupee(r.metres_available * r.avg_cost_per_m, { compact: true })}</td>
                 <td className="px-4 py-3 text-right num">{r.receipts}</td>
@@ -1538,7 +1543,9 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
                       : <span className="text-ink-mute">—</span>}
                   </td>
                   <td className="px-3 py-2 text-xs">{r.party_name}</td>
-                  <td className="px-3 py-2 text-right num font-semibold">{formatMetres(r.metres, 1)}</td>
+                  <td className={'px-3 py-2 text-right num font-semibold ' + (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-600')}>
+                    {(r.direction === 'in' ? '+ ' : '\u2212 ') + formatMetres(r.metres, 1)}
+                  </td>
                   <td className="px-3 py-2">
                     <span className={`pill ${pill.cls} text-[11px] uppercase tracking-wide`}>{pill.label}</span>
                   </td>
@@ -1639,7 +1646,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
   return (
     <>
       <div className="grid sm:grid-cols-4 gap-3 mb-4">
-        <Kpi label="Closing balance" value={fmtUnit(grandClosing, data.unit)} icon={Coins} />
+        <Kpi label="Closing balance" value={fmtUnit(grandClosing, data.unit)} icon={Coins} negative={grandClosing < 0} />
         <Kpi label="Total inflow"    value={fmtUnit(grandIn, data.unit)}      icon={Layers} />
         <Kpi label="Total outflow"   value={fmtUnit(grandOut, data.unit)}     icon={TrendingDown} />
         <Kpi label="Columns × events" value={`${data.columns.length} × ${sorted.length}`} icon={Package} />
@@ -2804,7 +2811,7 @@ function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMess
   return (
     <>
       <div className="grid sm:grid-cols-3 gap-3 mb-4">
-        <Kpi label="Closing balance (all)" value={fmtUnit(grandClosing, unit)} icon={Coins} />
+        <Kpi label="Closing balance (all)" value={fmtUnit(grandClosing, unit)} icon={Coins} negative={grandClosing < 0} />
         <Kpi label="Groups" value={String(groups.length)} icon={Layers} />
         <Kpi label="Total events" value={String(groups.reduce((s, g) => s + g.events.length, 0))} icon={TrendingDown} />
       </div>
@@ -2928,15 +2935,15 @@ async function computeLowStock(supabase: any, counts: any[], bobbins: any[]) {
 
 // ─── Tiny KPI card ───────────────────────────────────────────────────────────
 function Kpi({
-  label, value, icon: Icon,
-}: { label: string; value: string; icon: React.ComponentType<{ className?: string }> }) {
+  label, value, icon: Icon, negative = false,
+}: { label: string; value: string; icon: React.ComponentType<{ className?: string }>; negative?: boolean }) {
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between mb-1">
         <div className="text-[11px] uppercase tracking-wider text-ink-mute">{label}</div>
         <Icon className="w-4 h-4 text-ink-mute" />
       </div>
-      <div className="num text-xl font-bold">{value}</div>
+      <div className={`num text-xl font-bold ${negative ? 'text-rose-700' : ''}`}>{value}</div>
     </div>
   );
 }

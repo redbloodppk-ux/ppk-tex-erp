@@ -246,19 +246,19 @@ export default async function FabricReceiptDetailPage({
                     </div>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right num text-xs">
+                <td className="px-3 py-2 text-right num text-xs text-rose-700">
                   {Number(it.weft_consumed_kg ?? 0) > 0
-                    ? fmtNum(it.weft_consumed_kg)
+                    ? '\u2212 ' + fmtNum(it.weft_consumed_kg)
                     : <span className="text-ink-mute">nil</span>}
                 </td>
-                <td className="px-3 py-2 text-right num text-xs">
+                <td className="px-3 py-2 text-right num text-xs text-rose-700">
                   {Number(it.porvai_consumed_kg ?? 0) > 0
-                    ? fmtNum(it.porvai_consumed_kg)
+                    ? '\u2212 ' + fmtNum(it.porvai_consumed_kg)
                     : <span className="text-ink-mute">nil</span>}
                 </td>
-                <td className="px-3 py-2 text-right num text-xs">
+                <td className="px-3 py-2 text-right num text-xs text-rose-700">
                   {Number(it.bobbin_consumed_pcs ?? 0) > 0
-                    ? fmtNum(it.bobbin_consumed_pcs)
+                    ? '\u2212 ' + fmtNum(it.bobbin_consumed_pcs)
                     : <span className="text-ink-mute">nil</span>}
                 </td>
               </tr>
@@ -268,9 +268,9 @@ export default async function FabricReceiptDetailPage({
             <tr>
               <td className="px-3 py-2" colSpan={4}>Totals</td>
               <td className="px-3 py-2 text-right num">{fmtNum(totals.m)} m</td>
-              <td className="px-3 py-2 text-right num">{fmtNum(totals.weft)}</td>
-              <td className="px-3 py-2 text-right num">{fmtNum(totals.porvai)}</td>
-              <td className="px-3 py-2 text-right num">{fmtNum(totals.bobbin)}</td>
+              <td className="px-3 py-2 text-right num text-rose-700">{totals.weft > 0 ? '\u2212 ' + fmtNum(totals.weft) : fmtNum(totals.weft)}</td>
+              <td className="px-3 py-2 text-right num text-rose-700">{totals.porvai > 0 ? '\u2212 ' + fmtNum(totals.porvai) : fmtNum(totals.porvai)}</td>
+              <td className="px-3 py-2 text-right num text-rose-700">{totals.bobbin > 0 ? '\u2212 ' + fmtNum(totals.bobbin) : fmtNum(totals.bobbin)}</td>
             </tr>
           </tfoot>
         </table>

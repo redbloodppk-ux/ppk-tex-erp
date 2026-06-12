@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { formatRupee, formatMetres } from '@/lib/utils';
+import { formatRupee } from '@/lib/utils';
 import {
   Users, Receipt, ArrowUpRight, Hammer,
   Wallet, Landmark, ClipboardList, ClockArrowUp, ShoppingCart,
@@ -9,16 +9,15 @@ import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendan
 
 export const metadata = { title: 'Dashboard' };
 
-interface JobworkStatusRow {
-  party_id: number;
-  party_code: string | null;
-  party_name: string;
-  metres_received_ytd: number | string | null;
-  payments_out_ytd:    number | string | null;
-  last_receipt_date:   string | null;
-  last_payment_date:   string | null;
-  days_since_last_payment: number | null;
-  days_since_last_receipt: number | null;
+interface JobworkInvoiceRow {
+  id: number;
+  invoice_no: string;
+  party_name: string | null;
+  invoice_date: string;
+  jobwork_party_id: number | null;
+  total:       number | string | null;
+  amount_paid: number | string | null;
+  balance:     number | string | null;
 }
 
 export default async function DashboardPage() {
@@ -29,27 +28,28 @@ export default async function DashboardPage() {
   const [
     { count: customerCount },
     { data: outstanding },
-    { data: jobworkStatus },
+    { data: jobworkInvoices },
   ] = await Promise.all([
     supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('v_customer_outstanding').select('outstanding_amount').limit(500),
+    // Unpaid / part-paid jobwork bills, oldest first so the longest-due
+    // bill sits at the top of the dashboard list.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from('v_jobwork_payment_status')
-      .select('party_id, party_code, party_name, metres_received_ytd, payments_out_ytd, last_receipt_date, last_payment_date, days_since_last_payment, days_since_last_receipt')
-      // Longest-unpaid first; NULL last_payment (never paid) at top.
-      .order('days_since_last_payment', { ascending: false, nullsFirst: true })
+    (supabase as any).from('invoice')
+      .select('id, invoice_no, party_name, invoice_date, jobwork_party_id, total, amount_paid, balance')
+      .eq('doc_type', 'jobwork_invoice')
+      .gt('balance', 0)
+      .order('invoice_date', { ascending: true })
       .limit(10),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const totalOutstanding = (outstanding ?? []).reduce((s: number, r: any) => s + Number(r.outstanding_amount ?? 0), 0);
 
-  const jobworkRows: JobworkStatusRow[] = (jobworkStatus ?? []) as JobworkStatusRow[];
-  // Only show jobwork parties that actually have some activity. A
-  // party with zero receipts and zero payments is noise on the dash.
-  const activeJobworkRows = jobworkRows.filter(
-    (r) => Number(r.metres_received_ytd ?? 0) > 0 || Number(r.payments_out_ytd ?? 0) > 0,
-  );
+  const openJobworkBills: JobworkInvoiceRow[] = (jobworkInvoices ?? []) as JobworkInvoiceRow[];
+  const today = new Date();
+  const daysDue = (d: string) =>
+    Math.max(0, Math.floor((today.getTime() - new Date(d).getTime()) / 86_400_000));
 
   const cards = [
     { label: 'Active Customers', value: customerCount ?? 0,         icon: Users,        href: '/app/customers',  tone: 'from-indigo to-violet' },
@@ -126,10 +126,10 @@ export default async function DashboardPage() {
 
       <TodayAttendanceWidget />
 
-      {/* Outstanding Jobwork Payments — per-weaver YTD tracker. Sorted
-          by days_since_last_payment so the longest-unpaid jobworker is
-          at the top. The "Pay" link drops the operator straight into
-          the Payments page with the party pre-selected. */}
+      {/* Outstanding Jobwork Payments — open (unpaid / part-paid) jobwork
+          bills, oldest first. One row per bill: invoice no, balance due,
+          days due. The "Pay" link drops the operator straight into the
+          Payments page with the party pre-selected. */}
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -138,48 +138,41 @@ export default async function DashboardPage() {
           </div>
           <Link href="/app/payments" className="text-xs text-indigo font-semibold">All payments &rarr;</Link>
         </div>
-        {activeJobworkRows.length === 0 ? (
+        {openJobworkBills.length === 0 ? (
           <p className="text-sm text-ink-soft py-4">
-            No jobwork activity yet this financial year.
+            No outstanding jobwork bills — everything is paid up.
           </p>
         ) : (
           <>
-            {/* Card layout for small screens — the 7-column table doesn't
-                fit phone widths so we render each row as a stacked card. */}
+            {/* Card layout for small screens. */}
             <ul className="md:hidden space-y-2">
-              {activeJobworkRows.map((r) => {
-                const daysUnpaid = r.days_since_last_payment;
-                const tone = daysUnpaid == null
-                  ? 'text-rose-600'
-                  : daysUnpaid > 30
-                    ? 'text-rose-600'
-                    : daysUnpaid > 14
-                      ? 'text-amber-600'
-                      : 'text-emerald-700';
+              {openJobworkBills.map((r) => {
+                const due = daysDue(r.invoice_date);
+                const tone = due > 30 ? 'text-rose-600' : due > 14 ? 'text-amber-600' : 'text-emerald-700';
                 return (
-                  <li key={r.party_id} className="border border-line/40 rounded-lg p-3">
+                  <li key={r.id} className="border border-line/40 rounded-lg p-3">
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="font-semibold text-sm truncate" title={r.party_name}>{r.party_name}</div>
                       <Link
-                        href={`/app/payments?party=${r.party_id}`}
-                        className="text-xs text-indigo font-semibold hover:underline shrink-0"
+                        href={`/app/invoices/${r.id}`}
+                        className="font-semibold text-sm text-indigo hover:underline truncate"
+                        title={r.party_name ?? undefined}
                       >
-                        Pay &rarr;
+                        {r.invoice_no}
                       </Link>
+                      {r.jobwork_party_id != null && (
+                        <Link
+                          href={`/app/payments?party=${r.jobwork_party_id}`}
+                          className="text-xs text-indigo font-semibold hover:underline shrink-0"
+                        >
+                          Pay &rarr;
+                        </Link>
+                      )}
                     </div>
                     <dl className="grid grid-cols-2 gap-y-1 text-xs">
-                      <dt className="text-ink-soft">Received YTD</dt>
-                      <dd className="text-right num">{formatMetres(Number(r.metres_received_ytd ?? 0))}</dd>
-                      <dt className="text-ink-soft">Paid YTD</dt>
-                      <dd className="text-right num">{formatRupee(Number(r.payments_out_ytd ?? 0), { compact: true })}</dd>
-                      <dt className="text-ink-soft">Last Receipt</dt>
-                      <dd className="text-right text-ink-soft">{r.last_receipt_date ?? '—'}</dd>
-                      <dt className="text-ink-soft">Last Payment</dt>
-                      <dd className="text-right text-ink-soft">{r.last_payment_date ?? '—'}</dd>
-                      <dt className="text-ink-soft">Days Unpaid</dt>
-                      <dd className={'text-right num font-semibold ' + tone}>
-                        {daysUnpaid == null ? 'never' : `${daysUnpaid}d`}
-                      </dd>
+                      <dt className="text-ink-soft">Balance</dt>
+                      <dd className="text-right num font-semibold">{formatRupee(Number(r.balance ?? 0))}</dd>
+                      <dt className="text-ink-soft">Due</dt>
+                      <dd className={'text-right num font-semibold ' + tone}>{due}d</dd>
                     </dl>
                   </li>
                 );
@@ -191,43 +184,39 @@ export default async function DashboardPage() {
               <table className="w-full text-sm">
                 <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
                   <tr>
-                    <th className="text-left py-2">Party</th>
-                    <th className="text-right">Received (m) YTD</th>
-                    <th className="text-right">Paid YTD</th>
-                    <th className="text-right">Last Receipt</th>
-                    <th className="text-right">Last Payment</th>
-                    <th className="text-right">Days Unpaid</th>
+                    <th className="text-left py-2">Invoice No</th>
+                    <th className="text-right">Balance</th>
+                    <th className="text-right">Due</th>
                     <th className="text-right" />
                   </tr>
                 </thead>
                 <tbody>
-                  {activeJobworkRows.map((r) => {
-                    const daysUnpaid = r.days_since_last_payment;
-                    const tone = daysUnpaid == null
-                      ? 'text-rose-600'
-                      : daysUnpaid > 30
-                        ? 'text-rose-600'
-                        : daysUnpaid > 14
-                          ? 'text-amber-600'
-                          : 'text-emerald-700';
+                  {openJobworkBills.map((r) => {
+                    const due = daysDue(r.invoice_date);
+                    const tone = due > 30 ? 'text-rose-600' : due > 14 ? 'text-amber-600' : 'text-emerald-700';
                     return (
-                      <tr key={r.party_id} className="border-b border-line/40 last:border-0">
-                        <td className="py-2.5 font-medium truncate max-w-[220px]" title={r.party_name}>{r.party_name}</td>
-                        <td className="text-right num">{formatMetres(Number(r.metres_received_ytd ?? 0))}</td>
-                        <td className="text-right num">{formatRupee(Number(r.payments_out_ytd ?? 0), { compact: true })}</td>
-                        <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_receipt_date ?? '—'}</td>
-                        <td className="text-right text-xs text-ink-soft whitespace-nowrap">{r.last_payment_date ?? '—'}</td>
-                        <td className={'text-right num font-semibold ' + tone}>
-                          {daysUnpaid == null ? 'never' : `${daysUnpaid}d`}
-                        </td>
-                        <td className="text-right">
+                      <tr key={r.id} className="border-b border-line/40 last:border-0">
+                        <td className="py-2.5">
                           <Link
-                            href={`/app/payments?party=${r.party_id}`}
-                            className="text-xs text-indigo font-semibold hover:underline"
-                            title={`Open payments filtered to ${r.party_name}`}
+                            href={`/app/invoices/${r.id}`}
+                            className="font-medium text-indigo hover:underline"
+                            title={r.party_name ?? undefined}
                           >
-                            Pay &rarr;
+                            {r.invoice_no}
                           </Link>
+                        </td>
+                        <td className="text-right num font-semibold">{formatRupee(Number(r.balance ?? 0))}</td>
+                        <td className={'text-right num font-semibold ' + tone}>{due}d</td>
+                        <td className="text-right">
+                          {r.jobwork_party_id != null && (
+                            <Link
+                              href={`/app/payments?party=${r.jobwork_party_id}`}
+                              className="text-xs text-indigo font-semibold hover:underline"
+                              title={`Open payments filtered to ${r.party_name ?? r.invoice_no}`}
+                            >
+                              Pay &rarr;
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     );
@@ -238,7 +227,7 @@ export default async function DashboardPage() {
           </>
         )}
         <p className="text-[10px] text-ink-mute mt-3">
-          YTD = from 1-April of the running financial year. &ldquo;Days Unpaid&rdquo; counts from the last payment to today; &ldquo;never&rdquo; means no payment has ever been recorded for this party.
+          Open jobwork bills only (unpaid or part-paid), oldest first. &ldquo;Due&rdquo; counts days since the bill date. Balance = bill total minus payments recorded against it.
         </p>
       </section>
     </div>
