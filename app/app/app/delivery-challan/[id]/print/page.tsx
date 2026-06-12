@@ -345,7 +345,7 @@ export default async function DcPrintPage({
         .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 62px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
-      <PrintActions dcId={dc.id} dcCode={dc.code} />
+      <PrintActions dcId={dc.id} dcCode={dc.code} partyName={dc.bill_to_name} dcDate={dc.dc_date} />
 
       {/* Fixed print-only header. Shows on every page when the DC content
           flows across multiple sheets. Hidden on screen by CSS. */}

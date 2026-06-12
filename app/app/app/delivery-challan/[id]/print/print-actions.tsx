@@ -18,14 +18,30 @@ import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
 interface PrintActionsProps {
   dcId: number;
   dcCode: string;
+  /** Bill-to party name — part of the saved PDF filename. */
+  partyName?: string | null;
+  /** DC date (YYYY-MM-DD) — part of the saved PDF filename. */
+  dcDate?: string | null;
 }
 
-export function PrintActions({ dcId, dcCode }: PrintActionsProps): React.ReactElement {
+export function PrintActions({ dcId, dcCode, partyName, dcDate }: PrintActionsProps): React.ReactElement {
   const router = useRouter();
   const [busy, setBusy] = useState<'print' | 'pdf' | null>(null);
 
   function safeFilename(code: string): string {
-    return code.replace(/[\\/:*?"<>|]/g, '-');
+    return code.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  }
+
+  /** PDF filename = "PARTY NAME DC-NO DD-MM-YYYY". */
+  function pdfFilename(): string {
+    const parts: string[] = [];
+    if (partyName && partyName.trim() !== '') parts.push(partyName.trim());
+    parts.push(dcCode);
+    if (dcDate) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dcDate);
+      parts.push(m ? `${m[3]}-${m[2]}-${m[1]}` : dcDate);
+    }
+    return safeFilename(parts.join(' '));
   }
 
   function handlePrint(): void {
@@ -48,8 +64,9 @@ export function PrintActions({ dcId, dcCode }: PrintActionsProps): React.ReactEl
     setBusy('pdf');
     const originalTitle = document.title;
     // Setting document.title makes most browsers default the
-    // "Save as PDF" filename to this — e.g. DC-26-27-038.pdf.
-    document.title = safeFilename(dcCode);
+    // "Save as PDF" filename to this —
+    // e.g. "ABC TEX DC-26-27-038 12-06-2026.pdf".
+    document.title = pdfFilename();
     setTimeout(() => {
       window.print();
       document.title = originalTitle;

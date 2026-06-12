@@ -12,17 +12,35 @@ import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
 interface InvoicePrintActionsProps {
   invoiceId: number;
   invoiceNo: string;
+  /** Bill-to party name — part of the saved PDF filename. */
+  partyName?: string | null;
+  /** Invoice date (YYYY-MM-DD) — part of the saved PDF filename. */
+  invoiceDate?: string | null;
 }
 
 export function InvoicePrintActions({
   invoiceId,
   invoiceNo,
+  partyName,
+  invoiceDate,
 }: InvoicePrintActionsProps): React.ReactElement {
   const router = useRouter();
   const [busy, setBusy] = useState<'print' | 'pdf' | null>(null);
 
   function safeFilename(code: string): string {
-    return code.replace(/[\\/:*?"<>|]/g, '-');
+    return code.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  }
+
+  /** PDF filename = "PARTY NAME INV-NO DD-MM-YYYY". */
+  function pdfFilename(): string {
+    const parts: string[] = [];
+    if (partyName && partyName.trim() !== '') parts.push(partyName.trim());
+    parts.push(invoiceNo);
+    if (invoiceDate) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(invoiceDate);
+      parts.push(m ? `${m[3]}-${m[2]}-${m[1]}` : invoiceDate);
+    }
+    return safeFilename(parts.join(' '));
   }
 
   function handlePrint(): void {
@@ -47,8 +65,8 @@ export function InvoicePrintActions({
     const originalTitle = document.title;
     // Browsers use document.title as the default filename when the user
     // picks "Save as PDF" from the print dialog. So the downloaded file
-    // becomes e.g. INV-26-27-039.pdf with no extra wiring needed.
-    document.title = safeFilename(invoiceNo);
+    // becomes e.g. "ABC TEX INV-26-27-039 12-06-2026.pdf".
+    document.title = pdfFilename();
     setTimeout(() => {
       window.print();
       document.title = originalTitle;

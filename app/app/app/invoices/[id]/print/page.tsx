@@ -378,7 +378,7 @@ export default async function InvoicePrintPage({
         .inv-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 83px; color: rgba(220, 38, 38, 0.18); font-weight: 900; letter-spacing: 10px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
-      <InvoicePrintActions invoiceId={inv.id} invoiceNo={inv.invoice_no} />
+      <InvoicePrintActions invoiceId={inv.id} invoiceNo={inv.invoice_no} partyName={partyName} invoiceDate={inv.invoice_date} />
 
       {/* Fixed print-only header — repeats on every printed page.
           Hidden on screen by CSS. */}
