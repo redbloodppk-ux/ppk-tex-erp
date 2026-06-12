@@ -196,6 +196,10 @@ export function EditInvoiceForm({
       return;
     }
     setSavedAt(Date.now());
+    // Saved — close the edit form and return to the page the operator
+    // came from (invoice view / invoices list), refreshed so the edits
+    // show immediately.
+    router.back();
     router.refresh();
   }
 
