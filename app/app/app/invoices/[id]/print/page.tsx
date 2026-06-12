@@ -324,9 +324,11 @@ export default async function InvoicePrintPage({
            of the sheet. The auto-margin on .foot-strip consumes the
            leftover vertical space so everything above stays where it is. */
         .inv-sheet .foot-strip { margin-top: auto; }
-        /* Compact format — applied ONLY to Job Work / Weaver bills.
-           zoom shrinks the whole page content (fonts + spacing)
-           uniformly; regular invoices keep the full-size format. */
+        /* Page scale per document type. Regular invoices print at 92%
+           (one step smaller); Job Work / Weaver bills keep their own
+           90% compact scale (the override REPLACES the base zoom, it
+           does not stack). */
+        .inv-sheet { zoom: 0.92; }
         .inv-sheet.inv-compact { zoom: 0.9; }
         /* DC-style header: centered title band + meta strip + bill/ship grid */
         .inv-title { text-align: center; font-size: 23px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }

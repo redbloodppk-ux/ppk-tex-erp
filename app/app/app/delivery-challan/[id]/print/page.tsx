@@ -209,7 +209,7 @@ export default async function DcPrintPage({
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
             font-family: 'Calibri', Arial, sans-serif;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             color: #222;
           }
@@ -237,13 +237,13 @@ export default async function DcPrintPage({
             padding: 4mm 0;
             border-bottom: 1px solid #000;
             font-family: 'Calibri', Arial, sans-serif;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             color: #111;
             background: #fff;
           }
-          .dc-print-header .ph-title { font-size: 14px; font-weight: 800; letter-spacing: 0.6px; }
-          .dc-print-header .ph-meta  { text-align: right; font-size: 12px; font-weight: 700; line-height: 1.35; color: #222; }
+          .dc-print-header .ph-title { font-size: 13px; font-weight: 800; letter-spacing: 0.6px; }
+          .dc-print-header .ph-meta  { text-align: right; font-size: 11px; font-weight: 700; line-height: 1.35; color: #222; }
           .dc-print-header .ph-meta b { color: #000; font-weight: 800; }
           .dc-print-footer {
             display: block !important;
@@ -253,13 +253,13 @@ export default async function DcPrintPage({
             border-top: 1px solid #000;
             text-align: center;
             font-family: 'Calibri', Arial, sans-serif;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             line-height: 1.5;
             color: #111;
             background: #fff;
           }
-          .dc-print-footer .pf-small { font-weight: 600; font-size: 11px; color: #222; }
+          .dc-print-footer .pf-small { font-weight: 600; font-size: 10px; color: #222; }
           /* Tighten page breaks: don't split an item's bundle table across
              two pages if it can be avoided, and never orphan a header row. */
           .dc-item table.bundles { page-break-inside: avoid; }
@@ -284,7 +284,7 @@ export default async function DcPrintPage({
           font-family: 'Calibri', Arial, sans-serif;
           /* Bumped again for printed readability — base 15.5px,
              everything below scales proportionally. */
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
           line-height: 1.4;
           border: 1px solid #d4d4d4;
@@ -292,57 +292,57 @@ export default async function DcPrintPage({
           display: flex;
           flex-direction: column;
         }
-        .dc-title { text-align: center; font-size: 24px; font-weight: 800; letter-spacing: 1.4px; }
-        .dc-orig { text-align: right; font-size: 12px; font-weight: 700; margin: 5px 0; color: #222; letter-spacing: 0.5px; }
+        .dc-title { text-align: center; font-size: 22px; font-weight: 800; letter-spacing: 1.4px; }
+        .dc-orig { text-align: right; font-size: 11px; font-weight: 700; margin: 5px 0; color: #222; letter-spacing: 0.5px; }
         .dc-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border: 1px solid #000; }
         .dc-meta > div { border-right: 0.5px solid #000; padding: 7px 10px; }
         .dc-meta > div:last-child { border-right: none; }
-        .dc-meta .lbl { font-size: 11px; color: #333; letter-spacing: 0.5px; font-weight: 700; }
-        .dc-meta .val { font-size: 14px; font-weight: 800; }
-        .dc-secbar { background: #e8e8e8; font-weight: 800; font-size: 13px; padding: 6px 10px; border: 1px solid #000; border-top: none; letter-spacing: 0.6px; }
-        .dc-deliv { border: 1px solid #000; border-top: none; padding: 8px 12px; display: flex; justify-content: space-between; align-items: flex-start; font-size: 13px; font-weight: 600; }
-        .dc-deliv .for { font-weight: 800; font-size: 14px; }
+        .dc-meta .lbl { font-size: 10px; color: #333; letter-spacing: 0.5px; font-weight: 700; }
+        .dc-meta .val { font-size: 13px; font-weight: 800; }
+        .dc-secbar { background: #e8e8e8; font-weight: 800; font-size: 12px; padding: 6px 10px; border: 1px solid #000; border-top: none; letter-spacing: 0.6px; }
+        .dc-deliv { border: 1px solid #000; border-top: none; padding: 8px 12px; display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; font-weight: 600; }
+        .dc-deliv .for { font-weight: 800; font-size: 13px; }
         .dc-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
         .dc-billship > div { padding: 9px 12px; }
         .dc-billship > div + div { border-left: 0.5px solid #000; }
-        .dc-billship .tag { display: inline-block; background: #000; color: #fff; font-size: 12px; padding: 3px 13px; letter-spacing: 1.5px; margin-bottom: 6px; font-weight: 800; }
-        .dc-billship .gst { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-        .dc-billship .party { font-weight: 800; font-size: 14px; margin-bottom: 4px; }
-        .dc-billship .addr { font-size: 13px; font-weight: 600; color: #111; }
-        .dc-billship .ps { font-size: 12px; color: #222; margin-top: 6px; font-weight: 700; letter-spacing: 0.3px; }
+        .dc-billship .tag { display: inline-block; background: #000; color: #fff; font-size: 11px; padding: 3px 13px; letter-spacing: 1.5px; margin-bottom: 6px; font-weight: 800; }
+        .dc-billship .gst { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+        .dc-billship .party { font-weight: 800; font-size: 13px; margin-bottom: 4px; }
+        .dc-billship .addr { font-size: 12px; font-weight: 600; color: #111; }
+        .dc-billship .ps { font-size: 11px; color: #222; margin-top: 6px; font-weight: 700; letter-spacing: 0.3px; }
         .dc-item { border: 1px solid #000; border-top: none; }
-        .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 7px 12px; font-size: 13px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
+        .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 7px 12px; font-size: 12px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
         .dc-item .qline .agent { text-align: right; }
-        .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 12px; }
         .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 5px 6px; text-align: right; height: 25px; font-weight: 700; }
-        .dc-item table.bundles th { background: #e8e8e8; font-weight: 800; text-align: center; font-size: 13px; }
+        .dc-item table.bundles th { background: #e8e8e8; font-weight: 800; text-align: center; font-size: 12px; }
         .dc-item table.bundles td.empty { color: #ccc; font-weight: 500; }
         .dc-item table.bundles td.lbl, .dc-item table.bundles th.lbl { text-align: left; background: #fafafa; font-weight: 700; }
-        .dc-item table.bundles tr.total td { background: #efefef; font-weight: 800; border-top: 1.4px solid #000; font-size: 13px; }
+        .dc-item table.bundles tr.total td { background: #efefef; font-weight: 800; border-top: 1.4px solid #000; font-size: 12px; }
         .dc-item .summary { display: grid; grid-template-columns: 1fr 1fr; border-top: 0.5px solid #000; }
         .dc-item .summary > div { padding: 8px 12px; }
         .dc-item .summary > div + div { border-left: 0.5px solid #000; }
-        .dc-item .summary table { width: 100%; font-size: 13px; }
+        .dc-item .summary table { width: 100%; font-size: 12px; }
         .dc-item .summary td { padding: 5px 0; }
         .dc-item .summary td.l { color: #222; font-weight: 700; }
-        .dc-item .summary td.v { text-align: right; font-weight: 800; font-size: 13px; }
-        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 7px 12px; font-size: 13px; font-weight: 700; }
+        .dc-item .summary td.v { text-align: right; font-weight: 800; font-size: 12px; }
+        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 7px 12px; font-size: 12px; font-weight: 700; }
         /* Signature footer block — margin-top:auto pushes it to the
            bottom of the dc-sheet flex column, so it sits at the bottom
            of the last printed page even when bundle content is short.
            The top border stays solid because the auto-margin can leave
            visible whitespace between .dc-vehicle and .dc-foot. */
         .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 105px; margin-top: auto; }
-        .dc-foot > div { padding: 9px 12px; font-size: 13px; font-weight: 700; }
+        .dc-foot > div { padding: 9px 12px; font-size: 12px; font-weight: 700; }
         .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
-        .dc-foot .sig { font-weight: 800; margin-bottom: 36px; font-size: 13px; letter-spacing: 0.4px; }
-        .dc-foot .auth { font-weight: 800; letter-spacing: 0.6px; font-size: 13px; }
-        .dc-foot .seal { color: #333; font-weight: 700; letter-spacing: 0.5px; margin-top: 6px; text-align: center; font-size: 12px; }
-        .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 12px; font-weight: 700; line-height: 1.55; }
-        .dc-addrfoot .small { font-weight: 600; font-size: 11px; }
+        .dc-foot .sig { font-weight: 800; margin-bottom: 36px; font-size: 12px; letter-spacing: 0.4px; }
+        .dc-foot .auth { font-weight: 800; letter-spacing: 0.6px; font-size: 12px; }
+        .dc-foot .seal { color: #333; font-weight: 700; letter-spacing: 0.5px; margin-top: 6px; text-align: center; font-size: 11px; }
+        .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 11px; font-weight: 700; line-height: 1.55; }
+        .dc-addrfoot .small { font-weight: 600; font-size: 10px; }
         .dc-watermark { position: relative; }
-        .dc-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 76px; color: rgba(220, 38, 38, 0.12); font-weight: 900; letter-spacing: 12px; pointer-events: none; transform: rotate(-30deg); }
-        .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 68px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
+        .dc-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 70px; color: rgba(220, 38, 38, 0.12); font-weight: 900; letter-spacing: 12px; pointer-events: none; transform: rotate(-30deg); }
+        .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 62px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
       <PrintActions dcId={dc.id} dcCode={dc.code} />
