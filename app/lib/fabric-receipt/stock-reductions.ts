@@ -150,8 +150,8 @@ async function reducePavu(
   sb: Sb,
   fabric_quality_id: number,
   metres: number,
-): Promise<{ applied: number; perBeam: Array<{ beam_id: number; cut: number; party_id: number | null; quality_id: number | null }> }> {
-  if (metres <= 0) return { applied: 0, perBeam: [] };
+): Promise<{ applied: number; forced: number; perBeam: Array<{ beam_id: number | null; cut: number; party_id: number | null; quality_id: number | null }> }> {
+  if (metres <= 0) return { applied: 0, forced: 0, perBeam: [] };
 
   // Resolve the set of fabric_quality ids that share warp stock with
   // this one. If is_merged + merged_name is set we pull siblings.
@@ -184,7 +184,7 @@ async function reducePavu(
 
   let remaining = metres;
   let applied = 0;
-  const perBeam: Array<{ beam_id: number; cut: number; party_id: number | null; quality_id: number | null }> = [];
+  const perBeam: Array<{ beam_id: number | null; cut: number; party_id: number | null; quality_id: number | null }> = [];
   for (const b of (beams ?? []) as Array<{ id: number; total_metres: number | string; jobwork_party_id: number | null; fabric_quality_id: number | null }>) {
     if (remaining <= 0) break;
     const available = Number(b.total_metres);
@@ -196,7 +196,15 @@ async function reducePavu(
     remaining -= cut;
     perBeam.push({ beam_id: b.id, cut, party_id: b.jobwork_party_id, quality_id: b.fabric_quality_id });
   }
-  return { applied: Math.round(applied * 100) / 100, perBeam };
+  // Remainder the beams couldn't cover is still consumed — record it so
+  // the warehouse warp pivot shows the true (negative) balance.
+  let forced = 0;
+  if (remaining > 0.005) {
+    forced = Math.round(remaining * 100) / 100;
+    perBeam.push({ beam_id: null, cut: forced, party_id: null, quality_id: fabric_quality_id });
+    applied += forced;
+  }
+  return { applied: Math.round(applied * 100) / 100, forced, perBeam };
 }
 
 /** Reduce jobwork_weft_bag.total_kg FIFO across one or more yarn counts.
@@ -207,8 +215,8 @@ async function reduceWeftBag(
   sb: Sb,
   yarn_count_ids: number[],
   kg: number,
-): Promise<{ applied: number; perBag: Array<{ bag_id: number; cut: number; party_id: number | null; count_id: number | null }> }> {
-  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, perBag: [] };
+): Promise<{ applied: number; forced: number; perBag: Array<{ bag_id: number | null; cut: number; party_id: number | null; count_id: number | null }> }> {
+  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, forced: 0, perBag: [] };
 
   const { data: bags } = await sb
     .from('jobwork_weft_bag')
@@ -220,7 +228,7 @@ async function reduceWeftBag(
 
   let remaining = kg;
   let applied = 0;
-  const perBag: Array<{ bag_id: number; cut: number; party_id: number | null; count_id: number | null }> = [];
+  const perBag: Array<{ bag_id: number | null; cut: number; party_id: number | null; count_id: number | null }> = [];
   for (const b of (bags ?? []) as Array<{ id: number; total_kg: number | string; jobwork_party_id: number | null; yarn_count_id: number | null }>) {
     if (remaining <= 0) break;
     const avail = Number(b.total_kg);
@@ -232,7 +240,17 @@ async function reduceWeftBag(
     remaining -= cut;
     perBag.push({ bag_id: b.id, cut, party_id: b.jobwork_party_id, count_id: b.yarn_count_id });
   }
-  return { applied: Math.round(applied * 100) / 100, perBag };
+  // Whatever the bags couldn't cover is STILL consumed — the cloth was
+  // physically woven. Record the remainder as a ledger outflow (bag_id
+  // null) so the warehouse and the receipt snapshot show the true
+  // (possibly negative) balance instead of silently dropping it.
+  let forced = 0;
+  if (remaining > 0.0005) {
+    forced = Math.round(remaining * 1000) / 1000;
+    perBag.push({ bag_id: null, cut: forced, party_id: null, count_id: yarn_count_ids[0] ?? null });
+    applied += forced;
+  }
+  return { applied: Math.round(applied * 100) / 100, forced, perBag };
 }
 
 /** Consume from the job-work bobbin pool for every spec (ends_per_bobbin
@@ -252,7 +270,7 @@ async function reduceBobbin(
   fabric_quality_id: number,
   metres: number,
   jobworkPartyId: number | null,
-): Promise<{ applied_pcs: number; applied_m: number; perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> }> {
+): Promise<{ applied_pcs: number; applied_m: number; perBobbin: Array<{ bobbin_id: number | null; cut_pcs: number; cut_m: number; party_id: number | null }> }> {
   if (metres <= 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
 
   // Step 1: collect this quality's selected bobbin SLOTS (bobbinIds[]
@@ -316,7 +334,9 @@ async function reduceBobbin(
       else issuedByBobbin.set(r.bobbin_id, { m, per });
       if (firstIssuedBobbin == null && pcs > 0) firstIssuedBobbin = r.bobbin_id;
     }
-    if (firstIssuedBobbin == null) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+    // NOTE: even when NOTHING was issued to this party the consumption
+    // is still real (the cloth was woven), so we no longer bail out —
+    // the outflow is recorded and the pool goes negative.
 
     const { data: pOuts } = await sb
       .from('stock_ledger')
@@ -332,7 +352,7 @@ async function reduceBobbin(
       if (o.bobbin_id != null) outByBobbin.set(o.bobbin_id, (outByBobbin.get(o.bobbin_id) ?? 0) + q);
     }
 
-    const perBobbin: Array<{ bobbin_id: number; cut_pcs: number; cut_m: number; party_id: number | null }> = [];
+    const perBobbin: Array<{ bobbin_id: number | null; cut_pcs: number; cut_m: number; party_id: number | null }> = [];
     let applied_m = 0;
     let applied_pcs = 0;
     const usableSlots = slotIds.filter((id) => issuedByBobbin.has(id));
@@ -340,29 +360,30 @@ async function reduceBobbin(
       for (const id of usableSlots) {
         const info = issuedByBobbin.get(id);
         if (!info) continue;
-        const avail = Math.max(0, info.m - (outByBobbin.get(id) ?? 0));
-        const cut = Math.min(metres, avail);
-        if (cut <= 0) continue;
+        // Full consumption per slot — NOT capped at availability. If the
+        // issued pool can't cover it, the balance simply goes negative
+        // (the warehouse pivot shows it in red).
+        const cut = metres;
         const pcs = info.per > 0 ? Math.round((cut / info.per) * 100) / 100 : cut;
         applied_m += cut;
         applied_pcs += pcs;
         perBobbin.push({ bobbin_id: id, cut_pcs: pcs, cut_m: Math.round(cut * 100) / 100, party_id: jobworkPartyId });
-        // Track within this call so the same bobbin picked in two
-        // slots can't be consumed past its availability.
         outByBobbin.set(id, (outByBobbin.get(id) ?? 0) + cut);
       }
     } else {
+      // No usable slot (stale ids, or nothing ever issued): still record
+      // the full consumption against the party pool — bobbin_id may be
+      // null, the Warehouse → Job Work → Bobbin pivot matches outflows
+      // by jobwork_party_id so the row is never lost.
       const slotCount = Math.max(1, slotIds.length);
-      const avail = Math.max(0, issuedTotal - outTotal);
-      const cut = Math.min(metres * slotCount, avail);
-      if (cut > 0) {
-        const per = issuedByBobbin.get(firstIssuedBobbin)?.per ?? 0;
-        const pcs = per > 0 ? Math.round((cut / per) * 100) / 100 : cut;
-        applied_m = cut;
-        applied_pcs = pcs;
-        perBobbin.push({ bobbin_id: firstIssuedBobbin, cut_pcs: pcs, cut_m: Math.round(cut * 100) / 100, party_id: jobworkPartyId });
-      }
+      const cut = metres * slotCount;
+      const per = firstIssuedBobbin != null ? (issuedByBobbin.get(firstIssuedBobbin)?.per ?? 0) : 0;
+      const pcs = per > 0 ? Math.round((cut / per) * 100) / 100 : cut;
+      applied_m = cut;
+      applied_pcs = pcs;
+      perBobbin.push({ bobbin_id: firstIssuedBobbin, cut_pcs: pcs, cut_m: Math.round(cut * 100) / 100, party_id: jobworkPartyId });
     }
+    void issuedTotal; void outTotal;
     return { applied_pcs, applied_m: Math.round(applied_m * 100) / 100, perBobbin };
   }
 
@@ -450,9 +471,10 @@ async function reduceBobbin(
   const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
     .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
 
-  const available_m = Math.max(0, issued_m - consumed_m);
-  const cut_m = Math.min(metres, available_m);
-  if (cut_m <= 0) return { applied_pcs: 0, applied_m: 0, perBobbin: [] };
+  // Full consumption — not capped at availability; the derived pool may
+  // go negative and the warehouse shows it in red.
+  void issued_m; void consumed_m;
+  const cut_m = metres;
 
   const cut_pcs = attrPer > 0 ? Math.round((cut_m / attrPer) * 100) / 100 : cut_m;
   return {
@@ -475,8 +497,8 @@ async function reduceInhouseYarnLots(
   yarn_count_ids: number[],
   kg: number,
   kind: 'yarn' | 'porvai',
-): Promise<{ applied: number; perLot: Array<{ lot_id: number; cut: number; count_id: number | null }> }> {
-  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, perLot: [] };
+): Promise<{ applied: number; forced: number; perLot: Array<{ lot_id: number | null; cut: number; count_id: number | null }> }> {
+  if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, forced: 0, perLot: [] };
   const { data: lots } = await sb
     .from('yarn_lot')
     .select('id, current_kg, yarn_count_id')
@@ -488,7 +510,7 @@ async function reduceInhouseYarnLots(
     .order('id', { ascending: true });
   let remaining = kg;
   let applied = 0;
-  const perLot: Array<{ lot_id: number; cut: number; count_id: number | null }> = [];
+  const perLot: Array<{ lot_id: number | null; cut: number; count_id: number | null }> = [];
   for (const l of ((lots ?? []) as Array<{ id: number; current_kg: number | string; yarn_count_id: number | null }>)) {
     if (remaining <= 0) break;
     const avail = Number(l.current_kg);
@@ -500,7 +522,15 @@ async function reduceInhouseYarnLots(
     remaining -= cut;
     perLot.push({ lot_id: l.id, cut, count_id: l.yarn_count_id });
   }
-  return { applied: Math.round(applied * 1000) / 1000, perLot };
+  // Remainder the lots couldn't cover is still consumed — record it so
+  // the ledger / warehouse show the true (negative) position.
+  let forced = 0;
+  if (remaining > 0.0005) {
+    forced = Math.round(remaining * 1000) / 1000;
+    perLot.push({ lot_id: null, cut: forced, count_id: yarn_count_ids[0] ?? null });
+    applied += forced;
+  }
+  return { applied: Math.round(applied * 1000) / 1000, forced, perLot };
 }
 
 /** IN-HOUSE: consume `metres` from EACH bobbin assigned to the quality
@@ -575,12 +605,12 @@ async function reduceInhouseBobbin(
   let applied_m = 0;
   const perBobbin: Array<{ bobbin_id: number; cut_m: number }> = [];
   for (const id of slotIds) {
-    const avail = Math.max(0, availById.get(id) ?? 0);
-    const cut = Math.min(metres, avail);
-    if (cut <= 0) continue;
+    // Full consumption per slot — not capped at availability; the pool
+    // goes negative and the warehouse shows it in red.
+    const cut = metres;
     applied_m += cut;
     perBobbin.push({ bobbin_id: id, cut_m: Math.round(cut * 100) / 100 });
-    availById.set(id, avail - cut); // same bobbin in two slots can't overdraw
+    availById.set(id, (availById.get(id) ?? 0) - cut);
   }
   return { applied_m: Math.round(applied_m * 100) / 100, perBobbin };
 }
@@ -668,14 +698,14 @@ export async function applyFabricReceiptStockReductions(
           yarn_count_id: null, bobbin_id: null,
           quantity: Math.round(b.cut * 100) / 100, unit: 'm',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-          notes: `From warp beam #${b.beam_id}`,
+          notes: b.beam_id != null ? `From warp beam #${b.beam_id}` : 'No warp-beam stock — balance driven negative',
         });
       }
-      if (r.applied + 0.005 < it.received_metres) {
+      if (r.forced > 0.005) {
         result.shortfalls.push({
           bucket: 'pavu', fabric_quality_id: it.fabric_quality_id,
-          needed: it.received_metres, applied: r.applied, unit: 'm',
-          note: 'Available warp-beam metres less than received - check Jobwork \u2192 Warp beam given for this fabric quality.',
+          needed: it.received_metres, applied: r.applied - r.forced, unit: 'm',
+          note: 'Warp beams could not cover the received metres — the balance has gone NEGATIVE. Check Jobwork \u2192 Warp beam given for this fabric quality.',
         });
       }
       }
@@ -700,16 +730,16 @@ export async function applyFabricReceiptStockReductions(
             yarn_count_id: l.count_id, bobbin_id: null,
             quantity: Math.round(l.cut * 1000) / 1000, unit: 'kg',
             event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-            notes: `From yarn lot #${l.lot_id} (in-house)`,
+            notes: l.lot_id != null ? `From yarn lot #${l.lot_id} (in-house)` : 'No in-house yarn lot stock — balance driven negative',
           });
         }
-        if (r.applied + 0.005 < it.weft_consumed_kg) {
+        if (r.forced > 0.005) {
           result.shortfalls.push({
             bucket: 'weft_yarn', fabric_quality_id: it.fabric_quality_id,
-            needed: it.weft_consumed_kg, applied: r.applied, unit: 'kg',
+            needed: it.weft_consumed_kg, applied: r.applied - r.forced, unit: 'kg',
             note: weftCountIds.length === 0
               ? 'No weft yarn count linked to this fabric quality.'
-              : 'Available in-house yarn lot kgs less than consumed - check Yarn Stock for this count.',
+              : 'In-house yarn lots could not cover the consumption — the balance has gone NEGATIVE. Check Yarn Stock for this count.',
           });
         }
       } else {
@@ -723,16 +753,16 @@ export async function applyFabricReceiptStockReductions(
           yarn_count_id: b.count_id, bobbin_id: null,
           quantity: Math.round(b.cut * 1000) / 1000, unit: 'kg',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-          notes: `From weft bag #${b.bag_id}`,
+          notes: b.bag_id != null ? `From weft bag #${b.bag_id}` : 'No weft bag stock — balance driven negative',
         });
       }
-      if (r.applied + 0.005 < it.weft_consumed_kg) {
+      if (r.forced > 0.005) {
         result.shortfalls.push({
           bucket: 'weft_yarn', fabric_quality_id: it.fabric_quality_id,
-          needed: it.weft_consumed_kg, applied: r.applied, unit: 'kg',
+          needed: it.weft_consumed_kg, applied: r.applied - r.forced, unit: 'kg',
           note: weftCountIds.length === 0
             ? 'No weft yarn count linked to this fabric quality.'
-            : 'Available weft kgs in Jobwork \u2192 Weft bag given less than consumed - check stock for this count (pool includes merged siblings).',
+            : 'Weft bags could not cover the consumption — the balance has gone NEGATIVE. Check Jobwork \u2192 Weft bag given for this count (pool includes merged siblings).',
         });
       }
       }
@@ -752,16 +782,16 @@ export async function applyFabricReceiptStockReductions(
             yarn_count_id: l.count_id, bobbin_id: null,
             quantity: Math.round(l.cut * 1000) / 1000, unit: 'kg',
             event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-            notes: `From porvai lot #${l.lot_id} (in-house)`,
+            notes: l.lot_id != null ? `From porvai lot #${l.lot_id} (in-house)` : 'No in-house porvai lot stock — balance driven negative',
           });
         }
-        if (r.applied + 0.005 < it.porvai_consumed_kg) {
+        if (r.forced > 0.005) {
           result.shortfalls.push({
             bucket: 'porvai_yarn', fabric_quality_id: it.fabric_quality_id,
-            needed: it.porvai_consumed_kg, applied: r.applied, unit: 'kg',
+            needed: it.porvai_consumed_kg, applied: r.applied - r.forced, unit: 'kg',
             note: porvaiCountIds.length === 0
               ? 'No porvai yarn count assigned on the fabric quality master.'
-              : 'Available in-house porvai lot kgs less than consumed - check Porvai Yarn Stock for this count.',
+              : 'In-house porvai lots could not cover the consumption — the balance has gone NEGATIVE. Check Porvai Yarn Stock for this count.',
           });
         }
       } else {
@@ -775,16 +805,16 @@ export async function applyFabricReceiptStockReductions(
           yarn_count_id: b.count_id, bobbin_id: null,
           quantity: Math.round(b.cut * 1000) / 1000, unit: 'kg',
           event_date, source_kind: 'fabric_receipt', source_id, reference_no,
-          notes: `From porvai bag #${b.bag_id}`,
+          notes: b.bag_id != null ? `From porvai bag #${b.bag_id}` : 'No porvai bag stock — balance driven negative',
         });
       }
-      if (r.applied + 0.005 < it.porvai_consumed_kg) {
+      if (r.forced > 0.005) {
         result.shortfalls.push({
           bucket: 'porvai_yarn', fabric_quality_id: it.fabric_quality_id,
-          needed: it.porvai_consumed_kg, applied: r.applied, unit: 'kg',
+          needed: it.porvai_consumed_kg, applied: r.applied - r.forced, unit: 'kg',
           note: porvaiCountIds.length === 0
             ? 'No porvai yarn count assigned on the fabric quality master.'
-            : 'Available porvai kgs in Jobwork \u2192 Weft bag given less than consumed for this count (pool includes merged siblings).',
+            : 'Porvai bags could not cover the consumption — the balance has gone NEGATIVE (pool includes merged siblings).',
         });
       }
       }

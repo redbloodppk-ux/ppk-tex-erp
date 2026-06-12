@@ -257,7 +257,7 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
     for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
       result.bobbin_m -= Number(r.quantity ?? 0);
     }
-    result.bobbin_m = Math.max(0, result.bobbin_m);
+    // No clamp: over-consumption shows as a negative pool.
     result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : 0;
   }
 
@@ -300,25 +300,34 @@ export async function measureStock(
       .reduce((s, r) => s + Number(r.total_metres ?? 0), 0);
   }
 
-  if (weftCountIds.size > 0) {
-    const { data: wbagRows } = await sb
-      .from('jobwork_weft_bag')
-      .select('total_kg')
-      .in('yarn_count_id', Array.from(weftCountIds))
-      .gt('total_kg', 0);
-    result.weft_kg = ((wbagRows ?? []) as Array<{ total_kg: number | string | null }>)
-      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
-  }
-
-  if (porvaiCountIds.size > 0) {
-    const { data: pBagRows } = await sb
-      .from('jobwork_weft_bag')
-      .select('total_kg')
-      .in('yarn_count_id', Array.from(porvaiCountIds))
-      .gt('total_kg', 0);
-    result.porvai_kg = ((pBagRows ?? []) as Array<{ total_kg: number | string | null }>)
-      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
-  }
+  // Weft / porvai pools mirror the Warehouse → Job Work pivot exactly:
+  // inflow = original given kgs, outflow = stock_ledger rows. Derived
+  // this way the pool can go NEGATIVE (over-consumption is shown, not
+  // silently clamped at zero like the old sum-of-positive-bags did).
+  const measureBagPool = async (countIds: Set<number>, bucket: 'weft_yarn' | 'porvai_yarn'): Promise<number> => {
+    if (countIds.size === 0) return 0;
+    const ids = Array.from(countIds);
+    const [bagRes, outRes] = await Promise.all([
+      sb.from('jobwork_weft_bag')
+        .select('total_kg, original_kg')
+        .in('yarn_count_id', ids),
+      sb.from('stock_ledger')
+        .select('quantity')
+        .eq('bucket', bucket)
+        .eq('direction', 'out')
+        .in('yarn_count_id', ids),
+    ]);
+    let kg = 0;
+    for (const r of ((bagRes.data ?? []) as Array<{ total_kg: number | string | null; original_kg?: number | string | null }>)) {
+      kg += Number(r.original_kg ?? r.total_kg ?? 0);
+    }
+    for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
+      kg -= Number(r.quantity ?? 0);
+    }
+    return kg;
+  };
+  result.weft_kg   = await measureBagPool(weftCountIds, 'weft_yarn');
+  result.porvai_kg = await measureBagPool(porvaiCountIds, 'porvai_yarn');
 
   // ── Bobbin pool ──────────────────────────────────────────────────
   // The job-work bobbin balance is DERIVED, mirroring the Warehouse →
@@ -355,7 +364,8 @@ export async function measureStock(
       .eq('jobwork_party_id', jobworkPartyId);
     const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
       .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
-    result.bobbin_m = Math.max(0, issued_m - consumed_m);
+    // No clamp: over-consumption shows as a negative pool.
+    result.bobbin_m = issued_m - consumed_m;
     result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : 0;
   } else if (bobbinSpecs.length > 0) {
     // Unscoped (backfill): match by spec. Resolve every bobbin master
@@ -396,7 +406,8 @@ export async function measureStock(
       const consumed_m = ((outs ?? []) as Array<{ quantity: number | string | null }>)
         .reduce((s, r) => s + Number(r.quantity ?? 0), 0);
 
-      result.bobbin_m = Math.max(0, issued_m - consumed_m);
+      // No clamp: over-consumption shows as a negative pool.
+      result.bobbin_m = issued_m - consumed_m;
       const per0 = bobbinSpecs[0]?.per ?? 0;
       result.bobbin_pcs = per0 > 0 ? result.bobbin_m / per0 : issued_pcs;
     }
