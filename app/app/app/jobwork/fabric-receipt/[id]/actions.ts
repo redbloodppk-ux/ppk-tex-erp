@@ -64,59 +64,51 @@ async function reverseReceiptStock(sb: any, receiptId: number): Promise<string |
     const qty = Number(row.quantity ?? 0);
     if (qty <= 0) continue;
     try {
-      if (row.bucket === 'warp_beam' && row.fabric_quality_id != null) {
-        const { data: beam } = await sb
-          .from('jobwork_warp_beam')
-          .select('id, total_metres')
-          .eq('fabric_quality_id', row.fabric_quality_id)
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (beam) {
-          const next = Number(beam.total_metres ?? 0) + qty;
-          await sb.from('jobwork_warp_beam').update({ total_metres: next }).eq('id', beam.id);
+      // ONLY credit back rows that name the exact source row they came
+      // out of ("beam #N" / "lot #N" / "bag #N"). Every other row —
+      // backfilled rows, forced negative-balance rows — never reduced a
+      // live table, so deleting the ledger row (step 4) is the complete
+      // reversal. Crediting them into the smallest-id row was the bug
+      // that inflated yarn lots past their received kgs.
+      if (row.bucket === 'warp_beam') {
+        const m = /beam #(\d+)/i.exec(String(row.notes ?? ''));
+        const beamId = m?.[1] != null ? Number(m[1]) : null;
+        if (beamId != null) {
+          const { data: beam } = await sb
+            .from('jobwork_warp_beam')
+            .select('id, total_metres')
+            .eq('id', beamId)
+            .maybeSingle();
+          if (beam) {
+            const next = Number(beam.total_metres ?? 0) + qty;
+            await sb.from('jobwork_warp_beam').update({ total_metres: next }).eq('id', beam.id);
+          }
         }
-      } else if ((row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') && row.yarn_count_id != null) {
-        // IN-HOUSE rows (jobwork_party_id NULL, written by the in-house
-        // reducer) came out of yarn_lot.current_kg — put the kgs back
-        // there, preferring the exact lot named in the ledger note.
-        const isInhouse = row.jobwork_party_id == null && /in-house/i.test(String(row.notes ?? ''));
-        if (isInhouse) {
-          const lotIdMatch = /lot #(\d+)/i.exec(String(row.notes ?? ''));
-          const exactLotId = lotIdMatch?.[1] != null ? Number(lotIdMatch[1]) : null;
-          let lot: { id: number; current_kg: number | string | null } | null = null;
-          if (exactLotId != null) {
-            const { data } = await sb.from('yarn_lot').select('id, current_kg').eq('id', exactLotId).maybeSingle();
-            lot = data ?? null;
-          }
-          if (!lot) {
-            const { data } = await sb.from('yarn_lot')
-              .select('id, current_kg')
-              .eq('yarn_count_id', row.yarn_count_id)
-              .eq('delivery_destination', 'in_house')
-              .eq('yarn_kind', row.bucket === 'porvai_yarn' ? 'porvai' : 'yarn')
-              .order('id', { ascending: true })
-              .limit(1)
-              .maybeSingle();
-            lot = data ?? null;
-          }
+      } else if (row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') {
+        const lotMatch = /lot #(\d+)/i.exec(String(row.notes ?? ''));
+        const bagMatch = /bag #(\d+)/i.exec(String(row.notes ?? ''));
+        if (lotMatch?.[1] != null) {
+          const { data: lot } = await sb.from('yarn_lot')
+            .select('id, current_kg')
+            .eq('id', Number(lotMatch[1]))
+            .maybeSingle();
           if (lot) {
             const next = Number(lot.current_kg ?? 0) + qty;
             await sb.from('yarn_lot').update({ current_kg: next }).eq('id', lot.id);
           }
-        } else {
+        } else if (bagMatch?.[1] != null) {
           const { data: bag } = await sb
             .from('jobwork_weft_bag')
             .select('id, total_kg')
-            .eq('yarn_count_id', row.yarn_count_id)
-            .order('id', { ascending: true })
-            .limit(1)
+            .eq('id', Number(bagMatch[1]))
             .maybeSingle();
           if (bag) {
             const next = Number(bag.total_kg ?? 0) + qty;
             await sb.from('jobwork_weft_bag').update({ total_kg: next }).eq('id', bag.id);
           }
         }
+        // No "lot #" / "bag #" reference → nothing was decremented at
+        // save time; the ledger-row delete below restores the pool.
       }
       // bucket === 'bobbin': nothing to restore here. The job-work
       // bobbin pool is DERIVED (jobwork_bobbin_issue inflows −

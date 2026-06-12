@@ -203,22 +203,35 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
   }
 
   // ── Weft / porvai kgs ─────────────────────────────────────────
+  // DERIVED, mirroring the Warehouse → In-house pivot exactly:
+  //   pool = opening stock + received kgs of in-house lots
+  //          − party-less stock_ledger outflows.
+  // Using received_kg (immutable) instead of current_kg (mutable)
+  // keeps the snapshot immune to lot-balance corruption, and the
+  // pool can go NEGATIVE when consumption exceeds purchases.
   const measureYarn = async (countIds: Set<number>, kind: 'yarn' | 'porvai'): Promise<number> => {
     if (countIds.size === 0) return 0;
     const ids = Array.from(countIds);
-    const [oRes, lRes] = await Promise.all([
+    const bucket = kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn';
+    const [oRes, lRes, outRes] = await Promise.all([
       sb.from('opening_stock').select('quantity')
-        .eq('bucket', kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn')
+        .eq('bucket', bucket)
         .eq('mode', 'inhouse').eq('status', 'active')
         .in('yarn_count_id', ids),
-      sb.from('yarn_lot').select('current_kg')
+      sb.from('yarn_lot').select('received_kg')
         .in('yarn_count_id', ids)
         .eq('delivery_destination', 'in_house')
         .eq('yarn_kind', kind),
+      sb.from('stock_ledger').select('quantity')
+        .eq('bucket', bucket)
+        .eq('direction', 'out')
+        .is('jobwork_party_id', null)
+        .in('yarn_count_id', ids),
     ]);
     let kg = 0;
     for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) kg += Number(r.quantity ?? 0);
-    for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) kg += Number(r.current_kg ?? 0);
+    for (const r of ((lRes.data ?? []) as Array<{ received_kg: number | string | null }>)) kg += Number(r.received_kg ?? 0);
+    for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) kg -= Number(r.quantity ?? 0);
     return kg;
   };
   result.weft_kg   = await measureYarn(weftCountIds, 'yarn');
@@ -315,6 +328,10 @@ export async function measureStock(
         .select('quantity')
         .eq('bucket', bucket)
         .eq('direction', 'out')
+        // Party-tagged rows only: jobwork consumption. In-house rows
+        // (jobwork_party_id NULL) belong to the in-house pool and must
+        // not drain the jobwork bags.
+        .not('jobwork_party_id', 'is', null)
         .in('yarn_count_id', ids),
     ]);
     let kg = 0;

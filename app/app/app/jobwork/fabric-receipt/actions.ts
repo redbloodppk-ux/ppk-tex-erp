@@ -562,37 +562,47 @@ async function internalCancelReceipt(sb: any, receiptId: number, resetDc: boolea
   try {
     const res = await sb
       .from('stock_ledger')
-      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, quantity')
+      .select('id, bucket, fabric_quality_id, yarn_count_id, bobbin_id, quantity, notes')
       .eq('source_kind', 'fabric_receipt')
       .eq('source_id', receiptId);
     if (!res.error) ledgerRows = res.data ?? [];
   } catch { ledgerRows = []; }
 
+  // ONLY credit rows that name the exact source row ("beam #N" /
+  // "lot #N" / "bag #N"). Backfilled and forced negative-balance rows
+  // never reduced a live table — deleting the ledger row below is
+  // their complete reversal. Crediting them into the smallest-id row
+  // was the bug that inflated yarn lots past their received kgs.
   for (const row of ledgerRows) {
     const qty = Number(row.quantity ?? 0);
     if (qty <= 0) continue;
+    const notes = String(row.notes ?? '');
     try {
-      if (row.bucket === 'warp_beam' && row.fabric_quality_id != null) {
-        const { data: beam } = await sb
-          .from('jobwork_warp_beam')
-          .select('id, total_metres')
-          .eq('fabric_quality_id', row.fabric_quality_id)
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (beam) {
-          await sb.from('jobwork_warp_beam').update({ total_metres: Number(beam.total_metres ?? 0) + qty }).eq('id', beam.id);
+      if (row.bucket === 'warp_beam') {
+        const m = /beam #(\d+)/i.exec(notes);
+        if (m?.[1] != null) {
+          const { data: beam } = await sb
+            .from('jobwork_warp_beam')
+            .select('id, total_metres')
+            .eq('id', Number(m[1]))
+            .maybeSingle();
+          if (beam) {
+            await sb.from('jobwork_warp_beam').update({ total_metres: Number(beam.total_metres ?? 0) + qty }).eq('id', beam.id);
+          }
         }
-      } else if ((row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') && row.yarn_count_id != null) {
-        const { data: bag } = await sb
-          .from('jobwork_weft_bag')
-          .select('id, total_kg')
-          .eq('yarn_count_id', row.yarn_count_id)
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (bag) {
-          await sb.from('jobwork_weft_bag').update({ total_kg: Number(bag.total_kg ?? 0) + qty }).eq('id', bag.id);
+      } else if (row.bucket === 'weft_yarn' || row.bucket === 'porvai_yarn') {
+        const lotMatch = /lot #(\d+)/i.exec(notes);
+        const bagMatch = /bag #(\d+)/i.exec(notes);
+        if (lotMatch?.[1] != null) {
+          const { data: lot } = await sb.from('yarn_lot').select('id, current_kg').eq('id', Number(lotMatch[1])).maybeSingle();
+          if (lot) {
+            await sb.from('yarn_lot').update({ current_kg: Number(lot.current_kg ?? 0) + qty }).eq('id', lot.id);
+          }
+        } else if (bagMatch?.[1] != null) {
+          const { data: bag } = await sb.from('jobwork_weft_bag').select('id, total_kg').eq('id', Number(bagMatch[1])).maybeSingle();
+          if (bag) {
+            await sb.from('jobwork_weft_bag').update({ total_kg: Number(bag.total_kg ?? 0) + qty }).eq('id', bag.id);
+          }
         }
       }
       // bucket === 'bobbin': nothing to restore — the job-work bobbin

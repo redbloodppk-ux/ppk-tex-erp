@@ -343,36 +343,42 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .reduce((s, r) => s + Number(r.total_metres ?? 0), 0);
   }
 
-  // Weft yarn stock = sum of jobwork_weft_bag.total_kg for the matching
-  // weft yarn count(s). Same workflow as warp: yarn handed out for this
-  // quality that hasn't come back yet as fabric.
-  if (weftCountIds.size > 0) {
-    const { data: wbagRows } = await sb
-      .from('jobwork_weft_bag')
-      .select('total_kg')
-      .in('yarn_count_id', Array.from(weftCountIds))
-      .gt('total_kg', 0);
-    stock_weft_kg = ((wbagRows ?? []) as Array<{ total_kg: number | string | null }>)
-      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
-  }
+  // Weft / porvai jobwork pools — DERIVED, mirroring the Warehouse →
+  // Job Work pivot: original given kgs − party-tagged ledger outflows.
+  // Can go negative when consumption exceeded what was handed out.
+  const measureJobworkBagPool = async (countIds: Set<number>, bucket: 'weft_yarn' | 'porvai_yarn'): Promise<number> => {
+    if (countIds.size === 0) return 0;
+    const ids = Array.from(countIds);
+    const [bagRes, outRes] = await Promise.all([
+      sb.from('jobwork_weft_bag')
+        .select('total_kg, original_kg')
+        .in('yarn_count_id', ids),
+      sb.from('stock_ledger')
+        .select('quantity')
+        .eq('bucket', bucket)
+        .eq('direction', 'out')
+        .not('jobwork_party_id', 'is', null)
+        .in('yarn_count_id', ids),
+    ]);
+    let kg = 0;
+    for (const r of ((bagRes.data ?? []) as Array<{ total_kg: number | string | null; original_kg?: number | string | null }>)) {
+      kg += Number(r.original_kg ?? r.total_kg ?? 0);
+    }
+    for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) {
+      kg -= Number(r.quantity ?? 0);
+    }
+    return kg;
+  };
+  stock_weft_kg = await measureJobworkBagPool(weftCountIds, 'weft_yarn');
 
-  // Porvai yarn stock = same jobwork_weft_bag table, filtered to the
-  // porvai yarn count from calc_snapshot.porvaiCountId.
+  // Porvai yarn count from calc_snapshot.porvaiCountId.
   const porvaiCountIds = new Set<number>();
   for (const qId of pooledQIds) {
     const snap = fqById.get(qId)?.calc_snapshot;
     const pId = snap?.porvaiCountId;
     if (pId != null && pId !== '') porvaiCountIds.add(Number(pId));
   }
-  if (porvaiCountIds.size > 0) {
-    const { data: pBagRows } = await sb
-      .from('jobwork_weft_bag')
-      .select('total_kg')
-      .in('yarn_count_id', Array.from(porvaiCountIds))
-      .gt('total_kg', 0);
-    stock_porvai_kg = ((pBagRows ?? []) as Array<{ total_kg: number | string | null }>)
-      .reduce((s, r) => s + Number(r.total_kg ?? 0), 0);
-  }
+  stock_porvai_kg = await measureJobworkBagPool(porvaiCountIds, 'porvai_yarn');
 
   // Bobbin "ends" display per quality = the FIRST selected bobbin's
   // ends_per_bobbin (informational only).
@@ -433,7 +439,8 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       }
       const consumed_m = ((outsRes.data ?? []) as Array<{ quantity: number | string | null }>)
         .reduce((s: number, r: { quantity: number | string | null }) => s + Number(r.quantity ?? 0), 0);
-      stock_bobbin_m = Math.max(0, issued_m - consumed_m);
+      // No clamp — over-consumption shows as a negative pool.
+      stock_bobbin_m = issued_m - consumed_m;
     }
   }
 
@@ -517,35 +524,34 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
         }
       }
 
-      let weft = 0;
-      if (weftCountId != null) {
-        const [oRes, lRes] = await Promise.all([
+      // In-house weft / porvai — DERIVED, mirroring the Warehouse →
+      // In-house pivot: opening + received kgs − party-less ledger
+      // outflows. received_kg is immutable, so a corrupted
+      // current_kg can never skew this figure; negatives show.
+      const measureInhouseYarn = async (countId: number | null, kind: 'yarn' | 'porvai'): Promise<number> => {
+        if (countId == null) return 0;
+        const bucket = kind === 'porvai' ? 'porvai_yarn' : 'weft_yarn';
+        const [oRes, lRes, outRes] = await Promise.all([
           sb.from('opening_stock').select('quantity')
-            .eq('bucket', 'weft_yarn').eq('mode', 'inhouse').eq('status', 'active')
-            .eq('yarn_count_id', weftCountId),
-          sb.from('yarn_lot').select('current_kg')
-            .eq('yarn_count_id', weftCountId)
+            .eq('bucket', bucket).eq('mode', 'inhouse').eq('status', 'active')
+            .eq('yarn_count_id', countId),
+          sb.from('yarn_lot').select('received_kg')
+            .eq('yarn_count_id', countId)
             .eq('delivery_destination', 'in_house')
-            .eq('yarn_kind', 'yarn'),
+            .eq('yarn_kind', kind),
+          sb.from('stock_ledger').select('quantity')
+            .eq('bucket', bucket).eq('direction', 'out')
+            .is('jobwork_party_id', null)
+            .eq('yarn_count_id', countId),
         ]);
-        for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) weft += Number(r.quantity ?? 0);
-        for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) weft += Number(r.current_kg ?? 0);
-      }
-
-      let porvai = 0;
-      if (porvaiCountId != null) {
-        const [oRes, lRes] = await Promise.all([
-          sb.from('opening_stock').select('quantity')
-            .eq('bucket', 'porvai_yarn').eq('mode', 'inhouse').eq('status', 'active')
-            .eq('yarn_count_id', porvaiCountId),
-          sb.from('yarn_lot').select('current_kg')
-            .eq('yarn_count_id', porvaiCountId)
-            .eq('delivery_destination', 'in_house')
-            .eq('yarn_kind', 'porvai'),
-        ]);
-        for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) porvai += Number(r.quantity ?? 0);
-        for (const r of ((lRes.data ?? []) as Array<{ current_kg: number | string | null }>)) porvai += Number(r.current_kg ?? 0);
-      }
+        let kg = 0;
+        for (const r of ((oRes.data ?? []) as Array<{ quantity: number | string | null }>)) kg += Number(r.quantity ?? 0);
+        for (const r of ((lRes.data ?? []) as Array<{ received_kg: number | string | null }>)) kg += Number(r.received_kg ?? 0);
+        for (const r of ((outRes.data ?? []) as Array<{ quantity: number | string | null }>)) kg -= Number(r.quantity ?? 0);
+        return kg;
+      };
+      const weft   = await measureInhouseYarn(weftCountId, 'yarn');
+      const porvai = await measureInhouseYarn(porvaiCountId, 'porvai');
 
       // In-house bobbin pool = opening stock (stored in metres)
       // + purchases (pcs × m/pc) − prior in-house ledger outflows.
@@ -579,7 +585,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
         for (const r of ((outRes2.data ?? []) as Array<{ quantity: number | string | null }>)) {
           bobbinM -= Number(r.quantity ?? 0);
         }
-        bobbinM = Math.max(0, bobbinM);
+        // No clamp — over-consumption shows as a negative pool.
       }
 
       perQualityStock[qId] = {
