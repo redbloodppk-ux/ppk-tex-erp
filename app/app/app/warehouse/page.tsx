@@ -1032,6 +1032,44 @@ async function loadFabric(supabase: any, _sp: SP, mode: Mode): Promise<FabricRow
     row.receipts += 1;
   });
 
+  // ── In-house: fabric PURCHASES are stock too ──
+  // Every fabric_purchase delivered in_house with metres left counts as
+  // resale stock on its fabric quality. This is the inflow recorded
+  // when a purchase is added on Inhouse Stock → Fabric Stock; selling
+  // it from the Fabric Sale invoice reduces current_metres.
+  if (mode === 'inhouse') {
+    const { data: purchases } = await supabase
+      .from('fabric_purchase')
+      .select('id, current_metres, rate, fabric_quality_id, quality:fabric_quality_id ( code, name )')
+      .eq('status', 'active')
+      .eq('delivery_destination', 'in_house')
+      .gt('current_metres', 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of ((purchases ?? []) as any[])) {
+      const key = `fp|${p.fabric_quality_id ?? 'x'}`;
+      let row = grouped.get(key);
+      if (!row) {
+        row = {
+          costing_id: 0,
+          fabric_quality_id: p.fabric_quality_id ?? null,
+          quality_code: p.quality?.code ?? '—',
+          quality_name: p.quality?.name ?? '',
+          source_type: 'resale',
+          metres_available: 0,
+          avg_cost_per_m: 0,
+          receipts: 0,
+        };
+        grouped.set(key, row);
+      }
+      const m    = Number(p.current_metres);
+      const cost = Number(p.rate ?? 0);
+      row.avg_cost_per_m = (row.metres_available * row.avg_cost_per_m + m * cost) /
+                           ((row.metres_available + m) || 1);
+      row.metres_available += m;
+      row.receipts += 1;
+    }
+  }
+
   // Resolve fabric_quality_id for every distinct quality_code in one
   // round-trip. costing_master.quality_code and fabric_quality.code are
   // both unique strings, so the join is by code.
@@ -1204,10 +1242,29 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
   if (qualityFilter !== null) outQ = outQ.eq('fabric_quality_id', qualityFilter);
   const { data: outRowsRaw } = await outQ;
 
+  // ── IN side 2: fabric PURCHASES (resale stock bought in) ──
+  let purQ = supabase.from('fabric_purchase').select(`
+    id, code, received_date, received_metres, fabric_quality_id,
+    supplier:supplier_party_id ( name )
+  `).eq('status', 'active').eq('delivery_destination', 'in_house');
+  if (qualityFilter !== null) purQ = purQ.eq('fabric_quality_id', qualityFilter);
+  const { data: purRowsRaw } = await purQ;
+
+  // ── OUT side 2: Fabric Sale invoice lines sold "Direct from Stock"
+  //    (each carries the fabric_purchase batch it sold from) ──
+  const { data: saleRowsRaw } = await supabase.from('invoice_line').select(`
+    id, quantity,
+    purchase:fabric_purchase_id!inner ( id, code, fabric_quality_id ),
+    invoice:invoice_id!inner ( id, invoice_no, invoice_date, total, amount_paid, balance, status, party_name )
+  `).not('fabric_purchase_id', 'is', null);
+
   // ── Quality lookup ──
   const qIds = new Set<number>();
   for (const r of (inRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
   for (const r of (outRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
+  for (const r of (purRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((saleRowsRaw ?? []) as any[])) if (r.purchase?.fabric_quality_id) qIds.add(Number(r.purchase.fabric_quality_id));
   let qualityById = new Map<number, { code: string; name: string }>();
   if (qIds.size > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1298,7 +1355,74 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
     };
   });
 
-  return [...inRows, ...outRows].sort((a, b) =>
+  // Purchases → IN events (resale stock arriving).
+  const purchaseRows: FabricLineageRow[] = ((purRowsRaw ?? []) as Array<{
+    id: number; code: string | null; received_date: string | null;
+    received_metres: number | string | null; fabric_quality_id: number | null;
+    supplier: { name: string | null } | null;
+  }>).map((r): FabricLineageRow => {
+    const q = r.fabric_quality_id != null ? qualityById.get(r.fabric_quality_id) : null;
+    return {
+      id: `fp:${r.id}`,
+      direction: 'in',
+      event_date: r.received_date ?? '',
+      quality_id: r.fabric_quality_id,
+      quality_code: q?.code ?? '—',
+      quality_name: q?.name ?? '',
+      source_kind: 'resale',
+      dc_id: null,
+      dc_code: r.code,
+      receipt_id: null,
+      receipt_code: null,
+      invoice_id: null,
+      invoice_no: null,
+      party_name: r.supplier?.name ?? '—',
+      metres: Number(r.received_metres ?? 0),
+      invoice_total: 0,
+      invoice_paid: 0,
+      invoice_balance: 0,
+      status: 'in_stock',
+    };
+  });
+
+  // Fabric Sale "Direct from Stock" lines → OUT events.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const saleRows: FabricLineageRow[] = (((saleRowsRaw ?? []) as any[])
+    .filter((r) => qualityFilter === null || Number(r.purchase?.fabric_quality_id) === qualityFilter)
+    .map((r): FabricLineageRow => {
+      const qid = r.purchase?.fabric_quality_id != null ? Number(r.purchase.fabric_quality_id) : null;
+      const q = qid != null ? qualityById.get(qid) : null;
+      const total = Number(r.invoice?.total ?? 0);
+      const paid = Number(r.invoice?.amount_paid ?? 0);
+      const balance = Number(r.invoice?.balance ?? Math.max(0, total - paid));
+      let status: FabricLineageStatus;
+      if (balance <= 0.01 && total > 0) status = 'invoiced_paid';
+      else if (paid > 0 && balance > 0.01) status = 'invoiced_partial';
+      else status = 'invoiced_unpaid';
+      return {
+        id: `sale:${r.id}`,
+        direction: 'out',
+        event_date: String(r.invoice?.invoice_date ?? ''),
+        quality_id: qid,
+        quality_code: q?.code ?? '—',
+        quality_name: q?.name ?? '',
+        source_kind: 'resale',
+        dc_id: null,
+        dc_code: r.purchase?.code ?? null,
+        receipt_id: null,
+        receipt_code: null,
+        invoice_id: r.invoice?.id ?? null,
+        invoice_no: r.invoice?.invoice_no ?? null,
+        party_name: r.invoice?.party_name ?? '—',
+        metres: Number(r.quantity ?? 0),
+        invoice_total: total,
+        invoice_paid: paid,
+        invoice_balance: balance,
+        status,
+      };
+    }));
+
+  return [...inRows, ...outRows, ...purchaseRows, ...saleRows].sort((a, b) =>
     a.event_date === b.event_date ? a.id.localeCompare(b.id) : (a.event_date < b.event_date ? 1 : -1),
   );
 }

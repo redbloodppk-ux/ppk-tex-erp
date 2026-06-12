@@ -32,8 +32,12 @@ interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_
 interface SalesOrder { id: number; so_number: string; customer_id: number; total: number; status: string }
 interface SoLine { id: number; so_id: number; quantity_m: number; rate_per_m: number; delivered_m: number;
                    costing?: { quality_code: string; quality_name: string } | null }
-interface FabricStock { id: number; metres_available: number; cost_per_m_frozen: number;
-                        costing?: { quality_code: string; quality_name: string } | null }
+/** In-house fabric stock batch = a fabric_purchase row with metres
+ *  left. Quality info comes from the fabric master so the dropdown is
+ *  organised by fabric quality and the rate/GST prefill correctly. */
+interface FabricStock { id: number; code: string | null; current_metres: number; rate: number;
+                        fabric_quality_id: number | null;
+                        quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null } | null }
 interface OriginalInvoice { id: number; invoice_no: string; doc_type: string; customer_id: number; total: number;
                             party_state: string | null; is_interstate: boolean }
 interface OriginalLine    { id: number; description: string; hsn_sac: string | null; uom: string;
@@ -77,6 +81,9 @@ interface Row {
   // Source linkage (one set per row depending on doc type)
   yarn_lot_id: string;
   fabric_stock_id: string;
+  /** Fabric Sale "Direct from Stock": the fabric_purchase batch the
+   *  line sells from. Saved on invoice_line and reduced on save. */
+  fabric_purchase_id: string;
   so_line_id: string;
   original_line_id: string;
   /** Set when the row was seeded from an in-house fabric receipt — the
@@ -100,7 +107,7 @@ const newRow = (): Row => ({
   id: Math.random().toString(36).slice(2),
   description: '', hsn_sac: '', uom: 'mtr',
   quantity: '', rate: '', discount_pct: '0', gst_rate_pct: GST_DEFAULT,
-  yarn_lot_id: '', fabric_stock_id: '', so_line_id: '', original_line_id: '', dc_id: '',
+  yarn_lot_id: '', fabric_stock_id: '', fabric_purchase_id: '', so_line_id: '', original_line_id: '', dc_id: '',
 });
 
 export default function NewInvoicePage() {
@@ -204,10 +211,19 @@ export default function NewInvoicePage() {
           .not('ledger_type.name', 'in', '(CUSTOMER,CASH,BANK,TAX)')
           .order('name'),
         supabase.from('sales_order').select('id, so_number, customer_id, total, status').in('status', ['approved','in_production','partial_dispatch','dispatched','invoiced']).order('order_date', { ascending: false }).limit(100),
-        supabase.from('fabric_stock').select(`
-          id, metres_available, cost_per_m_frozen,
-          costing:costing_id ( quality_code, quality_name )
-        `).gt('metres_available', 0).order('received_at', { ascending: false }).limit(100),
+        // In-house fabric stock = fabric purchases with metres left.
+        // Adding a purchase on Inhouse Stock → Fabric Stock makes it
+        // appear here (and as a warehouse inflow); selling from it
+        // records the outflow + reduces current_metres.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('fabric_purchase').select(`
+          id, code, current_metres, rate, fabric_quality_id,
+          quality:fabric_quality_id ( code, name, rate_per_m, gst_pct )
+        `).eq('status', 'active')
+          .eq('delivery_destination', 'in_house')
+          .gt('current_metres', 0)
+          .order('received_date', { ascending: true })
+          .limit(200),
         // Yarn suppliers now live in the unified party table (migration 098).
         // The old yarn_lot.mill_id FK is gone — supplier_party_id replaces it.
         // Cast to any because the regenerated Supabase types haven't caught
@@ -474,15 +490,18 @@ export default function NewInvoicePage() {
     });
   }
 
-  function pickFabricStockForRow(rowId: string, stockId: string) {
-    const fs = fabricStock.find(f => f.id === Number(stockId));
-    if (!fs) { updateRow(rowId, { fabric_stock_id: stockId }); return; }
+  function pickFabricStockForRow(rowId: string, purchaseId: string) {
+    const fs = fabricStock.find(f => f.id === Number(purchaseId));
+    if (!fs) { updateRow(rowId, { fabric_purchase_id: purchaseId }); return; }
     updateRow(rowId, {
-      fabric_stock_id: stockId,
-      description: fs.costing?.quality_name ?? 'Fabric',
+      fabric_purchase_id: purchaseId,
+      description: fs.quality?.name ?? 'Fabric',
       hsn_sac: FABRIC_HSN,
       uom: 'mtr',
-      rate: String(fs.cost_per_m_frozen),
+      // Selling rate from the fabric master; fall back to the purchase
+      // rate when the master has none.
+      rate: fs.quality?.rate_per_m != null ? String(fs.quality.rate_per_m) : String(fs.rate),
+      gst_rate_pct: fs.quality?.gst_pct != null ? String(fs.quality.gst_pct) : GST_DEFAULT,
     });
   }
 
@@ -627,11 +646,14 @@ export default function NewInvoicePage() {
       total_amount:   r.total,
       yarn_lot_id:    r.yarn_lot_id    ? Number(r.yarn_lot_id)    : null,
       fabric_stock_id: r.fabric_stock_id ? Number(r.fabric_stock_id) : null,
+      fabric_purchase_id: r.fabric_purchase_id ? Number(r.fabric_purchase_id) : null,
       so_line_id:     r.so_line_id     ? Number(r.so_line_id)     : null,
       original_line_id: r.original_line_id ? Number(r.original_line_id) : null,
     }));
 
-    const { error: lineErr } = await supabase.from('invoice_line').insert(lineRows);
+    // Cast: generated types predate the fabric_purchase_id column.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: lineErr } = await (supabase as any).from('invoice_line').insert(lineRows);
     if (lineErr) {
       setBusy(false);
       return setError(`Invoice ${inv.invoice_no} created but lines failed: ${lineErr.message}`);
@@ -653,7 +675,22 @@ export default function NewInvoicePage() {
       }
     }
 
+    // Stock deduction for Fabric Sale "Direct from Stock": subtract the
+    // sold metres from each picked fabric_purchase batch. The warehouse
+    // fabric pivot reads these invoice lines as outflows.
+    if (docType === 'tax_invoice' && sourceKind === 'fabric_stock') {
+      for (const r of computedRows) {
+        if (!r.fabric_purchase_id) continue;
+        const fp = fabricStock.find(f => f.id === Number(r.fabric_purchase_id));
+        if (!fp) continue;
+        const newM = Math.max(0, Number(fp.current_metres) - Number(r.quantity));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('fabric_purchase').update({ current_metres: newM }).eq('id', fp.id);
+      }
+    }
+
     // Stock deduction for yarn_sale: subtract from yarn_lot.current_kg
+    // (only rows that picked a lot — free-entry rows touch no stock).
     if (docType === 'yarn_sale') {
       for (const r of computedRows) {
         if (!r.yarn_lot_id) continue;
@@ -826,6 +863,26 @@ export default function NewInvoicePage() {
               </div>
             )}
 
+            {docType === 'yarn_sale' && (
+              <div className="border-t pt-4">
+                <label className="label">Where is the yarn coming from? *</label>
+                <div className="flex gap-2 mb-1">
+                  <button type="button" onClick={() => { setSourceKind('yarn_lot'); setRows([newRow()]); }}
+                    className={`btn-sm ${sourceKind === 'yarn_lot' ? 'btn-primary' : 'btn-ghost'}`}>
+                    From Yarn Stock
+                  </button>
+                  <button type="button" onClick={() => { setSourceKind('free'); setRows([newRow()]); }}
+                    className={`btn-sm ${sourceKind === 'free' ? 'btn-primary' : 'btn-ghost'}`}>
+                    Free entry (no stock reduction)
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink-mute">
+                  From Yarn Stock: pick a lot per line and the sold kgs reduce that lot.
+                  Free entry: type the lines yourself — yarn stock is untouched.
+                </p>
+              </div>
+            )}
+
             {docType === 'tax_invoice' && (
               <div className="border-t pt-4">
                 <label className="label">Where is the fabric coming from? *</label>
@@ -938,7 +995,7 @@ export default function NewInvoicePage() {
                     <tr key={r.id} className="border-t border-line/40">
                       <td className="px-2 py-1.5">
                         {/* Source picker if applicable */}
-                        {docType === 'yarn_sale' ? (
+                        {docType === 'yarn_sale' && sourceKind === 'yarn_lot' ? (
                           <select value={r.yarn_lot_id}
                             onChange={e => pickYarnLotForRow(r.id, e.target.value)}
                             className="input input-sm w-full mb-1">
@@ -950,13 +1007,13 @@ export default function NewInvoicePage() {
                             ))}
                           </select>
                         ) : (docType === 'tax_invoice' && sourceKind === 'fabric_stock') ? (
-                          <select value={r.fabric_stock_id}
+                          <select value={r.fabric_purchase_id}
                             onChange={e => pickFabricStockForRow(r.id, e.target.value)}
                             className="input input-sm w-full mb-1">
-                            <option value="">— pick fabric stock —</option>
+                            <option value="">— pick fabric stock (by quality) —</option>
                             {fabricStock.map(f => (
                               <option key={f.id} value={f.id}>
-                                {f.costing?.quality_name ?? 'Fabric'} · {Number(f.metres_available).toFixed(0)} m avail
+                                {f.quality?.name ?? 'Fabric'} · {Number(f.current_metres).toFixed(0)} m avail · {f.code ?? '#' + f.id}
                               </option>
                             ))}
                           </select>
