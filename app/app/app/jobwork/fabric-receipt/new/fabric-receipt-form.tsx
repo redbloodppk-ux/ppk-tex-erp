@@ -149,8 +149,10 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
   const router = useRouter();
   const supabase = createClient();
 
-  // Header state
-  const [receiptDate, setReceiptDate] = useState<string>(todayISO());
+  // Header state. The receipt date is LOCKED to the source DC's date —
+  // the fabric is received against that challan, so both documents
+  // carry the same date (field is non-editable in the UI).
+  const receiptDate: string = dc.dc_date || todayISO();
 
   // One row of state per DC item. The towel length is auto-fetched from
   // the fabric_quality master (meter_per_pc) when the quality is tagged
@@ -528,7 +530,11 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
           </div>
           <div>
             <label className="label">Receipt date</label>
-            <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className="input" required />
+            {/* Non-editable — always the DC's date. */}
+            <div className="input bg-cloud/40 text-ink select-none" title="Locked to the DC date">
+              {receiptDate}
+              <span className="text-ink-mute text-xs"> (DC date)</span>
+            </div>
           </div>
           <div className="md:col-span-2">
             <label className="label">Received from</label>
