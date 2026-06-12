@@ -71,7 +71,11 @@ export function ShipToPicker({
   const [parties, setParties] = useState<PartyRow[]>([]);
   const [loaded, setLoaded] = useState<boolean>(false);
 
-  // Load the party master lazily — only once the box is ticked.
+  // Load SHIPPING parties lazily — only once the box is ticked. The
+  // dropdown lists only parties whose type is "Shipping" (primary type
+  // or one of the additional types), so the operator can't mis-ship to
+  // a yarn mill or a broker. Add consignees under Parties with the
+  // Shipping type to see them here.
   useEffect(() => {
     if (!value.enabled || loaded) return;
     let cancelled = false;
@@ -79,11 +83,22 @@ export function ShipToPicker({
       const supabase = createClient();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const { data } = await sb
+      // Resolve the "Shipping" party type id by name — no hardcoded id.
+      const { data: typeRow } = await sb
+        .from('party_type_master')
+        .select('id')
+        .ilike('name', 'shipping')
+        .maybeSingle();
+      const shippingTypeId: number | null = typeRow?.id ?? null;
+      let q = sb
         .from('party')
         .select('id, name, gstin, state, billing_address, shipping_address, address1, address2, address3, address4')
         .eq('status', 'active')
         .order('name');
+      if (shippingTypeId != null) {
+        q = q.or(`party_type_id.eq.${shippingTypeId},party_type_ids.cs.{${shippingTypeId}}`);
+      }
+      const { data } = await q;
       if (!cancelled) {
         setParties((data ?? []) as PartyRow[]);
         setLoaded(true);
@@ -135,8 +150,14 @@ export function ShipToPicker({
               options={options}
               value={value.party_id != null ? String(value.party_id) : ''}
               onChange={pickParty}
-              placeholder={loaded ? 'Type to search parties…' : 'Loading parties…'}
+              placeholder={loaded ? 'Type to search shipping parties…' : 'Loading shipping parties…'}
+              noMatchText="No shipping party found — add one under Parties with type 'Shipping'."
             />
+            {loaded && parties.length === 0 && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                No shipping parties yet. Add the consignee under Parties and set its type to &ldquo;Shipping&rdquo;.
+              </p>
+            )}
           </div>
           {value.name !== '' && (
             <div className="text-xs text-ink-soft space-y-0.5">
