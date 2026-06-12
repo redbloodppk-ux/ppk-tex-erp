@@ -56,14 +56,23 @@ export function SearchSelect({
   );
 
   // Every typed word must appear somewhere in the label (AND match,
-  // order-independent) so partial typing in any order works.
+  // order-independent) so partial typing in any order works. Matching
+  // is also SPACE/PUNCTUATION-INSENSITIVE: "SR TEX" finds "S R TEX",
+  // "rscotton" finds "R S COTTON MILL" — names saved with spaced
+  // initials stay findable however the operator types them.
   const filtered = useMemo<SearchSelectOption[]>(() => {
     const q = query.trim().toLowerCase();
     if (q === '') return options;
+    const squash = (s: string): string => s.replace(/[\s.\-/&]+/g, '');
     const words = q.split(/\s+/);
+    const squashedQuery = squash(q);
     return options.filter((o) => {
       const label = o.label.toLowerCase();
-      return words.every((w) => label.includes(w));
+      const squashedLabel = squash(label);
+      return (
+        words.every((w) => label.includes(w) || squashedLabel.includes(squash(w))) ||
+        squashedLabel.includes(squashedQuery)
+      );
     });
   }, [options, query]);
 
