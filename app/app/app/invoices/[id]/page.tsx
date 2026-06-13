@@ -91,7 +91,7 @@ export default async function InvoiceDetailPage({
   const [hdrRes, lineRes, dcRes] = await Promise.all([
     sb.from('invoice')
       .select(`
-        id, invoice_no, doc_type, source_kind, invoice_date, due_date, notes, status,
+        id, invoice_no, doc_type, source_kind, invoice_date, due_date, notes, status, vehicle_no,
         subtotal, gst_amount, total, amount_paid, balance,
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
@@ -200,6 +200,7 @@ export default async function InvoiceDetailPage({
           due_date: inv.due_date,
           status: inv.status,
           notes: inv.notes ?? '',
+          vehicle_no: inv.vehicle_no ?? '',
           taxable_value: Number(inv.taxable_value ?? 0),
           cgst_amount:   Number(inv.cgst_amount ?? 0),
           sgst_amount:   Number(inv.sgst_amount ?? 0),

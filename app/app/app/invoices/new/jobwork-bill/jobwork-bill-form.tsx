@@ -175,6 +175,8 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   const [billDate, setBillDate] = useState<string>(todayISO());
   const [gstPct, setGstPct]     = useState<string>('5');
   const [notes, setNotes]       = useState<string>('');
+  // Vehicle number — mandatory on every new invoice (migration 160).
+  const [vehicleNo, setVehicleNo] = useState<string>('');
   const [shipTo, setShipTo]     = useState<ShipToValue>(EMPTY_SHIP_TO);
   const [busy, setBusy]         = useState<boolean>(false);
   const [error, setError]       = useState<string | null>(null);
@@ -518,6 +520,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
     if (party === null) { setError('Pick an outsource party.'); return; }
     if (pickedDcIds.size === 0) { setError('Pick at least one DC.'); return; }
     if (lines.length === 0) { setError('Selected DCs have no fabric quality lines.'); return; }
+    if (vehicleNo.trim() === '') { setError('Vehicle number is required.'); return; }
     if (missingRateQualities.length > 0) {
       setError(`Set pick_cost_per_m on: ${missingRateQualities.join(', ')}`);
       return;
@@ -560,6 +563,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       // later (cancelled, paid, etc.) from the invoice detail page.
       status: 'issued',
       notes: notes || null,
+      vehicle_no: vehicleNo.trim().toUpperCase(),
       ...shipToPayload(shipTo),
     };
 
@@ -874,7 +878,21 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         <ShipToPicker value={shipTo} onChange={setShipTo} />
       </div>
 
-      <div className="card p-4">
+      <div className="card p-4 space-y-3">
+        <div>
+          <label className="label">Vehicle number *</label>
+          <input
+            value={vehicleNo}
+            onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
+            className="input uppercase"
+            placeholder="e.g. TN33 AB 1234"
+            maxLength={20}
+            required
+          />
+          <p className="text-[10px] text-ink-mute mt-1">
+            Required on every invoice and printed on the bill.
+          </p>
+        </div>
         <label className="label">Notes (optional)</label>
         <textarea
           value={notes}

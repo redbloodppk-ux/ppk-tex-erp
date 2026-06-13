@@ -102,6 +102,7 @@ interface InvoiceRow {
   ewaybill_no: string | null;
   ewaybill_date: string | null;
   ewaybill_valid_till: string | null;
+  vehicle_no: string | null;
   original_invoice_id: number | null;
   customer: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   vendor: { id: number; name: string } | null;
@@ -186,7 +187,7 @@ export default async function InvoicePrintPage({
         ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
-        ewaybill_no, ewaybill_date, ewaybill_valid_till,
+        ewaybill_no, ewaybill_date, ewaybill_valid_till, vehicle_no,
         original_invoice_id,
         customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id ( id, name ),
@@ -437,13 +438,18 @@ export default async function InvoicePrintPage({
           <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
         </div>
 
-        {/* ───── E-way bill strip (when generated) ───── */}
-        {inv.ewaybill_no && (
+        {/* ───── E-way bill + Vehicle strip ─────
+            Always rendered when either an e-way bill or a vehicle
+            number is present. The vehicle column is always shown
+            because migration 160 makes it mandatory on every new
+            invoice (legacy invoices that pre-date the migration
+            display "-"). */}
+        {(inv.ewaybill_no || inv.vehicle_no) && (
           <div className="inv-meta">
-            <div><div className="lbl">E-WAY BILL #</div><div className="val">{inv.ewaybill_no}</div></div>
-            <div><div className="lbl">EWB DATE</div><div className="val">{fmtDate(inv.ewaybill_date)}</div></div>
+            <div><div className="lbl">E-WAY BILL #</div><div className="val">{inv.ewaybill_no ?? '-'}</div></div>
+            <div><div className="lbl">EWB DATE</div><div className="val">{inv.ewaybill_date ? fmtDate(inv.ewaybill_date) : '-'}</div></div>
+            <div><div className="lbl">VEHICLE NO</div><div className="val">{inv.vehicle_no ?? '-'}</div></div>
             <div><div className="lbl">EWB VALID TILL</div><div className="val">{inv.ewaybill_valid_till ? fmtDate(inv.ewaybill_valid_till) : '-'}</div></div>
-            <div></div>
           </div>
         )}
 
@@ -457,7 +463,9 @@ export default async function InvoicePrintPage({
             <div className="tag">{style.partyLabel.toUpperCase()}</div>
             <div className="gst">GSTIN : {partyGstin || '-'}</div>
             <div className="party">{partyName || '-'}</div>
-            <div className="addr">{partyAddress || ''}</div>
+            {/* whiteSpace: pre-line lets multi-line addresses (with \n
+                or ', ') wrap properly instead of being truncated. */}
+            <div className="addr" style={{ whiteSpace: 'pre-line' }}>{partyAddress || ''}</div>
             <div className="ps">
               PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'} &nbsp;&middot;&nbsp; {isInterstate ? 'INTERSTATE (IGST)' : 'INTRASTATE (CGST + SGST)'}
             </div>

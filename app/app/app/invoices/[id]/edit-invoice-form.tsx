@@ -37,6 +37,7 @@ export interface EditInvoiceInitial {
   due_date: string | null;
   status: Status;
   notes: string;
+  vehicle_no: string;
   taxable_value: number;
   cgst_amount: number;
   sgst_amount: number;
@@ -105,6 +106,7 @@ export function EditInvoiceForm({
   const [dueDays, setDueDays]         = useState<string>(daysBetweenISO(initial.invoice_date, initial.due_date));
   const [status, setStatus]           = useState<Status>(initial.status);
   const [notes, setNotes]             = useState<string>(initial.notes);
+  const [vehicleNo, setVehicleNo]     = useState<string>(initial.vehicle_no ?? '');
   const [shipTo, setShipTo]           = useState<ShipToValue>(
     initial.ship_to_name != null && initial.ship_to_name !== ''
       ? {
@@ -143,6 +145,7 @@ export function EditInvoiceForm({
     || dueDate !== (initial.due_date ?? '')
     || status !== initial.status
     || notes !== initial.notes
+    || vehicleNo !== (initial.vehicle_no ?? '')
     || num(taxable) !== initial.taxable_value
     || num(cgst)    !== initial.cgst_amount
     || num(sgst)    !== initial.sgst_amount
@@ -196,6 +199,7 @@ export function EditInvoiceForm({
       due_date: dueDate || null,
       status,
       notes: notes || null,
+      vehicle_no: vehicleNo.trim().toUpperCase() || null,
       // GST block
       taxable_value: taxableN,
       cgst_amount: cgstN,
@@ -367,7 +371,21 @@ export function EditInvoiceForm({
           <ShipToPicker value={shipTo} onChange={setShipTo} />
         </div>
 
-        {/* ───── Notes ───── */}
+        {/* ───── Vehicle + Notes ───── */}
+        <div>
+          <label className="label">Vehicle number *</label>
+          <input
+            value={vehicleNo}
+            onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
+            className="input uppercase"
+            placeholder="e.g. TN33 AB 1234"
+            maxLength={20}
+            required
+          />
+          <p className="text-[10px] text-ink-mute mt-1">
+            Required on every invoice and printed on the bill.
+          </p>
+        </div>
         <div>
           <label className="label">Notes</label>
           <textarea

@@ -158,6 +158,9 @@ export default function NewInvoicePage() {
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu');
   const [shipTo, setShipTo] = useState<ShipToValue>(EMPTY_SHIP_TO);
   const [notes,        setNotes]        = useState('');
+  // Vehicle number — required on every new invoice. Printed alongside
+  // the e-way bill block on the invoice template (migration 160).
+  const [vehicleNo,    setVehicleNo]    = useState('');
 
   // ── line rows ──────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([newRow()]);
@@ -569,6 +572,9 @@ export default function NewInvoicePage() {
       if (!Number(r.rate))       return setError(`"${r.description}": rate must be > 0.`);
     }
 
+    // Vehicle number is mandatory on every new invoice (migration 160).
+    if (vehicleNo.trim() === '') return setError('Vehicle number is required.');
+
     setBusy(true);
 
     // Party snapshot
@@ -615,6 +621,7 @@ export default function NewInvoicePage() {
       total:         totals.total,
       status:        'issued',
       notes:         notes.trim() || null,
+      vehicle_no:    vehicleNo.trim().toUpperCase(),
       supplier_bill_no:   docType === 'debit_note' ? (supplierBillNo.trim() || null) : null,
       supplier_bill_date: docType === 'debit_note' && supplierBillDate ? supplierBillDate : null,
       ...shipToPayload(shipTo),
@@ -1098,8 +1105,22 @@ export default function NewInvoicePage() {
             </div>
           </div>
 
-          {/* ── Notes + Submit ─────────────────────────────────────────────── */}
+          {/* ── Vehicle + Notes + Submit ───────────────────────────────────── */}
           <div className="card p-6 space-y-3">
+            <div>
+              <label className="label">Vehicle number *</label>
+              <input
+                value={vehicleNo}
+                onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
+                className="input uppercase"
+                placeholder="e.g. TN33 AB 1234"
+                maxLength={20}
+                required
+              />
+              <p className="text-[10px] text-ink-mute mt-1">
+                Transport vehicle registration. Required on every invoice and printed on the bill.
+              </p>
+            </div>
             <div>
               <label className="label">Notes</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)}
