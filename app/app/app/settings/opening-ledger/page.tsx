@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 
 interface PartyOpt {
@@ -120,6 +121,17 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
     parties.forEach((p) => m.set(p.id, p));
     return m;
   }, [parties]);
+
+  // Type-ahead options for the party picker. Keeping the code in the
+  // label string is what lets the user type "JWP-0001" or part of the
+  // name (or a substring of either) and have it match.
+  const partyOptions = useMemo<SearchSelectOption[]>(
+    () => parties.map((p) => ({
+      value: String(p.id),
+      label: p.code ? `${p.code} — ${p.name}` : p.name,
+    })),
+    [parties],
+  );
 
   async function handleAdd(): Promise<void> {
     setError(null);
@@ -244,18 +256,14 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div className="md:col-span-2">
             <label className="label text-xs">Party *</label>
-            <select
-              className="input h-9 text-sm"
+            <SearchSelect
+              options={partyOptions}
               value={form.party_id}
-              onChange={(e) => setForm({ ...form, party_id: e.target.value })}
-            >
-              <option value="">--- pick ---</option>
-              {parties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code ? `${p.code} — ` : ''}{p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setForm({ ...form, party_id: v })}
+              placeholder="Type party code or name…"
+              required
+              noMatchText="No party matches"
+            />
           </div>
           <div>
             <label className="label text-xs">Direction *</label>
