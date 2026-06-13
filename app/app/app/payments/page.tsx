@@ -69,6 +69,11 @@ interface PaymentRow {
  *  matched to the unified party master by the party_name stamped on
  *  every invoice. */
 interface UnpaidBill {
+  /** Discriminator. 'invoice' = live invoice row (payment_allocation
+   *  writes against invoice_id); 'opening' = settings-entered opening
+   *  ledger row (payment_opening_allocation writes against
+   *  opening_ledger_id). */
+  kind: 'invoice' | 'opening';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -91,13 +96,18 @@ const BILL_ADJUST_REQUIRED_TYPES: readonly string[] = [
 ];
 
 const DOC_TYPE_LABEL: Record<string, string> = {
-  tax_invoice:     'Fabric Sale',
-  yarn_sale:       'Yarn Sale',
-  general_sale:    'General Sale',
-  credit_note:     'Credit Note',
-  debit_note:      'Debit Note',
-  jobwork_invoice: 'Jobwork Bill',
-  weaving_bill:    'Weaving Bill',
+  tax_invoice:        'Fabric Sale',
+  yarn_sale:          'Yarn Sale',
+  general_sale:       'General Sale',
+  credit_note:        'Credit Note',
+  debit_note:         'Debit Note',
+  jobwork_invoice:    'Jobwork Bill',
+  weaving_bill:       'Weaving Bill',
+  // Opening ledger entries (settings → Opening Ledger) — discriminated
+  // by direction so the operator can see at a glance which way the
+  // pre-ERP balance was sitting.
+  opening_receivable: 'Opening (Receivable)',
+  opening_payable:    'Opening (Payable)',
 };
 
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }
@@ -201,12 +211,18 @@ function NewPaymentTab(): React.ReactElement {
   // much of this payment is adjusted against each (invoice id → amount).
   const [bills,        setBills]        = useState<UnpaidBill[]>([]);
   const [billsLoading, setBillsLoading] = useState<boolean>(false);
-  const [checkedBills, setCheckedBills] = useState<Set<number>>(new Set());
-  const [alloc,        setAlloc]        = useState<Record<number, string>>({});
+  // checkedBills / alloc are keyed by a composite `${kind}-${id}` string
+  // because the bill list is now a merge of invoice rows and opening_ledger
+  // rows whose IDs come from two different sequences and could collide.
+  const [checkedBills, setCheckedBills] = useState<Set<string>>(new Set());
+  const [alloc,        setAlloc]        = useState<Record<string, string>>({});
   /** Operator's explicit confirmation that this payment is an ADVANCE
    *  to the party ledger (no bill adjusted). Required for the party
    *  types in BILL_ADJUST_REQUIRED_TYPES. */
   const [advanceOk,    setAdvanceOk]    = useState<boolean>(false);
+
+  /** Composite key for the merged invoice + opening_ledger bill list. */
+  function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
 
   // ── Load party types, parties, and mode (BANK / CASH) ledgers ───────────
   useEffect(() => {
@@ -266,46 +282,90 @@ function NewPaymentTab(): React.ReactElement {
     setBillsLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const { data, error: err } = await sb.from('invoice')
-      .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
-      .ilike('party_name', party.name)
-      .in('status', ['issued', 'partial_paid', 'overdue'])
-      .gt('balance', 0)
-      .order('invoice_date', { ascending: true })
-      .order('id', { ascending: true });
+    // Pull live unpaid invoices AND any pre-ERP opening ledger entries
+    // for the same party in parallel; merge them into one list so the
+    // operator sees every outstanding bill against this party.
+    const [invRes, openRes] = await Promise.all([
+      sb.from('invoice')
+        .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
+        .ilike('party_name', party.name)
+        .in('status', ['issued', 'partial_paid', 'overdue'])
+        .gt('balance', 0)
+        .order('invoice_date', { ascending: true })
+        .order('id', { ascending: true }),
+      sb.from('party_opening_ledger')
+        .select('id, invoice_no, invoice_date, direction, amount, amount_paid, balance')
+        .eq('party_id', party.id)
+        .eq('status', 'active')
+        .gt('balance', 0)
+        .order('invoice_date', { ascending: true })
+        .order('id', { ascending: true }),
+    ]);
     setBillsLoading(false);
-    if (err) { setError(err.message); return; }
-    setBills((data ?? []) as UnpaidBill[]);
+    if (invRes.error) { setError(invRes.error.message); return; }
+    if (openRes.error) {
+      // Tolerate the opening ledger table not existing yet — we just
+      // skip it and fall back to live invoices only.
+      // eslint-disable-next-line no-console
+      console.warn('opening_ledger not available:', openRes.error.message);
+    }
+    const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
+      id: number; invoice_no: string; invoice_date: string; doc_type: string;
+      total: number | string; amount_paid: number | string; balance: number | string;
+    }>).map((r) => ({ ...r, kind: 'invoice' }));
+    const openBills: UnpaidBill[] = ((openRes?.data ?? []) as Array<{
+      id: number; invoice_no: string; invoice_date: string; direction: string;
+      amount: number | string; amount_paid: number | string; balance: number | string;
+    }>).map((r) => ({
+      kind: 'opening',
+      id: r.id,
+      invoice_no: r.invoice_no,
+      invoice_date: r.invoice_date,
+      doc_type: `opening_${r.direction}`,
+      total: r.amount,
+      amount_paid: r.amount_paid,
+      balance: r.balance,
+    }));
+    // Sort merged list by date (oldest first) so the operator's mental
+    // model is "settle the oldest bill first" regardless of source.
+    const merged = [...liveBills, ...openBills].sort((a, b) => {
+      const dc = a.invoice_date.localeCompare(b.invoice_date);
+      return dc !== 0 ? dc : a.id - b.id;
+    });
+    setBills(merged);
   }, [partyId, parties, supabase]);
 
   useEffect(() => { void loadBills(); }, [loadBills]);
 
   /** Spread `amt` across the given bills oldest-first (each bill takes
-   *  up to its open balance). Returns the invoice-id → amount map. */
-  function distribute(amt: number, billIds: Set<number>): Record<number, string> {
-    const next: Record<number, string> = {};
+   *  up to its open balance). Returns a composite-key → amount map so
+   *  invoice and opening_ledger rows can coexist without collision. */
+  function distribute(amt: number, billKeys: Set<string>): Record<string, string> {
+    const next: Record<string, string> = {};
     let remaining = amt;
     for (const b of bills) {
-      if (!billIds.has(b.id)) continue;
+      const k = billKey(b);
+      if (!billKeys.has(k)) continue;
       const bal = Number(b.balance);
       const take = Math.min(bal, Math.max(remaining, 0));
-      next[b.id] = take > 0 ? String(Math.round(take * 100) / 100) : '';
+      next[k] = take > 0 ? String(Math.round(take * 100) / 100) : '';
       remaining -= take;
     }
     return next;
   }
 
   function toggleBill(b: UnpaidBill): void {
+    const k = billKey(b);
     const next = new Set(checkedBills);
-    if (next.has(b.id)) next.delete(b.id);
-    else next.add(b.id);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
     setCheckedBills(next);
 
     const amt = Number(amount);
     if (amount.trim() === '' || !Number.isFinite(amt) || amt <= 0) {
       // No amount typed yet → bill-to-bill mode: amount becomes the sum
       // of the ticked bills' balances, fully adjusted.
-      const sum = bills.filter((x) => next.has(x.id))
+      const sum = bills.filter((x) => next.has(billKey(x)))
         .reduce((s, x) => s + Number(x.balance), 0);
       setAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
       setAlloc(distribute(sum, next));
@@ -323,15 +383,16 @@ function NewPaymentTab(): React.ReactElement {
     }
   }
 
-  function handleAllocChange(billId: number, v: string): void {
-    setAlloc((a) => ({ ...a, [billId]: v }));
+  function handleAllocChange(billKeyStr: string, v: string): void {
+    setAlloc((a) => ({ ...a, [billKeyStr]: v }));
   }
 
   const allocatedTotal = useMemo<number>(() => {
     let s = 0;
     for (const b of bills) {
-      if (!checkedBills.has(b.id)) continue;
-      const n = Number(alloc[b.id] ?? '');
+      const k = billKey(b);
+      if (!checkedBills.has(k)) continue;
+      const n = Number(alloc[k] ?? '');
       if (Number.isFinite(n) && n > 0) s += n;
     }
     return Math.round(s * 100) / 100;
@@ -370,10 +431,15 @@ function NewPaymentTab(): React.ReactElement {
     }
 
     // Validate the bill-to-bill adjustments before writing anything.
+    // Split allocations by kind so we write to the correct child table:
+    //   invoice rows         -> payment_allocation
+    //   opening_ledger rows  -> payment_opening_allocation
     const allocations: { invoice_id: number; amount: number }[] = [];
+    const openingAllocs: { opening_ledger_id: number; amount: number }[] = [];
     for (const b of bills) {
-      if (!checkedBills.has(b.id)) continue;
-      const raw = (alloc[b.id] ?? '').trim();
+      const k = billKey(b);
+      if (!checkedBills.has(k)) continue;
+      const raw = (alloc[k] ?? '').trim();
       if (raw === '') continue;
       const n = Number(raw);
       if (!Number.isFinite(n) || n < 0) {
@@ -385,18 +451,23 @@ function NewPaymentTab(): React.ReactElement {
         setError(`Bill ${b.invoice_no}: adjusted ₹${fmtINR(n)} is more than its balance ₹${fmtINR(b.balance)}.`);
         return;
       }
-      allocations.push({ invoice_id: b.id, amount: Math.round(n * 100) / 100 });
+      if (b.kind === 'opening') {
+        openingAllocs.push({ opening_ledger_id: b.id, amount: Math.round(n * 100) / 100 });
+      } else {
+        allocations.push({ invoice_id: b.id, amount: Math.round(n * 100) / 100 });
+      }
     }
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
-    if (billAdjustRequired && allocations.length === 0 && !advanceOk) {
+    if (billAdjustRequired && allocations.length === 0 && openingAllocs.length === 0 && !advanceOk) {
       setError(bills.length > 0
         ? 'Tick the bill(s) this payment settles — or tick "Advance payment" to post it to the party ledger without adjusting a bill.'
         : 'This party has no unpaid bills. Tick "Advance payment" to confirm posting this amount to the party ledger.');
       return;
     }
 
-    const allocSum = allocations.reduce((s, a) => s + a.amount, 0);
+    const allocSum = allocations.reduce((s, a) => s + a.amount, 0)
+                    + openingAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -437,10 +508,25 @@ function NewPaymentTab(): React.ReactElement {
         return;
       }
     }
+    // Opening ledger adjustments — separate table, triggered to bump
+    // party_opening_ledger.amount_paid automatically (migration 162).
+    if (openingAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: openErr } = await (supabase as any)
+        .from('payment_opening_allocation')
+        .insert(openingAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (openErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the opening-ledger adjustment failed: ${openErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
     setBusy(false);
+    const totalAdjusted = allocations.length + openingAllocs.length;
     setSavedMsg(
-      allocations.length > 0
-        ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${allocations.length} bill${allocations.length === 1 ? '' : 's'}${allocSum < amt ? `, ₹${fmtINR(amt - allocSum)} kept on account` : ''}.`
+      totalAdjusted > 0
+        ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${totalAdjusted} bill${totalAdjusted === 1 ? '' : 's'}${allocSum < amt ? `, ₹${fmtINR(amt - allocSum)} kept on account` : ''}.`
         : `Saved ${data?.payment_no ?? 'payment'}.`,
     );
     // Reset only the volatile fields; keep the direction + party so the
@@ -620,13 +706,14 @@ function NewPaymentTab(): React.ReactElement {
                 </thead>
                 <tbody>
                   {bills.map((b) => {
-                    const isChecked = checkedBills.has(b.id);
-                    const allocNum = Number(alloc[b.id] ?? '');
+                    const k = billKey(b);
+                    const isChecked = checkedBills.has(k);
+                    const allocNum = Number(alloc[k] ?? '');
                     const adj = isChecked && Number.isFinite(allocNum) && allocNum > 0 ? allocNum : 0;
                     const leftAfter = Math.round((Number(b.balance) - adj) * 100) / 100;
                     const overAlloc = adj > Number(b.balance) + 0.005;
                     return (
-                      <tr key={b.id} className={cn('border-t border-line/40', isChecked ? 'bg-indigo-50/40' : 'hover:bg-haze/60')}>
+                      <tr key={k} className={cn('border-t border-line/40', isChecked ? 'bg-indigo-50/40' : 'hover:bg-haze/60')}>
                         <td className="px-3 py-2">
                           <input
                             type="checkbox"
@@ -650,8 +737,8 @@ function NewPaymentTab(): React.ReactElement {
                             step="0.01"
                             disabled={!isChecked}
                             className={cn('input num h-8 text-xs w-28 text-right inline-block', overAlloc && 'ring-2 ring-rose-400')}
-                            value={isChecked ? (alloc[b.id] ?? '') : ''}
-                            onChange={(e) => handleAllocChange(b.id, e.target.value)}
+                            value={isChecked ? (alloc[k] ?? '') : ''}
+                            onChange={(e) => handleAllocChange(k, e.target.value)}
                           />
                         </td>
                         <td className={cn('px-3 py-2 text-right num font-semibold', leftAfter <= 0.005 ? 'text-emerald-700' : 'text-amber-700')}>
