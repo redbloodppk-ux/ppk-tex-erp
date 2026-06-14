@@ -341,7 +341,10 @@ export default async function DcPrintPage({
         .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 11px; font-weight: 700; line-height: 1.55; }
         .dc-addrfoot .small { font-weight: 600; font-size: 10px; }
         .dc-watermark { position: relative; }
-        .dc-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 70px; color: rgba(220, 38, 38, 0.12); font-weight: 900; letter-spacing: 12px; pointer-events: none; transform: rotate(-30deg); }
+        /* DRAFT watermark removed per operator request — draft DCs print
+           clean. The CANCELLED watermark is retained because it's a
+           safety signal (prevents an old cancelled DC being mistaken
+           for a live one). */
         .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 62px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
@@ -369,7 +372,7 @@ export default async function DcPrintPage({
 
       <div
         className={'dc-sheet dc-watermark ' +
-          (dc.status === 'draft' ? 'dc-status-draft' : dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
+          (dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
       >
         {/* ───── Header band: logo on the left, "DELIVERY CHELLAN" centre ───── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
