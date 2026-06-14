@@ -472,6 +472,22 @@ function NewPaymentTab(): React.ReactElement {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
     }
+    // Save-block when bill adjustment is partial: if the operator
+    // ticked any bills the allocated total must equal the payment
+    // amount (no "kept on account" leftover allowed). Forces the
+    // operator to either (a) raise / drop the bill adjustments to
+    // fully consume the amount, or (b) lower the amount to match,
+    // or (c) untick all bills and post the whole thing as an advance.
+    if ((allocations.length > 0 || openingAllocs.length > 0)
+        && Math.abs(amt - allocSum) > 0.005) {
+      const diff = Math.round((amt - allocSum) * 100) / 100;
+      setError(
+        diff > 0
+          ? `₹${fmtINR(diff)} of the payment is still unallocated. Tick more bills or raise the bill adjustments until the total equals ₹${fmtINR(amt)}.`
+          : `Allocated ₹${fmtINR(allocSum)} is ₹${fmtINR(-diff)} more than the payment. Reduce the bill adjustments or raise the payment amount.`,
+      );
+      return;
+    }
 
     setBusy(true);
     const payload = {
@@ -526,7 +542,7 @@ function NewPaymentTab(): React.ReactElement {
     const totalAdjusted = allocations.length + openingAllocs.length;
     setSavedMsg(
       totalAdjusted > 0
-        ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${totalAdjusted} bill${totalAdjusted === 1 ? '' : 's'}${allocSum < amt ? `, ₹${fmtINR(amt - allocSum)} kept on account` : ''}.`
+        ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${totalAdjusted} bill${totalAdjusted === 1 ? '' : 's'}.`
         : `Saved ${data?.payment_no ?? 'payment'}.`,
     );
     // Reset only the volatile fields; keep the direction + party so the
