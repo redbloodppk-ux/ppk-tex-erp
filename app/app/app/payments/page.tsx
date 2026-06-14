@@ -20,12 +20,12 @@
  *      chronological with a running balance column. Grand balance
  *      shown at the bottom. Filter by party type and party.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
-import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -987,12 +987,13 @@ function DirectionPill({ active, onClick, icon, label, tone }: {
 function StatusTab(): React.ReactElement {
   const supabase = createClient();
 
-  const [partyTypes, setPartyTypes] = useState<PartyTypeOpt[]>([]);
-  const [parties,    setParties]    = useState<PartyOpt[]>([]);
-  const [payments,   setPayments]   = useState<PaymentRow[]>([]);
-  const [loading,    setLoading]    = useState<boolean>(true);
-  const [pmtLoading, setPmtLoading] = useState<boolean>(false);
-  const [error,      setError]      = useState<string | null>(null);
+  const [partyTypes,  setPartyTypes]  = useState<PartyTypeOpt[]>([]);
+  const [parties,     setParties]     = useState<PartyOpt[]>([]);
+  const [modeLedgers, setModeLedgers] = useState<ModeLedgerOpt[]>([]);
+  const [payments,    setPayments]    = useState<PaymentRow[]>([]);
+  const [loading,     setLoading]     = useState<boolean>(true);
+  const [pmtLoading,  setPmtLoading]  = useState<boolean>(false);
+  const [error,       setError]       = useState<string | null>(null);
 
   // Filters.
   const [partyTypeId, setPartyTypeId] = useState<string>('');
@@ -1000,22 +1001,46 @@ function StatusTab(): React.ReactElement {
   const [dateFrom,    setDateFrom]    = useState<string>('');
   const [dateTo,      setDateTo]      = useState<string>('');
 
+  // ── Edit / delete state ───────────────────────────────────────────
+  // The id of the row currently being edited (null = none). Only one
+  // row at a time can be in edit mode — keeps the UX simple.
+  const [editingId,   setEditingId]   = useState<number | null>(null);
+  const [editDate,    setEditDate]    = useState<string>('');
+  const [editLedger,  setEditLedger]  = useState<string>('');
+  const [editRef,     setEditRef]     = useState<string>('');
+  const [editNotes,   setEditNotes]   = useState<string>('');
+  const [busyRowId,   setBusyRowId]   = useState<number | null>(null);
+  // Bumps to force the payments query to re-run after edit / delete.
+  const [refreshTick, setRefreshTick] = useState<number>(0);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const [ptRes, pRes] = await Promise.all([
+    const [ptRes, pRes, mRes] = await Promise.all([
       sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
       sb.from('party')
         .select('id, code, name, party_type_ids')
         .eq('status', 'active')
+        .order('name'),
+      // BANK / CASH ledgers so the operator can switch the mode_ledger
+      // on an existing payment from this screen.
+      sb.from('ledger')
+        .select('id, code, name, ledger_type:type_id!inner(name)')
+        .eq('active', true)
+        .in('ledger_type.name', ['BANK', 'CASH'])
         .order('name'),
     ]);
     if (ptRes.error)    { setError(ptRes.error.message); setLoading(false); return; }
     if (pRes.error)     { setError(pRes.error.message); setLoading(false); return; }
     setPartyTypes((ptRes.data ?? []) as PartyTypeOpt[]);
     setParties((pRes.data ?? []) as PartyOpt[]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setModeLedgers(((mRes.data ?? []) as any[]).map((l) => ({
+      id: l.id, code: l.code, name: l.name,
+      type_name: l.ledger_type?.name as 'BANK' | 'CASH',
+    })));
     setLoading(false);
   }, [supabase]);
 
@@ -1083,7 +1108,64 @@ function StatusTab(): React.ReactElement {
       setPayments((data ?? []) as PaymentRow[]);
       setPmtLoading(false);
     })();
-  }, [partyId, partyTypeId, dateFrom, dateTo, filteredParties, supabase]);
+  }, [partyId, partyTypeId, dateFrom, dateTo, filteredParties, supabase, refreshTick]);
+
+  // ── Edit / delete handlers ───────────────────────────────────────
+  /** Open the inline edit form pre-filled from the given row. */
+  function startEdit(p: PaymentRow): void {
+    setEditingId(p.id);
+    setEditDate(p.payment_date);
+    setEditLedger(p.mode_ledger_id != null ? String(p.mode_ledger_id) : '');
+    setEditRef(p.reference ?? '');
+    setEditNotes(p.notes ?? '');
+    setError(null);
+  }
+
+  function cancelEdit(): void {
+    setEditingId(null);
+    setEditDate(''); setEditLedger(''); setEditRef(''); setEditNotes('');
+  }
+
+  async function saveEdit(id: number): Promise<void> {
+    setError(null);
+    if (!editDate) { setError('Payment date cannot be empty.'); return; }
+    setBusyRowId(id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    // Only safe-to-change fields: date, mode_ledger, reference, notes.
+    // Amount / party / direction are intentionally NOT editable here
+    // because they have flow-on effects (allocations, ledger balances)
+    // that need a different UX to handle cleanly. To change those,
+    // delete and re-record the payment.
+    const payload: Record<string, unknown> = {
+      payment_date:   editDate,
+      mode_ledger_id: editLedger === '' ? null : Number(editLedger),
+      reference:      editRef.trim() === '' ? null : editRef.trim(),
+      notes:          editNotes.trim() === '' ? null : editNotes.trim(),
+    };
+    const { error: err } = await sb.from('payment').update(payload).eq('id', id);
+    setBusyRowId(null);
+    if (err) { setError(err.message); return; }
+    cancelEdit();
+    setRefreshTick((t) => t + 1);
+  }
+
+  async function deletePayment(p: PaymentRow): Promise<void> {
+    const msg =
+      `Delete payment ${p.payment_no}?\n\n` +
+      `Amount: ₹${fmtINR(p.amount)} (${p.direction === 'in' ? 'inflow' : 'outflow'})\n` +
+      `Date:   ${fmtDate(p.payment_date)}\n\n` +
+      `Any bill adjustments tied to this payment will also be removed and the affected bills' balances will be restored.`;
+    if (!window.confirm(msg)) return;
+    setBusyRowId(p.id);
+    setError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error: err } = await sb.from('payment').delete().eq('id', p.id);
+    setBusyRowId(null);
+    if (err) { setError(err.message); return; }
+    setRefreshTick((t) => t + 1);
+  }
 
   // When a single party is picked, compute the running balance
   // ledger. Convention:
@@ -1210,33 +1292,89 @@ function StatusTab(): React.ReactElement {
                   <th className="text-right px-3 py-3">Inflow (₹)</th>
                   <th className="text-right px-3 py-3">Outflow (₹)</th>
                   <th className="text-right px-3 py-3">Running balance (₹)</th>
+                  <th className="text-right px-3 py-3 w-[90px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((r) => (
-                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-3 text-ink-soft">{fmtDate(r.payment_date)}</td>
-                    <td className="px-3 py-3 font-mono text-xs">{r.payment_no}</td>
-                    <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {r.mode_ledger?.name ?? (r.mode ?? '').replace('_', ' ')}
-                    </td>
-                    <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {r.reference ?? '-'}
-                    </td>
-                    <td className="px-3 py-3 text-right num text-emerald-700">
-                      {r.inflow > 0 ? fmtINR(r.inflow) : '-'}
-                    </td>
-                    <td className="px-3 py-3 text-right num text-rose-700">
-                      {r.outflow > 0 ? fmtINR(r.outflow) : '-'}
-                    </td>
-                    <td className={cn(
-                      'px-3 py-3 text-right num font-semibold',
-                      r.balance > 0 ? 'text-emerald-700' : r.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
-                    )}>
-                      {fmtINR(r.balance)}
-                    </td>
-                  </tr>
-                ))}
+                {ledger.map((r) => {
+                  const isEditing = editingId === r.id;
+                  const isBusy    = busyRowId === r.id;
+                  return (
+                    <React.Fragment key={r.id}>
+                      <tr className={cn('border-t border-line/40', isEditing ? 'bg-indigo-50/30' : 'hover:bg-haze/60')}>
+                        <td className="px-3 py-3 text-ink-soft">{fmtDate(r.payment_date)}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{r.payment_no}</td>
+                        <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
+                          {r.mode_ledger?.name ?? (r.mode ?? '').replace('_', ' ')}
+                        </td>
+                        <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
+                          {r.reference ?? '-'}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-emerald-700">
+                          {r.inflow > 0 ? fmtINR(r.inflow) : '-'}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-rose-700">
+                          {r.outflow > 0 ? fmtINR(r.outflow) : '-'}
+                        </td>
+                        <td className={cn(
+                          'px-3 py-3 text-right num font-semibold',
+                          r.balance > 0 ? 'text-emerald-700' : r.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                        )}>
+                          {fmtINR(r.balance)}
+                        </td>
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          {isBusy ? (
+                            <Loader2 className="w-4 h-4 animate-spin inline-block text-ink-mute" />
+                          ) : isEditing ? (
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="p-1 rounded text-ink-mute hover:bg-haze/60"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(r)}
+                                className="p-1 rounded text-indigo-600 hover:bg-indigo-50"
+                                title="Edit payment"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deletePayment(r)}
+                                className="p-1 rounded text-rose-600 hover:bg-rose-50 ml-1"
+                                title="Delete payment (will restore affected bill balances)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr className="bg-indigo-50/20 border-t border-indigo-100">
+                          <td colSpan={8} className="px-3 py-3">
+                            <PaymentEditFields
+                              date={editDate}        setDate={setEditDate}
+                              ledger={editLedger}    setLedger={setEditLedger}
+                              ref_={editRef}         setRef={setEditRef}
+                              notes={editNotes}      setNotes={setEditNotes}
+                              modeLedgers={modeLedgers}
+                              busy={isBusy}
+                              onSave={() => void saveEdit(r.id)}
+                              onCancel={cancelEdit}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t border-line/60 bg-cloud/30 font-bold">
@@ -1249,6 +1387,7 @@ function StatusTab(): React.ReactElement {
                   )}>
                     {fmtINR(totals.balance)}
                   </td>
+                  <td />
                 </tr>
               </tfoot>
             </table>
@@ -1305,6 +1444,7 @@ function StatusTab(): React.ReactElement {
                   <th className="text-left  px-3 py-3 hidden lg:table-cell">Reference</th>
                   <th className="text-right px-3 py-3">Inflow (₹)</th>
                   <th className="text-right px-3 py-3">Outflow (₹)</th>
+                  <th className="text-right px-3 py-3 w-[90px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1312,33 +1452,86 @@ function StatusTab(): React.ReactElement {
                   const amt = Number(p.amount);
                   const inflow  = p.direction === 'in'  ? amt : 0;
                   const outflow = p.direction === 'out' ? amt : 0;
+                  const isEditing = editingId === p.id;
+                  const isBusy    = busyRowId === p.id;
                   return (
-                    <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
-                      <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(p.payment_date)}</td>
-                      <td className="px-3 py-3 font-mono text-xs">{p.payment_no}</td>
-                      <td className="px-3 py-3">
-                        {p.party
-                          ? (
-                            <div className="leading-tight">
-                              <div className="text-ink">{p.party.name}</div>
-                              <div className="font-mono text-[10px] text-ink-mute">{p.party.code}</div>
-                            </div>
-                          )
-                          : <span className="text-ink-mute italic">—</span>}
-                      </td>
-                      <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                        {p.mode_ledger?.name ?? (p.mode ?? '').replace('_', ' ')}
-                      </td>
-                      <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
-                        {p.reference ?? '-'}
-                      </td>
-                      <td className="px-3 py-3 text-right num text-emerald-700">
-                        {inflow > 0 ? fmtINR(inflow) : '-'}
-                      </td>
-                      <td className="px-3 py-3 text-right num text-rose-700">
-                        {outflow > 0 ? fmtINR(outflow) : '-'}
-                      </td>
-                    </tr>
+                    <React.Fragment key={p.id}>
+                      <tr className={cn('border-t border-line/40', isEditing ? 'bg-indigo-50/30' : 'hover:bg-haze/60')}>
+                        <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(p.payment_date)}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{p.payment_no}</td>
+                        <td className="px-3 py-3">
+                          {p.party
+                            ? (
+                              <div className="leading-tight">
+                                <div className="text-ink">{p.party.name}</div>
+                                <div className="font-mono text-[10px] text-ink-mute">{p.party.code}</div>
+                              </div>
+                            )
+                            : <span className="text-ink-mute italic">—</span>}
+                        </td>
+                        <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
+                          {p.mode_ledger?.name ?? (p.mode ?? '').replace('_', ' ')}
+                        </td>
+                        <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
+                          {p.reference ?? '-'}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-emerald-700">
+                          {inflow > 0 ? fmtINR(inflow) : '-'}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-rose-700">
+                          {outflow > 0 ? fmtINR(outflow) : '-'}
+                        </td>
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          {isBusy ? (
+                            <Loader2 className="w-4 h-4 animate-spin inline-block text-ink-mute" />
+                          ) : isEditing ? (
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="p-1 rounded text-ink-mute hover:bg-haze/60"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(p)}
+                                className="p-1 rounded text-indigo-600 hover:bg-indigo-50"
+                                title="Edit payment"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deletePayment(p)}
+                                className="p-1 rounded text-rose-600 hover:bg-rose-50 ml-1"
+                                title="Delete payment (will restore affected bill balances)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr className="bg-indigo-50/20 border-t border-indigo-100">
+                          <td colSpan={8} className="px-3 py-3">
+                            <PaymentEditFields
+                              date={editDate}        setDate={setEditDate}
+                              ledger={editLedger}    setLedger={setEditLedger}
+                              ref_={editRef}         setRef={setEditRef}
+                              notes={editNotes}      setNotes={setEditNotes}
+                              modeLedgers={modeLedgers}
+                              busy={isBusy}
+                              onSave={() => void saveEdit(p.id)}
+                              onCancel={cancelEdit}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -1347,6 +1540,7 @@ function StatusTab(): React.ReactElement {
                   <td className="px-3 py-3" colSpan={5}>Totals</td>
                   <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.inflow)}</td>
                   <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.outflow)}</td>
+                  <td />
                 </tr>
               </tfoot>
             </table>
@@ -1356,6 +1550,98 @@ function StatusTab(): React.ReactElement {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Shared inline edit form (date, mode ledger, reference, notes) ──
+// Amount / party / direction are deliberately NOT editable here. They
+// have flow-on effects (allocations, party balances) that need a
+// different UX. To change them, delete the payment and re-record.
+function PaymentEditFields({
+  date, setDate,
+  ledger, setLedger,
+  ref_, setRef,
+  notes, setNotes,
+  modeLedgers,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  date: string;       setDate:   (v: string) => void;
+  ledger: string;     setLedger: (v: string) => void;
+  ref_: string;       setRef:    (v: string) => void;
+  notes: string;      setNotes:  (v: string) => void;
+  modeLedgers: ModeLedgerOpt[];
+  busy: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+      <div>
+        <label className="label text-[10px]">Date</label>
+        <input
+          type="date"
+          className="input h-8 text-xs"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label text-[10px]">Bank / Cash ledger</label>
+        <select
+          className="input h-8 text-xs"
+          value={ledger}
+          onChange={(e) => setLedger(e.target.value)}
+        >
+          <option value="">— None —</option>
+          {modeLedgers.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.type_name === 'CASH' ? '💵' : '🏦'} {l.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label text-[10px]">Reference</label>
+        <input
+          type="text"
+          className="input h-8 text-xs"
+          value={ref_}
+          onChange={(e) => setRef(e.target.value)}
+          placeholder="UTR / cheque no / UPI ref"
+        />
+      </div>
+      <div className="flex items-end gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy}
+          className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="btn-ghost text-xs py-1 px-3"
+        >
+          Cancel
+        </button>
+      </div>
+      <div className="sm:col-span-6">
+        <label className="label text-[10px]">Notes</label>
+        <textarea
+          rows={2}
+          className="input text-xs"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional remarks"
+        />
+      </div>
     </div>
   );
 }
