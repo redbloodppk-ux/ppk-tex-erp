@@ -57,22 +57,46 @@ export function SearchSelect({
 
   // Every typed word must appear somewhere in the label (AND match,
   // order-independent) so partial typing in any order works. Matching
-  // is also SPACE/PUNCTUATION-INSENSITIVE: "SR TEX" finds "S R TEX",
-  // "rscotton" finds "R S COTTON MILL" — names saved with spaced
-  // initials stay findable however the operator types them.
+  // is:
+  //   - SPACE/PUNCTUATION-INSENSITIVE: "SR TEX" finds "S R TEX",
+  //     "rscotton" finds "R S COTTON MILL"
+  //   - INITIALS-AWARE: "sm tex" finds "SRI MURUGAN TEX" (the "sm"
+  //     matches the run of first letters of "Sri Murugan"), "vcm"
+  //     finds "VARNAA COTTON MILLS". Names saved with spaced
+  //     initials stay findable however the operator types them.
   const filtered = useMemo<SearchSelectOption[]>(() => {
     const q = query.trim().toLowerCase();
     if (q === '') return options;
     const squash = (s: string): string => s.replace(/[\s.\-/&]+/g, '');
-    const words = q.split(/\s+/);
+    /** First letter of every space-separated word, concatenated.
+     *  E.g. "sri murugan tex" -> "smt"; the code prefix "prt-0016 — sri murugan tex"
+     *  -> "p—smt"; for matching purposes we drop non-alphanumerics afterwards. */
+    const initialsOf = (s: string): string =>
+      s.split(/\s+/)
+       .map((w) => w[0] ?? '')
+       .join('')
+       .replace(/[^a-z0-9]/g, '');
+    const words = q.split(/\s+/).filter((w) => w.length > 0);
     const squashedQuery = squash(q);
     return options.filter((o) => {
       const label = o.label.toLowerCase();
       const squashedLabel = squash(label);
-      return (
-        words.every((w) => label.includes(w) || squashedLabel.includes(squash(w))) ||
-        squashedLabel.includes(squashedQuery)
-      );
+      const labelInitials = initialsOf(label);
+      // Every typed word must hit at least one of these:
+      //   * raw substring of the label (e.g. "tex" in "sri tex")
+      //   * substring of the punctuation-squashed label (e.g. "rs" in "R S COTTON")
+      //   * substring of the initials run (e.g. "sm" in "smt" for "SRI MURUGAN TEX")
+      const allWordsHit = words.every((w) => {
+        const sw = squash(w);
+        return (
+          label.includes(w) ||
+          squashedLabel.includes(sw) ||
+          labelInitials.includes(sw)
+        );
+      });
+      // Fallback: the whole query (without spaces) is a run anywhere
+      // in the squashed label — catches "srimurugantex" etc.
+      return allWordsHit || squashedLabel.includes(squashedQuery);
     });
   }, [options, query]);
 
