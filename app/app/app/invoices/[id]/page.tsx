@@ -1,11 +1,19 @@
 /**
  * Invoice detail + edit page.
  *
- * Header fields (date, due date, status, notes) are editable inline via
- * the EditInvoiceForm client component. Line items are listed read-only
- * - changing a billed invoice's lines means cancelling it and creating
- * a new one, which is the right paper-trail behaviour for an Indian GST
- * filing. From here the user can also delete the invoice.
+ * Two editor cards:
+ *   - EditInvoiceForm   — header fields (no, dates, status, GST block,
+ *                          interstate toggle, ship-to, notes, vehicle).
+ *   - EditInvoiceLines  — full line-item editor (description, HSN, qty,
+ *                          UOM, rate, GST %; auto-recomputes taxable +
+ *                          CGST/SGST/IGST + total; add/remove rows;
+ *                          rolls totals back into the header on save).
+ *
+ * From here the user can also print, share on WhatsApp, capture an
+ * e-waybill, or delete the invoice. Note that line-level edits on a
+ * GST-filed invoice still need the right paper trail (credit note for
+ * cancellations) — the UI no longer blocks it but the operator should
+ * follow their GST process.
  */
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -13,6 +21,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { EditInvoiceForm } from './edit-invoice-form';
+import { EditInvoiceLines, type InvoiceLineRow } from './edit-invoice-lines';
 import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 import { EwaybillCard } from './ewaybill-card';
 import { DeleteInvoiceButton } from '../delete-invoice-button';
@@ -241,56 +250,26 @@ export default async function InvoiceDetailPage({
         </div>
       </div>
 
-      {/* ───── Line items (read-only) ───── */}
-      <div className="card overflow-x-auto mb-4">
-        <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
-          <h2 className="font-display font-bold text-sm">Line items</h2>
-        </div>
-        {lines.length === 0 ? (
-          <div className="p-6 text-center text-ink-mute text-sm">No line items.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
-              <tr>
-                <th className="text-left  px-3 py-2">Description</th>
-                <th className="text-left  px-3 py-2">HSN</th>
-                <th className="text-right px-3 py-2">Qty</th>
-                <th className="text-right px-3 py-2">Rate</th>
-                <th className="text-right px-3 py-2">Taxable</th>
-                <th className="text-right px-3 py-2">CGST</th>
-                <th className="text-right px-3 py-2">SGST</th>
-                <th className="text-right px-3 py-2">IGST</th>
-                <th className="text-right px-3 py-2">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.id} className="border-t border-line/40">
-                  <td className="px-3 py-2">{l.description}</td>
-                  <td className="px-3 py-2 text-xs">{l.hsn_sac || '-'}</td>
-                  <td className="px-3 py-2 text-right num">{fmtMoney(l.quantity)} {l.uom}</td>
-                  <td className="px-3 py-2 text-right num">{fmtMoney(l.rate)}</td>
-                  <td className="px-3 py-2 text-right num">{fmtMoney(l.taxable_amount)}</td>
-                  <td className="px-3 py-2 text-right num text-ink-soft">{fmtMoney(l.cgst_amount)}</td>
-                  <td className="px-3 py-2 text-right num text-ink-soft">{fmtMoney(l.sgst_amount)}</td>
-                  <td className="px-3 py-2 text-right num text-ink-soft">{fmtMoney(l.igst_amount)}</td>
-                  <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(l.total_amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="border-t-2 border-line bg-cloud/30 font-semibold">
-              <tr>
-                <td className="px-3 py-2" colSpan={4}>Totals</td>
-                <td className="px-3 py-2 text-right num">{fmtMoney(inv.taxable_value)}</td>
-                <td className="px-3 py-2 text-right num">{fmtMoney(inv.cgst_amount)}</td>
-                <td className="px-3 py-2 text-right num">{fmtMoney(inv.sgst_amount)}</td>
-                <td className="px-3 py-2 text-right num">{fmtMoney(inv.igst_amount)}</td>
-                <td className="px-3 py-2 text-right num">{fmtRupees(inv.total)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
+      {/* ───── Line items (now fully editable; see EditInvoiceLines) ───── */}
+      <EditInvoiceLines
+        invoiceId={inv.id}
+        invoiceNo={inv.invoice_no}
+        isInterstate={Boolean(inv.is_interstate)}
+        initialLines={lines.map((l): InvoiceLineRow => ({
+          id:             l.id,
+          description:    l.description,
+          hsn_sac:        l.hsn_sac ?? '',
+          uom:            l.uom,
+          quantity:       String(l.quantity ?? 0),
+          rate:           String(l.rate ?? 0),
+          gst_rate_pct:   String(l.gst_rate_pct ?? 0),
+          taxable_amount: String(l.taxable_amount ?? 0),
+          cgst_amount:    String(l.cgst_amount ?? 0),
+          sgst_amount:    String(l.sgst_amount ?? 0),
+          igst_amount:    String(l.igst_amount ?? 0),
+          total_amount:   String(l.total_amount ?? 0),
+        }))}
+      />
 
       {/* ───── Linked DCs (for jobwork bills) ───── */}
       {linkedDcs.length > 0 && (

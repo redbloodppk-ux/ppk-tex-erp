@@ -8,11 +8,11 @@
  *   - Interstate toggle (controls CGST+SGST vs IGST display + visibility)
  *   - Recompute total = taxable + cgst + sgst + igst + round_off  (helper)
  *
- * Line items themselves stay read-only on this screen - GST under Indian
- * rules expects a paper trail for line-level changes (cancel + re-issue
- * via credit note). The header tax fields are still editable because
- * mills routinely need to adjust rounding, apply a custom GST rate,
- * book a discount, or correct a typo on a draft.
+ * Line items are edited in the separate EditInvoiceLines component
+ * lower on the page. Saving lines there will rewrite this header's
+ * GST block from the line totals, so manual edits here are for cases
+ * where the operator wants to override the rollup (e.g. apply a
+ * one-off discount or hard-code a round-off).
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
