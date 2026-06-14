@@ -63,6 +63,10 @@ interface PaymentRow {
   mode_ledger?: { id: number; name: string } | null;
   reference: string | null;
   notes: string | null;
+  party_id: number | null;
+  // Resolved party + its types when the Status tab is showing
+  // payments across multiple parties (no specific party selected).
+  party?: { id: number; code: string; name: string; party_type_ids: number[] | null } | null;
 }
 /** An unpaid (or part-paid) bill of the selected party, offered for
  *  bill-to-bill adjustment when recording a payment. Invoices are
@@ -987,10 +991,14 @@ function StatusTab(): React.ReactElement {
   const [parties,    setParties]    = useState<PartyOpt[]>([]);
   const [payments,   setPayments]   = useState<PaymentRow[]>([]);
   const [loading,    setLoading]    = useState<boolean>(true);
+  const [pmtLoading, setPmtLoading] = useState<boolean>(false);
   const [error,      setError]      = useState<string | null>(null);
 
+  // Filters.
   const [partyTypeId, setPartyTypeId] = useState<string>('');
   const [partyId,     setPartyId]     = useState<string>('');
+  const [dateFrom,    setDateFrom]    = useState<string>('');
+  const [dateTo,      setDateTo]      = useState<string>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1013,7 +1021,7 @@ function StatusTab(): React.ReactElement {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Filter parties by selected type.
+  // Narrow the Party dropdown by the picked Party type.
   const filteredParties = useMemo(() => {
     if (!partyTypeId) return parties;
     const id = Number(partyTypeId);
@@ -1028,32 +1036,61 @@ function StatusTab(): React.ReactElement {
     }
   }, [filteredParties, partyId]);
 
-  // Pull payments whenever the party filter changes.
+  // Pull every payment that passes the filters. Default view (no
+  // party picked) shows every recorded transaction across every
+  // party in chronological order. Filters narrow the list:
+  //   - party (single)        ➜ classic ledger view with running balance
+  //   - party type (multiple) ➜ all parties of that type
+  //   - date from/to          ➜ time window
+  // The party FK is joined back so the operator can see who each
+  // payment was for when no specific party is picked.
   useEffect(() => {
-    if (!partyId) { setPayments([]); return; }
+    setPmtLoading(true);
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const { data, error: err } = await sb.from('payment')
-        .select('id, payment_no, payment_date, direction, amount, mode, mode_ledger_id, mode_ledger:mode_ledger_id ( id, name ), reference, notes')
-        .eq('party_id', Number(partyId))
-        .eq('status', 'active')
-        .order('payment_date', { ascending: true })
-        .order('id', { ascending: true });
-      if (err) { setError(err.message); return; }
-      setPayments((data ?? []) as PaymentRow[]);
-    })();
-  }, [partyId, supabase]);
+      let q = sb.from('payment')
+        .select(
+          'id, payment_no, payment_date, direction, amount, mode, mode_ledger_id, ' +
+          'mode_ledger:mode_ledger_id ( id, name ), reference, notes, party_id, ' +
+          'party:party_id ( id, code, name, party_type_ids )'
+        )
+        .eq('status', 'active');
 
-  // Compute running balance. Convention:
-  //   Inflow  → +ve to "running balance" (money flowing TO us = party owes us less)
-  //   Outflow → -ve.
-  // For a CUSTOMER ledger, a positive running balance means the customer
-  // has paid more than we've billed (rare credit). For a SUPPLIER, a
-  // negative running balance means we still owe them. The narrative
-  // depends on the party type; here we just present the raw signed sum
-  // and let the operator interpret.
+      if (partyId) {
+        q = q.eq('party_id', Number(partyId));
+      } else if (partyTypeId) {
+        // Filter to parties of the picked type. If the type matches
+        // no parties (rare), short-circuit to an empty list rather
+        // than fetching every payment.
+        const ids = filteredParties.map((p) => p.id);
+        if (ids.length === 0) { setPayments([]); setPmtLoading(false); return; }
+        q = q.in('party_id', ids);
+      }
+      if (dateFrom) q = q.gte('payment_date', dateFrom);
+      if (dateTo)   q = q.lte('payment_date', dateTo);
+
+      // When a single party is picked, sort oldest -> newest so the
+      // running balance accumulates from the bottom up. Otherwise
+      // sort newest -> oldest so the operator sees the latest
+      // transactions first.
+      q = q
+        .order('payment_date', { ascending: partyId !== '' })
+        .order('id',           { ascending: partyId !== '' });
+
+      const { data, error: err } = await q;
+      if (err) { setError(err.message); setPmtLoading(false); return; }
+      setPayments((data ?? []) as PaymentRow[]);
+      setPmtLoading(false);
+    })();
+  }, [partyId, partyTypeId, dateFrom, dateTo, filteredParties, supabase]);
+
+  // When a single party is picked, compute the running balance
+  // ledger. Convention:
+  //   Inflow  → +ve (party paid us / we received)
+  //   Outflow → -ve (we paid the party).
   const ledger = useMemo(() => {
+    if (!partyId) return [];
     let running = 0;
     return payments.map((p) => {
       const amt = Number(p.amount);
@@ -1062,22 +1099,29 @@ function StatusTab(): React.ReactElement {
       running += inflow - outflow;
       return { ...p, inflow, outflow, balance: running };
     });
-  }, [payments]);
+  }, [partyId, payments]);
 
   const totals = useMemo(() => {
-    const inflow  = ledger.reduce((s, r) => s + r.inflow, 0);
-    const outflow = ledger.reduce((s, r) => s + r.outflow, 0);
-    return { inflow, outflow, balance: inflow - outflow };
-  }, [ledger]);
+    let inflow = 0, outflow = 0;
+    for (const p of payments) {
+      const amt = Number(p.amount);
+      if (p.direction === 'in')  inflow  += amt;
+      else                       outflow += amt;
+    }
+    return { inflow, outflow, balance: inflow - outflow, count: payments.length };
+  }, [payments]);
 
   const partyName = useMemo(() => {
     const p = parties.find((x) => String(x.id) === partyId);
     return p ? `${p.code} — ${p.name}` : '';
   }, [parties, partyId]);
 
+  const showLedger = partyId !== '';
+
   return (
     <div className="space-y-4">
-      <div className="card p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* Filters */}
+      <div className="card p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label className="label">Party type</label>
           <select className="input" value={partyTypeId} onChange={(e) => setPartyTypeId(e.target.value)}>
@@ -1087,8 +1131,8 @@ function StatusTab(): React.ReactElement {
             ))}
           </select>
         </div>
-        <div className="md:col-span-2">
-          <label className="label">Party *</label>
+        <div>
+          <label className="label">Party</label>
           <SearchSelect
             options={filteredParties.map((p): SearchSelectOption => ({
               value: String(p.id),
@@ -1096,27 +1140,60 @@ function StatusTab(): React.ReactElement {
             }))}
             value={partyId}
             onChange={setPartyId}
-            placeholder="Type party name to see its ledger…"
+            placeholder="All parties — type to filter…"
           />
         </div>
+        <div>
+          <label className="label">From date</label>
+          <input
+            type="date"
+            className="input"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            max={dateTo || undefined}
+          />
+        </div>
+        <div>
+          <label className="label">To date</label>
+          <input
+            type="date"
+            className="input"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            min={dateFrom || undefined}
+          />
+        </div>
+        {(partyTypeId || partyId || dateFrom || dateTo) && (
+          <div className="md:col-span-4 flex items-center justify-between gap-3 pt-1">
+            <span className="text-[11px] text-ink-mute">
+              Showing {totals.count.toLocaleString('en-IN')} transaction{totals.count === 1 ? '' : 's'}
+              {showLedger ? ` for ${partyName}` : ''}.
+            </span>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => { setPartyTypeId(''); setPartyId(''); setDateFrom(''); setDateTo(''); }}
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <div className="card p-3 text-sm text-err">{error}</div>}
 
-      {loading ? (
+      {loading || pmtLoading ? (
         <div className="card p-6 flex items-center gap-2 text-sm text-ink-mute">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
-      ) : !partyId ? (
+      ) : payments.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">
-          Pick a party above to see its payment ledger.
+          No payments found. {showLedger
+            ? <>Record one from the New Payment tab.</>
+            : <>Try widening the filters, or record a payment from the New Payment tab.</>}
         </div>
-      ) : ledger.length === 0 ? (
-        <div className="card p-6 text-sm text-ink-soft">
-          No payments yet for <span className="font-semibold">{partyName}</span>. Record one from the
-          New Payment tab.
-        </div>
-      ) : (
+      ) : showLedger ? (
+        // Ledger view — single party, running balance.
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-line/40 bg-cloud/40">
             <div className="text-xs uppercase tracking-wider text-ink-mute">Ledger for</div>
@@ -1141,11 +1218,6 @@ function StatusTab(): React.ReactElement {
                     <td className="px-3 py-3 text-ink-soft">{fmtDate(r.payment_date)}</td>
                     <td className="px-3 py-3 font-mono text-xs">{r.payment_no}</td>
                     <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                      {/* Prefer the ledger name (e.g. "HDFC Current",
-                          "Petty Cash") since that's what the operator
-                          actually picked. Fall back to the raw mode
-                          text for legacy rows that have no
-                          mode_ledger_id stamped. */}
                       {r.mode_ledger?.name ?? (r.mode ?? '').replace('_', ' ')}
                     </td>
                     <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
@@ -1185,6 +1257,102 @@ function StatusTab(): React.ReactElement {
             Positive balance = party has paid more than received from us.
             Negative balance = we still owe / need to receive from this party.
             Sorted oldest → newest.
+          </div>
+        </div>
+      ) : (
+        // All-payments view — chronological across every party.
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-line/40 bg-cloud/40 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-ink-mute">All payments</div>
+              <div className="font-semibold text-ink">
+                {totals.count.toLocaleString('en-IN')} transaction{totals.count === 1 ? '' : 's'}
+                {partyTypeId && (
+                  <span className="ml-2 text-xs font-normal text-ink-soft">
+                    · {(partyTypes.find((pt) => String(pt.id) === partyTypeId)?.name) ?? ''}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <div>
+                <span className="text-ink-mute">Inflow:</span>{' '}
+                <span className="font-semibold text-emerald-700 num">₹ {fmtINR(totals.inflow)}</span>
+              </div>
+              <div>
+                <span className="text-ink-mute">Outflow:</span>{' '}
+                <span className="font-semibold text-rose-700 num">₹ {fmtINR(totals.outflow)}</span>
+              </div>
+              <div>
+                <span className="text-ink-mute">Net:</span>{' '}
+                <span className={cn(
+                  'font-semibold num',
+                  totals.balance > 0 ? 'text-emerald-700' : totals.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                )}>
+                  ₹ {fmtINR(totals.balance)}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="text-left  px-3 py-3">Date</th>
+                  <th className="text-left  px-3 py-3">Voucher</th>
+                  <th className="text-left  px-3 py-3">Party</th>
+                  <th className="text-left  px-3 py-3 hidden md:table-cell">Bank / Cash</th>
+                  <th className="text-left  px-3 py-3 hidden lg:table-cell">Reference</th>
+                  <th className="text-right px-3 py-3">Inflow (₹)</th>
+                  <th className="text-right px-3 py-3">Outflow (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => {
+                  const amt = Number(p.amount);
+                  const inflow  = p.direction === 'in'  ? amt : 0;
+                  const outflow = p.direction === 'out' ? amt : 0;
+                  return (
+                    <tr key={p.id} className="border-t border-line/40 hover:bg-haze/60">
+                      <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(p.payment_date)}</td>
+                      <td className="px-3 py-3 font-mono text-xs">{p.payment_no}</td>
+                      <td className="px-3 py-3">
+                        {p.party
+                          ? (
+                            <div className="leading-tight">
+                              <div className="text-ink">{p.party.name}</div>
+                              <div className="font-mono text-[10px] text-ink-mute">{p.party.code}</div>
+                            </div>
+                          )
+                          : <span className="text-ink-mute italic">—</span>}
+                      </td>
+                      <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
+                        {p.mode_ledger?.name ?? (p.mode ?? '').replace('_', ' ')}
+                      </td>
+                      <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
+                        {p.reference ?? '-'}
+                      </td>
+                      <td className="px-3 py-3 text-right num text-emerald-700">
+                        {inflow > 0 ? fmtINR(inflow) : '-'}
+                      </td>
+                      <td className="px-3 py-3 text-right num text-rose-700">
+                        {outflow > 0 ? fmtINR(outflow) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-line/60 bg-cloud/30 font-bold">
+                  <td className="px-3 py-3" colSpan={5}>Totals</td>
+                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.inflow)}</td>
+                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.outflow)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
+            Sorted newest → oldest. Pick a party above for a running-balance ledger view.
           </div>
         </div>
       )}
