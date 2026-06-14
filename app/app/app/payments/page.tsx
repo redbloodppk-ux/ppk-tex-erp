@@ -69,11 +69,14 @@ interface PaymentRow {
  *  matched to the unified party master by the party_name stamped on
  *  every invoice. */
 interface UnpaidBill {
-  /** Discriminator. 'invoice' = live invoice row (payment_allocation
-   *  writes against invoice_id); 'opening' = settings-entered opening
-   *  ledger row (payment_opening_allocation writes against
-   *  opening_ledger_id). */
-  kind: 'invoice' | 'opening';
+  /** Discriminator for which child table the allocation goes into:
+   *    invoice -> payment_allocation (invoice_id)
+   *    opening -> payment_opening_allocation (opening_ledger_id)
+   *    sizing  -> payment_sizing_allocation (sizing_job_id)
+   *    bobbin  -> payment_bobbin_allocation (bobbin_purchase_id)
+   *    yarn    -> payment_yarn_allocation (yarn_lot_id)
+   */
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -282,10 +285,11 @@ function NewPaymentTab(): React.ReactElement {
     setBillsLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Pull live unpaid invoices AND any pre-ERP opening ledger entries
-    // for the same party in parallel; merge them into one list so the
-    // operator sees every outstanding bill against this party.
-    const [invRes, openRes] = await Promise.all([
+    // Pull every unpaid bill against this party from the five sources
+    // in parallel. After migration 165 the Payments page is the unified
+    // settlement screen for invoices + opening ledger + sizing bills +
+    // bobbin purchases + yarn purchases.
+    const [invRes, openRes, sizRes, bobRes, yarnRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', party.name)
@@ -300,19 +304,39 @@ function NewPaymentTab(): React.ReactElement {
         .gt('balance', 0)
         .order('invoice_date', { ascending: true })
         .order('id', { ascending: true }),
+      // Sizing bills (party_id linked via migration 165 backfill).
+      // Only billed jobs with a remaining balance.
+      sb.from('sizing_job')
+        .select('id, bill_no, bill_date, total_amount, amount_paid')
+        .eq('party_id', party.id)
+        .not('bill_no', 'is', null)
+        .gt('total_amount', 0),
+      // Bobbin purchases against this supplier.
+      sb.from('bobbin_purchase')
+        .select('id, invoice_no, purchase_date, total_amount, amount_paid')
+        .eq('vendor_id', party.id)
+        .gt('total_amount', 0),
+      // Yarn lots against this supplier.
+      sb.from('yarn_lot')
+        .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid')
+        .eq('supplier_party_id', party.id)
+        .gt('total_amount', 0),
     ]);
     setBillsLoading(false);
     if (invRes.error) { setError(invRes.error.message); return; }
     if (openRes.error) {
-      // Tolerate the opening ledger table not existing yet — we just
-      // skip it and fall back to live invoices only.
       // eslint-disable-next-line no-console
       console.warn('opening_ledger not available:', openRes.error.message);
     }
+    if (sizRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('sizing_job not loadable:', sizRes.error.message); }
+    if (bobRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('bobbin_purchase not loadable:', bobRes.error.message); }
+    if (yarnRes?.error) { /* eslint-disable-next-line no-console */ console.warn('yarn_lot not loadable:', yarnRes.error.message); }
+
     const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
       id: number; invoice_no: string; invoice_date: string; doc_type: string;
       total: number | string; amount_paid: number | string; balance: number | string;
     }>).map((r) => ({ ...r, kind: 'invoice' }));
+
     const openBills: UnpaidBill[] = ((openRes?.data ?? []) as Array<{
       id: number; invoice_no: string; invoice_date: string; direction: string;
       amount: number | string; amount_paid: number | string; balance: number | string;
@@ -326,9 +350,58 @@ function NewPaymentTab(): React.ReactElement {
       amount_paid: r.amount_paid,
       balance: r.balance,
     }));
+
+    // sizing / bobbin / yarn bills — balance computed on the fly
+    // because their parent total_amount columns are GENERATED, which
+    // PG won't let us reference from another generated column.
+    const sizingBills: UnpaidBill[] = ((sizRes?.data ?? []) as Array<{
+      id: number; bill_no: string | null; bill_date: string | null;
+      total_amount: number | string; amount_paid: number | string;
+    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'sizing',
+         id: r.id,
+         invoice_no: r.bill_no ?? `SZ-${r.id}`,
+         invoice_date: r.bill_date ?? '',
+         doc_type: 'sizing_bill',
+         total: r.total_amount,
+         amount_paid: r.amount_paid,
+         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+       }));
+
+    const bobbinBills: UnpaidBill[] = ((bobRes?.data ?? []) as Array<{
+      id: number; invoice_no: string | null; purchase_date: string | null;
+      total_amount: number | string; amount_paid: number | string;
+    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'bobbin',
+         id: r.id,
+         invoice_no: r.invoice_no ?? `BB-${r.id}`,
+         invoice_date: r.purchase_date ?? '',
+         doc_type: 'bobbin_purchase',
+         total: r.total_amount,
+         amount_paid: r.amount_paid,
+         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+       }));
+
+    const yarnBills: UnpaidBill[] = ((yarnRes?.data ?? []) as Array<{
+      id: number; lot_code: string | null; invoice_no: string | null;
+      received_date: string | null; total_amount: number | string; amount_paid: number | string;
+    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'yarn',
+         id: r.id,
+         invoice_no: r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
+         invoice_date: r.received_date ?? '',
+         doc_type: 'yarn_purchase',
+         total: r.total_amount,
+         amount_paid: r.amount_paid,
+         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+       }));
+
     // Sort merged list by date (oldest first) so the operator's mental
     // model is "settle the oldest bill first" regardless of source.
-    const merged = [...liveBills, ...openBills].sort((a, b) => {
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills].sort((a, b) => {
       const dc = a.invoice_date.localeCompare(b.invoice_date);
       return dc !== 0 ? dc : a.id - b.id;
     });
@@ -432,10 +505,16 @@ function NewPaymentTab(): React.ReactElement {
 
     // Validate the bill-to-bill adjustments before writing anything.
     // Split allocations by kind so we write to the correct child table:
-    //   invoice rows         -> payment_allocation
-    //   opening_ledger rows  -> payment_opening_allocation
-    const allocations: { invoice_id: number; amount: number }[] = [];
-    const openingAllocs: { opening_ledger_id: number; amount: number }[] = [];
+    //   invoice -> payment_allocation
+    //   opening -> payment_opening_allocation
+    //   sizing  -> payment_sizing_allocation
+    //   bobbin  -> payment_bobbin_allocation
+    //   yarn    -> payment_yarn_allocation
+    const allocations:    { invoice_id: number; amount: number }[]         = [];
+    const openingAllocs:  { opening_ledger_id: number; amount: number }[]  = [];
+    const sizingAllocs:   { sizing_job_id: number; amount: number }[]      = [];
+    const bobbinAllocs:   { bobbin_purchase_id: number; amount: number }[] = [];
+    const yarnAllocs:     { yarn_lot_id: number; amount: number }[]        = [];
     for (const b of bills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
@@ -451,15 +530,20 @@ function NewPaymentTab(): React.ReactElement {
         setError(`Bill ${b.invoice_no}: adjusted ₹${fmtINR(n)} is more than its balance ₹${fmtINR(b.balance)}.`);
         return;
       }
-      if (b.kind === 'opening') {
-        openingAllocs.push({ opening_ledger_id: b.id, amount: Math.round(n * 100) / 100 });
-      } else {
-        allocations.push({ invoice_id: b.id, amount: Math.round(n * 100) / 100 });
+      const rounded = Math.round(n * 100) / 100;
+      switch (b.kind) {
+        case 'opening': openingAllocs.push({ opening_ledger_id:  b.id, amount: rounded }); break;
+        case 'sizing':  sizingAllocs .push({ sizing_job_id:      b.id, amount: rounded }); break;
+        case 'bobbin':  bobbinAllocs .push({ bobbin_purchase_id: b.id, amount: rounded }); break;
+        case 'yarn':    yarnAllocs   .push({ yarn_lot_id:        b.id, amount: rounded }); break;
+        default:        allocations  .push({ invoice_id:         b.id, amount: rounded });
       }
     }
+    const totalAllocCount = allocations.length + openingAllocs.length
+                          + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
-    if (billAdjustRequired && allocations.length === 0 && openingAllocs.length === 0 && !advanceOk) {
+    if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
       setError(bills.length > 0
         ? 'Tick the bill(s) this payment settles — or tick "Advance payment" to post it to the party ledger without adjusting a bill.'
         : 'This party has no unpaid bills. Tick "Advance payment" to confirm posting this amount to the party ledger.');
@@ -467,7 +551,10 @@ function NewPaymentTab(): React.ReactElement {
     }
 
     const allocSum = allocations.reduce((s, a) => s + a.amount, 0)
-                    + openingAllocs.reduce((s, a) => s + a.amount, 0);
+                    + openingAllocs.reduce((s, a) => s + a.amount, 0)
+                    + sizingAllocs.reduce((s, a) => s + a.amount, 0)
+                    + bobbinAllocs.reduce((s, a) => s + a.amount, 0)
+                    + yarnAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -478,8 +565,7 @@ function NewPaymentTab(): React.ReactElement {
     // operator to either (a) raise / drop the bill adjustments to
     // fully consume the amount, or (b) lower the amount to match,
     // or (c) untick all bills and post the whole thing as an advance.
-    if ((allocations.length > 0 || openingAllocs.length > 0)
-        && Math.abs(amt - allocSum) > 0.005) {
+    if (totalAllocCount > 0 && Math.abs(amt - allocSum) > 0.005) {
       const diff = Math.round((amt - allocSum) * 100) / 100;
       setError(
         diff > 0
@@ -538,8 +624,46 @@ function NewPaymentTab(): React.ReactElement {
         return;
       }
     }
+    // Sizing / Bobbin / Yarn allocations (migration 165). Each gets a
+    // dedicated table whose trigger bumps the parent row's amount_paid.
+    if (sizingAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: sErr } = await (supabase as any)
+        .from('payment_sizing_allocation')
+        .insert(sizingAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (sErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the sizing-bill adjustment failed: ${sErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    if (bobbinAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: bErr } = await (supabase as any)
+        .from('payment_bobbin_allocation')
+        .insert(bobbinAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (bErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the bobbin-bill adjustment failed: ${bErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    if (yarnAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: yErr } = await (supabase as any)
+        .from('payment_yarn_allocation')
+        .insert(yarnAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (yErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the yarn-lot adjustment failed: ${yErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
     setBusy(false);
-    const totalAdjusted = allocations.length + openingAllocs.length;
+    const totalAdjusted = totalAllocCount;
     setSavedMsg(
       totalAdjusted > 0
         ? `Saved ${data?.payment_no ?? 'payment'} — adjusted against ${totalAdjusted} bill${totalAdjusted === 1 ? '' : 's'}.`

@@ -1,26 +1,21 @@
 'use client';
 /**
- * Sizing Payment tab. Mirrors the JobworkPaymentTab concept but
- * against sizing bills (which live on sizing_job rows, not invoices).
+ * Sizing Payment tab. Lists every sizing bill (one row per
+ * sizing_job with a bill_no) with its paid + balance + status pill.
  *
- * Each row is one sizing bill. We show:
- *   - bill no + date
- *   - sizing mill (the ledger linked to the job)
- *   - total amount (rounded to whole rupees by the bill flow)
- *   - paid total (sum of payment rows linked via sizing_job_id)
- *   - balance + payment status pill
- *
- * Inline "Record payment" form per row inserts into the public.payment
- * table with sizing_job_id = the bill's job id (migration 118). The
- * existing /app/payments page also picks these up because they share
- * the same payment table.
- *
- * Bank-mode payments must choose a Bank ledger; cash-mode payments
- * leave ledger_id null.
+ * "Record payment" is now a deep-link to the unified Payments page
+ * (/app/payments?party=X&direction=out). Migration 165 added
+ * sizing_job.party_id (backfilled by joining the bill's
+ * sizing_ledger -> party by name) and a payment_sizing_allocation
+ * table whose trigger keeps sizing_job.amount_paid in sync. So the
+ * sizing bill appears in the Payments page "Unpaid bills" list, the
+ * operator ticks it, saves, and the status pill on this page
+ * updates automatically.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Plus, X, Save, Wallet } from 'lucide-react';
+import { Loader2, Wallet, ArrowUpRight } from 'lucide-react';
 
 interface BillRow {
   id: number;                 // sizing_job.id
@@ -28,9 +23,11 @@ interface BillRow {
   bill_no: string;
   bill_date: string | null;
   total_amount: number | string;
+  amount_paid: number | string;
   charges_amount: number | string;
   gst_pct: number | string;
   sizing_vendor_name: string | null;
+  party_id: number | null;    // linked party for the "Record payment" deep-link
 }
 
 interface PaymentRow {
@@ -44,8 +41,6 @@ interface PaymentRow {
   ledger_id: number | null;
 }
 
-interface LedgerOpt { id: number; name: string }
-
 type Status = 'unpaid' | 'partial' | 'paid';
 
 function fmtDate(s: string | null): string {
@@ -58,15 +53,6 @@ function fmtDate(s: string | null): string {
 function fmtRs(v: unknown): string {
   return 'Rs ' + Math.round(Number(v ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
-function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function num(s: string): number {
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
-
 const STATUS_STYLE: Record<Status, string> = {
   unpaid:  'bg-rose-50 text-rose-700',
   partial: 'bg-amber-50 text-amber-700',
@@ -79,16 +65,6 @@ export function SizingPaymentTab(): React.ReactElement {
   const [error,   setError]     = useState<string | null>(null);
   const [bills,   setBills]     = useState<BillRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [bankLedgers, setBankLedgers] = useState<LedgerOpt[]>([]);
-
-  // Inline payment-entry state.
-  const [openFor,  setOpenFor]  = useState<number | null>(null);
-  const [pDate,    setPDate]    = useState<string>(todayISO());
-  const [pMode,    setPMode]    = useState<'cash' | 'bank'>('cash');
-  const [pAmount,  setPAmount]  = useState<string>('');
-  const [pRef,     setPRef]     = useState<string>('');
-  const [pLedger,  setPLedger]  = useState<string>('');
-  const [busy,     setBusy]     = useState<boolean>(false);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -96,11 +72,12 @@ export function SizingPaymentTab(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    const [billRes, payRes, ledgerRes] = await Promise.all([
+    const [billRes, payRes] = await Promise.all([
       sb.from('sizing_job')
         .select(`
           id, job_code, bill_no, bill_date,
-          total_amount, charges_amount, gst_pct,
+          total_amount, amount_paid, charges_amount, gst_pct,
+          party_id,
           sizing_vendor:sizing_ledger_id ( name )
         `)
         .not('bill_no', 'is', null)
@@ -111,15 +88,15 @@ export function SizingPaymentTab(): React.ReactElement {
         .not('sizing_job_id', 'is', null)
         .order('payment_date', { ascending: false })
         .order('id',           { ascending: false }),
-      sb.from('ledger')
-        .select('id, name, ledger_type:ledger_type_id ( name )'),
     ]);
 
     if (billRes.error) { setError(billRes.error.message); setLoading(false); return; }
 
     setBills(((billRes.data ?? []) as Array<{
       id: number; job_code: string; bill_no: string; bill_date: string | null;
-      total_amount: number | string; charges_amount: number | string; gst_pct: number | string;
+      total_amount: number | string; amount_paid: number | string;
+      charges_amount: number | string; gst_pct: number | string;
+      party_id: number | null;
       sizing_vendor: { name: string } | null;
     }>).map((r) => ({
       id:                 r.id,
@@ -127,16 +104,13 @@ export function SizingPaymentTab(): React.ReactElement {
       bill_no:            r.bill_no,
       bill_date:          r.bill_date,
       total_amount:       r.total_amount,
+      amount_paid:        r.amount_paid,
       charges_amount:     r.charges_amount,
       gst_pct:            r.gst_pct,
+      party_id:           r.party_id ?? null,
       sizing_vendor_name: r.sizing_vendor?.name ?? null,
     })));
     setPayments(((payRes.data ?? []) as PaymentRow[]) ?? []);
-
-    const banks: LedgerOpt[] = ((ledgerRes.data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
-      .filter((l) => (l.ledger_type?.name ?? '').toLowerCase().startsWith('bank'))
-      .map((l) => ({ id: l.id, name: l.name }));
-    setBankLedgers(banks);
     setLoading(false);
   }, [supabase]);
 
@@ -153,13 +127,12 @@ export function SizingPaymentTab(): React.ReactElement {
     return m;
   }, [payments]);
 
-  function paidTotal(billId: number): number {
-    const ps = paymentsByBill.get(billId) ?? [];
-    return ps.reduce((s, p) => s + Number(p.amount ?? 0), 0);
-  }
-
-  function statusFor(billId: number, total: number): Status {
-    const paid = paidTotal(billId);
+  // sizing_job.amount_paid is now maintained by triggers
+  // (fn_psa_recalc_paid on payment_sizing_allocation, and a parallel
+  // trigger fn_payment_resync_sizing_paid on the payment table for
+  // legacy direct rows) — so we use it as the source of truth instead
+  // of summing payments client-side.
+  function statusFor(total: number, paid: number): Status {
     if (paid <= 0) return 'unpaid';
     // 10-rupee tolerance — covers the "bill 610, received 600 → full"
     // case the existing jobwork flow uses.
@@ -171,52 +144,10 @@ export function SizingPaymentTab(): React.ReactElement {
     let billed = 0, paid = 0;
     for (const b of bills) {
       billed += Number(b.total_amount ?? 0);
-      paid   += paidTotal(b.id);
+      paid   += Number(b.amount_paid ?? 0);
     }
     return { billed, paid, due: billed - paid };
-  }, [bills, paymentsByBill]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function openRecord(billId: number, defaultAmount: number): void {
-    setOpenFor(billId);
-    setPDate(todayISO());
-    setPMode('cash');
-    setPAmount(defaultAmount > 0 ? String(Math.round(defaultAmount)) : '');
-    setPRef('');
-    setPLedger('');
-    setError(null);
-  }
-
-  async function handleSave(billId: number): Promise<void> {
-    setError(null);
-    const amt = num(pAmount);
-    if (amt <= 0) { setError('Enter a positive amount.'); return; }
-    if (pMode === 'bank' && pLedger === '') { setError('Pick a bank account.'); return; }
-
-    setBusy(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
-    // payment_no is NOT NULL. We mirror the jobwork pattern until a
-    // doc_sequence row is set up for sizing payments.
-    const stamp = Date.now().toString().slice(-6);
-    const paymentNo = 'SPAY-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
-    const payload = {
-      payment_no:    paymentNo,
-      direction:     'out',                // we're paying the sizing mill
-      invoice_id:    null,
-      sizing_job_id: billId,
-      amount:        Math.round(amt * 100) / 100,
-      payment_date:  pDate,
-      mode:          pMode,
-      reference:     pRef || null,
-      ledger_id:     pMode === 'bank' && pLedger !== '' ? Number(pLedger) : null,
-    };
-    const { error: err } = await sb.from('payment').insert(payload);
-    if (err) { setBusy(false); setError(err.message); return; }
-
-    setBusy(false);
-    setOpenFor(null);
-    void load();
-  }
+  }, [bills]);
 
   async function handleDelete(paymentId: number): Promise<void> {
     if (!window.confirm('Delete this payment? This will restore the balance on the bill.')) return;
@@ -281,11 +212,21 @@ export function SizingPaymentTab(): React.ReactElement {
               </tr>
             ) : bills.map((b) => {
               const total = Number(b.total_amount ?? 0);
-              const paid  = paidTotal(b.id);
+              const paid  = Number(b.amount_paid ?? 0);
               const bal   = total - paid;
-              const st    = statusFor(b.id, total);
-              const isOpen = openFor === b.id;
+              const st    = statusFor(total, paid);
               const history = paymentsByBill.get(b.id) ?? [];
+              // Deep-link to the unified Payments page pre-selecting
+              // this bill's party (sizing mill) on the outflow side.
+              // The Unpaid bills list there will surface this bill
+              // (and any other unpaid bills of the same party) for
+              // tick-and-adjust. amount_paid + the status pill update
+              // automatically once the operator saves the payment,
+              // because migration 165's allocation triggers keep
+              // sizing_job.amount_paid in sync.
+              const payHref = b.party_id != null
+                ? `/app/payments?party=${b.party_id}&direction=out`
+                : null;
               return (
                 <React.Fragment key={b.id}>
                   <tr className="border-t border-line/40">
@@ -306,82 +247,24 @@ export function SizingPaymentTab(): React.ReactElement {
                         <span className="text-emerald-700 text-xs inline-flex items-center gap-1">
                           <Wallet className="w-3 h-3" /> Settled
                         </span>
-                      ) : isOpen ? (
-                        <button
-                          type="button"
-                          onClick={() => setOpenFor(null)}
-                          className="btn-ghost text-xs inline-flex items-center gap-1"
-                        >
-                          <X className="w-3 h-3" /> Cancel
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openRecord(b.id, bal)}
+                      ) : payHref ? (
+                        <Link
+                          href={payHref}
                           className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1"
+                          title="Open the Payments page with this sizing mill pre-selected"
                         >
-                          <Plus className="w-3 h-3" /> Record payment
-                        </button>
+                          Record payment <ArrowUpRight className="w-3 h-3" />
+                        </Link>
+                      ) : (
+                        <span
+                          className="text-amber-700 text-[11px]"
+                          title="This sizing job has no party_id — open it once and re-save to link the sizing mill to a party."
+                        >
+                          No party linked
+                        </span>
                       )}
                     </td>
                   </tr>
-
-                  {/* Inline payment-entry form */}
-                  {isOpen && (
-                    <tr className="bg-indigo-50/30">
-                      <td colSpan={9} className="px-3 py-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-                          <div>
-                            <label className="label text-[10px]">Date</label>
-                            <input type="date" className="input h-8 text-xs" value={pDate} onChange={(e) => setPDate(e.target.value)} />
-                          </div>
-                          <div>
-                            <label className="label text-[10px]">Amount (Rs)</label>
-                            <input type="number" step={1} min={0} className="input num h-8 text-xs" value={pAmount} onChange={(e) => setPAmount(e.target.value)} />
-                          </div>
-                          <div>
-                            <label className="label text-[10px]">Mode</label>
-                            <select
-                              value={pMode}
-                              onChange={(e) => setPMode(e.target.value as 'cash' | 'bank')}
-                              className="input h-8 text-xs"
-                            >
-                              <option value="cash">Cash</option>
-                              <option value="bank">Bank</option>
-                            </select>
-                          </div>
-                          {pMode === 'bank' && (
-                            <div className="sm:col-span-2">
-                              <label className="label text-[10px]">Bank ledger</label>
-                              <select
-                                value={pLedger}
-                                onChange={(e) => setPLedger(e.target.value)}
-                                className="input h-8 text-xs"
-                              >
-                                <option value="">Select bank…</option>
-                                {bankLedgers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                              </select>
-                            </div>
-                          )}
-                          <div className={pMode === 'bank' ? '' : 'sm:col-span-2'}>
-                            <label className="label text-[10px]">Reference</label>
-                            <input className="input h-8 text-xs" value={pRef} onChange={(e) => setPRef(e.target.value)} placeholder="UTR / cheque no" />
-                          </div>
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => void handleSave(b.id)}
-                              disabled={busy}
-                              className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1 w-full justify-center"
-                            >
-                              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
 
                   {/* History of prior payments — read-only */}
                   {history.length > 0 && (
