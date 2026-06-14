@@ -4,10 +4,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  LogOut, Search, ChevronDown, Menu, ArrowLeft,
+  LogOut, ChevronDown, Menu, ArrowLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NotificationBell } from './notification-bell';
+import { GlobalSearch } from './global-search';
 
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Owner',
@@ -73,16 +74,9 @@ export function Topbar({
         </button>
       )}
 
-      {/* ── Desktop search bar ─────────────────────────────────────────── */}
+      {/* ── Desktop search bar — wired to GlobalSearch component ─────── */}
       <div className="hidden sm:flex items-center gap-2 flex-1 max-w-md">
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-mute" />
-          <input
-            type="search"
-            placeholder="Search SO, invoice, customer…"
-            className="input pl-9 h-9 text-sm"
-          />
-        </div>
+        <GlobalSearch />
       </div>
 
       <div className="flex-1 sm:hidden" />
