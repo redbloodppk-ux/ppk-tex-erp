@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
+import { useColumnHistory } from '@/app/components/use-column-history';
 import { Loader2, Save, Calculator } from 'lucide-react';
 
 type Status = 'draft' | 'issued' | 'partial_paid' | 'paid' | 'overdue' | 'cancelled';
@@ -107,6 +108,9 @@ export function EditInvoiceForm({
   const [status, setStatus]           = useState<Status>(initial.status);
   const [notes, setNotes]             = useState<string>(initial.notes);
   const [vehicleNo, setVehicleNo]     = useState<string>(initial.vehicle_no ?? '');
+  // Historical picks for the type-ahead datalists on Vehicle / Notes.
+  const vehicleHistory = useColumnHistory('invoice', 'vehicle_no', 100);
+  const notesHistory   = useColumnHistory('invoice', 'notes',      50);
   const [shipTo, setShipTo]           = useState<ShipToValue>(
     initial.ship_to_name != null && initial.ship_to_name !== ''
       ? {
@@ -381,13 +385,33 @@ export function EditInvoiceForm({
             placeholder="e.g. TN33 AB 1234"
             maxLength={20}
             required
+            list="inv-edit-vehicle-history"
           />
+          <datalist id="inv-edit-vehicle-history">
+            {vehicleHistory.map((v) => <option key={v} value={v} />)}
+          </datalist>
           <p className="text-[10px] text-ink-mute mt-1">
-            Required on every invoice and printed on the bill.
+            Required on every invoice and printed on the bill. Past vehicles auto-suggest.
           </p>
         </div>
         <div>
-          <label className="label">Notes</label>
+          <div className="flex items-baseline justify-between mb-1">
+            <label className="label mb-0">Notes</label>
+            {notesHistory.length > 0 && (
+              <select
+                className="text-[10px] border border-line rounded px-1.5 py-0.5 bg-paper text-ink-soft"
+                value=""
+                onChange={(e) => { if (e.target.value !== '') setNotes(e.target.value); }}
+                title="Pick a recently-used note"
+                data-disable-enter-nav="true"
+              >
+                <option value="">Recent notes…</option>
+                {notesHistory.map((n) => (
+                  <option key={n} value={n}>{n.length > 60 ? n.slice(0, 60) + '…' : n}</option>
+                ))}
+              </select>
+            )}
+          </div>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

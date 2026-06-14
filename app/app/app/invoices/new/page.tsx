@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
+import { useColumnHistory } from '@/app/components/use-column-history';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -161,6 +162,10 @@ export default function NewInvoicePage() {
   // Vehicle number — required on every new invoice. Printed alongside
   // the e-way bill block on the invoice template (migration 160).
   const [vehicleNo,    setVehicleNo]    = useState('');
+  // Historical picks for the type-ahead datalists on Vehicle / Notes.
+  // Pulled from prior invoice rows — most recent first, deduped.
+  const vehicleHistory = useColumnHistory('invoice', 'vehicle_no', 100);
+  const notesHistory   = useColumnHistory('invoice', 'notes',      50);
 
   // ── line rows ──────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([newRow()]);
@@ -1116,13 +1121,37 @@ export default function NewInvoicePage() {
                 placeholder="e.g. TN33 AB 1234"
                 maxLength={20}
                 required
+                list="inv-new-vehicle-history"
               />
+              {/* Browser-native autocomplete fed by past invoice rows.
+                  Operator can type to filter or click the dropdown. */}
+              <datalist id="inv-new-vehicle-history">
+                {vehicleHistory.map((v) => <option key={v} value={v} />)}
+              </datalist>
               <p className="text-[10px] text-ink-mute mt-1">
-                Transport vehicle registration. Required on every invoice and printed on the bill.
+                Transport vehicle registration. Required on every invoice and printed on the bill. Past vehicles auto-suggest.
               </p>
             </div>
             <div>
-              <label className="label">Notes</label>
+              <div className="flex items-baseline justify-between mb-1">
+                <label className="label mb-0">Notes</label>
+                {notesHistory.length > 0 && (
+                  <select
+                    className="text-[10px] border border-line rounded px-1.5 py-0.5 bg-paper text-ink-soft"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value !== '') setNotes(e.target.value);
+                    }}
+                    title="Pick a recently-used note"
+                    data-disable-enter-nav="true"
+                  >
+                    <option value="">Recent notes…</option>
+                    {notesHistory.map((n) => (
+                      <option key={n} value={n}>{n.length > 60 ? n.slice(0, 60) + '…' : n}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <textarea value={notes} onChange={e => setNotes(e.target.value)}
                 className="input" rows={2} placeholder="Internal remarks (won't print)" />
             </div>
