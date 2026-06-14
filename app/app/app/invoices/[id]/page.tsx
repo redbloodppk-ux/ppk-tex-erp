@@ -199,8 +199,14 @@ export default async function InvoiceDetailPage({
         }
       />
 
-      {/* ───── Editable header card ───── */}
+      {/* ───── Editable header card ─────
+          The `key` makes React remount this form whenever any of the
+          rolled-up GST header values change. Without it, EditInvoiceForm
+          keeps its initial useState values and the header stays stale
+          after the line-item editor below rewrites taxable / cgst /
+          sgst / igst / total in the DB. */}
       <EditInvoiceForm
+        key={`hdr-${inv.taxable_value}-${inv.cgst_amount}-${inv.sgst_amount}-${inv.igst_amount}-${inv.round_off}-${inv.total}`}
         invoiceId={inv.id}
         invoiceNo={inv.invoice_no}
         initial={{
