@@ -19,6 +19,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { useColumnHistory } from '@/app/components/use-column-history';
+import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '@/app/components/unpaid-bills-picker';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -145,6 +146,11 @@ export default function NewInvoicePage() {
   const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
   const [originalInvoiceId, setOriginalInvoiceId] = useState('');
   const [originalLines,     setOriginalLines]     = useState<OriginalLine[]>([]);
+  // Spread mode: when on, the credit can be allocated across multiple
+  // unpaid bills via UnpaidBillsPicker (instead of landing entirely on
+  // the original invoice via the auto-allocation default).
+  const [spreadCredit, setSpreadCredit] = useState<boolean>(false);
+  const [creditAllocs, setCreditAllocs] = useState<BillAllocation[]>([]);
 
   // ── debit_note extras ──────────────────────────────────────────────────────
   const [supplierBillNo,   setSupplierBillNo]   = useState('');
@@ -724,6 +730,88 @@ export default function NewInvoicePage() {
         const newKg = Number(lot.current_kg) + Number(r.quantity);
         await supabase.from('yarn_lot').update({ current_kg: newKg }).eq('id', lot.id);
       }
+
+      // Credit-note money side: create a synthetic payment row so the
+      // credit flows through the unified Payments + Allocations
+      // machinery exactly like a cash receipt would. Two modes:
+      //   - Default (spreadCredit OFF): the whole credit lands on
+      //     the original invoice (single payment_allocation row).
+      //   - Spread mode (ON): allocations come from the
+      //     UnpaidBillsPicker — could be the original invoice plus
+      //     any other unpaid bills of this customer.
+      const creditAmount = totals.total;
+      if (creditAmount > 0 && customerId !== '') {
+        const stamp = Date.now().toString().slice(-6);
+        const paymentNo = 'CN-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sb = supabase as any;
+        const { data: pmt, error: pErr } = await sb
+          .from('payment')
+          .insert({
+            payment_no:   paymentNo,
+            direction:    'in',
+            party_id:     Number(customerId),
+            payment_date: invoiceDate,
+            amount:       creditAmount,
+            mode:         'credit_note',
+            reference:    inv.invoice_no,
+            notes:        `Credit note ${inv.invoice_no}`,
+            invoice_id:   inv.id,
+          })
+          .select('id')
+          .single();
+        if (pErr) {
+          setBusy(false);
+          return setError(`Credit note ${inv.invoice_no} saved but money side failed: ${pErr.message}`);
+        }
+        const pid = pmt?.id as number | undefined;
+        if (pid !== undefined) {
+          if (spreadCredit && creditAllocs.length > 0) {
+            const buckets = splitAllocationsByKind(creditAllocs);
+            if (buckets.invoices.length) {
+              const { error: e } = await sb.from('payment_allocation')
+                .insert(buckets.invoices.map((a) => ({ ...a, payment_id: pid })));
+              if (e) { setBusy(false); return setError(`Credit saved but allocations failed: ${e.message}`); }
+            }
+            if (buckets.openings.length) {
+              const { error: e } = await sb.from('payment_opening_allocation')
+                .insert(buckets.openings.map((a) => ({ ...a, payment_id: pid })));
+              if (e) { setBusy(false); return setError(`Credit saved but opening allocations failed: ${e.message}`); }
+            }
+            if (buckets.sizings.length) {
+              const { error: e } = await sb.from('payment_sizing_allocation')
+                .insert(buckets.sizings.map((a) => ({ ...a, payment_id: pid })));
+              if (e) { setBusy(false); return setError(`Credit saved but sizing allocations failed: ${e.message}`); }
+            }
+            if (buckets.bobbins.length) {
+              const { error: e } = await sb.from('payment_bobbin_allocation')
+                .insert(buckets.bobbins.map((a) => ({ ...a, payment_id: pid })));
+              if (e) { setBusy(false); return setError(`Credit saved but bobbin allocations failed: ${e.message}`); }
+            }
+            if (buckets.yarns.length) {
+              const { error: e } = await sb.from('payment_yarn_allocation')
+                .insert(buckets.yarns.map((a) => ({ ...a, payment_id: pid })));
+              if (e) { setBusy(false); return setError(`Credit saved but yarn allocations failed: ${e.message}`); }
+            }
+          } else if (originalInvoiceId !== '') {
+            // Default mode: full credit against the original invoice.
+            // Capped at the original invoice's open balance so we
+            // never over-allocate. If the original is fully paid
+            // already, fall back to advance (no allocation row).
+            const origId = Number(originalInvoiceId);
+            const orig = originalInvoices.find((o) => o.id === origId);
+            const origBalance = orig ? Math.max(0, Number(orig.total) - 0) : creditAmount;
+            // We don't have amount_paid on OriginalInvoice; we cap to
+            // creditAmount or original total, whichever is smaller.
+            const adj = Math.min(creditAmount, origBalance);
+            if (adj > 0) {
+              const { error: e } = await sb.from('payment_allocation')
+                .insert({ payment_id: pid, invoice_id: origId, amount: Math.round(adj * 100) / 100 });
+              if (e) { setBusy(false); return setError(`Credit saved but allocation failed: ${e.message}`); }
+            }
+          }
+        }
+      }
     }
 
     router.push('/app/invoices');
@@ -852,19 +940,50 @@ export default function NewInvoicePage() {
 
             {/* Doc-type-specific helpers */}
             {docType === 'credit_note' && (
-              <div className="border-t pt-4">
-                <label className="label">Against original invoice *</label>
-                <select required value={originalInvoiceId} onChange={e => setOriginalInvoiceId(e.target.value)} className="input">
-                  <option value="" disabled>Pick the invoice being returned…</option>
-                  {originalInvoices.map(o => (
-                    <option key={o.id} value={o.id}>
-                      {o.invoice_no} — ₹{Number(o.total).toFixed(2)}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-ink-mute mt-1">
-                  Picking an invoice will pre-fill the rows below. Adjust quantities to match what's actually being returned.
-                </p>
+              <div className="border-t pt-4 space-y-3">
+                <div>
+                  <label className="label">Against original invoice *</label>
+                  <select required value={originalInvoiceId} onChange={e => setOriginalInvoiceId(e.target.value)} className="input">
+                    <option value="" disabled>Pick the invoice being returned…</option>
+                    {originalInvoices.map(o => (
+                      <option key={o.id} value={o.id}>
+                        {o.invoice_no} — ₹{Number(o.total).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-ink-mute mt-1">
+                    Picking an invoice will pre-fill the rows below. Adjust quantities to match what's actually being returned.
+                  </p>
+                </div>
+
+                {/* Spread mode — credit can be applied across several
+                    unpaid bills instead of just the original. The
+                    original invoice picker stays required (GST paper
+                    trail), it's just no longer the sole target. */}
+                <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 accent-indigo-600"
+                    checked={spreadCredit}
+                    onChange={(e) => { setSpreadCredit(e.target.checked); if (!e.target.checked) setCreditAllocs([]); }}
+                  />
+                  <span>
+                    <span className="font-semibold">Spread the credit across multiple unpaid bills</span>
+                    <span className="text-[11px] text-ink-mute ml-2">
+                      (instead of applying the whole credit to the original invoice)
+                    </span>
+                  </span>
+                </label>
+
+                {spreadCredit && customerId !== '' && (
+                  <UnpaidBillsPicker
+                    partyId={Number(customerId)}
+                    totalAmount={totals.total}
+                    direction="in"
+                    heading="Customer's unpaid bills"
+                    onAllocationsChange={setCreditAllocs}
+                  />
+                )}
               </div>
             )}
 

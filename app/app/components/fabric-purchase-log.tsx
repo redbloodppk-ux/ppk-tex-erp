@@ -1,10 +1,17 @@
 /**
  * FabricPurchaseLog - purchase log of every fabric batch the mill has
- * bought. Mirrors YarnPurchaseLog but uses fabric_quality for the SKU
- * picker, metres for the quantity, and a rate-unit dropdown so the
- * operator can quote rate per metre OR per piece.
+ * bought. Two source modes:
  *
- * Mandatory: quality, supplier, metres, rate, invoice_no.
+ *   - 'supplier' (default): fabric was bought from a Mill / Yarn
+ *      Supplier as a regular purchase. Creates a payable in the
+ *      mill's books.
+ *   - 'customer': a customer handed over fabric in lieu of paying
+ *      their unpaid bills. The fabric_purchase row records the
+ *      inventory side; a synthetic payment row (mode =
+ *      'fabric_adjustment') records the money side and clears
+ *      whichever bills the operator ticks via UnpaidBillsPicker.
+ *
+ * Mandatory: quality, party, quantity, rate, invoice_no.
  *
  * The form is hidden by default; "Add Purchase" reveals it, "Edit"
  * loads an existing row into it.
@@ -13,10 +20,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
+import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '@/app/components/unpaid-bills-picker';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 type RateUnit = 'm' | 'pcs';
 type Delivery = 'in_house' | 'sizing';
+type SourceMode = 'supplier' | 'customer';
 
 interface FabricRow {
   id: number;
@@ -38,10 +48,17 @@ interface FabricRow {
 }
 
 interface QualityOption { id: number; code: string | null; name: string; }
-interface SupplierOption { id: number; code: string; name: string; }
+interface PartyOption { id: number; code: string; name: string; }
 
 interface FormState {
+  /** Whether this row came from a supplier purchase or a customer
+   *  fabric-in-lieu-of-payment adjustment. */
+  source:               SourceMode;
   fabric_quality_id:    string;
+  /** Party FK. Holds either a supplier id (source='supplier') or a
+   *  customer id (source='customer'). Stored under the existing
+   *  supplier_party_id column either way — that column is just an
+   *  FK to party, not type-restricted. */
   supplier_party_id:    string;
   received_date:        string;
   // Single quantity field. Interpreted as metres when rate_unit='m'
@@ -58,6 +75,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
+  source:               'supplier',
   fabric_quality_id:    '',
   supplier_party_id:    '',
   received_date:        '',
@@ -101,7 +119,8 @@ export function FabricPurchaseLog(): React.ReactElement {
 
   const [rows, setRows] = useState<FabricRow[]>([]);
   const [qualities, setQualities] = useState<QualityOption[]>([]);
-  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [suppliers, setSuppliers] = useState<PartyOption[]>([]);
+  const [customers, setCustomers] = useState<PartyOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -110,19 +129,27 @@ export function FabricPurchaseLog(): React.ReactElement {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form,      setForm]      = useState<FormState>(EMPTY);
   const [busy,      setBusy]      = useState(false);
+  // Customer-mode allocation state — emitted from UnpaidBillsPicker.
+  const [customerAllocs, setCustomerAllocs] = useState<BillAllocation[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    // Suppliers come from the unified party table (party_type =
-    // 'Mill / Yarn Supplier' for fabric resale buys).
+    // Resolve the party_type ids we care about so we can filter the
+    // party picker dropdowns correctly in each source mode.
     const ptRes = await sb.from('party_type_master')
-      .select('id').eq('name', 'Mill / Yarn Supplier').maybeSingle();
-    const supplierTypeId = ptRes.data?.id as number | undefined;
+      .select('id, name')
+      .in('name', ['Mill / Yarn Supplier', 'Customer']);
+    const ptByName: Record<string, number> = {};
+    for (const p of (ptRes.data ?? []) as Array<{ id: number; name: string }>) {
+      ptByName[p.name] = p.id;
+    }
+    const supplierTypeId = ptByName['Mill / Yarn Supplier'];
+    const customerTypeId = ptByName['Customer'];
 
-    const [rowsRes, qRes, sRes] = await Promise.all([
+    const [rowsRes, qRes, sRes, cRes] = await Promise.all([
       sb.from('fabric_purchase')
         .select('id, code, fabric_quality_id, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, total_amount, invoice_no, notes, delivery_destination')
         .eq('status', 'active')
@@ -132,21 +159,30 @@ export function FabricPurchaseLog(): React.ReactElement {
         .select('id, code, name')
         .eq('active', true)
         .order('name'),
-      supplierTypeId
+      supplierTypeId !== undefined
         ? sb.from('party')
             .select('id, code, name')
             .contains('party_type_ids', [supplierTypeId])
             .eq('status', 'active')
             .order('name')
-        : Promise.resolve({ data: [] as SupplierOption[], error: null }),
+        : Promise.resolve({ data: [] as PartyOption[], error: null }),
+      customerTypeId !== undefined
+        ? sb.from('party')
+            .select('id, code, name')
+            .contains('party_type_ids', [customerTypeId])
+            .eq('status', 'active')
+            .order('name')
+        : Promise.resolve({ data: [] as PartyOption[], error: null }),
     ]);
     if (rowsRes.error)    setError(rowsRes.error.message);
     else if (qRes.error)  setError(qRes.error.message);
     else if (sRes.error)  setError(sRes.error.message);
+    else if (cRes.error)  setError(cRes.error.message);
     else {
       setRows((rowsRes.data ?? []) as unknown as FabricRow[]);
       setQualities((qRes.data ?? []) as unknown as QualityOption[]);
-      setSuppliers((sRes.data ?? []) as unknown as SupplierOption[]);
+      setSuppliers((sRes.data ?? []) as unknown as PartyOption[]);
+      setCustomers((cRes.data ?? []) as unknown as PartyOption[]);
       setError(null);
     }
     setLoading(false);
@@ -167,6 +203,7 @@ export function FabricPurchaseLog(): React.ReactElement {
   function openNewForm(): void {
     setEditingId(null);
     setForm({ ...EMPTY, received_date: todayISO() });
+    setCustomerAllocs([]);
     setFormOpen(true);
     setSavedMsg(null);
     setError(null);
@@ -175,11 +212,15 @@ export function FabricPurchaseLog(): React.ReactElement {
   function openEditForm(r: FabricRow): void {
     setEditingId(r.id);
     // Hydrate the single Quantity field from whichever DB column is
-    // populated based on the saved rate_unit.
+    // populated based on the saved rate_unit. Edit always opens in
+    // supplier mode — customer-adjustment rows aren't re-allocated
+    // from this form (operator deletes + re-adds, or edits the
+    // synthetic payment from /app/payments).
     const qty = r.rate_unit === 'm'
       ? (r.received_metres ?? 0)
       : (r.received_pieces ?? 0);
     setForm({
+      source:               'supplier',
       fabric_quality_id:    r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
       supplier_party_id:    r.supplier_party_id === null ? '' : String(r.supplier_party_id),
       received_date:        r.received_date,
@@ -191,6 +232,7 @@ export function FabricPurchaseLog(): React.ReactElement {
       notes:                r.notes ?? '',
       delivery_destination: r.delivery_destination,
     });
+    setCustomerAllocs([]);
     setFormOpen(true);
     setSavedMsg(null);
     setError(null);
@@ -200,20 +242,32 @@ export function FabricPurchaseLog(): React.ReactElement {
     setFormOpen(false);
     setEditingId(null);
     setForm(EMPTY);
+    setCustomerAllocs([]);
   }
+
+  /** Picker options depend on the source mode. */
+  const partyOptions = useMemo<SearchSelectOption[]>(() => {
+    const src = form.source === 'customer' ? customers : suppliers;
+    return src.map((p) => ({ value: String(p.id), label: `${p.code} — ${p.name}` }));
+  }, [form.source, suppliers, customers]);
+
+  /** Numeric party id, null if not picked yet. */
+  const pickedPartyId: number | null = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
 
   async function handleSave(): Promise<void> {
     setError(null);
     setSavedMsg(null);
 
     const qualityId  = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
-    const supplierId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
+    const partyId    = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
     const quantity   = toNumOrNull(form.quantity);
     const rate       = toNumOrNull(form.rate);
     const gst        = toNumOrNull(form.gst_pct) ?? 0;
+    const isCustomer = form.source === 'customer';
+    const partyLabel = isCustomer ? 'Customer' : 'Supplier';
 
     if (qualityId === null)                  { setError('Fabric quality is required.'); return; }
-    if (supplierId === null)                 { setError('Supplier is required.'); return; }
+    if (partyId === null)                    { setError(`${partyLabel} is required.`); return; }
     if (form.received_date.trim() === '')    { setError('Purchase date is required.'); return; }
     if (quantity === null || quantity <= 0)  { setError('Quantity must be greater than zero.'); return; }
     if (rate === null || rate < 0)           { setError('Rate is required.'); return; }
@@ -224,7 +278,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     const isMetres = form.rate_unit === 'm';
     const payload = {
       fabric_quality_id:    qualityId,
-      supplier_party_id:    supplierId,
+      supplier_party_id:    partyId,
       received_date:        form.received_date,
       received_metres:      isMetres ? quantity : null,
       received_pieces:      isMetres ? null     : Math.round(quantity),
@@ -238,16 +292,102 @@ export function FabricPurchaseLog(): React.ReactElement {
       ...(editingId === null && isMetres ? { current_metres: quantity } : {}),
     };
 
+    // Pre-compute the fabric value so we can use it as the synthetic
+    // payment amount in customer mode. Matches the generated total_amount
+    // formula: qty * rate * (1 + gst/100).
+    const fabricTotal = Math.round(quantity * rate * (1 + gst / 100) * 100) / 100;
+
+    // Customer mode save-guard: if any bills are ticked, the
+    // allocations must add up to ≤ the fabric total. Leftover goes to
+    // advance credit, which is OK — but over-adjusting isn't.
+    if (isCustomer) {
+      const allocSum = customerAllocs.reduce((s, a) => s + a.amount, 0);
+      if (allocSum > fabricTotal + 0.005) {
+        setError(`Adjusted ₹${allocSum.toFixed(2)} is more than the fabric value ₹${fabricTotal.toFixed(2)}. Reduce the bill adjustments.`);
+        return;
+      }
+    }
+
     setBusy(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
     if (editingId === null) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('fabric_purchase').insert(payload);
+      const { data: inserted, error: err } = await sb
+        .from('fabric_purchase')
+        .insert(payload)
+        .select('id, total_amount')
+        .single();
+      if (err) { setBusy(false); setError(err.message); return; }
+
+      // Customer mode: create the synthetic payment row + allocations.
+      if (isCustomer && inserted?.id) {
+        const fabricPurchaseId = inserted.id as number;
+        const amount = Number(inserted.total_amount ?? fabricTotal);
+        const stamp = Date.now().toString().slice(-6);
+        const paymentNo = 'FAB-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
+        const { data: pmt, error: pErr } = await sb
+          .from('payment')
+          .insert({
+            payment_no:         paymentNo,
+            direction:          'in',
+            party_id:           partyId,
+            payment_date:       form.received_date,
+            amount,
+            mode:               'fabric_adjustment',
+            reference:          form.invoice_no.trim() || null,
+            notes:              `Fabric adjustment for purchase ${inserted.id} (${form.invoice_no.trim()})`,
+            fabric_purchase_id: fabricPurchaseId,
+          })
+          .select('id, payment_no')
+          .single();
+        if (pErr) {
+          setBusy(false);
+          setError(`Fabric saved, but the money side failed to record: ${pErr.message}`);
+          await load();
+          return;
+        }
+        if (customerAllocs.length > 0 && pmt?.id) {
+          const buckets = splitAllocationsByKind(customerAllocs);
+          const pid = pmt.id as number;
+          if (buckets.invoices.length) {
+            const { error: e } = await sb.from('payment_allocation')
+              .insert(buckets.invoices.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); setError(`Fabric saved, invoice allocations failed: ${e.message}`); await load(); return; }
+          }
+          if (buckets.openings.length) {
+            const { error: e } = await sb.from('payment_opening_allocation')
+              .insert(buckets.openings.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); setError(`Fabric saved, opening allocations failed: ${e.message}`); await load(); return; }
+          }
+          if (buckets.sizings.length) {
+            const { error: e } = await sb.from('payment_sizing_allocation')
+              .insert(buckets.sizings.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); setError(`Fabric saved, sizing allocations failed: ${e.message}`); await load(); return; }
+          }
+          if (buckets.bobbins.length) {
+            const { error: e } = await sb.from('payment_bobbin_allocation')
+              .insert(buckets.bobbins.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); setError(`Fabric saved, bobbin allocations failed: ${e.message}`); await load(); return; }
+          }
+          if (buckets.yarns.length) {
+            const { error: e } = await sb.from('payment_yarn_allocation')
+              .insert(buckets.yarns.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); setError(`Fabric saved, yarn allocations failed: ${e.message}`); await load(); return; }
+          }
+        }
+        const allocSum = customerAllocs.reduce((s, a) => s + a.amount, 0);
+        setSavedMsg(
+          customerAllocs.length > 0
+            ? `Added customer-adjustment purchase. ₹${allocSum.toFixed(2)} adjusted against ${customerAllocs.length} bill${customerAllocs.length === 1 ? '' : 's'}.`
+            : 'Added customer-adjustment purchase. Fabric value sits as advance credit on their ledger.',
+        );
+      } else {
+        setSavedMsg('Added purchase.');
+      }
       setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Added purchase.');
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('fabric_purchase').update(payload).eq('id', editingId);
+      const { error: err } = await sb.from('fabric_purchase').update(payload).eq('id', editingId);
       setBusy(false);
       if (err) { setError(err.message); return; }
       setSavedMsg('Updated.');
@@ -275,7 +415,10 @@ export function FabricPurchaseLog(): React.ReactElement {
   }
   function supplierLabel(id: number | null): string {
     if (id === null) return '-';
-    const s = suppliers.find((x) => x.id === id);
+    // Look across BOTH party type lists — customer-adjustment rows
+    // store a customer id in supplier_party_id, so a supplier-only
+    // lookup would mislabel them.
+    const s = suppliers.find((x) => x.id === id) ?? customers.find((x) => x.id === id);
     return s ? s.code + ' - ' + s.name : '#' + String(id);
   }
 
@@ -310,6 +453,44 @@ export function FabricPurchaseLog(): React.ReactElement {
             {editingId === null ? 'New purchase' : 'Edit purchase'}
           </h2>
 
+          {/* Source mode toggle — only on a fresh entry. Existing rows
+              are always treated as supplier-mode for editing. */}
+          {editingId === null && (
+            <div className="rounded-md border border-indigo-100 bg-indigo-50/30 p-3">
+              <label className="label">Source</label>
+              <div className="flex flex-wrap gap-3 mt-1">
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fp-source"
+                    className="accent-indigo-600"
+                    checked={form.source === 'supplier'}
+                    onChange={() => {
+                      setForm((f) => ({ ...f, source: 'supplier', supplier_party_id: '' }));
+                      setCustomerAllocs([]);
+                    }}
+                  />
+                  <span className="font-semibold">Supplier purchase</span>
+                  <span className="text-[11px] text-ink-mute">— regular fabric buy from a mill / supplier (creates a payable)</span>
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fp-source"
+                    className="accent-indigo-600"
+                    checked={form.source === 'customer'}
+                    onChange={() => {
+                      setForm((f) => ({ ...f, source: 'customer', supplier_party_id: '' }));
+                      setCustomerAllocs([]);
+                    }}
+                  />
+                  <span className="font-semibold">Customer adjustment</span>
+                  <span className="text-[11px] text-ink-mute">— customer gave fabric in lieu of payment (settles their unpaid bills)</span>
+                </label>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
               <label className="label">Fabric code (auto)</label>
@@ -329,15 +510,19 @@ export function FabricPurchaseLog(): React.ReactElement {
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="fp-supplier">Supplier *</label>
-              <select id="fp-supplier" className="input w-full"
+              <label className="label">
+                {form.source === 'customer' ? 'Customer *' : 'Supplier *'}
+              </label>
+              <SearchSelect
+                options={partyOptions}
                 value={form.supplier_party_id}
-                onChange={(e) => setForm((f) => ({ ...f, supplier_party_id: e.target.value }))}>
-                <option value="">--- pick ---</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={String(s.id)}>{s.code} - {s.name}</option>
-                ))}
-              </select>
+                onChange={(v) => setForm((f) => ({ ...f, supplier_party_id: v }))}
+                placeholder={
+                  form.source === 'customer'
+                    ? 'Type customer name…'
+                    : 'Type supplier name…'
+                }
+              />
             </div>
             <div>
               <label className="label" htmlFor="fp-date">Purchase date *</label>
@@ -408,6 +593,20 @@ export function FabricPurchaseLog(): React.ReactElement {
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
+
+          {/* Customer-adjustment: pick which unpaid bills this fabric
+              value should settle. Hidden in supplier mode. */}
+          {editingId === null && form.source === 'customer' && pickedPartyId !== null && (
+            <div className="pt-2">
+              <UnpaidBillsPicker
+                partyId={pickedPartyId}
+                totalAmount={totalPreview}
+                direction="in"
+                heading="Customer's unpaid bills"
+                onAllocationsChange={setCustomerAllocs}
+              />
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn-ghost" onClick={closeForm} disabled={busy}>Cancel</button>
