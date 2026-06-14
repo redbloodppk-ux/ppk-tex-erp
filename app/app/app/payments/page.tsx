@@ -80,8 +80,9 @@ interface UnpaidBill {
    *    sizing  -> payment_sizing_allocation (sizing_job_id)
    *    bobbin  -> payment_bobbin_allocation (bobbin_purchase_id)
    *    yarn    -> payment_yarn_allocation (yarn_lot_id)
+   *    fabric  -> payment_fabric_allocation (fabric_purchase_id)
    */
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -107,7 +108,7 @@ interface LedgerTxn {
   kind:
     | 'sale_invoice' | 'jobwork_bill'
     | 'credit_note'  | 'debit_note'
-    | 'sizing_bill'  | 'bobbin_purchase' | 'yarn_purchase'
+    | 'sizing_bill'  | 'bobbin_purchase' | 'yarn_purchase' | 'fabric_purchase'
     | 'opening_receivable' | 'opening_payable'
     | 'payment_in' | 'payment_out';
   date: string;
@@ -141,6 +142,10 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   debit_note:         'Debit Note',
   jobwork_invoice:    'Jobwork Bill',
   weaving_bill:       'Weaving Bill',
+  sizing_bill:        'Sizing Bill',
+  bobbin_purchase:    'Bobbin Purchase',
+  yarn_purchase:      'Yarn Purchase',
+  fabric_purchase:    'Fabric Purchase',
   // Opening ledger entries (settings → Opening Ledger) — discriminated
   // by direction so the operator can see at a glance which way the
   // pre-ERP balance was sitting.
@@ -324,7 +329,7 @@ function NewPaymentTab(): React.ReactElement {
     // in parallel. After migration 165 the Payments page is the unified
     // settlement screen for invoices + opening ledger + sizing bills +
     // bobbin purchases + yarn purchases.
-    const [invRes, openRes, sizRes, bobRes, yarnRes] = await Promise.all([
+    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', party.name)
@@ -356,6 +361,15 @@ function NewPaymentTab(): React.ReactElement {
         .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid')
         .eq('supplier_party_id', party.id)
         .gt('total_amount', 0),
+      // Fabric resale purchases (migration 170). Only supplier-mode
+      // rows are payable bills; customer-adjustment rows already have
+      // a synthetic payment so they're excluded.
+      sb.from('fabric_purchase')
+        .select('id, code, invoice_no, received_date, total_amount, amount_paid')
+        .eq('supplier_party_id', party.id)
+        .eq('source', 'supplier')
+        .eq('status', 'active')
+        .gt('total_amount', 0),
     ]);
     setBillsLoading(false);
     if (invRes.error) { setError(invRes.error.message); return; }
@@ -366,6 +380,7 @@ function NewPaymentTab(): React.ReactElement {
     if (sizRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('sizing_job not loadable:', sizRes.error.message); }
     if (bobRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('bobbin_purchase not loadable:', bobRes.error.message); }
     if (yarnRes?.error) { /* eslint-disable-next-line no-console */ console.warn('yarn_lot not loadable:', yarnRes.error.message); }
+    if (fabRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('fabric_purchase not loadable:', fabRes.error.message); }
 
     const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
       id: number; invoice_no: string; invoice_date: string; doc_type: string;
@@ -434,9 +449,24 @@ function NewPaymentTab(): React.ReactElement {
          balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
        }));
 
+    const fabricBills: UnpaidBill[] = ((fabRes?.data ?? []) as Array<{
+      id: number; code: string; invoice_no: string | null;
+      received_date: string | null; total_amount: number | string; amount_paid: number | string;
+    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'fabric',
+         id: r.id,
+         invoice_no: r.invoice_no ?? r.code ?? `FP-${r.id}`,
+         invoice_date: r.received_date ?? '',
+         doc_type: 'fabric_purchase',
+         total: r.total_amount,
+         amount_paid: r.amount_paid,
+         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+       }));
+
     // Sort merged list by date (oldest first) so the operator's mental
     // model is "settle the oldest bill first" regardless of source.
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills].sort((a, b) => {
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills].sort((a, b) => {
       const dc = a.invoice_date.localeCompare(b.invoice_date);
       return dc !== 0 ? dc : a.id - b.id;
     });
@@ -545,11 +575,13 @@ function NewPaymentTab(): React.ReactElement {
     //   sizing  -> payment_sizing_allocation
     //   bobbin  -> payment_bobbin_allocation
     //   yarn    -> payment_yarn_allocation
+    //   fabric  -> payment_fabric_allocation
     const allocations:    { invoice_id: number; amount: number }[]         = [];
     const openingAllocs:  { opening_ledger_id: number; amount: number }[]  = [];
     const sizingAllocs:   { sizing_job_id: number; amount: number }[]      = [];
     const bobbinAllocs:   { bobbin_purchase_id: number; amount: number }[] = [];
     const yarnAllocs:     { yarn_lot_id: number; amount: number }[]        = [];
+    const fabricAllocs:   { fabric_purchase_id: number; amount: number }[] = [];
     for (const b of bills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
@@ -571,11 +603,13 @@ function NewPaymentTab(): React.ReactElement {
         case 'sizing':  sizingAllocs .push({ sizing_job_id:      b.id, amount: rounded }); break;
         case 'bobbin':  bobbinAllocs .push({ bobbin_purchase_id: b.id, amount: rounded }); break;
         case 'yarn':    yarnAllocs   .push({ yarn_lot_id:        b.id, amount: rounded }); break;
+        case 'fabric':  fabricAllocs .push({ fabric_purchase_id: b.id, amount: rounded }); break;
         default:        allocations  .push({ invoice_id:         b.id, amount: rounded });
       }
     }
     const totalAllocCount = allocations.length + openingAllocs.length
-                          + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length;
+                          + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length
+                          + fabricAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
     if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
@@ -589,7 +623,8 @@ function NewPaymentTab(): React.ReactElement {
                     + openingAllocs.reduce((s, a) => s + a.amount, 0)
                     + sizingAllocs.reduce((s, a) => s + a.amount, 0)
                     + bobbinAllocs.reduce((s, a) => s + a.amount, 0)
-                    + yarnAllocs.reduce((s, a) => s + a.amount, 0);
+                    + yarnAllocs.reduce((s, a) => s + a.amount, 0)
+                    + fabricAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -693,6 +728,20 @@ function NewPaymentTab(): React.ReactElement {
       if (yErr) {
         setBusy(false);
         setError(`Payment ${data?.payment_no ?? ''} saved, but the yarn-lot adjustment failed: ${yErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    // Fabric resale purchases (migration 170): same recalc-trigger
+    // pattern as the others.
+    if (fabricAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: fErr } = await (supabase as any)
+        .from('payment_fabric_allocation')
+        .insert(fabricAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (fErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the fabric-purchase adjustment failed: ${fErr.message}`);
         await loadBills();
         return;
       }
@@ -1178,9 +1227,17 @@ function StatusTab(): React.ReactElement {
       const yarnQ = sb.from('yarn_lot')
         .select('id, lot_code, invoice_no, received_date, total_amount')
         .eq('supplier_party_id', pid);
+      // Supplier-purchase fabric resale rows. Customer-adjustment
+      // rows are excluded because the synthetic payment from
+      // migration 168 already moves them through the ledger.
+      const fabQ = sb.from('fabric_purchase')
+        .select('id, code, invoice_no, received_date, total_amount')
+        .eq('supplier_party_id', pid)
+        .eq('source', 'supplier')
+        .eq('status', 'active');
 
-      const [invRes, openRes, sizRes, bobRes, yarnRes] = await Promise.all([
-        invQ, openQ, sizQ, bobQ, yarnQ,
+      const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
+        invQ, openQ, sizQ, bobQ, yarnQ, fabQ,
       ]);
 
       const txns: LedgerTxn[] = [];
@@ -1282,6 +1339,29 @@ function StatusTab(): React.ReactElement {
           description: 'Yarn Purchase',
           debit:      0,
           credit:     total,
+        });
+      }
+
+      // Fabric resale purchases (supplier mode) — we always owe the
+      // supplier. customer-adjustment rows are excluded via the SQL
+      // filter above; their money side is already on the customer's
+      // ledger via the synthetic payment.
+      for (const r of ((fabRes?.data ?? []) as Array<{
+        id: number; code: string; invoice_no: string | null;
+        received_date: string | null; total_amount: number | string;
+      }>)) {
+        const total = Number(r.total_amount ?? 0);
+        if (total <= 0) continue;
+        txns.push({
+          key:        `fab-${r.id}`,
+          source_id:  r.id,
+          kind:       'fabric_purchase',
+          date:       r.received_date ?? '',
+          voucher_no: r.invoice_no ?? r.code ?? `FP-${r.id}`,
+          description: 'Fabric Purchase',
+          debit:      0,
+          credit:     total,
+          href:       '/app/fabric-stock',
         });
       }
 

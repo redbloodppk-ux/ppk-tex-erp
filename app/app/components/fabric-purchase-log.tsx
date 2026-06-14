@@ -300,6 +300,10 @@ export function FabricPurchaseLog(): React.ReactElement {
       //   customer adjustment -> fabric_quality_id (FK to master)
       fabric_quality_id:    isCustomer ? qualityId : null,
       quality_text:         isCustomer ? null      : qualityText,
+      // Tag source explicitly so /app/payments knows whether this
+      // row is a payable to the supplier (supplier) or a receivable
+      // adjustment from a customer (customer — migration 168 flow).
+      source:               isCustomer ? 'customer' : 'supplier',
       supplier_party_id:    partyId,
       received_date:        form.received_date,
       received_metres:      isMetres ? quantity : null,

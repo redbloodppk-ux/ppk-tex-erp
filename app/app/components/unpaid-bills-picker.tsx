@@ -32,7 +32,8 @@ export type BillAllocation =
   | { kind: 'opening'; opening_ledger_id: number; amount: number }
   | { kind: 'sizing';  sizing_job_id:     number; amount: number }
   | { kind: 'bobbin';  bobbin_purchase_id: number; amount: number }
-  | { kind: 'yarn';    yarn_lot_id:       number; amount: number };
+  | { kind: 'yarn';    yarn_lot_id:       number; amount: number }
+  | { kind: 'fabric';  fabric_purchase_id: number; amount: number };
 
 export interface UnpaidBillsPickerProps {
   /** Party whose unpaid bills we should fetch. Null clears the list. */
@@ -52,7 +53,7 @@ export interface UnpaidBillsPickerProps {
 // ── Internal types ─────────────────────────────────────────────────
 
 interface UnpaidBill {
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric';
   id: number;
   doc_no: string;
   doc_date: string;
@@ -75,6 +76,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   sizing_bill:        'Sizing Bill',
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
+  fabric_purchase:    'Fabric Purchase',
 };
 
 function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
@@ -123,7 +125,7 @@ export function UnpaidBillsPicker({
     const partyRes = await sb.from('party').select('name').eq('id', partyId).maybeSingle();
     const partyName: string = partyRes?.data?.name ?? '';
 
-    const [invRes, openRes, sizRes, bobRes, yarnRes] = await Promise.all([
+    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', partyName)
@@ -150,6 +152,16 @@ export function UnpaidBillsPicker({
       sb.from('yarn_lot')
         .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid')
         .eq('supplier_party_id', partyId)
+        .gt('total_amount', 0),
+      // Supplier-purchase fabric_purchase rows are payables to the
+      // fabric supplier. Customer-adjustment rows (source='customer')
+      // are excluded — they're already accounted for via the
+      // synthetic payment created at the time of entry.
+      sb.from('fabric_purchase')
+        .select('id, code, invoice_no, received_date, total_amount, amount_paid')
+        .eq('supplier_party_id', partyId)
+        .eq('source', 'supplier')
+        .eq('status', 'active')
         .gt('total_amount', 0),
     ]);
 
@@ -231,7 +243,23 @@ export function UnpaidBillsPicker({
         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
       }));
 
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills]
+    const fabricBills: UnpaidBill[] = ((fabRes?.data ?? []) as Array<{
+      id: number; code: string; invoice_no: string | null;
+      received_date: string | null; total_amount: number | string; amount_paid: number | string;
+    }>)
+      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+      .map((r) => ({
+        kind: 'fabric',
+        id: r.id,
+        doc_no: r.invoice_no ?? r.code ?? `FP-${r.id}`,
+        doc_date: r.received_date ?? '',
+        doc_type: 'fabric_purchase',
+        total: Number(r.total_amount ?? 0),
+        amount_paid: Number(r.amount_paid ?? 0),
+        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      }));
+
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills]
       .sort((a, b) => {
         const dc = (a.doc_date ?? '').localeCompare(b.doc_date ?? '');
         return dc !== 0 ? dc : a.id - b.id;
@@ -441,17 +469,19 @@ export function UnpaidBillsPicker({
  * matching the payment_* tables in the DB.
  */
 export function splitAllocationsByKind(allocations: BillAllocation[]): {
-  invoices: { invoice_id: number;        amount: number }[];
-  openings: { opening_ledger_id: number; amount: number }[];
-  sizings:  { sizing_job_id: number;     amount: number }[];
+  invoices: { invoice_id: number;         amount: number }[];
+  openings: { opening_ledger_id: number;  amount: number }[];
+  sizings:  { sizing_job_id: number;      amount: number }[];
   bobbins:  { bobbin_purchase_id: number; amount: number }[];
-  yarns:    { yarn_lot_id: number;       amount: number }[];
+  yarns:    { yarn_lot_id: number;        amount: number }[];
+  fabrics:  { fabric_purchase_id: number; amount: number }[];
 } {
-  const invoices: { invoice_id: number;        amount: number }[] = [];
-  const openings: { opening_ledger_id: number; amount: number }[] = [];
-  const sizings:  { sizing_job_id: number;     amount: number }[] = [];
+  const invoices: { invoice_id: number;         amount: number }[] = [];
+  const openings: { opening_ledger_id: number;  amount: number }[] = [];
+  const sizings:  { sizing_job_id: number;      amount: number }[] = [];
   const bobbins:  { bobbin_purchase_id: number; amount: number }[] = [];
-  const yarns:    { yarn_lot_id: number;       amount: number }[] = [];
+  const yarns:    { yarn_lot_id: number;        amount: number }[] = [];
+  const fabrics:  { fabric_purchase_id: number; amount: number }[] = [];
   for (const a of allocations) {
     switch (a.kind) {
       case 'invoice': invoices.push({ invoice_id:         a.invoice_id,         amount: a.amount }); break;
@@ -459,7 +489,8 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
       case 'sizing':  sizings .push({ sizing_job_id:      a.sizing_job_id,      amount: a.amount }); break;
       case 'bobbin':  bobbins .push({ bobbin_purchase_id: a.bobbin_purchase_id, amount: a.amount }); break;
       case 'yarn':    yarns   .push({ yarn_lot_id:        a.yarn_lot_id,        amount: a.amount }); break;
+      case 'fabric':  fabrics .push({ fabric_purchase_id: a.fabric_purchase_id, amount: a.amount }); break;
     }
   }
-  return { invoices, openings, sizings, bobbins, yarns };
+  return { invoices, openings, sizings, bobbins, yarns, fabrics };
 }
