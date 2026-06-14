@@ -15,6 +15,7 @@ import { OfflineSync } from './offline-sync';
 import { OfflineBanner } from './offline-banner';
 import { UpdatePrompt } from './update-prompt';
 import { InstallPrompt } from './install-prompt';
+import { EnterNav } from './enter-nav';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -77,6 +78,9 @@ export function AppShell({
           They live outside the main flow so they overlay every page. */}
       <OfflineSync />
       <InstallPrompt />
+      {/* Global "Enter moves to the next field" handler. Renders nothing
+          — just attaches a document-level keydown listener. */}
+      <EnterNav />
     </div>
   );
 }
