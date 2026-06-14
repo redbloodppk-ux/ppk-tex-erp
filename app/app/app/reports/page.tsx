@@ -61,6 +61,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/financial-summary',
+    title: 'Financial Summary',
+    description:
+      'Year-end snapshot. Pick a financial year and see party-wise receivable / payable plus a warehouse stock matrix (in-house / job-work / outsource / sizing × warp / weft / porvai / bobbin) as of 31-March.',
+    ready: true,
+  },
+  {
     href: '/app/reports/variance',
     title: 'Variance Dashboard',
     description:
