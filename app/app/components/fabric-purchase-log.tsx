@@ -32,6 +32,9 @@ interface FabricRow {
   id: number;
   code: string;
   fabric_quality_id: number | null;
+  /** Free-form quality name — set by supplier-purchase mode when the
+   *  fabric isn't one of the in-house production qualities. */
+  quality_text: string | null;
   supplier_party_id: number | null;
   received_date: string;
   // Either metres or pieces is populated depending on rate_unit;
@@ -54,7 +57,12 @@ interface FormState {
   /** Whether this row came from a supplier purchase or a customer
    *  fabric-in-lieu-of-payment adjustment. */
   source:               SourceMode;
+  /** Used in customer-adjustment mode — points to the in-house
+   *  fabric_quality master row. Empty in supplier-purchase mode. */
   fabric_quality_id:    string;
+  /** Used in supplier-purchase mode — free-form quality name the
+   *  operator types in. Empty in customer-adjustment mode. */
+  quality_text:         string;
   /** Party FK. Holds either a supplier id (source='supplier') or a
    *  customer id (source='customer'). Stored under the existing
    *  supplier_party_id column either way — that column is just an
@@ -77,6 +85,7 @@ interface FormState {
 const EMPTY: FormState = {
   source:               'supplier',
   fabric_quality_id:    '',
+  quality_text:         '',
   supplier_party_id:    '',
   received_date:        '',
   quantity:             '',
@@ -151,7 +160,7 @@ export function FabricPurchaseLog(): React.ReactElement {
 
     const [rowsRes, qRes, sRes, cRes] = await Promise.all([
       sb.from('fabric_purchase')
-        .select('id, code, fabric_quality_id, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, total_amount, invoice_no, notes, delivery_destination')
+        .select('id, code, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, total_amount, invoice_no, notes, delivery_destination')
         .eq('status', 'active')
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -222,6 +231,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     setForm({
       source:               'supplier',
       fabric_quality_id:    r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
+      quality_text:         r.quality_text ?? '',
       supplier_party_id:    r.supplier_party_id === null ? '' : String(r.supplier_party_id),
       received_date:        r.received_date,
       quantity:             String(qty),
@@ -258,15 +268,23 @@ export function FabricPurchaseLog(): React.ReactElement {
     setError(null);
     setSavedMsg(null);
 
-    const qualityId  = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
-    const partyId    = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
-    const quantity   = toNumOrNull(form.quantity);
-    const rate       = toNumOrNull(form.rate);
-    const gst        = toNumOrNull(form.gst_pct) ?? 0;
-    const isCustomer = form.source === 'customer';
-    const partyLabel = isCustomer ? 'Customer' : 'Supplier';
+    const qualityId   = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
+    const qualityText = form.quality_text.trim();
+    const partyId     = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
+    const quantity    = toNumOrNull(form.quantity);
+    const rate        = toNumOrNull(form.rate);
+    const gst         = toNumOrNull(form.gst_pct) ?? 0;
+    const isCustomer  = form.source === 'customer';
+    const partyLabel  = isCustomer ? 'Customer' : 'Supplier';
 
-    if (qualityId === null)                  { setError('Fabric quality is required.'); return; }
+    // Quality validation by mode:
+    //   - Supplier purchase: must type a quality name (free text)
+    //   - Customer adjustment: must pick a quality from the master
+    if (isCustomer) {
+      if (qualityId === null) { setError('Fabric quality is required.'); return; }
+    } else {
+      if (qualityText === '') { setError('Fabric quality (type the name) is required.'); return; }
+    }
     if (partyId === null)                    { setError(`${partyLabel} is required.`); return; }
     if (form.received_date.trim() === '')    { setError('Purchase date is required.'); return; }
     if (quantity === null || quantity <= 0)  { setError('Quantity must be greater than zero.'); return; }
@@ -277,7 +295,11 @@ export function FabricPurchaseLog(): React.ReactElement {
     // The other column stays NULL so reports never double-count.
     const isMetres = form.rate_unit === 'm';
     const payload = {
-      fabric_quality_id:    qualityId,
+      // Quality lives in one of two columns by source mode:
+      //   supplier purchase  -> quality_text (free form)
+      //   customer adjustment -> fabric_quality_id (FK to master)
+      fabric_quality_id:    isCustomer ? qualityId : null,
+      quality_text:         isCustomer ? null      : qualityText,
       supplier_party_id:    partyId,
       received_date:        form.received_date,
       received_metres:      isMetres ? quantity : null,
@@ -408,10 +430,15 @@ export function FabricPurchaseLog(): React.ReactElement {
     setSavedMsg('Deleted ' + code + '.');
   }
 
-  function qualityLabel(id: number | null): string {
-    if (id === null) return '-';
-    const q = qualities.find((x) => x.id === id);
-    return q ? `${q.code ?? '#' + id} - ${q.name}` : '#' + String(id);
+  function qualityLabel(r: FabricRow): string {
+    if (r.fabric_quality_id !== null) {
+      const q = qualities.find((x) => x.id === r.fabric_quality_id);
+      return q ? `${q.code ?? '#' + r.fabric_quality_id} - ${q.name}` : '#' + String(r.fabric_quality_id);
+    }
+    if (r.quality_text !== null && r.quality_text.trim() !== '') {
+      return r.quality_text;
+    }
+    return '-';
   }
   function supplierLabel(id: number | null): string {
     if (id === null) return '-';
@@ -498,16 +525,34 @@ export function FabricPurchaseLog(): React.ReactElement {
             </div>
             <div>
               <label className="label" htmlFor="fp-quality">Fabric quality *</label>
-              <select id="fp-quality" className="input w-full"
-                value={form.fabric_quality_id}
-                onChange={(e) => setForm((f) => ({ ...f, fabric_quality_id: e.target.value }))}>
-                <option value="">--- pick ---</option>
-                {qualities.map((q) => (
-                  <option key={q.id} value={String(q.id)}>
-                    {q.code ?? '#' + q.id} - {q.name}
-                  </option>
-                ))}
-              </select>
+              {form.source === 'customer' ? (
+                // Customer-adjustment mode: pick from the in-house
+                // production qualities (fabric returned by customers
+                // is always one of the qualities we make).
+                <select id="fp-quality" className="input w-full"
+                  value={form.fabric_quality_id}
+                  onChange={(e) => setForm((f) => ({ ...f, fabric_quality_id: e.target.value }))}>
+                  <option value="">--- pick ---</option>
+                  {qualities.map((q) => (
+                    <option key={q.id} value={String(q.id)}>
+                      {q.code ?? '#' + q.id} - {q.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                // Supplier purchase mode: just type the quality name.
+                // Resale fabric isn't usually one of our in-house
+                // production qualities, so a free-text field lets
+                // the operator move quickly.
+                <input
+                  id="fp-quality"
+                  type="text"
+                  className="input w-full"
+                  placeholder="e.g. SAREE 80*80 / Viscose Dobby"
+                  value={form.quality_text}
+                  onChange={(e) => setForm((f) => ({ ...f, quality_text: e.target.value.toUpperCase() }))}
+                />
+              )}
             </div>
             <div>
               <label className="label">
@@ -649,7 +694,7 @@ export function FabricPurchaseLog(): React.ReactElement {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 font-mono text-xs">{r.code}</td>
-                  <td className="px-3 py-3 font-semibold">{qualityLabel(r.fabric_quality_id)}</td>
+                  <td className="px-3 py-3 font-semibold">{qualityLabel(r)}</td>
                   <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{supplierLabel(r.supplier_party_id)}</td>
                   <td className="px-3 py-3 text-right num">
                     {r.rate_unit === 'm'

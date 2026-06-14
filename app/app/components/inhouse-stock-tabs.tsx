@@ -22,6 +22,7 @@ const TABS: readonly TabDef[] = [
   { href: '/app/porvai-yarn-stock', label: 'Porvai Yarn Stock' },
   { href: '/app/bobbin',            label: 'Bobbin Stock' },
   { href: '/app/fabric-stock',      label: 'Fabric Stock' },
+  { href: '/app/fabric-resale',     label: 'Fabric Resale' },
   { href: '/app/warp-beam',         label: 'Warp Beam' },
 ];
 
