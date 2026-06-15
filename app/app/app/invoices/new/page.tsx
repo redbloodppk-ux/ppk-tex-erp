@@ -481,37 +481,73 @@ export default function NewInvoicePage() {
           original_line_id: String(l.id),
         }));
         // Append placeholder rows for any openings ticked alongside.
+        // Inherit HSN/UOM/GST from the invoice we just copied so the
+        // placeholder isn't blank.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sample = (data ?? [])[0] as any | undefined;
         const openingRows = openingTicks.map((p) => ({
           ...newRow(),
-          description: `Credit against opening balance (#${p.id})`,
-          uom: 'lot',
-          quantity: '1',
-          rate: String(p.balance),
-          gst_rate_pct: '0',
+          description: `Credit against opening balance #${p.id}`,
+          hsn_sac:      sample?.hsn_sac ?? '',
+          uom:          sample?.uom ?? 'mtr',
+          quantity:     '1',
+          rate:         String(p.balance),
+          gst_rate_pct: String(sample?.gst_rate_pct ?? 5),
         }));
         setRows([...lineRows, ...openingRows]);
       })();
       return;
     }
 
-    // No invoice ticked but openings are — generate placeholder rows.
+    // No invoice ticked but openings are — inherit HSN/UOM/GST from
+    // the CUSTOMER's most recent sale invoice line so the placeholder
+    // has sensible defaults instead of being blank.
     if (invoiceTicks.length === 0 && openingTicks.length > 0) {
       setOriginalLines([]);
-      const openingRows = openingTicks.map((p) => ({
-        ...newRow(),
-        description: `Credit against opening balance (#${p.id})`,
-        uom: 'lot',
-        quantity: '1',
-        rate: String(p.balance),
-        gst_rate_pct: '0',
-      }));
-      setRows(openingRows);
+      // Inline customer lookup — currentCustomer is declared lower
+      // in this component.
+      const cust = customers.find((c) => String(c.id) === customerId);
+      const partyName = cust?.name ?? '';
+      (async () => {
+        let sample: { description?: string; hsn_sac?: string; uom?: string; gst_rate_pct?: number | string } | null = null;
+        if (partyName !== '') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const recentInvRes = await (supabase as any)
+            .from('invoice')
+            .select('id, lines:invoice_line(hsn_sac, uom, gst_rate_pct, description)')
+            .ilike('party_name', partyName)
+            .in('doc_type', ['tax_invoice', 'yarn_sale', 'general_sale'])
+            .order('invoice_date', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const firstLine = (recentInvRes?.data?.lines ?? [])[0] as any | undefined;
+          if (firstLine) {
+            sample = {
+              description:  firstLine.description,
+              hsn_sac:      firstLine.hsn_sac,
+              uom:          firstLine.uom,
+              gst_rate_pct: firstLine.gst_rate_pct,
+            };
+          }
+        }
+        const openingRows = openingTicks.map((p) => ({
+          ...newRow(),
+          description:  `Credit against opening balance #${p.id}`,
+          hsn_sac:      sample?.hsn_sac ?? '',
+          uom:          sample?.uom ?? 'mtr',
+          quantity:     '1',
+          rate:         String(p.balance),
+          gst_rate_pct: String(sample?.gst_rate_pct ?? 5),
+        }));
+        setRows(openingRows);
+      })();
       return;
     }
 
     // Multiple invoices ticked, or nothing ticked — leave it alone.
     setOriginalLines([]);
-  }, [docType, creditPicks, supabase]);
+  }, [docType, creditPicks, supabase, customers, customerId]);
 
   // ── derived: customer state → interstate? ─────────────────────────────────
   const currentCustomer = customers.find(c => c.id === Number(customerId));
