@@ -334,6 +334,10 @@ function NewPaymentTab(): React.ReactElement {
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', party.name)
         .in('status', ['issued', 'partial_paid', 'overdue'])
+        // Exclude reduction-type docs — credit / debit notes aren't
+        // themselves debts, so they don't belong in a "tick to settle"
+        // list.
+        .not('doc_type', 'in', '(credit_note,debit_note)')
         .gt('balance', 0)
         .order('invoice_date', { ascending: true })
         .order('id', { ascending: true }),

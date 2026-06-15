@@ -145,6 +145,11 @@ export function UnpaidBillsPicker({
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', partyName)
         .in('status', ['issued', 'partial_paid', 'overdue'])
+        // Exclude reduction-type documents from the unpaid-bills list.
+        // A credit note REDUCES what the customer owes; it's not
+        // itself a debt to be settled, so it shouldn't show up as a
+        // tickable bill. Same for debit notes on the supplier side.
+        .not('doc_type', 'in', '(credit_note,debit_note)')
         .gt('balance', 0)
         .order('invoice_date', { ascending: true })
         .order('id', { ascending: true }),
