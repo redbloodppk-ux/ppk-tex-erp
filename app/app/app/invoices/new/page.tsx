@@ -784,6 +784,39 @@ export default function NewInvoicePage() {
       ...shipToPayload(shipTo),
     };
 
+    // ── Credit-note Bill-To / Ship-To override ──────────────────────────────
+    // Credit notes must mirror the ORIGINAL invoice's billing snapshot
+    // (party name / GSTIN / state / billing + shipping address) so the
+    // return goes against the same party as the sale, even if the
+    // customer's master record has since been edited. We look up the
+    // first ticked invoice's stamp and copy it onto the credit note's
+    // header before the insert.
+    if (docType === 'credit_note') {
+      const firstInvoice = creditAllocs.find((a) => a.kind === 'invoice');
+      const origId = firstInvoice ? (firstInvoice as { invoice_id: number }).invoice_id : null;
+      if (origId !== null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: orig } = await (supabase as any)
+          .from('invoice')
+          .select('party_name, party_gstin, party_state, place_of_supply, is_interstate, ship_to_party_id, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code')
+          .eq('id', origId)
+          .maybeSingle();
+        if (orig) {
+          headerPayload.party_name      = orig.party_name      ?? headerPayload.party_name;
+          headerPayload.party_gstin     = orig.party_gstin     ?? headerPayload.party_gstin;
+          headerPayload.party_state     = orig.party_state     ?? headerPayload.party_state;
+          headerPayload.place_of_supply = orig.place_of_supply ?? headerPayload.place_of_supply;
+          headerPayload.is_interstate   = orig.is_interstate   ?? headerPayload.is_interstate;
+          headerPayload.ship_to_party_id   = orig.ship_to_party_id   ?? null;
+          headerPayload.ship_to_name       = orig.ship_to_name       ?? null;
+          headerPayload.ship_to_address    = orig.ship_to_address    ?? null;
+          headerPayload.ship_to_gstin      = orig.ship_to_gstin      ?? null;
+          headerPayload.ship_to_state      = orig.ship_to_state      ?? null;
+          headerPayload.ship_to_state_code = orig.ship_to_state_code ?? null;
+        }
+      }
+    }
+
     const { data: inv, error: invErr } = await supabase
       .from('invoice')
       .insert(headerPayload)
@@ -1045,10 +1078,20 @@ export default function NewInvoicePage() {
               )}
             </div>
 
-            {/* Optional consignee — different ship-to address. */}
-            <div className="border-t border-line/40 pt-4">
-              <ShipToPicker value={shipTo} onChange={setShipTo} />
-            </div>
+            {/* Optional consignee — different ship-to address.
+                Credit notes inherit Ship-To (and Bill-To) from the
+                original invoice and can't override either, so the
+                picker is hidden in that mode. */}
+            {docType !== 'credit_note' && (
+              <div className="border-t border-line/40 pt-4">
+                <ShipToPicker value={shipTo} onChange={setShipTo} />
+              </div>
+            )}
+            {docType === 'credit_note' && (
+              <div className="border-t border-line/40 pt-4 text-[11px] text-ink-soft italic">
+                Bill-To and Ship-To are inherited from the original invoice and locked.
+              </div>
+            )}
 
             {/* Credit note: tick the customer's unpaid invoices that
                 this credit applies against. One ticked = lines below

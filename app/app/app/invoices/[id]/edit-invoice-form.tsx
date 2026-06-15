@@ -224,7 +224,9 @@ export function EditInvoiceForm({
       subtotal: taxableN,
       gst_amount: gstSum,
       is_interstate: isInterstate,
-      ...shipToPayload(shipTo),
+      // Credit notes inherit Ship-To from the original invoice on
+      // create — never overwrite it from the edit form.
+      ...(isCreditNote ? {} : shipToPayload(shipTo)),
     };
     const { error: err } = await sb.from('invoice').update(payload).eq('id', invoiceId);
     setBusy(false);
@@ -380,10 +382,14 @@ export function EditInvoiceForm({
           </div>
         </div>
 
-        {/* ───── Ship to (optional consignee) ───── */}
-        <div className="border-t border-line/40 pt-4">
-          <ShipToPicker value={shipTo} onChange={setShipTo} />
-        </div>
+        {/* ───── Ship to (optional consignee) ─────
+            Credit notes inherit Ship-To from the original invoice
+            and aren't allowed to change it — hide the picker. */}
+        {!isCreditNote && (
+          <div className="border-t border-line/40 pt-4">
+            <ShipToPicker value={shipTo} onChange={setShipTo} />
+          </div>
+        )}
 
         {/* ───── Vehicle + Notes ───── */}
         {/* Credit notes don't move goods — Vehicle number is hidden. */}
