@@ -142,15 +142,16 @@ export default function NewInvoicePage() {
   // doc_sequence rows so the form can preview the NEXT invoice number.
   const [docSequences, setDocSequences] = useState<Record<string, { prefix: string; fy_code: string; format: string; next_value: number }>>({});
 
-  // ── credit_note: original invoice picker ───────────────────────────────────
+  // ── credit_note: bill-picker driven flow ──────────────────────────────────
+  // After picking a customer, all their unpaid invoices show up as
+  // checkboxes (via UnpaidBillsPicker). The operator ticks one or
+  // many; the credit note records the return against those invoices.
+  // When EXACTLY one invoice is ticked, the row editor below is
+  // pre-filled with that invoice's lines so the operator can drop
+  // the qty to whatever's actually being returned.
   const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
-  const [originalInvoiceId, setOriginalInvoiceId] = useState('');
-  const [originalLines,     setOriginalLines]     = useState<OriginalLine[]>([]);
-  // Spread mode: when on, the credit can be allocated across multiple
-  // unpaid bills via UnpaidBillsPicker (instead of landing entirely on
-  // the original invoice via the auto-allocation default).
-  const [spreadCredit, setSpreadCredit] = useState<boolean>(false);
-  const [creditAllocs, setCreditAllocs] = useState<BillAllocation[]>([]);
+  const [originalLines,    setOriginalLines]    = useState<OriginalLine[]>([]);
+  const [creditAllocs,     setCreditAllocs]     = useState<BillAllocation[]>([]);
 
   // ── debit_note extras ──────────────────────────────────────────────────────
   const [supplierBillNo,   setSupplierBillNo]   = useState('');
@@ -320,7 +321,7 @@ export default function NewInvoicePage() {
     if (docType === 'credit_note')   setSourceKind('return');
     if (docType === 'debit_note')    setSourceKind('free');
     setPickedSoId(''); setSoLines([]);
-    setOriginalInvoiceId(''); setOriginalLines([]);
+    setOriginalLines([]); setCreditAllocs([]);
     setVendorId(''); setCustomerId('');
     setPickedDcIds(new Set());
     setError(null);
@@ -400,18 +401,26 @@ export default function NewInvoicePage() {
     })();
   }, [pickedSoId, salesOrders, supabase]);
 
-  // ── when an original invoice is picked, load its lines ────────────────────
+  // ── pre-fill rows when exactly ONE invoice is ticked ──────────────────────
+  // Only kicks in for credit_note. Multi-invoice ticks intentionally
+  // leave the row editor alone — the operator types what's actually
+  // being returned (or nothing, if the credit isn't goods-related).
   useEffect(() => {
-    if (!originalInvoiceId) { setOriginalLines([]); return; }
+    if (docType !== 'credit_note') return;
+    const invoiceTicks = creditAllocs.filter((a) => a.kind === 'invoice');
+    if (invoiceTicks.length !== 1) {
+      setOriginalLines([]);
+      return;
+    }
+    const tickedId = (invoiceTicks[0] as { kind: 'invoice'; invoice_id: number }).invoice_id;
     (async () => {
       const { data } = await supabase
         .from('invoice_line')
         .select('id, description, hsn_sac, uom, quantity, rate, gst_rate_pct, total_amount')
-        .eq('invoice_id', Number(originalInvoiceId));
+        .eq('invoice_id', tickedId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setOriginalLines((data ?? []) as any);
-      const ori = originalInvoices.find(o => o.id === Number(originalInvoiceId));
-      if (ori) setCustomerId(String(ori.customer_id));
-      // Pre-fill rows — user can edit qty down to partial return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setRows((data ?? []).map((l: any) => ({
         ...newRow(),
         description: l.description,
@@ -423,7 +432,7 @@ export default function NewInvoicePage() {
         original_line_id: String(l.id),
       })));
     })();
-  }, [originalInvoiceId, originalInvoices, supabase]);
+  }, [docType, creditAllocs, supabase]);
 
   // ── derived: customer state → interstate? ─────────────────────────────────
   const currentCustomer = customers.find(c => c.id === Number(customerId));
@@ -568,8 +577,11 @@ export default function NewInvoicePage() {
     } else {
       if (!customerId) return setError('Pick a customer.');
     }
-    if (docType === 'credit_note' && !originalInvoiceId) {
-      return setError('Pick the original invoice this return is against.');
+    if (docType === 'credit_note') {
+      const ticked = creditAllocs.filter((a) => a.kind === 'invoice');
+      if (ticked.length === 0) {
+        return setError('Tick at least one invoice the credit note applies against.');
+      }
     }
     if (docType === 'tax_invoice' && sourceKind === 'fabric_receipt' && pickedDcIds.size === 0) {
       return setError('Tick at least one in-house fabric receipt to invoice.');
@@ -606,7 +618,14 @@ export default function NewInvoicePage() {
       customer_id:   docType === 'debit_note' ? null : Number(customerId),
       ledger_id:     docType === 'debit_note' ? Number(vendorId) : null,
       so_id:         pickedSoId ? Number(pickedSoId) : null,
-      original_invoice_id: originalInvoiceId ? Number(originalInvoiceId) : null,
+      // For GST paper trail: stamp the first ticked invoice as the
+      // primary "against" link. The full set of ticked invoices is
+      // captured separately via payment_allocation rows.
+      original_invoice_id: (() => {
+        if (docType !== 'credit_note') return null;
+        const firstInvoice = creditAllocs.find((a) => a.kind === 'invoice');
+        return firstInvoice ? (firstInvoice as { invoice_id: number }).invoice_id : null;
+      })(),
       party_name:    partyName,
       party_gstin:   partyGstin,
       party_state:   partyState,
@@ -731,16 +750,10 @@ export default function NewInvoicePage() {
         await supabase.from('yarn_lot').update({ current_kg: newKg }).eq('id', lot.id);
       }
 
-      // Credit-note money side: create a synthetic payment row so the
-      // credit flows through the unified Payments + Allocations
-      // machinery exactly like a cash receipt would. Two modes:
-      //   - Default (spreadCredit OFF): the whole credit lands on
-      //     the original invoice (single payment_allocation row).
-      //   - Spread mode (ON): allocations come from the
-      //     UnpaidBillsPicker — could be the original invoice plus
-      //     any other unpaid bills of this customer.
+      // Credit-note money side: synthetic payment + allocations
+      // straight from the ticked invoices in the picker.
       const creditAmount = totals.total;
-      if (creditAmount > 0 && customerId !== '') {
+      if (creditAmount > 0 && customerId !== '' && creditAllocs.length > 0) {
         const stamp = Date.now().toString().slice(-6);
         const paymentNo = 'CN-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -766,49 +779,16 @@ export default function NewInvoicePage() {
         }
         const pid = pmt?.id as number | undefined;
         if (pid !== undefined) {
-          if (spreadCredit && creditAllocs.length > 0) {
-            const buckets = splitAllocationsByKind(creditAllocs);
-            if (buckets.invoices.length) {
-              const { error: e } = await sb.from('payment_allocation')
-                .insert(buckets.invoices.map((a) => ({ ...a, payment_id: pid })));
-              if (e) { setBusy(false); return setError(`Credit saved but allocations failed: ${e.message}`); }
-            }
-            if (buckets.openings.length) {
-              const { error: e } = await sb.from('payment_opening_allocation')
-                .insert(buckets.openings.map((a) => ({ ...a, payment_id: pid })));
-              if (e) { setBusy(false); return setError(`Credit saved but opening allocations failed: ${e.message}`); }
-            }
-            if (buckets.sizings.length) {
-              const { error: e } = await sb.from('payment_sizing_allocation')
-                .insert(buckets.sizings.map((a) => ({ ...a, payment_id: pid })));
-              if (e) { setBusy(false); return setError(`Credit saved but sizing allocations failed: ${e.message}`); }
-            }
-            if (buckets.bobbins.length) {
-              const { error: e } = await sb.from('payment_bobbin_allocation')
-                .insert(buckets.bobbins.map((a) => ({ ...a, payment_id: pid })));
-              if (e) { setBusy(false); return setError(`Credit saved but bobbin allocations failed: ${e.message}`); }
-            }
-            if (buckets.yarns.length) {
-              const { error: e } = await sb.from('payment_yarn_allocation')
-                .insert(buckets.yarns.map((a) => ({ ...a, payment_id: pid })));
-              if (e) { setBusy(false); return setError(`Credit saved but yarn allocations failed: ${e.message}`); }
-            }
-          } else if (originalInvoiceId !== '') {
-            // Default mode: full credit against the original invoice.
-            // Capped at the original invoice's open balance so we
-            // never over-allocate. If the original is fully paid
-            // already, fall back to advance (no allocation row).
-            const origId = Number(originalInvoiceId);
-            const orig = originalInvoices.find((o) => o.id === origId);
-            const origBalance = orig ? Math.max(0, Number(orig.total) - 0) : creditAmount;
-            // We don't have amount_paid on OriginalInvoice; we cap to
-            // creditAmount or original total, whichever is smaller.
-            const adj = Math.min(creditAmount, origBalance);
-            if (adj > 0) {
-              const { error: e } = await sb.from('payment_allocation')
-                .insert({ payment_id: pid, invoice_id: origId, amount: Math.round(adj * 100) / 100 });
-              if (e) { setBusy(false); return setError(`Credit saved but allocation failed: ${e.message}`); }
-            }
+          const buckets = splitAllocationsByKind(creditAllocs);
+          if (buckets.invoices.length) {
+            const { error: e } = await sb.from('payment_allocation')
+              .insert(buckets.invoices.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); return setError(`Credit saved but allocations failed: ${e.message}`); }
+          }
+          if (buckets.openings.length) {
+            const { error: e } = await sb.from('payment_opening_allocation')
+              .insert(buckets.openings.map((a) => ({ ...a, payment_id: pid })));
+            if (e) { setBusy(false); return setError(`Credit saved but opening allocations failed: ${e.message}`); }
           }
         }
       }
@@ -938,51 +918,36 @@ export default function NewInvoicePage() {
               <ShipToPicker value={shipTo} onChange={setShipTo} />
             </div>
 
-            {/* Doc-type-specific helpers */}
+            {/* Credit note: tick the customer's unpaid invoices that
+                this credit applies against. One ticked = lines below
+                pre-fill from that invoice. Many ticked = enter the
+                returned lines manually; the credit value spreads
+                across the ticked bills oldest-first. */}
             {docType === 'credit_note' && (
               <div className="border-t pt-4 space-y-3">
-                <div>
-                  <label className="label">Against original invoice *</label>
-                  <select required value={originalInvoiceId} onChange={e => setOriginalInvoiceId(e.target.value)} className="input">
-                    <option value="" disabled>Pick the invoice being returned…</option>
-                    {originalInvoices.map(o => (
-                      <option key={o.id} value={o.id}>
-                        {o.invoice_no} — ₹{Number(o.total).toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-ink-mute mt-1">
-                    Picking an invoice will pre-fill the rows below. Adjust quantities to match what's actually being returned.
+                {customerId === '' ? (
+                  <p className="text-xs text-ink-soft italic">
+                    Pick the customer above first — their unpaid invoices will appear here for selection.
                   </p>
-                </div>
-
-                {/* Spread mode — credit can be applied across several
-                    unpaid bills instead of just the original. The
-                    original invoice picker stays required (GST paper
-                    trail), it's just no longer the sole target. */}
-                <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 mt-0.5 accent-indigo-600"
-                    checked={spreadCredit}
-                    onChange={(e) => { setSpreadCredit(e.target.checked); if (!e.target.checked) setCreditAllocs([]); }}
-                  />
-                  <span>
-                    <span className="font-semibold">Spread the credit across multiple unpaid bills</span>
-                    <span className="text-[11px] text-ink-mute ml-2">
-                      (instead of applying the whole credit to the original invoice)
-                    </span>
-                  </span>
-                </label>
-
-                {spreadCredit && customerId !== '' && (
-                  <UnpaidBillsPicker
-                    partyId={Number(customerId)}
-                    totalAmount={totals.total}
-                    direction="in"
-                    heading="Customer's unpaid bills"
-                    onAllocationsChange={setCreditAllocs}
-                  />
+                ) : (
+                  <>
+                    <div>
+                      <h3 className="text-sm font-bold text-ink mb-1">
+                        Which invoice(s) is this credit note against? <span className="text-rose-600">*</span>
+                      </h3>
+                      <p className="text-[11px] text-ink-mute">
+                        Tick one invoice to auto-fill the returned lines below. Tick several to spread the credit
+                        value across them — enter the returned-goods lines manually in that case.
+                      </p>
+                    </div>
+                    <UnpaidBillsPicker
+                      partyId={Number(customerId)}
+                      totalAmount={totals.total}
+                      direction="in"
+                      heading="Customer's unpaid invoices"
+                      onAllocationsChange={setCreditAllocs}
+                    />
+                  </>
                 )}
               </div>
             )}
