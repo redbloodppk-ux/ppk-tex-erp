@@ -18,7 +18,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { formatRupee } from '@/lib/utils';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, FileDown } from 'lucide-react';
 
 export interface OutstandingBill {
   id: number;
@@ -119,15 +119,29 @@ export function OutstandingByParty({
                 </div>
                 <div className="text-right shrink-0">
                   <div className="num font-bold">{formatRupee(g.total)}</div>
-                  {actionHref != null && (
-                    <Link
-                      href={actionHref}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-[11px] text-indigo font-semibold hover:underline"
-                    >
-                      {actionLabel} &rarr;
-                    </Link>
-                  )}
+                  <div className="flex items-center justify-end gap-2 mt-0.5">
+                    {g.party_id != null && (
+                      <Link
+                        href={`/app/parties/${g.party_id}/statement/print`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[11px] text-ink-soft hover:text-indigo inline-flex items-center gap-1"
+                        title="Open statement of outstanding (print / PDF)"
+                      >
+                        <FileDown className="w-3 h-3" /> PDF
+                      </Link>
+                    )}
+                    {actionHref != null && (
+                      <Link
+                        href={actionHref}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[11px] text-indigo font-semibold hover:underline"
+                      >
+                        {actionLabel} &rarr;
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </button>
 
