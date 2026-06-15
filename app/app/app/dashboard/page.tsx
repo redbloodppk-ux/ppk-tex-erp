@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { formatRupee } from '@/lib/utils';
 import {
-  Users, Receipt, ArrowUpRight, Hammer,
+  Users, Receipt, ArrowUpRight, Hammer, Truck,
   Wallet, Landmark, ClipboardList, ClockArrowUp, ShoppingCart,
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
@@ -92,6 +92,11 @@ export default async function DashboardPage() {
     { data: jobworkInvoices },
     { data: customerInvoices },
     { data: partyMaster },
+    { data: sizingBills },
+    { data: bobbinBills },
+    { data: yarnBills },
+    { data: fabricBills },
+    { data: openingPayables },
   ] = await Promise.all([
     supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
@@ -114,6 +119,43 @@ export default async function DashboardPage() {
     // only; we resolve it back to a party.id here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('party').select('id, name').eq('status', 'active'),
+    // ── Supplier payable bills ───────────────────────────────
+    // Sizing bills with balance (total - amount_paid > 0).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('sizing_job')
+      .select('id, bill_no, bill_date, total_amount, amount_paid, party_id')
+      .not('bill_no', 'is', null)
+      .gt('total_amount', 0)
+      .order('bill_date', { ascending: true }),
+    // Bobbin purchases.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('bobbin_purchase')
+      .select('id, invoice_no, purchase_date, total_amount, amount_paid, vendor_id')
+      .gt('total_amount', 0)
+      .order('purchase_date', { ascending: true }),
+    // Yarn lots.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('yarn_lot')
+      .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id')
+      .gt('total_amount', 0)
+      .order('received_date', { ascending: true }),
+    // Supplier-mode fabric resale rows only — customer-adjustment
+    // rows are settled via synthetic payments at entry.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('fabric_purchase')
+      .select('id, code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id')
+      .eq('source', 'supplier')
+      .eq('status', 'active')
+      .gt('total_amount', 0)
+      .order('received_date', { ascending: true }),
+    // Opening payables — pre-ERP balances we owe to suppliers.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('party_opening_ledger')
+      .select('id, invoice_no, invoice_date, party_id, amount, amount_paid, balance')
+      .eq('status', 'active')
+      .eq('direction', 'payable')
+      .gt('balance', 0)
+      .order('invoice_date', { ascending: true }),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,6 +178,103 @@ export default async function DashboardPage() {
   // comes from party_name for display.
   const jobworkGroups = groupByParty(
     openJobworkBills,
+    parties,
+    (b) => ({ id: b.jobwork_party_id ?? null, label: b.party_name ?? '' }),
+    now,
+  );
+
+  // ── Supplier payables — merge 5 sources into one OpenBillRow[]
+  // shape so groupByParty works the same way as the existing two
+  // sections. The "balance" we compute is total_amount - amount_paid
+  // (sizing / bobbin / yarn / fabric) or the existing balance column
+  // (opening payable). Anything <= 0 is filtered out so a fully
+  // settled bill doesn't keep its party group alive.
+  const partyNameById = new Map<number, string>();
+  for (const p of parties) partyNameById.set(p.id, p.name);
+  const supplierBills: OpenBillRow[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((sizingBills ?? []) as any[])) {
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.bill_no ?? `SZ-${r.id}`,
+      party_name:       r.party_id ? (partyNameById.get(r.party_id) ?? null) : null,
+      invoice_date:     r.bill_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.party_id ?? null,
+      total:            r.total_amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((bobbinBills ?? []) as any[])) {
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.invoice_no ?? `BB-${r.id}`,
+      party_name:       r.vendor_id ? (partyNameById.get(r.vendor_id) ?? null) : null,
+      invoice_date:     r.purchase_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.vendor_id ?? null,
+      total:            r.total_amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((yarnBills ?? []) as any[])) {
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
+      party_name:       r.supplier_party_id ? (partyNameById.get(r.supplier_party_id) ?? null) : null,
+      invoice_date:     r.received_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.supplier_party_id ?? null,
+      total:            r.total_amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((fabricBills ?? []) as any[])) {
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.invoice_no ?? r.code ?? `FP-${r.id}`,
+      party_name:       r.supplier_party_id ? (partyNameById.get(r.supplier_party_id) ?? null) : null,
+      invoice_date:     r.received_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.supplier_party_id ?? null,
+      total:            r.total_amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((openingPayables ?? []) as any[])) {
+    const bal = Number(r.balance ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.invoice_no ?? `OP-${r.id}`,
+      party_name:       r.party_id ? (partyNameById.get(r.party_id) ?? null) : null,
+      invoice_date:     r.invoice_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.party_id ?? null,
+      total:            r.amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // Group across all five sources by the supplier party id.
+  const supplierGroups = groupByParty(
+    supplierBills,
     parties,
     (b) => ({ id: b.jobwork_party_id ?? null, label: b.party_name ?? '' }),
     now,
@@ -250,6 +389,27 @@ export default async function DashboardPage() {
           actionLabel="Pay"
           emptyText="No outstanding jobwork bills — everything is paid up."
           footnote={'Jobwork parties with one or more open bills. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
+        />
+      </section>
+
+      {/* Outstanding Supplier Payables — every open bill from
+          sizing mills, bobbin / yarn / fabric suppliers, and any
+          pre-ERP opening payable. Grouped by supplier so the
+          operator sees totals per party first; click to drill in. */}
+      <section className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Truck className="w-4 h-4 text-violet-700" />
+            <h2 className="font-display font-bold text-base">Outstanding Supplier Payables</h2>
+          </div>
+          <Link href="/app/payments" className="text-xs text-indigo font-semibold">All payments &rarr;</Link>
+        </div>
+        <OutstandingByParty
+          groups={supplierGroups}
+          direction="out"
+          actionLabel="Pay"
+          emptyText="No outstanding supplier bills — every sizing / bobbin / yarn / fabric purchase is settled."
+          footnote={'Suppliers with one or more open bills across sizing, bobbin, yarn, fabric purchases, and opening payables. Click a row to see the individual bills. "Days due" = days since the bill date.'}
         />
       </section>
     </div>
