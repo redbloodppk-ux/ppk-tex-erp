@@ -6,6 +6,7 @@ import {
   Wallet, Landmark, ClipboardList, ClockArrowUp, ShoppingCart,
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
+import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -14,43 +15,105 @@ interface OpenBillRow {
   invoice_no: string;
   party_name: string | null;
   invoice_date: string;
+  customer_id: number | null;
   jobwork_party_id: number | null;
   total:       number | string | null;
   amount_paid: number | string | null;
   balance:     number | string | null;
 }
 
+interface PartyMasterRow { id: number; name: string }
+
+/** Group a flat list of open bills by party. For customer invoices we
+ *  match on party_name (ilike against the party master); for jobwork
+ *  we use the FK directly. The returned list is sorted by total
+ *  outstanding descending so the biggest debtor / creditor sits on
+ *  top of the dashboard. */
+function groupByParty(
+  bills: OpenBillRow[],
+  parties: PartyMasterRow[],
+  partyKeyFn: (b: OpenBillRow) => { id: number | null; label: string },
+  now: number,
+): PartyGroup[] {
+  const byName = new Map<string, number>();
+  for (const p of parties) byName.set(p.name.trim().toUpperCase(), p.id);
+
+  const groups = new Map<string, PartyGroup>();
+  for (const b of bills) {
+    const balance = Number(b.balance ?? 0);
+    if (balance <= 0) continue;
+    const { id: partyId, label } = partyKeyFn(b);
+    const norm = label.trim().toUpperCase();
+    const key  = partyId != null ? `id:${partyId}` : `name:${norm}`;
+    const resolvedId = partyId ?? (byName.get(norm) ?? null);
+
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        key,
+        party_label: label.trim() || '(unknown party)',
+        party_id:    resolvedId,
+        total:       0,
+        oldest_due:  0,
+        bills:       [],
+      };
+      groups.set(key, g);
+    }
+    g.total += balance;
+    g.bills.push({
+      id:           b.id,
+      invoice_no:   b.invoice_no,
+      invoice_date: b.invoice_date,
+      balance,
+    });
+    const due = b.invoice_date
+      ? Math.max(0, Math.floor((now - new Date(b.invoice_date).getTime()) / 86_400_000))
+      : 0;
+    if (due > g.oldest_due) g.oldest_due = due;
+  }
+
+  // Sort bills oldest-first inside each party so days-due reads top-down.
+  for (const g of groups.values()) {
+    g.bills.sort((a, b) => a.invoice_date.localeCompare(b.invoice_date) || (a.id - b.id));
+  }
+
+  return Array.from(groups.values()).sort((a, b) => b.total - a.total);
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  // Pull a handful of headline numbers in parallel. Each query is RLS-scoped
-  // so it just reflects what the signed-in user is allowed to see.
-  const BILL_COLS = 'id, invoice_no, party_name, invoice_date, jobwork_party_id, total, amount_paid, balance';
+  // Pull headline numbers + every open bill in parallel. RLS scopes
+  // each query to what the signed-in user can see.
+  const BILL_COLS = 'id, invoice_no, party_name, invoice_date, customer_id, jobwork_party_id, total, amount_paid, balance';
   const [
     { count: customerCount },
     { data: outstanding },
     { data: jobworkInvoices },
     { data: customerInvoices },
+    { data: partyMaster },
   ] = await Promise.all([
     supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
-    // Unpaid / part-paid jobwork bills, oldest first so the longest-due
-    // bill sits at the top of the dashboard list.
+    // Every unpaid / part-paid jobwork bill, oldest first.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('invoice')
       .select(BILL_COLS)
       .eq('doc_type', 'jobwork_invoice')
       .gt('balance', 0)
-      .order('invoice_date', { ascending: true })
-      .limit(10),
-    // Unpaid / part-paid CUSTOMER invoices (money to collect), same shape.
+      .order('invoice_date', { ascending: true }),
+    // Every unpaid / part-paid customer sale invoice.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('invoice')
       .select(BILL_COLS)
       .in('doc_type', ['tax_invoice', 'yarn_sale', 'general_sale'])
       .gt('balance', 0)
-      .order('invoice_date', { ascending: true })
-      .limit(10),
+      .order('invoice_date', { ascending: true }),
+    // Party master for name -> id lookup so the "Collect" deep-link
+    // can be assembled. Customer invoices carry party_name as text
+    // only; we resolve it back to a party.id here.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('party').select('id, name').eq('status', 'active'),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,6 +121,25 @@ export default async function DashboardPage() {
 
   const openJobworkBills:  OpenBillRow[] = (jobworkInvoices ?? [])  as OpenBillRow[];
   const openCustomerBills: OpenBillRow[] = (customerInvoices ?? []) as OpenBillRow[];
+  const parties: PartyMasterRow[] = (partyMaster ?? []) as unknown as PartyMasterRow[];
+
+  const now = Date.now();
+
+  // Customer side: identity is the party_name stamped on the invoice.
+  const customerGroups = groupByParty(
+    openCustomerBills,
+    parties,
+    (b) => ({ id: null, label: b.party_name ?? '' }),
+    now,
+  );
+  // Jobwork side: identity is jobwork_party_id (FK). Label still
+  // comes from party_name for display.
+  const jobworkGroups = groupByParty(
+    openJobworkBills,
+    parties,
+    (b) => ({ id: b.jobwork_party_id ?? null, label: b.party_name ?? '' }),
+    now,
+  );
 
   const cards = [
     { label: 'Active Customers', value: customerCount ?? 0,         icon: Users,        href: '/app/customers',  tone: 'from-indigo to-violet' },
@@ -108,8 +190,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* Quick Entry — shortcuts to the screens the operator hits every
-          day. Replaces the read-only Recent Sales Orders / Yarn Running
-          Low / Loom Utilisation panels that nobody acted on. */}
+          day. */}
       <section>
         <h2 className="font-display font-bold text-base mb-3">Quick Entry</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -134,155 +215,43 @@ export default async function DashboardPage() {
 
       <TodayAttendanceWidget />
 
-      {/* Outstanding Customer Payments — open (unpaid / part-paid) sale
-          invoices, oldest first: invoice no, pending amount, days due. */}
-      <OpenBillsSection
-        title="Outstanding Customer Payments"
-        icon={<Receipt className="w-4 h-4 text-rose-600" />}
-        allHref="/app/invoices"
-        allLabel="All invoices"
-        rows={openCustomerBills}
-        actionLabel="Collect"
-        emptyText="No outstanding customer invoices — everything is collected."
-        footnote={'Open sale invoices only (unpaid or part-paid), oldest first. "Due" counts days since the invoice date. Pending = invoice total minus payments received.'}
-      />
+      {/* Outstanding Customer Payments — grouped by party with
+          expand-to-detail. Top row = party name + total outstanding;
+          click to see the actual unpaid invoices. */}
+      <section className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-rose-600" />
+            <h2 className="font-display font-bold text-base">Outstanding Customer Payments</h2>
+          </div>
+          <Link href="/app/invoices" className="text-xs text-indigo font-semibold">All invoices &rarr;</Link>
+        </div>
+        <OutstandingByParty
+          groups={customerGroups}
+          direction="in"
+          actionLabel="Collect"
+          emptyText="No outstanding customer invoices — everything is collected."
+          footnote={'Customers with one or more open sale invoices. Click a row to see their unpaid bills. "Days due" = days since the invoice date.'}
+        />
+      </section>
 
-      {/* Outstanding Jobwork Payments — open (unpaid / part-paid) jobwork
-          bills, oldest first. The action link drops the operator straight
-          into the Payments page with the party pre-selected. */}
-      <OpenBillsSection
-        title="Outstanding Jobwork Payments"
-        icon={<Hammer className="w-4 h-4 text-amber-700" />}
-        allHref="/app/payments"
-        allLabel="All payments"
-        rows={openJobworkBills}
-        actionLabel="Pay"
-        actionHref={(r) => (r.jobwork_party_id != null ? `/app/payments?party=${r.jobwork_party_id}` : null)}
-        emptyText="No outstanding jobwork bills — everything is paid up."
-        footnote={'Open jobwork bills only (unpaid or part-paid), oldest first. "Due" counts days since the bill date. Pending = bill total minus payments recorded against it.'}
-      />
+      {/* Outstanding Jobwork Payments — grouped by jobwork party. */}
+      <section className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Hammer className="w-4 h-4 text-amber-700" />
+            <h2 className="font-display font-bold text-base">Outstanding Jobwork Payments</h2>
+          </div>
+          <Link href="/app/payments" className="text-xs text-indigo font-semibold">All payments &rarr;</Link>
+        </div>
+        <OutstandingByParty
+          groups={jobworkGroups}
+          direction="out"
+          actionLabel="Pay"
+          emptyText="No outstanding jobwork bills — everything is paid up."
+          footnote={'Jobwork parties with one or more open bills. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
+        />
+      </section>
     </div>
   );
 }
-
-/** Shared "open bills" widget: one row per unpaid / part-paid bill —
- *  invoice no (links to the bill), pending balance, days due, plus an
- *  optional action link. Card list on phones, table from md: up. */
-function OpenBillsSection({
-  title, icon, allHref, allLabel, rows, emptyText, footnote, actionLabel, actionHref,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  allHref: string;
-  allLabel: string;
-  rows: OpenBillRow[];
-  emptyText: string;
-  footnote: string;
-  actionLabel: string;
-  actionHref?: (r: OpenBillRow) => string | null;
-}) {
-  const today = new Date();
-  const daysDue = (d: string): number =>
-    Math.max(0, Math.floor((today.getTime() - new Date(d).getTime()) / 86_400_000));
-  const hrefFor = (r: OpenBillRow): string | null =>
-    actionHref ? actionHref(r) : `/app/invoices/${r.id}`;
-
-  return (
-    <section className="card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          {icon}
-          <h2 className="font-display font-bold text-base">{title}</h2>
-        </div>
-        <Link href={allHref} className="text-xs text-indigo font-semibold">{allLabel} &rarr;</Link>
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-sm text-ink-soft py-4">{emptyText}</p>
-      ) : (
-        <>
-          {/* Card layout for small screens. */}
-          <ul className="md:hidden space-y-2">
-            {rows.map((r) => {
-              const due = daysDue(r.invoice_date);
-              const tone = due > 30 ? 'text-rose-600' : due > 14 ? 'text-amber-600' : 'text-emerald-700';
-              const action = hrefFor(r);
-              return (
-                <li key={r.id} className="border border-line/40 rounded-lg p-3">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <Link
-                      href={`/app/invoices/${r.id}`}
-                      className="font-semibold text-sm text-indigo hover:underline truncate"
-                      title={r.party_name ?? undefined}
-                    >
-                      {r.invoice_no}
-                    </Link>
-                    {action != null && (
-                      <Link href={action} className="text-xs text-indigo font-semibold hover:underline shrink-0">
-                        {actionLabel} &rarr;
-                      </Link>
-                    )}
-                  </div>
-                  <dl className="grid grid-cols-2 gap-y-1 text-xs">
-                    <dt className="text-ink-soft">Pending</dt>
-                    <dd className="text-right num font-semibold">{formatRupee(Number(r.balance ?? 0))}</dd>
-                    <dt className="text-ink-soft">Due</dt>
-                    <dd className={'text-right num font-semibold ' + tone}>{due}d</dd>
-                  </dl>
-                </li>
-              );
-            })}
-          </ul>
-
-          {/* Table layout for md+ screens. */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">
-                <tr>
-                  <th className="text-left py-2">Invoice No</th>
-                  <th className="text-right">Pending</th>
-                  <th className="text-right">Due</th>
-                  <th className="text-right" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const due = daysDue(r.invoice_date);
-                  const tone = due > 30 ? 'text-rose-600' : due > 14 ? 'text-amber-600' : 'text-emerald-700';
-                  const action = hrefFor(r);
-                  return (
-                    <tr key={r.id} className="border-b border-line/40 last:border-0">
-                      <td className="py-2.5">
-                        <Link
-                          href={`/app/invoices/${r.id}`}
-                          className="font-medium text-indigo hover:underline"
-                          title={r.party_name ?? undefined}
-                        >
-                          {r.invoice_no}
-                        </Link>
-                      </td>
-                      <td className="text-right num font-semibold">{formatRupee(Number(r.balance ?? 0))}</td>
-                      <td className={'text-right num font-semibold ' + tone}>{due}d</td>
-                      <td className="text-right">
-                        {action != null && (
-                          <Link
-                            href={action}
-                            className="text-xs text-indigo font-semibold hover:underline"
-                            title={`${actionLabel} — ${r.party_name ?? r.invoice_no}`}
-                          >
-                            {actionLabel} &rarr;
-                          </Link>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-      <p className="text-[10px] text-ink-mute mt-3">{footnote}</p>
-    </section>
-  );
-}
-
