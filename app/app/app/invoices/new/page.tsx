@@ -437,40 +437,80 @@ export default function NewInvoicePage() {
     })();
   }, [pickedSoId, salesOrders, supabase]);
 
-  // ── pre-fill rows when exactly ONE invoice is ticked ──────────────────────
+  // ── pre-fill rows from ticked bills ───────────────────────────────────────
   // Fires on the tick itself (creditPicks), independent of allocation
   // amount — otherwise the chicken-and-egg with empty rows / zero
   // total keeps the picker's allocations empty too, and lines never
-  // fill. Multi-invoice ticks deliberately leave the row editor alone
-  // so the operator types what's actually being returned.
+  // fill. Behaviour by ticked-bill kind:
+  //
+  //   - exactly one INVOICE ticked  -> fetch its invoice_line rows
+  //                                    and copy them into the row
+  //                                    editor; operator drops qty
+  //                                    to whatever's being returned.
+  //   - one OR more OPENING ticked  -> placeholder row(s) so the
+  //                                    operator has something to
+  //                                    save against. Openings have
+  //                                    no line items in the DB.
+  //   - multiple INVOICES ticked    -> leave the row editor alone;
+  //                                    operator types the returned
+  //                                    lines manually.
   useEffect(() => {
     if (docType !== 'credit_note') return;
     const invoiceTicks = creditPicks.filter((p) => p.kind === 'invoice');
-    if (invoiceTicks.length !== 1) {
-      setOriginalLines([]);
+    const openingTicks = creditPicks.filter((p) => p.kind === 'opening');
+
+    if (invoiceTicks.length === 1) {
+      const tickedId = invoiceTicks[0]?.id;
+      if (tickedId === undefined) return;
+      (async () => {
+        const { data } = await supabase
+          .from('invoice_line')
+          .select('id, description, hsn_sac, uom, quantity, rate, gst_rate_pct, total_amount')
+          .eq('invoice_id', tickedId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setOriginalLines((data ?? []) as any);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lineRows = (data ?? []).map((l: any) => ({
+          ...newRow(),
+          description: l.description,
+          hsn_sac: l.hsn_sac ?? '',
+          uom: l.uom,
+          quantity: String(l.quantity),
+          rate: String(l.rate),
+          gst_rate_pct: String(l.gst_rate_pct),
+          original_line_id: String(l.id),
+        }));
+        // Append placeholder rows for any openings ticked alongside.
+        const openingRows = openingTicks.map((p) => ({
+          ...newRow(),
+          description: `Credit against opening balance (#${p.id})`,
+          uom: 'lot',
+          quantity: '1',
+          rate: String(p.balance),
+          gst_rate_pct: '0',
+        }));
+        setRows([...lineRows, ...openingRows]);
+      })();
       return;
     }
-    const tickedId = invoiceTicks[0]?.id;
-    if (tickedId === undefined) return;
-    (async () => {
-      const { data } = await supabase
-        .from('invoice_line')
-        .select('id, description, hsn_sac, uom, quantity, rate, gst_rate_pct, total_amount')
-        .eq('invoice_id', tickedId);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setOriginalLines((data ?? []) as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setRows((data ?? []).map((l: any) => ({
+
+    // No invoice ticked but openings are — generate placeholder rows.
+    if (invoiceTicks.length === 0 && openingTicks.length > 0) {
+      setOriginalLines([]);
+      const openingRows = openingTicks.map((p) => ({
         ...newRow(),
-        description: l.description,
-        hsn_sac: l.hsn_sac ?? '',
-        uom: l.uom,
-        quantity: String(l.quantity),
-        rate: String(l.rate),
-        gst_rate_pct: String(l.gst_rate_pct),
-        original_line_id: String(l.id),
-      })));
-    })();
+        description: `Credit against opening balance (#${p.id})`,
+        uom: 'lot',
+        quantity: '1',
+        rate: String(p.balance),
+        gst_rate_pct: '0',
+      }));
+      setRows(openingRows);
+      return;
+    }
+
+    // Multiple invoices ticked, or nothing ticked — leave it alone.
+    setOriginalLines([]);
   }, [docType, creditPicks, supabase]);
 
   // ── derived: customer state → interstate? ─────────────────────────────────
