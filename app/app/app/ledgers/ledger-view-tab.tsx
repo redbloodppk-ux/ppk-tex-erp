@@ -8,13 +8,31 @@
  *   3. Start date + End date (optional; empty = unbounded)
  *   4. Show button     — runs the query
  *
- * The result table merges three sources in date order with a running
- * balance column:
+ * The result table merges nine sources in date order with a running
+ * balance column. Cash side:
  *
  *   - payment         — receipts / payments to / from parties or via
  *                       BANK / CASH ledgers
  *   - wage_entry      — wages tagged to a WAGES-type ledger
  *   - expense_entry   — expenses tagged to an EXPENSES-type ledger
+ *
+ * Bill side (only when the ledger is linked to a party via
+ * party.ledger_id):
+ *
+ *   - invoice              — sales invoices, jobwork/weaving bills,
+ *                            credit/debit notes
+ *   - party_opening_ledger — pre-ERP opening balances
+ *   - sizing_job, bobbin_purchase, yarn_lot, fabric_purchase
+ *                          — supplier-side payable bills
+ *
+ * Inflow / Outflow convention on a party-linked ledger:
+ *   - Bills that GROW what the party owes us (sale invoice, debit
+ *     note, opening receivable) → Inflow (running balance UP).
+ *   - Bills that GROW what WE owe the party (purchases, sizing,
+ *     bobbin, yarn, fabric, credit note, opening payable) → Outflow.
+ *   - Receipts (payment direction='in') still count as Inflow and
+ *     payments out (direction='out') as Outflow, matching the cash
+ *     ledger semantic that's been on this page from day one.
  */
 import { useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -44,11 +62,14 @@ interface PaymentRow {
 }
 
 // Unified ledger-entry shape used by the table. Whether the row came
-// from a payment, a wage_entry, or an expense_entry, we project it
-// into this common shape so the table render is a single loop.
+// from a payment, a wage_entry, an expense_entry, or any of the six
+// bill sources, we project it into this common shape so the table
+// render is a single loop.
 interface LedgerEntry {
   key:           string;
-  source:        'payment' | 'wage' | 'expense';
+  source:        'payment' | 'wage' | 'expense' | 'bill';
+  /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc. */
+  bill_kind?:    string;
   date:          string;
   voucher:       string;
   counterparty:  string;
@@ -158,13 +179,15 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     const sb = supabase as any;
 
     // Step 1: find every party whose ledger_id == picked ledger.
+    // Also pull their names so we can match invoices by party_name.
     const { data: matchingParties, error: partyErr } = await sb
       .from('party')
-      .select('id, ledger_id')
+      .select('id, ledger_id, name')
       .eq('ledger_id', numericId);
     if (partyErr) { setError(partyErr.message); setLoading(false); return; }
-    const partyIds: number[] = ((matchingParties ?? []) as PartyByLedger[])
-      .map((p) => p.id);
+    const partyRows = ((matchingParties ?? []) as Array<{ id: number; ledger_id: number; name: string }>);
+    const partyIds: number[] = partyRows.map((p) => p.id);
+    const partyNames: string[] = partyRows.map((p) => p.name);
 
     // Step 2: pull every payment that touches this ledger.
     const orParts: string[] = [`mode_ledger_id.eq.${numericId}`];
@@ -200,6 +223,68 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       .eq('target_ledger_id', numericId);
     if (startDate) expensesQ = expensesQ.gte('pay_date', startDate);
     if (endDate)   expensesQ = expensesQ.lte('pay_date', endDate);
+
+    // Step 3b: bills for the matching parties. Only fires when the
+    // ledger is linked to a party (CUSTOMER / SUPPLIER / MILL / etc.).
+    // BANK / CASH / WAGES ledgers won't have matching parties and
+    // this section is a no-op for them. Same date window applies.
+    let invRes: { data: unknown; error: { message: string } | null } = { data: [], error: null };
+    let openRes: typeof invRes = { data: [], error: null };
+    let sizRes:  typeof invRes = { data: [], error: null };
+    let bobRes:  typeof invRes = { data: [], error: null };
+    let yarnRes: typeof invRes = { data: [], error: null };
+    let fabRes:  typeof invRes = { data: [], error: null };
+    if (partyIds.length > 0) {
+      // Pull every active invoice where party_name matches any of
+      // the linked party names. Supabase doesn't have a clean
+      // multi-ilike OR, so we use the "in" operator on an
+      // uppercased shadow comparison done client-side after fetch.
+      let invQ = sb.from('invoice')
+        .select('id, invoice_no, invoice_date, doc_type, total, party_name')
+        .neq('status', 'cancelled')
+        .in('party_name', partyNames);
+      if (startDate) invQ = invQ.gte('invoice_date', startDate);
+      if (endDate)   invQ = invQ.lte('invoice_date', endDate);
+
+      let openQ = sb.from('party_opening_ledger')
+        .select('id, invoice_no, invoice_date, direction, amount')
+        .eq('status', 'active')
+        .in('party_id', partyIds);
+      if (startDate) openQ = openQ.gte('invoice_date', startDate);
+      if (endDate)   openQ = openQ.lte('invoice_date', endDate);
+
+      let sizQ = sb.from('sizing_job')
+        .select('id, bill_no, bill_date, total_amount')
+        .not('bill_no', 'is', null)
+        .in('party_id', partyIds);
+      if (startDate) sizQ = sizQ.gte('bill_date', startDate);
+      if (endDate)   sizQ = sizQ.lte('bill_date', endDate);
+
+      let bobQ = sb.from('bobbin_purchase')
+        .select('id, invoice_no, purchase_date, total_amount')
+        .in('vendor_id', partyIds);
+      if (startDate) bobQ = bobQ.gte('purchase_date', startDate);
+      if (endDate)   bobQ = bobQ.lte('purchase_date', endDate);
+
+      let yarnQ = sb.from('yarn_lot')
+        .select('id, lot_code, invoice_no, received_date, total_amount')
+        .in('supplier_party_id', partyIds);
+      if (startDate) yarnQ = yarnQ.gte('received_date', startDate);
+      if (endDate)   yarnQ = yarnQ.lte('received_date', endDate);
+
+      // Supplier-mode fabric resale only. Customer-mode rows are
+      // accounted for via the synthetic payment created at entry.
+      let fabQ = sb.from('fabric_purchase')
+        .select('id, code, invoice_no, received_date, total_amount')
+        .eq('source', 'supplier')
+        .eq('status', 'active')
+        .in('supplier_party_id', partyIds);
+      if (startDate) fabQ = fabQ.gte('received_date', startDate);
+      if (endDate)   fabQ = fabQ.lte('received_date', endDate);
+
+      const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ]);
+      [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = billRes;
+    }
 
     const [wagesRes, expensesRes] = await Promise.all([wagesQ, expensesQ]);
     if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
@@ -249,6 +334,126 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         outflow:      Number(x.amount ?? 0),
       });
     }
+
+    // Bills — direction depends on doc kind.
+    //   Inflow (running balance UP for a customer ledger): sale,
+    //   jobwork bill, debit note, opening receivable.
+    //   Outflow (running balance DOWN — or UP for a supplier
+    //   payable): credit note, sizing bill, bobbin / yarn / fabric
+    //   purchase, opening payable.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((invRes.data ?? []) as any[])) {
+      const amt = Number(r.total ?? 0);
+      const doc: string = r.doc_type;
+      const isCredit = doc === 'credit_note';
+      const isDebitNote = doc === 'debit_note';
+      const label = doc === 'tax_invoice'     ? 'Fabric Sale'
+                  : doc === 'yarn_sale'       ? 'Yarn Sale'
+                  : doc === 'general_sale'    ? 'General Sale'
+                  : doc === 'jobwork_invoice' ? 'Jobwork Bill'
+                  : doc === 'weaving_bill'    ? 'Weaving Bill'
+                  : doc === 'credit_note'     ? 'Credit Note'
+                  : doc === 'debit_note'      ? 'Debit Note'
+                  : doc;
+      all.push({
+        key:          `inv-${r.id}`,
+        source:       'bill',
+        bill_kind:    isCredit ? 'credit' : isDebitNote ? 'debit' : 'sale',
+        date:         r.invoice_date,
+        voucher:      r.invoice_no,
+        counterparty: r.party_name ?? '-',
+        mode:         label,
+        reference:    null,
+        inflow:       isCredit ? 0   : amt,
+        outflow:      isCredit ? amt : 0,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((openRes.data ?? []) as any[])) {
+      const amt = Number(r.amount ?? 0);
+      const isReceivable = r.direction === 'receivable';
+      all.push({
+        key:          `open-${r.id}`,
+        source:       'bill',
+        bill_kind:    'opening',
+        date:         r.invoice_date,
+        voucher:      r.invoice_no,
+        counterparty: '—',
+        mode:         isReceivable ? 'Opening (Receivable)' : 'Opening (Payable)',
+        reference:    null,
+        inflow:       isReceivable ? amt : 0,
+        outflow:      isReceivable ? 0   : amt,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((sizRes.data ?? []) as any[])) {
+      const amt = Number(r.total_amount ?? 0);
+      if (amt <= 0) continue;
+      all.push({
+        key:          `siz-${r.id}`,
+        source:       'bill',
+        bill_kind:    'sizing',
+        date:         r.bill_date,
+        voucher:      r.bill_no ?? `SZ-${r.id}`,
+        counterparty: '—',
+        mode:         'Sizing Bill',
+        reference:    null,
+        inflow:       0,
+        outflow:      amt,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((bobRes.data ?? []) as any[])) {
+      const amt = Number(r.total_amount ?? 0);
+      if (amt <= 0) continue;
+      all.push({
+        key:          `bob-${r.id}`,
+        source:       'bill',
+        bill_kind:    'bobbin',
+        date:         r.purchase_date,
+        voucher:      r.invoice_no ?? `BB-${r.id}`,
+        counterparty: '—',
+        mode:         'Bobbin Purchase',
+        reference:    null,
+        inflow:       0,
+        outflow:      amt,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((yarnRes.data ?? []) as any[])) {
+      const amt = Number(r.total_amount ?? 0);
+      if (amt <= 0) continue;
+      all.push({
+        key:          `yarn-${r.id}`,
+        source:       'bill',
+        bill_kind:    'yarn',
+        date:         r.received_date,
+        voucher:      r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
+        counterparty: '—',
+        mode:         'Yarn Purchase',
+        reference:    null,
+        inflow:       0,
+        outflow:      amt,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((fabRes.data ?? []) as any[])) {
+      const amt = Number(r.total_amount ?? 0);
+      if (amt <= 0) continue;
+      all.push({
+        key:          `fab-${r.id}`,
+        source:       'bill',
+        bill_kind:    'fabric',
+        date:         r.received_date,
+        voucher:      r.invoice_no ?? r.code ?? `FP-${r.id}`,
+        counterparty: '—',
+        mode:         'Fabric Purchase',
+        reference:    null,
+        inflow:       0,
+        outflow:      amt,
+      });
+    }
+
     all.sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.key.localeCompare(b.key);
@@ -389,9 +594,11 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                         <span className={cn(
                           'ml-1 pill text-[9px]',
                           r.source === 'wage'    ? 'bg-amber-50 text-amber-700'
-                                                 : 'bg-violet-50 text-violet-700',
+                          : r.source === 'expense' ? 'bg-violet-50 text-violet-700'
+                          : r.source === 'bill'  ? 'bg-indigo-50 text-indigo-700'
+                                                 : 'bg-cloud text-ink-soft',
                         )}>
-                          {r.source}
+                          {r.source === 'bill' ? (r.bill_kind ?? 'bill') : r.source}
                         </span>
                       )}
                     </td>
