@@ -693,9 +693,13 @@ export default function NewInvoicePage() {
       if (!customerId) return setError('Pick a customer.');
     }
     if (docType === 'credit_note') {
-      const ticked = creditAllocs.filter((a) => a.kind === 'invoice');
-      if (ticked.length === 0) {
-        return setError('Tick at least one invoice the credit note applies against.');
+      // Use creditPicks (the actual ticks) rather than creditAllocs:
+      // allocations are only emitted once totalAmount > 0, which
+      // means a brand-new credit note (lines still being entered)
+      // would fail this check even with bills already ticked.
+      // Either an invoice OR an opening receivable counts.
+      if (creditPicks.length === 0) {
+        return setError('Tick at least one bill (invoice or opening receivable) this credit note applies against.');
       }
     }
     if (docType === 'tax_invoice' && sourceKind === 'fabric_receipt' && pickedDcIds.size === 0) {
