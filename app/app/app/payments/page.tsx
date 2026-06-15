@@ -120,6 +120,10 @@ interface LedgerTxn {
   href?: string;
   /** Full payment row, only present for payment_in / payment_out. */
   payment?: PaymentRow;
+  /** Party label + id, populated when the ledger view includes
+   *  rows across multiple parties (no specific party picked). */
+  party_label?: string;
+  party_link_id?: number | null;
 }
 
 /** Party types where a payment MUST be adjusted against bills — or
@@ -1206,46 +1210,76 @@ function StatusTab(): React.ReactElement {
     })();
   }, [partyId, partyTypeId, dateFrom, dateTo, filteredParties, supabase, refreshTick]);
 
-  // ── Fetch bills (non-payment ledger rows) for the single-party
-  //    ledger view: invoices, sizing, bobbin, yarn, opening ledger.
-  //    Only runs when a single party is picked.
+  // ── Fetch bills (non-payment ledger rows) ────────────────────────
+  // Runs in two modes:
+  //   - single-party  (partyId set)  → filter every source by that party
+  //   - all-parties   (partyId blank) → fetch every active bill in the
+  //                                      window (date-filtered) so the
+  //                                      all-payments view can mix in
+  //                                      sales / purchase / opening
+  //                                      bills alongside the payments.
+  // Each row carries a party_label so the all-view can show who the
+  // transaction belongs to.
   useEffect(() => {
-    if (!partyId) { setBillTxns([]); return; }
-    const pid = Number(partyId);
-    const party = parties.find((p) => p.id === pid);
-    if (!party) { setBillTxns([]); return; }
-
     void (async () => {
+      const hasParty = partyId !== '';
+      const pid = hasParty ? Number(partyId) : null;
+      const party = pid !== null ? parties.find((p) => p.id === pid) : undefined;
+      if (hasParty && !party) { setBillTxns([]); return; }
+
+      // Lookup helpers for the all-view party label.
+      const partyById = new Map<number, PartyOpt>();
+      for (const p of parties) partyById.set(p.id, p);
+      const labelFor = (id: number | null | undefined): string =>
+        id != null ? (partyById.get(id)?.name ?? `#${id}`) : '—';
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      // Active-state filters chosen to match the bill-source pages:
-      // skip cancelled / void rows that don't represent real money.
-      const invQ = sb.from('invoice')
-        .select('id, invoice_no, invoice_date, doc_type, total, status')
-        .ilike('party_name', party.name)
+
+      // Build the six source queries — in single-party mode they're
+      // narrowed by the relevant party FK / name; in all-view they
+      // hit every row, ordered newest first with a soft cap so the
+      // page doesn't drown in 10k rows.
+      const LIMIT = hasParty ? 1000 : 500;
+
+      let invQ  = sb.from('invoice')
+        .select('id, invoice_no, invoice_date, doc_type, total, status, party_name, customer_id, jobwork_party_id')
         .neq('status', 'cancelled');
-      const openQ = sb.from('party_opening_ledger')
-        .select('id, invoice_no, invoice_date, direction, amount')
-        .eq('party_id', pid)
+      if (hasParty) invQ = invQ.ilike('party_name', party!.name);
+      invQ = invQ
+        .order('invoice_date', { ascending: !hasParty ? false : true })
+        .limit(LIMIT);
+
+      let openQ = sb.from('party_opening_ledger')
+        .select('id, invoice_no, invoice_date, direction, amount, party_id')
         .eq('status', 'active');
-      const sizQ = sb.from('sizing_job')
-        .select('id, bill_no, bill_date, total_amount')
-        .eq('party_id', pid)
+      if (hasParty) openQ = openQ.eq('party_id', pid!);
+      openQ = openQ.limit(LIMIT);
+
+      let sizQ  = sb.from('sizing_job')
+        .select('id, bill_no, bill_date, total_amount, party_id')
         .not('bill_no', 'is', null);
-      const bobQ = sb.from('bobbin_purchase')
-        .select('id, invoice_no, purchase_date, total_amount')
-        .eq('vendor_id', pid);
-      const yarnQ = sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, total_amount')
-        .eq('supplier_party_id', pid);
-      // Supplier-purchase fabric resale rows. Customer-adjustment
-      // rows are excluded because the synthetic payment from
-      // migration 168 already moves them through the ledger.
-      const fabQ = sb.from('fabric_purchase')
-        .select('id, code, invoice_no, received_date, total_amount')
-        .eq('supplier_party_id', pid)
+      if (hasParty) sizQ = sizQ.eq('party_id', pid!);
+      sizQ = sizQ.limit(LIMIT);
+
+      let bobQ  = sb.from('bobbin_purchase')
+        .select('id, invoice_no, purchase_date, total_amount, vendor_id');
+      if (hasParty) bobQ = bobQ.eq('vendor_id', pid!);
+      bobQ = bobQ.limit(LIMIT);
+
+      let yarnQ = sb.from('yarn_lot')
+        .select('id, lot_code, invoice_no, received_date, total_amount, supplier_party_id');
+      if (hasParty) yarnQ = yarnQ.eq('supplier_party_id', pid!);
+      yarnQ = yarnQ.limit(LIMIT);
+
+      // Supplier-mode fabric resale only — customer-adjustment rows
+      // are already captured by their synthetic payment row.
+      let fabQ  = sb.from('fabric_purchase')
+        .select('id, code, invoice_no, received_date, total_amount, supplier_party_id')
         .eq('source', 'supplier')
         .eq('status', 'active');
+      if (hasParty) fabQ = fabQ.eq('supplier_party_id', pid!);
+      fabQ = fabQ.limit(LIMIT);
 
       const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
         invQ, openQ, sizQ, bobQ, yarnQ, fabQ,
@@ -1253,13 +1287,20 @@ function StatusTab(): React.ReactElement {
 
       const txns: LedgerTxn[] = [];
 
+      // Resolve invoice → party.id via party_name match (the invoice
+      // table stamps party_name as text, not party.id).
+      const partyByUpperName = new Map<string, PartyOpt>();
+      for (const p of parties) partyByUpperName.set(p.name.trim().toUpperCase(), p);
+
       // Invoices — direction depends on doc_type.
       for (const r of ((invRes.data ?? []) as Array<{
         id: number; invoice_no: string; invoice_date: string;
         doc_type: string; total: number | string; status: string;
+        party_name: string | null;
       }>)) {
         const total = Number(r.total ?? 0);
         const isCredit = r.doc_type === 'credit_note';
+        const lookup = r.party_name ? partyByUpperName.get(r.party_name.trim().toUpperCase()) : undefined;
         txns.push({
           key:        `inv-${r.id}`,
           source_id:  r.id,
@@ -1273,13 +1314,15 @@ function StatusTab(): React.ReactElement {
           debit:      isCredit ? 0 : total,
           credit:     isCredit ? total : 0,
           href:       `/app/invoices/${r.id}`,
+          party_label:  r.party_name ?? '—',
+          party_link_id: lookup?.id ?? null,
         });
       }
 
       // Opening ledger
       for (const r of ((openRes.data ?? []) as Array<{
         id: number; invoice_no: string; invoice_date: string;
-        direction: string; amount: number | string;
+        direction: string; amount: number | string; party_id: number | null;
       }>)) {
         const amt = Number(r.amount ?? 0);
         const isReceivable = r.direction === 'receivable';
@@ -1292,13 +1335,15 @@ function StatusTab(): React.ReactElement {
           description: isReceivable ? 'Opening (Receivable)' : 'Opening (Payable)',
           debit:      isReceivable ? amt : 0,
           credit:     isReceivable ? 0   : amt,
+          party_label:  labelFor(r.party_id),
+          party_link_id: r.party_id,
         });
       }
 
       // Sizing — we always owe the sizing mill.
       for (const r of ((sizRes.data ?? []) as Array<{
         id: number; bill_no: string | null; bill_date: string | null;
-        total_amount: number | string;
+        total_amount: number | string; party_id: number | null;
       }>)) {
         const total = Number(r.total_amount ?? 0);
         if (total <= 0) continue;
@@ -1312,13 +1357,15 @@ function StatusTab(): React.ReactElement {
           debit:      0,
           credit:     total,
           href:       `/app/sizing/${r.id}`,
+          party_label:  labelFor(r.party_id),
+          party_link_id: r.party_id,
         });
       }
 
       // Bobbin purchase — we always owe the supplier.
       for (const r of ((bobRes.data ?? []) as Array<{
         id: number; invoice_no: string | null; purchase_date: string | null;
-        total_amount: number | string;
+        total_amount: number | string; vendor_id: number | null;
       }>)) {
         const total = Number(r.total_amount ?? 0);
         if (total <= 0) continue;
@@ -1331,6 +1378,8 @@ function StatusTab(): React.ReactElement {
           description: 'Bobbin Purchase',
           debit:      0,
           credit:     total,
+          party_label:  labelFor(r.vendor_id),
+          party_link_id: r.vendor_id,
         });
       }
 
@@ -1338,6 +1387,7 @@ function StatusTab(): React.ReactElement {
       for (const r of ((yarnRes.data ?? []) as Array<{
         id: number; lot_code: string | null; invoice_no: string | null;
         received_date: string | null; total_amount: number | string;
+        supplier_party_id: number | null;
       }>)) {
         const total = Number(r.total_amount ?? 0);
         if (total <= 0) continue;
@@ -1350,16 +1400,17 @@ function StatusTab(): React.ReactElement {
           description: 'Yarn Purchase',
           debit:      0,
           credit:     total,
+          party_label:  labelFor(r.supplier_party_id),
+          party_link_id: r.supplier_party_id,
         });
       }
 
       // Fabric resale purchases (supplier mode) — we always owe the
-      // supplier. customer-adjustment rows are excluded via the SQL
-      // filter above; their money side is already on the customer's
-      // ledger via the synthetic payment.
+      // supplier.
       for (const r of ((fabRes?.data ?? []) as Array<{
         id: number; code: string; invoice_no: string | null;
         received_date: string | null; total_amount: number | string;
+        supplier_party_id: number | null;
       }>)) {
         const total = Number(r.total_amount ?? 0);
         if (total <= 0) continue;
@@ -1373,6 +1424,8 @@ function StatusTab(): React.ReactElement {
           debit:      0,
           credit:     total,
           href:       '/app/fabric-stock',
+          party_label:  labelFor(r.supplier_party_id),
+          party_link_id: r.supplier_party_id,
         });
       }
 
@@ -1457,8 +1510,10 @@ function StatusTab(): React.ReactElement {
   //     > 0 -> party is a debtor (Dr)
   //     < 0 -> party is a creditor (Cr)
   const ledger = useMemo<Array<LedgerTxn & { balance: number }>>(() => {
-    if (!partyId) return [];
-    // Map each payment row to a LedgerTxn.
+    // Map each payment row to a LedgerTxn. For the all-view we also
+    // stamp the party_label so each row can show whose payment it was.
+    const partyById = new Map<number, PartyOpt>();
+    for (const p of parties) partyById.set(p.id, p);
     const paymentTxns: LedgerTxn[] = payments.map((p) => {
       const amt = Number(p.amount);
       const isIn = p.direction === 'in';
@@ -1473,20 +1528,27 @@ function StatusTab(): React.ReactElement {
         debit:       isIn ? 0   : amt,
         credit:      isIn ? amt : 0,
         payment:     p,
+        party_label:  p.party?.name ?? (p.party_id ? partyById.get(p.party_id)?.name : null) ?? '—',
+        party_link_id: p.party_id,
       };
     });
-    // Combine with the bill side, sort oldest -> newest by date and
-    // source id (for stable ordering within a single day).
+    // Combine with the bill side, sort by date. Single-party view:
+    // oldest first so the running balance builds from the top.
+    // All-view: newest first so the latest activity is on top.
     const merged = [...billTxns, ...paymentTxns].sort((a, b) => {
       const dc = (a.date ?? '').localeCompare(b.date ?? '');
-      return dc !== 0 ? dc : a.source_id - b.source_id;
+      const cmp = partyId !== '' ? dc : -dc;
+      return cmp !== 0 ? cmp : (partyId !== '' ? a.source_id - b.source_id : b.source_id - a.source_id);
     });
+    // Running balance only makes sense for one party. All-view rows
+    // get balance=0 (the column isn't shown there anyway).
+    if (partyId === '') return merged.map((t) => ({ ...t, balance: 0 }));
     let running = 0;
     return merged.map((t) => {
       running += t.debit - t.credit;
       return { ...t, balance: running };
     });
-  }, [partyId, payments, billTxns]);
+  }, [partyId, payments, billTxns, parties]);
 
   const totals = useMemo(() => {
     let inflow = 0, outflow = 0, debit = 0, credit = 0;
@@ -1504,9 +1566,12 @@ function StatusTab(): React.ReactElement {
       balance: inflow - outflow,
       debit,   credit,
       ledgerBalance: debit - credit,
-      count: payments.length,
+      // Count reflects the full ledger (bills + payments) so the
+      // header "N transactions" line is honest about everything the
+      // operator can see below — not just the payment rows.
+      count: partyId !== '' ? ledger.length : payments.length,
     };
-  }, [payments, ledger]);
+  }, [payments, ledger, partyId]);
 
   const partyName = useMemo(() => {
     const p = parties.find((x) => String(x.id) === partyId);
@@ -1583,11 +1648,17 @@ function StatusTab(): React.ReactElement {
         <div className="card p-6 flex items-center gap-2 text-sm text-ink-mute">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
         </div>
-      ) : payments.length === 0 ? (
+      ) : (showLedger ? ledger.length === 0 : payments.length === 0) ? (
+        // Empty state — for the single-party ledger view we check the
+        // unified ledger length (bills + payments), not just payments,
+        // because a party can have bill activity (invoices, openings,
+        // sizing, etc.) without any payment rows yet.
         <div className="card p-6 text-sm text-ink-soft">
-          No payments found. {showLedger
-            ? <>Record one from the New Payment tab.</>
-            : <>Try widening the filters, or record a payment from the New Payment tab.</>}
+          {showLedger ? (
+            <>No transactions for this party in the current window. Try widening the date filters, or record a payment from the New Payment tab.</>
+          ) : (
+            <>No payments found. Try widening the filters, or record a payment from the New Payment tab.</>
+          )}
         </div>
       ) : showLedger ? (
         // Ledger view — single party, running balance.
@@ -1755,20 +1826,23 @@ function StatusTab(): React.ReactElement {
             </div>
             <div className="flex items-center gap-4 text-xs">
               <div>
-                <span className="text-ink-mute">Inflow:</span>{' '}
-                <span className="font-semibold text-emerald-700 num">₹ {fmtINR(totals.inflow)}</span>
+                <span className="text-ink-mute">Debit:</span>{' '}
+                <span className="font-semibold text-emerald-700 num">₹ {fmtINR(totals.debit)}</span>
               </div>
               <div>
-                <span className="text-ink-mute">Outflow:</span>{' '}
-                <span className="font-semibold text-rose-700 num">₹ {fmtINR(totals.outflow)}</span>
+                <span className="text-ink-mute">Credit:</span>{' '}
+                <span className="font-semibold text-rose-700 num">₹ {fmtINR(totals.credit)}</span>
               </div>
               <div>
                 <span className="text-ink-mute">Net:</span>{' '}
                 <span className={cn(
                   'font-semibold num',
-                  totals.balance > 0 ? 'text-emerald-700' : totals.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                  totals.ledgerBalance > 0 ? 'text-emerald-700' : totals.ledgerBalance < 0 ? 'text-rose-700' : 'text-ink-soft',
                 )}>
-                  ₹ {fmtINR(totals.balance)}
+                  ₹ {fmtINR(Math.abs(totals.ledgerBalance))}{' '}
+                  <span className="text-[10px] font-normal">
+                    {totals.ledgerBalance > 0.005 ? 'Dr' : totals.ledgerBalance < -0.005 ? 'Cr' : ''}
+                  </span>
                 </span>
               </div>
             </div>
@@ -1780,46 +1854,46 @@ function StatusTab(): React.ReactElement {
                   <th className="text-left  px-3 py-3">Date</th>
                   <th className="text-left  px-3 py-3">Voucher</th>
                   <th className="text-left  px-3 py-3">Party</th>
-                  <th className="text-left  px-3 py-3 hidden md:table-cell">Bank / Cash</th>
-                  <th className="text-left  px-3 py-3 hidden lg:table-cell">Reference</th>
-                  <th className="text-right px-3 py-3">Inflow (₹)</th>
-                  <th className="text-right px-3 py-3">Outflow (₹)</th>
-                  <th className="text-right px-3 py-3 w-[90px]">Actions</th>
+                  <th className="text-left  px-3 py-3 hidden md:table-cell">Particulars</th>
+                  <th className="text-right px-3 py-3">Debit (₹)</th>
+                  <th className="text-right px-3 py-3">Credit (₹)</th>
+                  <th className="text-right px-3 py-3 w-[100px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map((p) => {
-                  const amt = Number(p.amount);
-                  const inflow  = p.direction === 'in'  ? amt : 0;
-                  const outflow = p.direction === 'out' ? amt : 0;
-                  const isEditing = editingId === p.id;
-                  const isBusy    = busyRowId === p.id;
+                {ledger.map((r) => {
+                  const isPayment = r.kind === 'payment_in' || r.kind === 'payment_out';
+                  const isEditing = isPayment && editingId === r.source_id;
+                  const isBusy    = isPayment && busyRowId === r.source_id;
                   return (
-                    <React.Fragment key={p.id}>
+                    <React.Fragment key={r.key}>
                       <tr className={cn('border-t border-line/40', isEditing ? 'bg-indigo-50/30' : 'hover:bg-haze/60')}>
-                        <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(p.payment_date)}</td>
-                        <td className="px-3 py-3 font-mono text-xs">{p.payment_no}</td>
+                        <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(r.date)}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{r.voucher_no}</td>
                         <td className="px-3 py-3">
-                          {p.party
-                            ? (
-                              <div className="leading-tight">
-                                <div className="text-ink">{p.party.name}</div>
-                                <div className="font-mono text-[10px] text-ink-mute">{p.party.code}</div>
-                              </div>
-                            )
-                            : <span className="text-ink-mute italic">—</span>}
+                          {r.party_link_id != null ? (
+                            <Link
+                              href={`/app/payments?party=${r.party_link_id}`}
+                              className="text-ink hover:text-indigo hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {r.party_label ?? '—'}
+                            </Link>
+                          ) : (
+                            <span className={r.party_label ? 'text-ink' : 'text-ink-mute italic'}>
+                              {r.party_label ?? '—'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-3 hidden md:table-cell text-xs text-ink-soft">
-                          {p.mode_ledger?.name ?? (p.mode ?? '').replace('_', ' ')}
-                        </td>
-                        <td className="px-3 py-3 hidden lg:table-cell text-xs text-ink-soft">
-                          {p.reference ?? '-'}
+                          {r.description}
+                          {r.payment?.reference && <span className="ml-1 text-ink-mute">· {r.payment.reference}</span>}
                         </td>
                         <td className="px-3 py-3 text-right num text-emerald-700">
-                          {inflow > 0 ? fmtINR(inflow) : '-'}
+                          {r.debit > 0 ? fmtINR(r.debit) : '-'}
                         </td>
                         <td className="px-3 py-3 text-right num text-rose-700">
-                          {outflow > 0 ? fmtINR(outflow) : '-'}
+                          {r.credit > 0 ? fmtINR(r.credit) : '-'}
                         </td>
                         <td className="px-3 py-3 text-right whitespace-nowrap">
                           {isBusy ? (
@@ -1833,11 +1907,11 @@ function StatusTab(): React.ReactElement {
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
-                          ) : (
+                          ) : isPayment && r.payment ? (
                             <>
                               <button
                                 type="button"
-                                onClick={() => startEdit(p)}
+                                onClick={() => startEdit(r.payment as PaymentRow)}
                                 className="p-1 rounded text-indigo-600 hover:bg-indigo-50"
                                 title="Edit payment"
                               >
@@ -1845,19 +1919,29 @@ function StatusTab(): React.ReactElement {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void deletePayment(p)}
+                                onClick={() => void deletePayment(r.payment as PaymentRow)}
                                 className="p-1 rounded text-rose-600 hover:bg-rose-50 ml-1"
-                                title="Delete payment (will restore affected bill balances)"
+                                title="Delete payment (restores affected bill balances)"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </>
+                          ) : r.href ? (
+                            <Link
+                              href={r.href}
+                              className="p-1 rounded text-indigo-600 hover:bg-indigo-50 inline-block"
+                              title="View source bill"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Link>
+                          ) : (
+                            <span className="text-[10px] text-ink-mute">—</span>
                           )}
                         </td>
                       </tr>
-                      {isEditing && (
+                      {isEditing && r.payment && (
                         <tr className="bg-indigo-50/20 border-t border-indigo-100">
-                          <td colSpan={8} className="px-3 py-3">
+                          <td colSpan={7} className="px-3 py-3">
                             <PaymentEditFields
                               date={editDate}        setDate={setEditDate}
                               ledger={editLedger}    setLedger={setEditLedger}
@@ -1865,7 +1949,7 @@ function StatusTab(): React.ReactElement {
                               notes={editNotes}      setNotes={setEditNotes}
                               modeLedgers={modeLedgers}
                               busy={isBusy}
-                              onSave={() => void saveEdit(p.id)}
+                              onSave={() => void saveEdit(r.source_id)}
                               onCancel={cancelEdit}
                             />
                           </td>
@@ -1877,16 +1961,17 @@ function StatusTab(): React.ReactElement {
               </tbody>
               <tfoot>
                 <tr className="border-t border-line/60 bg-cloud/30 font-bold">
-                  <td className="px-3 py-3" colSpan={5}>Totals</td>
-                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.inflow)}</td>
-                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.outflow)}</td>
+                  <td className="px-3 py-3" colSpan={4}>Totals</td>
+                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.debit)}</td>
+                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.credit)}</td>
                   <td />
                 </tr>
               </tfoot>
             </table>
           </div>
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
-            Sorted newest → oldest. Pick a party above for a running-balance ledger view.
+            Bills + payments across every party. Sorted newest → oldest. Click a party name to open their ledger with running balance.
+            Soft-capped at the most recent 500 bills per source — use date filters to narrow.
           </div>
         </div>
       )}
