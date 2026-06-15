@@ -1169,7 +1169,14 @@ function StatusTab(): React.ReactElement {
           'mode_ledger:mode_ledger_id ( id, name ), reference, notes, party_id, ' +
           'party:party_id ( id, code, name, party_type_ids )'
         )
-        .eq('status', 'active');
+        .eq('status', 'active')
+        // Hide synthetic payments — they're internal plumbing for
+        // credit-note and customer-fabric-adjustment allocations.
+        // The customer-facing document (the credit note invoice or
+        // the fabric_purchase row) is already in the ledger via
+        // billTxns, so including the synthetic payment would
+        // double-count the same money movement.
+        .not('mode', 'in', '(credit_note,fabric_adjustment)');
 
       if (partyId) {
         q = q.eq('party_id', Number(partyId));
