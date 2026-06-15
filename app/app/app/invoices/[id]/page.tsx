@@ -209,6 +209,7 @@ export default async function InvoiceDetailPage({
         key={`hdr-${inv.taxable_value}-${inv.cgst_amount}-${inv.sgst_amount}-${inv.igst_amount}-${inv.round_off}-${inv.total}`}
         invoiceId={inv.id}
         invoiceNo={inv.invoice_no}
+        docType={inv.doc_type}
         initial={{
           invoice_no: inv.invoice_no,
           invoice_date: inv.invoice_date,
@@ -231,16 +232,20 @@ export default async function InvoiceDetailPage({
         }}
       />
 
-      {/* ───── E-waybill capture ───── */}
-      <EwaybillCard
-        invoiceId={inv.id}
-        invoiceNo={inv.invoice_no}
-        invoiceTotal={Number(inv.total ?? 0)}
-        ewaybillNo={inv.ewaybill_no ?? null}
-        ewaybillDate={inv.ewaybill_date ?? null}
-        ewaybillValidTill={inv.ewaybill_valid_till ?? null}
-        ewaybillNotes={inv.ewaybill_notes ?? null}
-      />
+      {/* ───── E-waybill capture ─────
+          Credit notes don't move goods, so they don't generate an
+          e-way bill. Hide the card for that doc type. */}
+      {inv.doc_type !== 'credit_note' && (
+        <EwaybillCard
+          invoiceId={inv.id}
+          invoiceNo={inv.invoice_no}
+          invoiceTotal={Number(inv.total ?? 0)}
+          ewaybillNo={inv.ewaybill_no ?? null}
+          ewaybillDate={inv.ewaybill_date ?? null}
+          ewaybillValidTill={inv.ewaybill_valid_till ?? null}
+          ewaybillNotes={inv.ewaybill_notes ?? null}
+        />
+      )}
 
       {/* ───── Party block (read-only) ───── */}
       <div className="card p-4 mb-4">

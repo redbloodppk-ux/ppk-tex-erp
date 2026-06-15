@@ -82,6 +82,9 @@ function fmtDate(iso: string | null): string {
 interface EditInvoiceFormProps {
   invoiceId: number;
   invoiceNo: string;
+  /** Drives "should this field be visible?" decisions — credit notes
+   *  hide Due-days + Vehicle number because they don't apply. */
+  docType?: string;
   initial: EditInvoiceInitial;
 }
 
@@ -97,8 +100,12 @@ function round2(n: number): number {
 export function EditInvoiceForm({
   invoiceId,
   invoiceNo: _initialNo,
+  docType,
   initial,
 }: EditInvoiceFormProps): React.ReactElement {
+  // Credit notes don't carry Due-days or Vehicle number — they
+  // adjust an existing balance rather than book a movement.
+  const isCreditNote = docType === 'credit_note';
   const router = useRouter();
   const supabase = createClient();
 
@@ -200,10 +207,12 @@ export function EditInvoiceForm({
     const payload = {
       invoice_no: trimmedNo,
       invoice_date: invoiceDate,
-      due_date: dueDate || null,
+      // Credit notes never carry a due date / vehicle no — force
+      // them to NULL on save regardless of any stale state value.
+      due_date:    isCreditNote ? null : (dueDate || null),
       status,
       notes: notes || null,
-      vehicle_no: vehicleNo.trim().toUpperCase() || null,
+      vehicle_no:  isCreditNote ? null : (vehicleNo.trim().toUpperCase() || null),
       // GST block
       taxable_value: taxableN,
       cgst_amount: cgstN,
@@ -278,7 +287,8 @@ export function EditInvoiceForm({
               required
             />
           </div>
-          <div>
+          {/* Credit notes don't carry a due date. */}
+          <div className={isCreditNote ? 'hidden' : ''}>
             <label className="label">
               Due days
               {dueDate !== '' && (
@@ -376,24 +386,27 @@ export function EditInvoiceForm({
         </div>
 
         {/* ───── Vehicle + Notes ───── */}
-        <div>
-          <label className="label">Vehicle number *</label>
-          <input
-            value={vehicleNo}
-            onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
-            className="input uppercase"
-            placeholder="e.g. TN33 AB 1234"
-            maxLength={20}
-            required
-            list="inv-edit-vehicle-history"
-          />
-          <datalist id="inv-edit-vehicle-history">
-            {vehicleHistory.map((v) => <option key={v} value={v} />)}
-          </datalist>
-          <p className="text-[10px] text-ink-mute mt-1">
-            Required on every invoice and printed on the bill. Past vehicles auto-suggest.
-          </p>
-        </div>
+        {/* Credit notes don't move goods — Vehicle number is hidden. */}
+        {!isCreditNote && (
+          <div>
+            <label className="label">Vehicle number *</label>
+            <input
+              value={vehicleNo}
+              onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
+              className="input uppercase"
+              placeholder="e.g. TN33 AB 1234"
+              maxLength={20}
+              required
+              list="inv-edit-vehicle-history"
+            />
+            <datalist id="inv-edit-vehicle-history">
+              {vehicleHistory.map((v) => <option key={v} value={v} />)}
+            </datalist>
+            <p className="text-[10px] text-ink-mute mt-1">
+              Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+            </p>
+          </div>
+        )}
         <div>
           <div className="flex items-baseline justify-between mb-1">
             <label className="label mb-0">Notes</label>
