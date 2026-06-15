@@ -73,7 +73,7 @@ const STATE_CODE_BY_NAME: Record<string, string> = {
 function stateCodeFromGstin(gstin: string | null | undefined): string | null {
   if (!gstin) return null;
   const m = /^(\d{2})/.exec(gstin.trim());
-  return m ? m[1] : null;
+  return m && m[1] ? m[1] : null;
 }
 
 export async function loadCompany(): Promise<CompanyData> {

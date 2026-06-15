@@ -22,7 +22,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { InvoicePrintActions } from './print-actions';
-import { COMPANY } from '@/lib/company';
+import { loadCompany } from '@/lib/load-company';
 import { rupeesInWords } from '@/lib/rupees-in-words';
 
 export const dynamic = 'force-dynamic';
@@ -191,6 +191,7 @@ export default async function InvoicePrintPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
+  const companyP = loadCompany();
   const [hdrRes, lineRes, dcRes] = await Promise.all([
     sb.from('invoice')
       .select(`
@@ -217,6 +218,7 @@ export default async function InvoicePrintPage({
       .order('dc_date'),
   ]);
 
+  const COMPANY = await companyP;
   const inv = hdrRes.data as InvoiceRow | null;
 
   // For a credit note: pull every bill its synthetic payment is
@@ -446,8 +448,22 @@ export default async function InvoicePrintPage({
         .foot-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; padding-top: 10px; border-top: 0.5px solid #e5e5e5; font-size: 14px; font-weight: 600; color: #222; }
         .sig-block { text-align: right; padding-top: 32px; font-weight: 800; color: #000; font-size: 14px; }
         .addr-foot { margin-top: 14px; padding-top: 8px; border-top: 0.5px solid #e5e5e5; text-align: center; font-size: 13px; font-weight: 600; color: #333; line-height: 1.55; }
-        .ref-original { margin-top: 6px; font-size: 9px; color: #555; }
-        .ref-original b { color: #111; }
+        /* "Issued against …" banner on credit/debit notes.
+           Bigger, darker, with a soft amber background so the
+           operator can spot which invoices the note covers at a
+           glance from across the room. */
+        .ref-original {
+          margin-top: 10px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #1f2937;
+          background: #fffbeb;
+          border-left: 3px solid #f59e0b;
+          border-radius: 4px;
+          line-height: 1.55;
+        }
+        .ref-original b { color: #b45309; }
         .inv-watermark { position: relative; }
         .inv-status-draft::before { content: 'DRAFT'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 101px; color: rgba(148, 163, 184, 0.16); font-weight: 900; letter-spacing: 14px; pointer-events: none; transform: rotate(-30deg); }
         .inv-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 83px; color: rgba(220, 38, 38, 0.18); font-weight: 900; letter-spacing: 10px; pointer-events: none; transform: rotate(-30deg); }
@@ -552,15 +568,16 @@ export default async function InvoicePrintPage({
           </div>
         </div>
 
-        {/* ───── Original invoice reference (credit / debit notes) ─────
-            Credit notes: lists every bill (current invoices +
-            opening receivables) the credit was allocated against,
-            plus the customer's debit-note reference if captured.
-            Debit notes: shows the supplier's bill ref + the original
-            invoice picker fallback. */}
-        {inv.doc_type === 'credit_note' && (referencedBills.length > 0 || inv.supplier_bill_no) && (
+        {/* ───── Reference strip / Issued-against banner ─────
+            For sale invoices / jobwork / weaving / yarn / general:
+            shows the standard Date/Due/Status/Rev-chg/Ship/DCs grid.
+            For credit_note and debit_note: replaces that grid with
+            a single highlighted line listing the original invoices
+            (and party-bill-ref if captured), because Due/Ship/DCs
+            don't apply to a balance-reducing document. */}
+        {inv.doc_type === 'credit_note' || inv.doc_type === 'debit_note' ? (
           <div className="ref-original">
-            {referencedBills.length > 0 && (
+            {inv.doc_type === 'credit_note' && referencedBills.length > 0 && (
               <>
                 Issued against{' '}
                 {referencedBills.map((b, i) => (
@@ -573,37 +590,35 @@ export default async function InvoicePrintPage({
                 .{inv.supplier_bill_no ? ' ' : ''}
               </>
             )}
-            {inv.supplier_bill_no && (
-              <>
-                Party debit note: <b>{inv.supplier_bill_no}</b>
-                {inv.supplier_bill_date ? <> dated <b>{fmtDate(inv.supplier_bill_date)}</b></> : null}.
-              </>
-            )}
-          </div>
-        )}
-        {inv.doc_type === 'debit_note' && (inv.original || inv.supplier_bill_no) && (
-          <div className="ref-original">
-            {inv.original && (
+            {inv.doc_type === 'debit_note' && inv.original && (
               <>Issued against <b>{inv.original.invoice_no}</b> dated <b>{fmtDate(inv.original.invoice_date)}</b>.{' '}</>
             )}
             {inv.supplier_bill_no && (
               <>
-                Supplier bill: <b>{inv.supplier_bill_no}</b>
+                {inv.doc_type === 'credit_note' ? 'Party debit note: ' : 'Supplier bill: '}
+                <b>{inv.supplier_bill_no}</b>
                 {inv.supplier_bill_date ? <> dated <b>{fmtDate(inv.supplier_bill_date)}</b></> : null}.
               </>
             )}
+            {/* Edge case: no bills referenced and no party ref —
+                still show the doc date so the strip isn't empty. */}
+            {(inv.doc_type === 'credit_note' && referencedBills.length === 0 && !inv.supplier_bill_no) && (
+              <>Credit note dated <b>{fmtDate(inv.invoice_date)}</b>.</>
+            )}
+            {(inv.doc_type === 'debit_note' && !inv.original && !inv.supplier_bill_no) && (
+              <>Debit note dated <b>{fmtDate(inv.invoice_date)}</b>.</>
+            )}
+          </div>
+        ) : (
+          <div className="refstrip">
+            <div><div className="lbl">Date</div><div className="val">{fmtDate(inv.invoice_date)}</div></div>
+            <div><div className="lbl">Due</div><div className="val">{fmtDate(inv.due_date)}</div></div>
+            <div><div className="lbl">Status</div><div className="val" style={{ textTransform: 'capitalize' }}>{inv.status.replace('_', ' ')}</div></div>
+            <div><div className="lbl">Rev. chg</div><div className="val">No</div></div>
+            <div><div className="lbl">Ship mode</div><div className="val">Road</div></div>
+            <div><div className="lbl">DCs</div><div className="val">{linkedDcs.length > 0 ? linkedDcs.length : '-'}</div></div>
           </div>
         )}
-
-        {/* ───── Reference strip ───── */}
-        <div className="refstrip">
-          <div><div className="lbl">Date</div><div className="val">{fmtDate(inv.invoice_date)}</div></div>
-          <div><div className="lbl">Due</div><div className="val">{fmtDate(inv.due_date)}</div></div>
-          <div><div className="lbl">Status</div><div className="val" style={{ textTransform: 'capitalize' }}>{inv.status.replace('_', ' ')}</div></div>
-          <div><div className="lbl">Rev. chg</div><div className="val">No</div></div>
-          <div><div className="lbl">Ship mode</div><div className="val">Road</div></div>
-          <div><div className="lbl">DCs</div><div className="val">{linkedDcs.length > 0 ? linkedDcs.length : '-'}</div></div>
-        </div>
 
         {/* ───── Line items ───── */}
         <table className="items">

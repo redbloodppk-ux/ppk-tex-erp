@@ -19,7 +19,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
-import { COMPANY } from './company';
+import { loadCompany } from '@/lib/load-company';
 
 export const dynamic = 'force-dynamic';
 
@@ -149,6 +149,7 @@ export default async function DcPrintPage({
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
+  const companyP = loadCompany();
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
       .select('id, code, dc_date, status, production_mode, entry_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
@@ -160,6 +161,7 @@ export default async function DcPrintPage({
       .order('sno'),
   ]);
 
+  const COMPANY = await companyP;
   const dc = hdrRes.data as DcHeader | null;
   if (!dc) notFound();
 
