@@ -58,8 +58,8 @@ export default async function OrdersPage({
         title="Sales Orders"
         subtitle="Track every customer purchase order from creation to invoicing."
         actions={
-          <Link href="/app/orders/new" className="btn-primary">
-            <Plus className="w-4 h-4" /> New SO
+          <Link href="/app/delivery-challan/new" className="btn-primary">
+            <Plus className="w-4 h-4" /> New DC
           </Link>
         }
       />

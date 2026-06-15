@@ -314,8 +314,8 @@ export default async function DashboardPage() {
         </div>
         <div className="flex gap-2">
           <Link href="/app/costing" className="btn-ghost">New Costing</Link>
-          <Link href="/app/orders/new" className="btn-primary">
-            <ShoppingCart className="w-4 h-4" /> New Sales Order
+          <Link href="/app/delivery-challan/new" className="btn-primary">
+            <ShoppingCart className="w-4 h-4" /> New DC
           </Link>
         </div>
       </header>
