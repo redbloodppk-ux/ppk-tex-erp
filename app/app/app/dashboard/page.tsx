@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { formatRupee } from '@/lib/utils';
 import {
-  Users, Receipt, ArrowUpRight, Hammer, Truck,
+  Receipt, ArrowUpRight, Hammer, Truck,
   Wallet, Landmark, ClipboardList, ClockArrowUp, ShoppingCart,
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
@@ -87,7 +87,6 @@ export default async function DashboardPage() {
   // each query to what the signed-in user can see.
   const BILL_COLS = 'id, invoice_no, party_name, invoice_date, customer_id, jobwork_party_id, total, amount_paid, balance';
   const [
-    { count: customerCount },
     { data: outstanding },
     { data: jobworkInvoices },
     { data: customerInvoices },
@@ -98,7 +97,6 @@ export default async function DashboardPage() {
     { data: fabricBills },
     { data: openingPayables },
   ] = await Promise.all([
-    supabase.from('customer').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid outsource-weaving bill, oldest first.
     // The doc_type covers both jobwork_invoice (older label) and
@@ -285,9 +283,17 @@ export default async function DashboardPage() {
     now,
   );
 
+  // Total of every open supplier-side bill across the three sections
+  // below it (outsource-weaving + sizing/bobbin/yarn/fabric + opening
+  // payables). Drives the new Outstanding Payable KPI card replacing
+  // the Active-Customers count the operator wasn't using day to day.
+  const totalPayable =
+      weavingGroups .reduce((s, g) => s + g.total, 0)
+    + supplierGroups.reduce((s, g) => s + g.total, 0);
+
   const cards = [
-    { label: 'Active Customers', value: customerCount ?? 0,         icon: Users,        href: '/app/customers',  tone: 'from-indigo to-violet' },
-    { label: 'Outstanding (Rs)',  value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
+    { label: 'Outstanding Receivable (Rs)', value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
+    { label: 'Outstanding Payable (Rs)',    value: formatRupee(totalPayable,     { compact: true }), icon: Truck,   href: '/app/payments?direction=out', tone: 'from-violet-500 to-fuchsia-500' },
   ];
 
   // Frequent-entry shortcuts — surface the screens the operator opens
