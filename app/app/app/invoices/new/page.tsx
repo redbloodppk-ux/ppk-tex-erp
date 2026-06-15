@@ -714,8 +714,11 @@ export default function NewInvoicePage() {
       if (!Number(r.rate))       return setError(`"${r.description}": rate must be > 0.`);
     }
 
-    // Vehicle number is mandatory on every new invoice (migration 160).
-    if (vehicleNo.trim() === '') return setError('Vehicle number is required.');
+    // Vehicle number is mandatory on every new invoice (migration 160)
+    // — except for credit notes, which don't move goods.
+    if (docType !== 'credit_note' && vehicleNo.trim() === '') {
+      return setError('Vehicle number is required.');
+    }
 
     setBusy(true);
 
@@ -752,8 +755,11 @@ export default function NewInvoicePage() {
       is_interstate: isInterstate,
       invoice_date:  invoiceDate,
       // due_date = invoice_date + dueDays (N). Empty/zero days = no due
-      // date. We add days in UTC to avoid timezone slippage.
+      // date. We add days in UTC to avoid timezone slippage. Credit
+      // notes don't carry a due date (they reduce a balance, not
+      // create one).
       due_date:      (() => {
+        if (docType === 'credit_note') return null;
         const n = Number(dueDays);
         if (!Number.isFinite(n) || n <= 0 || !invoiceDate) return null;
         const d = new Date(invoiceDate + 'T00:00:00Z');
@@ -770,7 +776,9 @@ export default function NewInvoicePage() {
       total:         totals.total,
       status:        'issued',
       notes:         notes.trim() || null,
-      vehicle_no:    vehicleNo.trim().toUpperCase(),
+      vehicle_no:    docType === 'credit_note'
+        ? null
+        : (vehicleNo.trim().toUpperCase() || null),
       supplier_bill_no:   docType === 'debit_note' ? (supplierBillNo.trim() || null) : null,
       supplier_bill_date: docType === 'debit_note' && supplierBillDate ? supplierBillDate : null,
       ...shipToPayload(shipTo),
@@ -1009,27 +1017,32 @@ export default function NewInvoicePage() {
                 <input value={placeOfSupply} onChange={e => setPlaceOfSupply(e.target.value)}
                   className="input" placeholder="e.g. Tamil Nadu" />
               </div>
-              <div>
-                <label className="label">Due in (days)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={dueDays}
-                  onChange={e => setDueDays(e.target.value)}
-                  className="input num"
-                  placeholder="e.g. 30"
-                />
-                <p className="text-[11px] text-ink-mute mt-1">
-                  {(() => {
-                    const n = Number(dueDays);
-                    if (!Number.isFinite(n) || n <= 0 || !invoiceDate) return 'No due date';
-                    const d = new Date(invoiceDate + 'T00:00:00Z');
-                    d.setUTCDate(d.getUTCDate() + n);
-                    return `Due on ${d.toISOString().slice(0, 10)}`;
-                  })()}
-                </p>
-              </div>
+              {/* Credit notes don't have a payment due date — they
+                  reduce an existing balance rather than create a
+                  payable. Skip the Due-in field for that doc type. */}
+              {docType !== 'credit_note' && (
+                <div>
+                  <label className="label">Due in (days)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={dueDays}
+                    onChange={e => setDueDays(e.target.value)}
+                    className="input num"
+                    placeholder="e.g. 30"
+                  />
+                  <p className="text-[11px] text-ink-mute mt-1">
+                    {(() => {
+                      const n = Number(dueDays);
+                      if (!Number.isFinite(n) || n <= 0 || !invoiceDate) return 'No due date';
+                      const d = new Date(invoiceDate + 'T00:00:00Z');
+                      d.setUTCDate(d.getUTCDate() + n);
+                      return `Due on ${d.toISOString().slice(0, 10)}`;
+                    })()}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Optional consignee — different ship-to address. */}
@@ -1325,26 +1338,33 @@ export default function NewInvoicePage() {
 
           {/* ── Vehicle + Notes + Submit ───────────────────────────────────── */}
           <div className="card p-6 space-y-3">
-            <div>
-              <label className="label">Vehicle number *</label>
-              <input
-                value={vehicleNo}
-                onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
-                className="input uppercase"
-                placeholder="e.g. TN33 AB 1234"
-                maxLength={20}
-                required
-                list="inv-new-vehicle-history"
-              />
-              {/* Browser-native autocomplete fed by past invoice rows.
-                  Operator can type to filter or click the dropdown. */}
-              <datalist id="inv-new-vehicle-history">
-                {vehicleHistory.map((v) => <option key={v} value={v} />)}
-              </datalist>
-              <p className="text-[10px] text-ink-mute mt-1">
-                Transport vehicle registration. Required on every invoice and printed on the bill. Past vehicles auto-suggest.
-              </p>
-            </div>
+            {/* Vehicle no is only meaningful for documents that move
+                goods (sale invoices, jobwork, weaving bills, etc.).
+                Credit notes adjust balances on the books — no
+                vehicle, no e-way bill. Skip the field for that
+                doc type so the operator isn't blocked. */}
+            {docType !== 'credit_note' && (
+              <div>
+                <label className="label">Vehicle number *</label>
+                <input
+                  value={vehicleNo}
+                  onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
+                  className="input uppercase"
+                  placeholder="e.g. TN33 AB 1234"
+                  maxLength={20}
+                  required
+                  list="inv-new-vehicle-history"
+                />
+                {/* Browser-native autocomplete fed by past invoice rows.
+                    Operator can type to filter or click the dropdown. */}
+                <datalist id="inv-new-vehicle-history">
+                  {vehicleHistory.map((v) => <option key={v} value={v} />)}
+                </datalist>
+                <p className="text-[10px] text-ink-mute mt-1">
+                  Transport vehicle registration. Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+                </p>
+              </div>
+            )}
             <div>
               <div className="flex items-baseline justify-between mb-1">
                 <label className="label mb-0">Notes</label>
