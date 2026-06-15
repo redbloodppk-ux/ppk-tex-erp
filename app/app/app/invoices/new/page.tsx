@@ -129,6 +129,12 @@ export default function NewInvoicePage() {
   const [vendors, setVendors]     = useState<Vendor[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [vendorId,   setVendorId]   = useState('');
+  // Name → party.id lookup so the credit-note bill picker
+  // (UnpaidBillsPicker) can resolve a customer to its party.id —
+  // the customer.id and party.id are different sequences. Without
+  // this, the picker queries against a stale id and returns
+  // nothing even when unpaid invoices exist.
+  const [partyByName, setPartyByName] = useState<Map<string, number>>(new Map());
 
   // ── source masters ─────────────────────────────────────────────────────────
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
@@ -203,7 +209,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -280,6 +286,13 @@ export default function NewInvoicePage() {
         (supabase as any).from('doc_sequence')
           .select('doc_type, prefix, fy_code, format, next_value')
           .in('doc_type', ['invoice', 'yarn_sale', 'general_sale', 'rental_invoice', 'credit_note', 'debit_note']),
+        // Unified party master — used to resolve a picked customer
+        // (customer.id) to its party.id for the credit-note bill
+        // picker. customer.id and party.id are separate sequences,
+        // so without this lookup the picker would always come back
+        // empty.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('party').select('id, name').eq('status', 'active'),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -308,9 +321,27 @@ export default function NewInvoicePage() {
         seqMap[s.doc_type] = { prefix: s.prefix, fy_code: s.fy_code, format: s.format, next_value: Number(s.next_value) };
       }
       setDocSequences(seqMap);
+      // Build name → party.id lookup (case-insensitive). The credit-
+      // note picker uses this to convert the picked customer to a
+      // party.id so the unpaid-invoice query lands on the right rows.
+      const lookup = new Map<string, number>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const p of (((pm as any).data ?? []) as Array<{ id: number; name: string }>)) {
+        lookup.set(p.name.trim().toUpperCase(), p.id);
+      }
+      setPartyByName(lookup);
       setLoading(false);
     })();
   }, [supabase]);
+
+  // Resolve the currently-picked customer to its party.id (via name).
+  // Memoised so the picker doesn't re-fetch on unrelated re-renders.
+  const customerPartyId = useMemo<number | null>(() => {
+    if (customerId === '') return null;
+    const cust = customers.find((c) => String(c.id) === customerId);
+    if (!cust) return null;
+    return partyByName.get(cust.name.trim().toUpperCase()) ?? null;
+  }, [customerId, customers, partyByName]);
 
   // ── reset source when doc type changes ─────────────────────────────────────
   useEffect(() => {
@@ -929,6 +960,15 @@ export default function NewInvoicePage() {
                   <p className="text-xs text-ink-soft italic">
                     Pick the customer above first — their unpaid invoices will appear here for selection.
                   </p>
+                ) : customerPartyId === null ? (
+                  // Customer exists but no matching party-master row.
+                  // Surface a clear diagnostic so the operator can fix
+                  // the master data instead of seeing a silent empty list.
+                  <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-800">
+                    This customer is not linked to a party in the unified party master, so their unpaid invoices
+                    can&rsquo;t be looked up. Open <span className="font-semibold">Settings → Parties</span> and
+                    make sure the party name matches the customer name exactly.
+                  </div>
                 ) : (
                   <>
                     <div>
@@ -941,7 +981,7 @@ export default function NewInvoicePage() {
                       </p>
                     </div>
                     <UnpaidBillsPicker
-                      partyId={Number(customerId)}
+                      partyId={customerPartyId}
                       totalAmount={totals.total}
                       direction="in"
                       heading="Customer's unpaid invoices"
