@@ -48,6 +48,14 @@ interface CompanyRow {
   /** Most recent successful verification timestamp from /app/api/gst.
    *  Reloaded with the row so the green tick persists. */
   gstin_verified_at: string | null;
+  /** Bank details printed on every invoice + DC under "Make cheques
+   *  payable to …" — editable here so the operator can change the
+   *  account without touching code. Falls back to lib/company
+   *  constants on the print if any field is blank. */
+  bank_name: string;
+  bank_account_no: string;
+  bank_ifsc: string;
+  bank_branch: string;
 }
 
 interface Props {
@@ -71,6 +79,10 @@ const EMPTY: CompanyRow = {
   fy_start_month: 4,
   base_currency: 'INR',
   gstin_verified_at: null,
+  bank_name: '',
+  bank_account_no: '',
+  bank_ifsc: '',
+  bank_branch: '',
 };
 
 /** Pull the 10-character PAN out of a GSTIN. Positions 3-12 (0-indexed
@@ -167,6 +179,10 @@ export function CompanyForm({ initial }: Props): React.ReactElement {
       fy_start_month: form.fy_start_month,
       base_currency: form.base_currency || 'INR',
       gstin_verified_at: form.gstin_verified_at || null,
+      bank_name:       form.bank_name.trim()       || null,
+      bank_account_no: form.bank_account_no.trim() || null,
+      bank_ifsc:       form.bank_ifsc.trim().toUpperCase() || null,
+      bank_branch:     form.bank_branch.trim()     || null,
     };
 
     if (form.id != null) {
@@ -326,6 +342,54 @@ export function CompanyForm({ initial }: Props): React.ReactElement {
               value={form.website}
               onChange={(e) => setForm({ ...form, website: e.target.value })}
               placeholder="https://"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Bank details — printed on every invoice + DC */}
+      <div className="card p-5 space-y-3">
+        <h3 className="font-semibold text-sm">Bank details</h3>
+        <p className="text-[11px] text-ink-mute -mt-1">
+          These appear in the &ldquo;Make all cheques payable to&hellip;&rdquo; block on every invoice + DC print.
+          Leave any field blank to fall back to the built-in default.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Bank name</label>
+            <input
+              className="input"
+              value={form.bank_name}
+              onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+              placeholder="e.g. YES BANK"
+            />
+          </div>
+          <div>
+            <label className="label">Branch</label>
+            <input
+              className="input"
+              value={form.bank_branch}
+              onChange={(e) => setForm({ ...form, bank_branch: e.target.value })}
+              placeholder="e.g. ERODE"
+            />
+          </div>
+          <div>
+            <label className="label">Account number</label>
+            <input
+              className="input num"
+              value={form.bank_account_no}
+              onChange={(e) => setForm({ ...form, bank_account_no: e.target.value })}
+              placeholder="e.g. 062363400000783"
+            />
+          </div>
+          <div>
+            <label className="label">IFSC code</label>
+            <input
+              className="input num uppercase"
+              value={form.bank_ifsc}
+              onChange={(e) => setForm({ ...form, bank_ifsc: e.target.value.toUpperCase() })}
+              placeholder="e.g. YESB0000623"
+              maxLength={11}
             />
           </div>
         </div>

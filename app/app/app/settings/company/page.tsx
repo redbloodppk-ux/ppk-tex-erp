@@ -20,7 +20,7 @@ export default async function CompanyProfilePage() {
 
   const { data, error } = await sb
     .from('company_profile')
-    .select('id, legal_name, display_name, gstin, pan, address_line1, address_line2, city, state, pincode, phone, email, website, fy_start_month, base_currency, gstin_verified_at')
+    .select('id, legal_name, display_name, gstin, pan, address_line1, address_line2, city, state, pincode, phone, email, website, fy_start_month, base_currency, gstin_verified_at, bank_name, bank_account_no, bank_ifsc, bank_branch')
     .limit(1)
     .maybeSingle();
 
