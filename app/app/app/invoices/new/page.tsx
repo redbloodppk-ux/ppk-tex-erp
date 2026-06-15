@@ -19,7 +19,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { useColumnHistory } from '@/app/components/use-column-history';
-import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '@/app/components/unpaid-bills-picker';
+import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation, type SelectedBill } from '@/app/components/unpaid-bills-picker';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -158,6 +158,11 @@ export default function NewInvoicePage() {
   const [originalInvoices, setOriginalInvoices] = useState<OriginalInvoice[]>([]);
   const [originalLines,    setOriginalLines]    = useState<OriginalLine[]>([]);
   const [creditAllocs,     setCreditAllocs]     = useState<BillAllocation[]>([]);
+  /** Ticked bills emitted by the picker BEFORE allocation amounts
+   *  are computed. We watch this (not creditAllocs) to drive the
+   *  line pre-fill — otherwise the chicken-and-egg with totals=0
+   *  means lines never fill. */
+  const [creditPicks,      setCreditPicks]      = useState<SelectedBill[]>([]);
 
   // ── debit_note extras ──────────────────────────────────────────────────────
   const [supplierBillNo,   setSupplierBillNo]   = useState('');
@@ -352,7 +357,7 @@ export default function NewInvoicePage() {
     if (docType === 'credit_note')   setSourceKind('return');
     if (docType === 'debit_note')    setSourceKind('free');
     setPickedSoId(''); setSoLines([]);
-    setOriginalLines([]); setCreditAllocs([]);
+    setOriginalLines([]); setCreditAllocs([]); setCreditPicks([]);
     setVendorId(''); setCustomerId('');
     setPickedDcIds(new Set());
     setError(null);
@@ -433,17 +438,20 @@ export default function NewInvoicePage() {
   }, [pickedSoId, salesOrders, supabase]);
 
   // ── pre-fill rows when exactly ONE invoice is ticked ──────────────────────
-  // Only kicks in for credit_note. Multi-invoice ticks intentionally
-  // leave the row editor alone — the operator types what's actually
-  // being returned (or nothing, if the credit isn't goods-related).
+  // Fires on the tick itself (creditPicks), independent of allocation
+  // amount — otherwise the chicken-and-egg with empty rows / zero
+  // total keeps the picker's allocations empty too, and lines never
+  // fill. Multi-invoice ticks deliberately leave the row editor alone
+  // so the operator types what's actually being returned.
   useEffect(() => {
     if (docType !== 'credit_note') return;
-    const invoiceTicks = creditAllocs.filter((a) => a.kind === 'invoice');
+    const invoiceTicks = creditPicks.filter((p) => p.kind === 'invoice');
     if (invoiceTicks.length !== 1) {
       setOriginalLines([]);
       return;
     }
-    const tickedId = (invoiceTicks[0] as { kind: 'invoice'; invoice_id: number }).invoice_id;
+    const tickedId = invoiceTicks[0]?.id;
+    if (tickedId === undefined) return;
     (async () => {
       const { data } = await supabase
         .from('invoice_line')
@@ -463,7 +471,7 @@ export default function NewInvoicePage() {
         original_line_id: String(l.id),
       })));
     })();
-  }, [docType, creditAllocs, supabase]);
+  }, [docType, creditPicks, supabase]);
 
   // ── derived: customer state → interstate? ─────────────────────────────────
   const currentCustomer = customers.find(c => c.id === Number(customerId));
@@ -986,6 +994,7 @@ export default function NewInvoicePage() {
                       direction="in"
                       heading="Customer's unpaid invoices"
                       onAllocationsChange={setCreditAllocs}
+                      onSelectionChange={setCreditPicks}
                     />
                   </>
                 )}

@@ -35,6 +35,15 @@ export type BillAllocation =
   | { kind: 'yarn';    yarn_lot_id:       number; amount: number }
   | { kind: 'fabric';  fabric_purchase_id: number; amount: number };
 
+/** Lightweight identifier for a ticked bill — emitted regardless of
+ *  the per-bill amount so callers can react to the TICK event itself
+ *  (e.g. pre-fill credit-note lines from the ticked invoice). */
+export interface SelectedBill {
+  kind: BillAllocation['kind'];
+  id: number;
+  balance: number;
+}
+
 export interface UnpaidBillsPickerProps {
   /** Party whose unpaid bills we should fetch. Null clears the list. */
   partyId: number | null;
@@ -44,6 +53,11 @@ export interface UnpaidBillsPickerProps {
   direction: 'in' | 'out';
   /** Emits the current allocations array to the parent every time it changes. */
   onAllocationsChange: (allocs: BillAllocation[]) => void;
+  /** Optional: emits the list of TICKED bills regardless of amount.
+   *  Fires immediately when the operator checks/unchecks a row, so
+   *  parents can react to the selection even before an allocation
+   *  amount is known (e.g. credit-note line pre-fill). */
+  onSelectionChange?: (sel: SelectedBill[]) => void;
   /** Show the "Advance / On account" hint row in the footer. Default true. */
   showAdvanceHint?: boolean;
   /** Heading prefix override (defaults to "Unpaid bills"). */
@@ -102,6 +116,7 @@ export function UnpaidBillsPicker({
   totalAmount,
   direction,
   onAllocationsChange,
+  onSelectionChange,
   showAdvanceHint = true,
   heading,
 }: UnpaidBillsPickerProps): React.ReactElement | null {
@@ -334,6 +349,24 @@ export function UnpaidBillsPicker({
     onAllocationsChange(allocations);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allocations]);
+
+  // Emit ticked-bill selection independently of amount. This fires on
+  // every checkbox toggle — useful for parents that need to act on
+  // the TICK itself (e.g. credit-note line pre-fill, which needs the
+  // ticked invoice id before any allocation amount is known).
+  const selection = useMemo<SelectedBill[]>(() => {
+    const out: SelectedBill[] = [];
+    for (const b of bills) {
+      if (!checkedBills.has(billKey(b))) continue;
+      out.push({ kind: b.kind, id: b.id, balance: Number(b.balance) });
+    }
+    return out;
+  }, [bills, checkedBills]);
+
+  useEffect(() => {
+    if (onSelectionChange) onSelectionChange(selection);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection]);
 
   const allocatedTotal = useMemo<number>(() =>
     allocations.reduce((s, a) => s + a.amount, 0)
