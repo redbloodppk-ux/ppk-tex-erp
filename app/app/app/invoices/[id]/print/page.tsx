@@ -104,10 +104,21 @@ interface InvoiceRow {
   ewaybill_valid_till: string | null;
   vehicle_no: string | null;
   original_invoice_id: number | null;
+  supplier_bill_no: string | null;
+  supplier_bill_date: string | null;
   customer: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   vendor: { id: number; name: string } | null;
   jobwork_party: { id: number; name: string; gstin: string | null; state: string | null; billing_address: string | null } | null;
   original: { invoice_no: string; invoice_date: string } | null;
+}
+
+/** A single bill referenced by the credit-note's synthetic payment
+ *  allocations — could be an existing invoice or a pre-ERP opening
+ *  receivable. Used to populate the "Issued against" line on the
+ *  printed credit note. */
+interface ReferencedBill {
+  invoice_no: string;
+  invoice_date: string | null;
 }
 
 interface InvoiceLine {
@@ -188,7 +199,7 @@ export default async function InvoicePrintPage({
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, vehicle_no,
-        original_invoice_id,
+        original_invoice_id, supplier_bill_no, supplier_bill_date,
         customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id ( id, name ),
         jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address ),
@@ -207,6 +218,64 @@ export default async function InvoicePrintPage({
   ]);
 
   const inv = hdrRes.data as InvoiceRow | null;
+
+  // For a credit note: pull every bill its synthetic payment is
+  // allocated against, so the printed "Issued against" line can
+  // list ALL of them (not just original_invoice_id). The synthetic
+  // payment has mode='credit_note' and invoice_id = this credit
+  // note's id.
+  let referencedBills: ReferencedBill[] = [];
+  if (inv?.doc_type === 'credit_note') {
+    const { data: pmt } = await sb
+      .from('payment')
+      .select('id')
+      .eq('invoice_id', numericId)
+      .eq('mode', 'credit_note')
+      .maybeSingle();
+    const pmtId = pmt?.id as number | undefined;
+    if (pmtId !== undefined) {
+      const [invAllocRes, openAllocRes] = await Promise.all([
+        sb.from('payment_allocation')
+          .select('invoice:invoice_id ( invoice_no, invoice_date )')
+          .eq('payment_id', pmtId),
+        sb.from('payment_opening_allocation')
+          .select('opening:opening_ledger_id ( invoice_no, invoice_date )')
+          .eq('payment_id', pmtId),
+      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const r of ((invAllocRes.data ?? []) as any[])) {
+        if (r.invoice?.invoice_no) {
+          referencedBills.push({
+            invoice_no:   r.invoice.invoice_no,
+            invoice_date: r.invoice.invoice_date ?? null,
+          });
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const r of ((openAllocRes.data ?? []) as any[])) {
+        if (r.opening?.invoice_no) {
+          referencedBills.push({
+            invoice_no:   r.opening.invoice_no,
+            invoice_date: r.opening.invoice_date ?? null,
+          });
+        }
+      }
+    }
+    // De-duplicate by invoice_no in case the same bill appears twice.
+    const seen = new Set<string>();
+    referencedBills = referencedBills.filter((b) => {
+      if (seen.has(b.invoice_no)) return false;
+      seen.add(b.invoice_no);
+      return true;
+    });
+    // Fallback to original_invoice_id if no allocations (legacy rows).
+    if (referencedBills.length === 0 && inv.original?.invoice_no) {
+      referencedBills.push({
+        invoice_no:   inv.original.invoice_no,
+        invoice_date: inv.original.invoice_date,
+      });
+    }
+  }
   if (!inv) notFound();
 
   const lines = (lineRes.data ?? []) as InvoiceLine[];
@@ -483,10 +552,46 @@ export default async function InvoicePrintPage({
           </div>
         </div>
 
-        {/* ───── Original invoice reference (credit / debit notes) ───── */}
-        {(inv.doc_type === 'credit_note' || inv.doc_type === 'debit_note') && inv.original && (
+        {/* ───── Original invoice reference (credit / debit notes) ─────
+            Credit notes: lists every bill (current invoices +
+            opening receivables) the credit was allocated against,
+            plus the customer's debit-note reference if captured.
+            Debit notes: shows the supplier's bill ref + the original
+            invoice picker fallback. */}
+        {inv.doc_type === 'credit_note' && (referencedBills.length > 0 || inv.supplier_bill_no) && (
           <div className="ref-original">
-            Issued against <b>{inv.original.invoice_no}</b> dated <b>{fmtDate(inv.original.invoice_date)}</b>.
+            {referencedBills.length > 0 && (
+              <>
+                Issued against{' '}
+                {referencedBills.map((b, i) => (
+                  <span key={`${b.invoice_no}-${i}`}>
+                    {i > 0 ? ', ' : ''}
+                    <b>{b.invoice_no}</b>
+                    {b.invoice_date ? <> dated <b>{fmtDate(b.invoice_date)}</b></> : null}
+                  </span>
+                ))}
+                .{inv.supplier_bill_no ? ' ' : ''}
+              </>
+            )}
+            {inv.supplier_bill_no && (
+              <>
+                Party debit note: <b>{inv.supplier_bill_no}</b>
+                {inv.supplier_bill_date ? <> dated <b>{fmtDate(inv.supplier_bill_date)}</b></> : null}.
+              </>
+            )}
+          </div>
+        )}
+        {inv.doc_type === 'debit_note' && (inv.original || inv.supplier_bill_no) && (
+          <div className="ref-original">
+            {inv.original && (
+              <>Issued against <b>{inv.original.invoice_no}</b> dated <b>{fmtDate(inv.original.invoice_date)}</b>.{' '}</>
+            )}
+            {inv.supplier_bill_no && (
+              <>
+                Supplier bill: <b>{inv.supplier_bill_no}</b>
+                {inv.supplier_bill_date ? <> dated <b>{fmtDate(inv.supplier_bill_date)}</b></> : null}.
+              </>
+            )}
           </div>
         )}
 

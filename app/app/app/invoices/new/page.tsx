@@ -779,8 +779,14 @@ export default function NewInvoicePage() {
       vehicle_no:    docType === 'credit_note'
         ? null
         : (vehicleNo.trim().toUpperCase() || null),
-      supplier_bill_no:   docType === 'debit_note' ? (supplierBillNo.trim() || null) : null,
-      supplier_bill_date: docType === 'debit_note' && supplierBillDate ? supplierBillDate : null,
+      // Same two columns hold the "other party's ref" for both
+      // debit notes (supplier's bill no/date) and credit notes
+      // (customer's debit-note no/date). Print template re-labels
+      // the field based on doc_type.
+      supplier_bill_no:   (docType === 'debit_note' || docType === 'credit_note')
+                            ? (supplierBillNo.trim() || null) : null,
+      supplier_bill_date: (docType === 'debit_note' || docType === 'credit_note') && supplierBillDate
+                            ? supplierBillDate : null,
       ...shipToPayload(shipTo),
     };
 
@@ -1146,6 +1152,24 @@ export default function NewInvoicePage() {
                 </div>
                 <div>
                   <label className="label">Supplier bill date</label>
+                  <input type="date" value={supplierBillDate}
+                    onChange={e => setSupplierBillDate(e.target.value)} className="input" />
+                </div>
+              </div>
+            )}
+
+            {/* Credit notes: capture the customer's debit-note
+                reference so it can be quoted on the printed credit
+                note. Stored in the same supplier_bill_* columns. */}
+            {docType === 'credit_note' && (
+              <div className="border-t pt-4 grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Party debit note no</label>
+                  <input value={supplierBillNo} onChange={e => setSupplierBillNo(e.target.value)}
+                    className="input" placeholder="Customer's debit note no (if any)" />
+                </div>
+                <div>
+                  <label className="label">Party debit note date</label>
                   <input type="date" value={supplierBillDate}
                     onChange={e => setSupplierBillDate(e.target.value)} className="input" />
                 </div>
