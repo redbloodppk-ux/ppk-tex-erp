@@ -62,12 +62,12 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
 
-type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'payment' | 'weavers';
+type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'payment' | 'weavers';
 
 interface PartyOpt { id: number; code: string; name: string; }
 interface QualityOpt { id: number; code: string | null; name: string; }
 interface CountOpt { id: number; code: string; display_name: string; }
-// (EndsOpt interface removed - was only used by the Warp Yarn tab.)
+interface EndsOpt { id: number; code: string; name: string; }
 interface FabricDefaults { warp_count_id: number | null; ends_id: number | null; total_ends: number | null; }
 
 interface BobbinRow {
@@ -140,8 +140,20 @@ interface BobbinReturnRow {
   reference_no: string | null;
   notes: string | null;
 }
-// (WarpYarnRow interface removed - Warp Yarn tab is no longer in this page.
-//  The jobwork_warp_yarn DB table still exists but is no longer surfaced.)
+interface WarpYarnRow {
+  id: number;
+  jobwork_party_id: number;
+  fabric_quality_id: number | null;
+  ends_id: number | null;
+  warp_count_id: number | null;
+  given_date: string;
+  total_kg: number | null;
+  sizing_rate_per_kg: number | null;
+  total_cost: number | null;
+  reference_no: string | null;
+  notes: string | null;
+  supplier_party_id: number | null;
+}
 
 function todayISO(): string {
   const d = new Date();
@@ -168,11 +180,13 @@ export default function JobworkPage(): React.ReactElement {
   const [fabricDefaults, setFabricDefaults] = useState<Map<number, FabricDefaults>>(new Map());
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [counts, setCounts] = useState<CountOpt[]>([]);
+  const [endsOptions, setEndsOptions] = useState<EndsOpt[]>([]);
   const [bobbins, setBobbins] = useState<BobbinRow[]>([]);
   const [bobbinMasters, setBobbinMasters] = useState<BobbinMasterOpt[]>([]);
   const [bobbinReturns, setBobbinReturns] = useState<BobbinReturnRow[]>([]);
   const [warpBeams, setWarpBeams] = useState<WarpBeamRow[]>([]);
   const [weftBags, setWeftBags] = useState<WeftBagRow[]>([]);
+  const [warpYarns, setWarpYarns] = useState<WarpYarnRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,7 +207,7 @@ export default function JobworkPage(): React.ReactElement {
     const bobbinSupplierTypeId = ptList.find((t) => t.name === 'Bobbin Supplier')?.id ?? null;
     const sizingPartyTypeId    = ptList.find((t) => t.name === 'Sizing Party')?.id ?? null;
 
-    const [p, ap, bs, sp, q, c, b, w, wb, br, bm] = await Promise.all([
+    const [p, ap, bs, sp, q, c, b, w, wb, br, bm, em, wy] = await Promise.all([
       // Filter jobwork_party by kind so the same code services both
       // /app/jobwork (kind='jobwork') and /app/outsource (kind='outsource').
       sb.from('jobwork_party').select('id, code, name').eq('status', 'active').eq('kind', variant.kind).order('name'),
@@ -228,10 +242,16 @@ export default function JobworkPage(): React.ReactElement {
       // 142 makes bobbin one row per (ends, mode), so the same page can
       // service both flows by just changing the eq below.
       sb.from('bobbin').select('id, code, ends_per_bobbin, bobbin_metre, is_lurex').eq('production_mode', variant.kind).neq('status', 'archived').order('ends_per_bobbin'),
+      // Ends master â€” populates the Ends spec dropdown on the Warp Yarn
+      // tab. Same shape used by the Fabric Quality form.
+      sb.from('ends_master').select('id, code, name').eq('active', true).order('ends_count'),
+      // Warp yarn (sizing) given â€” parallels jobwork_warp_beam /
+      // jobwork_weft_bag. Filtered to active rows only.
+      sb.from('jobwork_warp_yarn').select('id, jobwork_party_id, fabric_quality_id, ends_id, warp_count_id, given_date, total_kg, sizing_rate_per_kg, total_cost, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
     // Don't propagate the bobbin_return error if migration 093 hasn't
     // been applied yet - we just treat it as empty.
-    const errObj = [p, ap, bs, sp, q, c, b, w, wb, bm].find((r) => r.error);
+    const errObj = [p, ap, bs, sp, q, c, b, w, wb, bm, em, wy].find((r) => r.error);
     if (errObj) {
       setError(errObj.error.message);
     } else {
@@ -300,6 +320,8 @@ export default function JobworkPage(): React.ReactElement {
       setBobbinMasters((bm.data ?? []) as BobbinMasterOpt[]);
       setWarpBeams((w.data ?? []) as WarpBeamRow[]);
       setWeftBags((wb.data ?? []) as WeftBagRow[]);
+      setEndsOptions((em.data ?? []) as EndsOpt[]);
+      setWarpYarns((wy.data ?? []) as WarpYarnRow[]);
       // bobbin_return table may not exist yet (migration 093). Tolerate
       // missing data without breaking the page.
       setBobbinReturns(((br?.data ?? []) as BobbinReturnRow[]) ?? []);
@@ -314,6 +336,7 @@ export default function JobworkPage(): React.ReactElement {
   const allPartyById = useMemo(() => new Map(allParties.map((p) => [p.id, p])), [allParties]);
   const qualityById = useMemo(() => new Map(qualities.map((q) => [q.id, q])), [qualities]);
   const countById = useMemo(() => new Map(counts.map((c) => [c.id, c])), [counts]);
+  const endsById = useMemo(() => new Map(endsOptions.map((e) => [e.id, e])), [endsOptions]);
 
   return (
     <div>
@@ -338,6 +361,7 @@ export default function JobworkPage(): React.ReactElement {
           <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
         )}
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
+        <TabButton active={tab === 'warp_yarn'} onClick={() => setTab('warp_yarn')}>Warp yarn given</TabButton>
         <TabButton active={tab === 'payment'}   onClick={() => setTab('payment')}>Payment Status</TabButton>
         {variant.kind === 'outsource' && (
           <TabButton active={tab === 'weavers'} onClick={() => setTab('weavers')}>Weavers</TabButton>
@@ -377,6 +401,16 @@ export default function JobworkPage(): React.ReactElement {
           rows={weftBags.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
           parties={parties} counts={counts} allParties={allParties}
           partyById={partyById} countById={countById} allPartyById={allPartyById}
+          partyLabel={variant.partyLabel}
+          onChanged={load}
+        />
+      ) : tab === 'warp_yarn' ? (
+        <WarpYarnTab
+          rows={warpYarns.filter((r) => r.jobwork_party_id != null && partyById.has(r.jobwork_party_id))}
+          parties={parties} qualities={qualities} counts={counts}
+          endsOptions={endsOptions} allParties={allParties}
+          partyById={partyById} qualityById={qualityById} countById={countById}
+          endsById={endsById} allPartyById={allPartyById}
           partyLabel={variant.partyLabel}
           onChanged={load}
         />
@@ -2270,13 +2304,26 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
   );
 }
 
-/* ===== Warp Yarn tab â€” REMOVED =====
- * Original implementation of the Warp Yarn (sizing) section, kept below as
- * a commented reference only. The jobwork_warp_yarn DB table still exists
- * with its data intact; this UI just no longer surfaces it.
+/* ===== Warp Yarn (sizing) tab =====
+ * Mirrors the WeftBagTab / WarpBeamTab pattern: receives rows + lookup
+ * maps from the parent, owns its own add / edit / delete / restock state.
+ * Writes against the jobwork_warp_yarn table (migration 074-075).
  */
-/*
-function WarpYarnTab(_props: unknown) {
+function WarpYarnTab({
+  rows, parties, qualities, counts, endsOptions, allParties,
+  partyById, qualityById, countById, endsById, allPartyById,
+  partyLabel, onChanged,
+}: {
+  rows: WarpYarnRow[];
+  parties: PartyOpt[]; qualities: QualityOpt[]; counts: CountOpt[];
+  endsOptions: EndsOpt[]; allParties: PartyOpt[];
+  partyById: Map<number, PartyOpt>; qualityById: Map<number, QualityOpt>;
+  countById: Map<number, CountOpt>; endsById: Map<number, EndsOpt>;
+  allPartyById: Map<number, PartyOpt>;
+  /** "Jobwork Party" or "Outsourcing party" depending on the route. */
+  partyLabel: string;
+  onChanged: () => void;
+}): React.ReactElement {
   const supabase = createClient();
   const [form, setForm] = useState({
     given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', ends_id: '', warp_count_id: '',
@@ -2287,11 +2334,13 @@ function WarpYarnTab(_props: unknown) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WarpYarnRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
+  // Toggle for the inline add form (matches Bobbin/Weft Bag pattern).
+  const [showAdd, setShowAdd] = useState<boolean>(false);
   void allPartyById;
 
-  async function add() {
+  async function add(): Promise<void> {
     setErr(null);
-    if (form.jobwork_party_id === '') { setErr('Pick a jobwork party.'); return; }
+    if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -2312,9 +2361,10 @@ function WarpYarnTab(_props: unknown) {
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setForm({ given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', ends_id: '', warp_count_id: '', total_kg: '', sizing_rate_per_kg: '', total_cost: '', reference_no: '', notes: '', supplier_party_id: '' });
+    setShowAdd(false);
     onChanged();
   }
-  async function del(id: number) {
+  async function del(id: number): Promise<void> {
     if (!window.confirm('Delete this warp yarn entry?')) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -2322,7 +2372,7 @@ function WarpYarnTab(_props: unknown) {
     if (error) { setErr(error.message); return; }
     onChanged();
   }
-  async function saveEdit() {
+  async function saveEdit(): Promise<void> {
     if (!editForm) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -2342,7 +2392,7 @@ function WarpYarnTab(_props: unknown) {
     setEditingId(null); setEditForm(null);
     onChanged();
   }
-  async function restock(parent: WarpYarnRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }) {
+  async function restock(parent: WarpYarnRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const kg = data.qty.total_kg === '' ? null : Number(data.qty.total_kg);
@@ -2367,11 +2417,20 @@ function WarpYarnTab(_props: unknown) {
 
   return (
     <div>
+      <div className="flex justify-between items-center mb-3">
+        <p className="text-sm text-ink-mute">Warp yarn (sizing) issued. Use Add to log a new batch; Restock to clone a previous batch with fresh date/qty.</p>
+        <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
+          {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {showAdd ? 'Cancel' : 'Add warp yarn given'}
+        </button>
+      </div>
+
+      {showAdd && (
       <div className="card p-4 mb-4">
         <h3 className="font-display font-bold text-sm mb-3">Add warp yarn</h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
-          <div><label className="label text-xs">Party *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
+          <div><label className="label text-xs">{partyLabel} *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
           <div><label className="label text-xs">Fabric quality</label><select className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
           <div><label className="label text-xs">Ends spec</label><select className="input" value={form.ends_id} onChange={(e) => setForm({ ...form, ends_id: e.target.value })}><option value="">---</option>{endsOptions.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></div>
           <div><label className="label text-xs">Warp count</label><select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</select></div>
@@ -2387,6 +2446,7 @@ function WarpYarnTab(_props: unknown) {
           <button type="button" onClick={add} disabled={busy} className="btn-primary">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp yarn</button>
         </div>
       </div>
+      )}
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
@@ -2457,10 +2517,24 @@ function WarpYarnTab(_props: unknown) {
               );
             })}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
+              <tr>
+                <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">
+                  {rows.reduce((s, r) => s + Number(r.total_kg ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                </td>
+                <td />
+                <td className="px-3 py-3 text-right num font-bold text-indigo-700">
+                  {rows.reduce((s, r) => s + Number(r.total_cost ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
   );
 }
-*/
 
