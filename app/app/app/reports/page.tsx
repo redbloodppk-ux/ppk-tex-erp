@@ -28,6 +28,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/purchase-register',
+    title: 'Purchase Register',
+    description:
+      'Every supplier bill in one place — yarn, bobbin, sizing, fabric, outsource weaving and jobwork. CGST/SGST/IGST split with "with GST / without GST" filter.',
+    ready: true,
+  },
+  {
     href: '/app/reports/stock-on-hand',
     title: 'Stock on Hand',
     description:
