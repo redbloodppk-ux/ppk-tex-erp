@@ -196,8 +196,14 @@ export default async function PurchaseRegisterReport({
 
   const supabase = await createClient();
 
+  // v_purchase_register isn't in the generated DB types yet (added by
+  // migration 175). Cast through any so the build doesn't choke until
+  // types are regenerated.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+
   // Main query
-  let query = supabase
+  let query = sb
     .from('v_purchase_register')
     .select('*')
     .gte('bill_date', from)
@@ -219,11 +225,8 @@ export default async function PurchaseRegisterReport({
 
   const [rowsRes, partyRes] = await Promise.all([
     query,
-    // Only suppliers — anyone whose party_type_ids include 1 (Yarn
-    // Supplier), 2 (Bobbin Vendor), 4 (Sizing), 5 (Outsource Weaver),
-    // 6 (Jobwork Party), or 3 (Fabric Supplier). We keep it broad so
-    // the dropdown stays useful across all 5 sources.
-    supabase
+    // Suppliers dropdown — broad enough to cover all 5 sources.
+    sb
       .from('party')
       .select('id, code, name')
       .eq('status', 'active')

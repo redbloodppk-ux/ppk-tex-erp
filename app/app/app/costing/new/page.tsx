@@ -58,13 +58,16 @@ export default function NewCostingPage() {
   const [selvedgeLengthIn, setSelvedgeLengthIn] = useState(2.5);
   const [porvaiYarnCost, setPorvaiYarnCost] = useState(195);
 
-  const [bagsPerM, setBagsPerM] = useState(DEFAULT_BAGS_PER_M);
-  const [emptyBeamPerM, setEmptyBeamPerM] = useState(DEFAULT_EMPTY_BEAM_PER_M);
-  const [sizedPaavuPerM, setSizedPaavuPerM] = useState(DEFAULT_SIZED_PAAVU_BEAM_PER_M);
-  const [otherChargesPerM, setOtherChargesPerM] = useState(0);
-
-  const [profitPct, setProfitPct] = useState(0.10);
-  const [marketRate, setMarketRate] = useState(0);
+  // Mill overheads (bags / empty beams / sized paavu / other charges)
+  // and the Profit & market block were removed from the form. The
+  // numbers below are constants kept at 0 so the calc still compiles
+  // without those terms — they no longer contribute to cost / sell.
+  const bagsPerM = 0;
+  const emptyBeamPerM = 0;
+  const sizedPaavuPerM = 0;
+  const otherChargesPerM = 0;
+  const profitPct = 0;
+  const marketRate = 0;
 
   const [isTowel, setIsTowel] = useState(true);
   const [towelLength, setTowelLength] = useState(1.7);
@@ -354,25 +357,7 @@ export default function NewCostingPage() {
             )}
           </div>
 
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">
-              Mill overheads <span className="text-xs font-normal text-ink-mute">(auto-filled, editable)</span>
-            </h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} /></Row>
-              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} /></Row>
-              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} /></Row>
-              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} /></Row>
-            </div>
-          </div>
-
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">Profit & market</h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} /></Row>
-              <Row><L title="Optional. If set, profit/loss = market - cost.">Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} /></Row>
-            </div>
-          </div>
+          {/* Mill overheads + Profit & market sections removed. */}
 
           <div className="border-t border-line/60 pt-3">
             <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} />
@@ -417,24 +402,11 @@ export default function NewCostingPage() {
           <ResultRow label="Weaving (pick)" value={formatRupee(r.pickCost, { decimals: 3 })} small />
           {useBobbin && (<ResultRow label="Bobbin & weft" value={formatRupee(r.bobbinCost, { decimals: 3 })} small />)}
           {usePorvai && (<ResultRow label="Porvai" value={formatRupee(r.porvaiCost, { decimals: 3 })} small />)}
-          <ResultRow label="Bags" value={formatRupee(r.bagsPerM, { decimals: 3 })} small />
-          <ResultRow label="Empty beams" value={formatRupee(r.emptyBeamPerM, { decimals: 3 })} small />
-          <ResultRow label="Sized paavu beam" value={formatRupee(r.sizedPaavuPerM, { decimals: 3 })} small />
-          {r.otherChargesPerM > 0 && (<ResultRow label="Other charges" value={formatRupee(r.otherChargesPerM, { decimals: 3 })} small />)}
 
           <Divider />
           <ResultRow label="Subtotal" value={formatRupee(r.subtotal, { decimals: 2 })} />
-          <ResultRow label={"Profit (" + (profitPct * 100).toFixed(1) + "%)"} value={formatRupee(r.profitAmount, { decimals: 2 })} small />
           <Divider />
           <ResultRow label="Cost / metre" value={formatRupee(r.costPerM, { decimals: 2 })} highlight="indigo" big />
-
-          {r.profitLoss !== null && (
-            <ResultRow
-              label={"P/L vs market Rs" + marketRate + "/m"}
-              value={formatRupee(r.profitLoss, { decimals: 2 })}
-              highlight={r.profitLoss >= 0 ? 'emerald' : 'amber'}
-              small />
-          )}
 
           {isTowel && r.costPerTowel !== null && (
             <>

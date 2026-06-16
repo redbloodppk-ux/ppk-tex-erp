@@ -101,13 +101,19 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   const [selvedgeLengthIn, setSelvedgeLengthIn] = useState(2.5);
   const [porvaiYarnCost, setPorvaiYarnCost] = useState(195);
 
-  const [bagsPerM, setBagsPerM] = useState(DEFAULT_BAGS_PER_M);
-  const [emptyBeamPerM, setEmptyBeamPerM] = useState(DEFAULT_EMPTY_BEAM_PER_M);
-  const [sizedPaavuPerM, setSizedPaavuPerM] = useState(DEFAULT_SIZED_PAAVU_BEAM_PER_M);
-  const [otherChargesPerM, setOtherChargesPerM] = useState(0);
-
-  const [profitPct, setProfitPct] = useState(0.10);
-  const [marketRate, setMarketRate] = useState(0);
+  // Mill overheads (bags / empty beams / sized paavu / other charges)
+  // and the Profit & market block were removed from the form. The
+  // numbers below stay as constants (zeroed) so the calc still
+  // compiles without those terms — they no longer contribute to cost
+  // / sell. The fields are still read from the snapshot so we don't
+  // crash on older saved rows, but they're never rendered or saved
+  // back.
+  const bagsPerM = 0;
+  const emptyBeamPerM = 0;
+  const sizedPaavuPerM = 0;
+  const otherChargesPerM = 0;
+  const profitPct = 0;
+  const marketRate = 0;
 
   const [isTowel, setIsTowel] = useState(true);
   const [towelLength, setTowelLength] = useState(1.7);
@@ -197,12 +203,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       if (s.selvedgeLengthIn  != null) setSelvedgeLengthIn(s.selvedgeLengthIn);
       if (s.porvaiYarnCost    != null) setPorvaiYarnCost(s.porvaiYarnCost);
       if (s.porvaiCountId     != null) setPorvaiCountId(s.porvaiCountId);
-      if (s.bagsPerM          != null) setBagsPerM(s.bagsPerM);
-      if (s.emptyBeamPerM     != null) setEmptyBeamPerM(s.emptyBeamPerM);
-      if (s.sizedPaavuPerM    != null) setSizedPaavuPerM(s.sizedPaavuPerM);
-      if (s.otherChargesPerM  != null) setOtherChargesPerM(s.otherChargesPerM);
-      if (s.profitPct         != null) setProfitPct(s.profitPct);
-      if (s.marketRate        != null) setMarketRate(s.marketRate);
+      // Mill overheads and Profit & market fields are no longer set
+      // from the snapshot — they live as zeroed constants now.
       if (s.isTowel           != null) setIsTowel(s.isTowel);
       if (s.towelLength       != null) setTowelLength(s.towelLength);
       if (s.showProd          != null) setShowProd(s.showProd);
@@ -500,23 +502,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
             )}
           </div>
 
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">Mill overheads</h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} lock={lockRates} /></Row>
-              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} lock={lockRates} /></Row>
-              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} lock={lockRates} /></Row>
-              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} lock={lockRates} /></Row>
-            </div>
-          </div>
-
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">Profit &amp; market</h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} lock={lockRates} /></Row>
-              <Row><L>Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} lock={lockRates} /></Row>
-            </div>
-          </div>
+          {/* Mill overheads + Profit & market sections removed. */}
 
           <div className="border-t border-line/60 pt-3">
             <Toggle label="Calculate for towel?" checked={isTowel} set={setIsTowel} lock={lockConstruction} />
@@ -556,7 +542,6 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           {usePorvai && (<ResultRow label="Porvai" value={formatRupee(r.porvaiCost, { decimals: 3 })} small />)}
           <Divider />
           <ResultRow label="Subtotal" value={formatRupee(r.subtotal, { decimals: 2 })} />
-          <ResultRow label={"Profit (" + (profitPct * 100).toFixed(1) + "%)"} value={formatRupee(r.profitAmount, { decimals: 2 })} small />
           <Divider />
           <ResultRow label="Cost / metre" value={formatRupee(r.costPerM, { decimals: 2 })} highlight="indigo" big />
           {isTowel && r.costPerTowel !== null && (
