@@ -11,7 +11,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2 } from 'lucide-react';
+import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+
+// One row of the "past jobwork bills" modal — surfaces enough to let the
+// user decide whether to retro-apply the new rate. `current_cost` is the
+// existing point-in-time snapshot (may be NULL on legacy lines).
+interface PastJobworkLine {
+  line_id: number;
+  invoice_id: number;
+  invoice_no: string;
+  invoice_date: string;
+  party_name: string | null;
+  quantity: number;
+  current_cost: number | null;
+}
 
 // Legacy types kept exported so the existing /new + /[id] server pages
 // keep type-checking. The construction form does not actually use the
@@ -170,6 +183,18 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [saveOk, setSaveOk] = useState<string | null>(null);
   const didApplySnapshot = useRef<boolean>(false);
 
+  // The pick_cost_per_m value as it was when the row loaded — used to
+  // detect "rate changed" and trigger the retro-apply modal. Stored as a
+  // string so we can compare against the raw input value the user sees.
+  const [originalPickCost, setOriginalPickCost] = useState<string>('');
+  // Past-bills modal state. `pastLines` is populated only when the user
+  // actually changes pick_cost_per_m on an existing fabric_quality row
+  // AND at least one historical jobwork_invoice line references it.
+  const [showRetroModal, setShowRetroModal] = useState<boolean>(false);
+  const [pastLines, setPastLines] = useState<PastJobworkLine[]>([]);
+  const [pickedLineIds, setPickedLineIds] = useState<Set<number>>(new Set());
+  const [retroBusy, setRetroBusy] = useState<boolean>(false);
+
   // Load Bobbin master + Fabric Type master once.
   useEffect(() => {
     void (async () => {
@@ -210,7 +235,13 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       setHsn(data.hsn ?? '');
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
       if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
-      setPickCostPerM(data.pick_cost_per_m == null ? '' : String(data.pick_cost_per_m));
+      {
+        const loadedCost = data.pick_cost_per_m == null ? '' : String(data.pick_cost_per_m);
+        setPickCostPerM(loadedCost);
+        // Snapshot the loaded value so the save flow can detect a rate
+        // change and offer to retro-apply it to past jobwork bills.
+        setOriginalPickCost(loadedCost);
+      }
       setIsMerged(Boolean(data.is_merged));
       setMergedName(data.merged_name ?? '');
       setNotes(data.notes ?? '');
@@ -295,12 +326,20 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
     isTowel, towelLength,
   ]);
 
-  async function handleSave(): Promise<void> {
-    setSaveError(null);
-    setSaveOk(null);
-    if (name.trim() === '') return setSaveError('Fabric name is required.');
+  // Pick-cost-per-m is the only field that triggers the retro-apply
+  // modal — see handleSave. Pure string comparison keeps things simple:
+  // the loaded value is normalised to String(numeric) by the load
+  // effect, and the input is bound to the same string, so an unchanged
+  // value stays string-identical. Trim guards against stray whitespace.
+  function hasPickCostChanged(): boolean {
+    if (!isEdit) return false;
+    return pickCostPerM.trim() !== originalPickCost.trim();
+  }
 
-    setSaving(true);
+  // Core write — pushes the fabric_quality row (insert OR update). Split
+  // out of handleSave so the retro-apply modal can call it after the
+  // user confirms.
+  async function persistFabricQuality(): Promise<{ ok: true } | { ok: false; message: string }> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
@@ -360,20 +399,150 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const res = await sb.from('fabric_quality').insert(payload);
       err = res.error;
     }
-    setSaving(false);
     if (err) {
       if (err.code === '23505') {
-        setSaveError(`Name "${name.trim()}" is already used. Pick a different name.`);
-      } else {
-        setSaveError(err.message);
+        return { ok: false, message: `Name "${name.trim()}" is already used. Pick a different name.` };
       }
-      return;
+      return { ok: false, message: err.message };
     }
+    return { ok: true };
+  }
+
+  // Standard navigate-away once everything succeeded.
+  function finishSave(): void {
     setSaveOk(isEdit ? 'Saved.' : 'Fabric quality created.');
     setTimeout(() => {
       router.push('/app/settings/fabric-qualities');
       router.refresh();
     }, 600);
+  }
+
+  async function handleSave(): Promise<void> {
+    setSaveError(null);
+    setSaveOk(null);
+    if (name.trim() === '') return setSaveError('Fabric name is required.');
+
+    // Fast path: new row or pick cost untouched → save directly.
+    if (!hasPickCostChanged() || props.fabricQualityId == null) {
+      setSaving(true);
+      const res = await persistFabricQuality();
+      setSaving(false);
+      if (!res.ok) return setSaveError(res.message);
+      finishSave();
+      return;
+    }
+
+    // Rate changed on an existing row — look up past jobwork bills that
+    // currently reference this fabric_quality. If there are none, save
+    // straight away (no historical bills to worry about).
+    setSaving(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { data, error } = await sb
+      .from('invoice_line')
+      .select('id, invoice_id, quantity, jobwork_cost_per_m, invoice:invoice_id ( invoice_no, invoice_date, party_name, doc_type, status )')
+      .eq('fabric_quality_id', props.fabricQualityId);
+    setSaving(false);
+
+    if (error) return setSaveError(error.message);
+
+    // Apply doc_type + status filter in the client — we ask Supabase for
+    // the parent inline, then drop draft / cancelled / non-jobwork rows.
+    type Row = {
+      id: number; invoice_id: number; quantity: number | string;
+      jobwork_cost_per_m: number | string | null;
+      invoice: {
+        invoice_no: string; invoice_date: string; party_name: string | null;
+        doc_type: string; status: string;
+      } | null;
+    };
+    const rows = ((data ?? []) as Row[])
+      .filter((r) => r.invoice != null
+        && r.invoice.doc_type === 'jobwork_invoice'
+        && r.invoice.status !== 'draft'
+        && r.invoice.status !== 'cancelled')
+      .map<PastJobworkLine>((r) => ({
+        line_id: r.id,
+        invoice_id: r.invoice_id,
+        invoice_no: r.invoice!.invoice_no,
+        invoice_date: r.invoice!.invoice_date,
+        party_name: r.invoice!.party_name,
+        quantity: Number(r.quantity) || 0,
+        current_cost: r.jobwork_cost_per_m == null ? null : Number(r.jobwork_cost_per_m),
+      }))
+      .sort((a, b) => (a.invoice_date < b.invoice_date ? 1 : -1));
+
+    if (rows.length === 0) {
+      // No historical bills affected — save without prompting.
+      setSaving(true);
+      const res = await persistFabricQuality();
+      setSaving(false);
+      if (!res.ok) return setSaveError(res.message);
+      finishSave();
+      return;
+    }
+
+    // Show the modal. Default = NOTHING ticked; the operator opts in
+    // bill-by-bill so a rate change doesn't silently rewrite history.
+    setPastLines(rows);
+    setPickedLineIds(new Set());
+    setShowRetroModal(true);
+  }
+
+  // Modal handlers ---------------------------------------------------------
+
+  function toggleLine(id: number): void {
+    setPickedLineIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll(): void {
+    setPickedLineIds((prev) => {
+      if (prev.size === pastLines.length) return new Set();
+      return new Set(pastLines.map((l) => l.line_id));
+    });
+  }
+
+  // Save fabric quality + retro-apply rate to the ticked invoice lines.
+  async function confirmRetroApply(applyTicked: boolean): Promise<void> {
+    setSaveError(null);
+    setRetroBusy(true);
+    const res = await persistFabricQuality();
+    if (!res.ok) {
+      setRetroBusy(false);
+      setSaveError(res.message);
+      return;
+    }
+
+    if (applyTicked && pickedLineIds.size > 0) {
+      const newCost = pickCostPerM.trim() === '' ? null : Number(pickCostPerM);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const ids = Array.from(pickedLineIds);
+      const { error } = await sb
+        .from('invoice_line')
+        .update({ jobwork_cost_per_m: newCost })
+        .in('id', ids);
+      if (error) {
+        setRetroBusy(false);
+        setSaveError(`Fabric quality saved, but updating ${ids.length} bill line(s) failed: ${error.message}`);
+        return;
+      }
+    }
+
+    setRetroBusy(false);
+    setShowRetroModal(false);
+    finishSave();
+  }
+
+  function cancelRetroModal(): void {
+    if (retroBusy) return;
+    setShowRetroModal(false);
+    setPastLines([]);
+    setPickedLineIds(new Set());
   }
 
   async function handleDelete(): Promise<void> {
@@ -752,6 +921,121 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </button>
         </div>
       </div>
+
+      {/* Retro-apply modal — listed when pick_cost_per_m changes on an
+          existing fabric_quality that already has historical jobwork
+          bills. Default state has NOTHING ticked so the operator
+          actively opts in bill-by-bill. */}
+      {showRetroModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-line/60 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-display font-bold text-base">Apply new rate to past jobwork bills?</h3>
+                <p className="text-xs text-ink-mute mt-1">
+                  <span className="font-medium">{name}</span> &mdash; pick cost
+                  changing from <span className="font-semibold">Rs {originalPickCost || '0'}</span>{' '}
+                  to <span className="font-semibold">Rs {pickCostPerM || '0'}</span>.
+                  Tick the bills whose snapshot cost you want to overwrite.
+                  Untouched bills keep their original point-in-time cost.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-2 border-b border-line/60 flex items-center gap-3 text-xs">
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pickedLineIds.size === pastLines.length && pastLines.length > 0}
+                  onChange={toggleAll}
+                />
+                <span>Select all ({pastLines.length})</span>
+              </label>
+              <span className="text-ink-mute">|</span>
+              <span>{pickedLineIds.size} ticked</span>
+            </div>
+
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-cloud/40 text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left w-8"></th>
+                    <th className="px-3 py-2 text-left">Invoice #</th>
+                    <th className="px-3 py-2 text-left">Date</th>
+                    <th className="px-3 py-2 text-left">Party</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-right">Current Rs/m</th>
+                    <th className="px-3 py-2 text-right">New Rs/m</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pastLines.map((l) => {
+                    const ticked = pickedLineIds.has(l.line_id);
+                    return (
+                      <tr key={l.line_id}
+                          className={'border-t border-line/40 ' + (ticked ? 'bg-indigo-50/50' : '')}>
+                        <td className="px-3 py-1.5">
+                          <input
+                            type="checkbox"
+                            checked={ticked}
+                            onChange={() => toggleLine(l.line_id)}
+                          />
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-xs">{l.invoice_no}</td>
+                        <td className="px-3 py-1.5 text-xs">{l.invoice_date}</td>
+                        <td className="px-3 py-1.5 text-xs">{l.party_name ?? '-'}</td>
+                        <td className="px-3 py-1.5 text-right num">{l.quantity.toFixed(2)}</td>
+                        <td className="px-3 py-1.5 text-right num">
+                          {l.current_cost == null ? '-' : l.current_cost.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right num font-semibold text-indigo-700">
+                          {pickCostPerM === '' ? '-' : Number(pickCostPerM).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {saveError && (
+              <div className="px-5 py-2 bg-red-50 text-err text-xs border-t border-line/60">{saveError}</div>
+            )}
+
+            <div className="px-5 py-3 border-t border-line/60 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={cancelRetroModal}
+                disabled={retroBusy}
+                className="px-3 py-2 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void confirmRetroApply(false)}
+                  disabled={retroBusy}
+                  className="px-3 py-2 text-sm rounded-lg border border-line bg-white hover:bg-cloud/30 disabled:opacity-50"
+                >
+                  {retroBusy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null}
+                  Save without updating bills
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmRetroApply(true)}
+                  disabled={retroBusy || pickedLineIds.size === 0}
+                  className="btn-primary"
+                >
+                  {retroBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Apply selected ({pickedLineIds.size}) and save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

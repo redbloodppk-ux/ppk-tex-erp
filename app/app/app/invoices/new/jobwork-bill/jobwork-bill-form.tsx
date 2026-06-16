@@ -605,6 +605,12 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         sgst_amount: sgst,
         igst_amount: igst,
         total_amount: lineTotal,
+        // Snapshot cost master at save time so historical P&L stays
+        // anchored even if fabric_quality.pick_cost_per_m later changes.
+        // rate = fabric_quality.pick_cost_per_m (locked per the doc-comment
+        // up top), so we reuse it directly as the cost-per-metre snapshot.
+        fabric_quality_id: l.fq_id,
+        jobwork_cost_per_m: l.rate,
       };
     });
 
