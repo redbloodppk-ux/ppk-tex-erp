@@ -309,8 +309,23 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       fabric_length_m: Number((loomWidthIn / 39.37).toFixed(4)),
       reed_count:      reedCount,
       fabric_width_in: finishedWidthIn,
-      use_bobbin_1:    useBobbin && bobbinId !== '',
-      bobbin_1_id:     useBobbin && bobbinId !== '' ? Number(bobbinId) : null,
+      // Pre-validate the picked bobbin so we never send a stale /
+      // non-existent id to the DB (otherwise the
+      // costing_master_bobbin_1_id_fkey FK trips). If the id doesn't
+      // resolve in the loaded bobbins list, drop it and flip
+      // use_bobbin_1 to false.
+      use_bobbin_1:
+        useBobbin &&
+        bobbinId !== '' &&
+        Number.isFinite(Number(bobbinId)) &&
+        bobbins.some((b) => b.id === Number(bobbinId)),
+      bobbin_1_id:
+        useBobbin &&
+        bobbinId !== '' &&
+        Number.isFinite(Number(bobbinId)) &&
+        bobbins.some((b) => b.id === Number(bobbinId))
+          ? Number(bobbinId)
+          : null,
       bobbin_1_loading: useBobbin ? bobbinWaste : null,
       use_porvai:      usePorvai && isTowel,
       porvai_count_id: usePorvai && porvaiCountId !== '' ? Number(porvaiCountId) : null,
