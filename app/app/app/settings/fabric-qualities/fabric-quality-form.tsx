@@ -16,6 +16,9 @@ import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2, AlertTriangle } 
 // One row of the "past jobwork bills" modal — surfaces enough to let the
 // user decide whether to retro-apply the new rate. `current_cost` is the
 // existing point-in-time snapshot (may be NULL on legacy lines).
+// `legacy` flags rows that weren't linked via fabric_quality_id but were
+// matched by description against the current quality's merged_name
+// (backfilled by migration 183).
 interface PastJobworkLine {
   line_id: number;
   invoice_id: number;
@@ -24,6 +27,7 @@ interface PastJobworkLine {
   party_name: string | null;
   quantity: number;
   current_cost: number | null;
+  legacy: boolean;
 }
 
 // Legacy types kept exported so the existing /new + /[id] server pages
@@ -187,6 +191,14 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   // detect "rate changed" and trigger the retro-apply modal. Stored as a
   // string so we can compare against the raw input value the user sees.
   const [originalPickCost, setOriginalPickCost] = useState<string>('');
+  // Snapshot of the merged_name / is_merged from when the row loaded.
+  // Used by the retro-apply modal to pull in LEGACY jobwork lines
+  // (fabric_quality_id IS NULL) whose description was backfilled to
+  // "Jobwork weaving - <merged_name>" by migration 183. Using the
+  // original (not the live edit) keeps the modal pointed at lines the
+  // bill descriptions actually reference.
+  const [originalMergedName, setOriginalMergedName] = useState<string>('');
+  const [originalIsMerged, setOriginalIsMerged] = useState<boolean>(false);
   // Past-bills modal state. `pastLines` is populated only when the user
   // actually changes pick_cost_per_m on an existing fabric_quality row
   // AND at least one historical jobwork_invoice line references it.
@@ -244,6 +256,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       }
       setIsMerged(Boolean(data.is_merged));
       setMergedName(data.merged_name ?? '');
+      // Snapshot for the retro-apply legacy-line lookup (see handleSave).
+      setOriginalIsMerged(Boolean(data.is_merged));
+      setOriginalMergedName(data.merged_name ?? '');
       setNotes(data.notes ?? '');
 
       const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
@@ -438,25 +453,57 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
     setSaving(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const { data, error } = await sb
-      .from('invoice_line')
-      .select('id, invoice_id, quantity, jobwork_cost_per_m, invoice:invoice_id ( invoice_no, invoice_date, party_name, doc_type, status )')
-      .eq('fabric_quality_id', props.fabricQualityId);
-    setSaving(false);
 
-    if (error) return setSaveError(error.message);
-
-    // Apply doc_type + status filter in the client — we ask Supabase for
-    // the parent inline, then drop draft / cancelled / non-jobwork rows.
+    // Common shape for both queries below — the linked one keyed by
+    // fabric_quality_id, and the legacy one keyed by description match.
     type Row = {
       id: number; invoice_id: number; quantity: number | string;
       jobwork_cost_per_m: number | string | null;
+      description?: string | null;
       invoice: {
         invoice_no: string; invoice_date: string; party_name: string | null;
         doc_type: string; status: string;
       } | null;
     };
-    const rows = ((data ?? []) as Row[])
+
+    // Query A — lines explicitly linked to THIS fabric_quality_id.
+    const { data, error } = await sb
+      .from('invoice_line')
+      .select('id, invoice_id, quantity, jobwork_cost_per_m, invoice:invoice_id ( invoice_no, invoice_date, party_name, doc_type, status )')
+      .eq('fabric_quality_id', props.fabricQualityId);
+
+    if (error) {
+      setSaving(false);
+      return setSaveError(error.message);
+    }
+
+    // Query B — LEGACY unlinked lines whose description matches the
+    // pattern 'Jobwork weaving - <merged_name>' (the format migration
+    // 183 used to backfill jobwork_cost_per_m). Only fires when the
+    // CURRENT quality is part of a merged group at load time; we use
+    // the snapshot (originalIsMerged / originalMergedName) because the
+    // bill descriptions reference the merged name as it was, not any
+    // mid-edit value.
+    let legacyData: Row[] = [];
+    if (originalIsMerged && originalMergedName.trim() !== '') {
+      const pattern = `Jobwork weaving - ${originalMergedName.trim()}`;
+      const { data: legacyRows, error: legacyErr } = await sb
+        .from('invoice_line')
+        .select('id, invoice_id, quantity, jobwork_cost_per_m, description, invoice:invoice_id ( invoice_no, invoice_date, party_name, doc_type, status )')
+        .is('fabric_quality_id', null)
+        .eq('description', pattern);
+      if (legacyErr) {
+        setSaving(false);
+        return setSaveError(legacyErr.message);
+      }
+      legacyData = (legacyRows ?? []) as Row[];
+    }
+
+    setSaving(false);
+
+    // Apply doc_type + status filter in the client — we ask Supabase for
+    // the parent inline, then drop draft / cancelled / non-jobwork rows.
+    const linkedRows = ((data ?? []) as Row[])
       .filter((r) => r.invoice != null
         && r.invoice.doc_type === 'jobwork_invoice'
         && r.invoice.status !== 'draft'
@@ -469,7 +516,35 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
         party_name: r.invoice!.party_name,
         quantity: Number(r.quantity) || 0,
         current_cost: r.jobwork_cost_per_m == null ? null : Number(r.jobwork_cost_per_m),
-      }))
+        legacy: false,
+      }));
+
+    const legacyRowsMapped = legacyData
+      .filter((r) => r.invoice != null
+        && r.invoice.doc_type === 'jobwork_invoice'
+        && r.invoice.status !== 'draft'
+        && r.invoice.status !== 'cancelled')
+      .map<PastJobworkLine>((r) => ({
+        line_id: r.id,
+        invoice_id: r.invoice_id,
+        invoice_no: r.invoice!.invoice_no,
+        invoice_date: r.invoice!.invoice_date,
+        party_name: r.invoice!.party_name,
+        quantity: Number(r.quantity) || 0,
+        current_cost: r.jobwork_cost_per_m == null ? null : Number(r.jobwork_cost_per_m),
+        legacy: true,
+      }));
+
+    // Merge + de-dupe (a line tied via FK shouldn't ever match the
+    // description query because the FK filter excludes it, but keep
+    // belt-and-braces). Sort newest-first by invoice_date.
+    const seen = new Set<number>();
+    const rows = [...linkedRows, ...legacyRowsMapped]
+      .filter((r) => {
+        if (seen.has(r.line_id)) return false;
+        seen.add(r.line_id);
+        return true;
+      })
       .sort((a, b) => (a.invoice_date < b.invoice_date ? 1 : -1));
 
     if (rows.length === 0) {
@@ -982,7 +1057,19 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                             onChange={() => toggleLine(l.line_id)}
                           />
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-xs">{l.invoice_no}</td>
+                        <td className="px-3 py-1.5 font-mono text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span>{l.invoice_no}</span>
+                            {l.legacy && (
+                              <span
+                                title="Description-matched line — no fabric_quality_id link on the bill row."
+                                className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[9px] font-semibold px-1.5 py-0.5 uppercase tracking-wide"
+                              >
+                                Legacy
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-1.5 text-xs">{l.invoice_date}</td>
                         <td className="px-3 py-1.5 text-xs">{l.party_name ?? '-'}</td>
                         <td className="px-3 py-1.5 text-right num">{l.quantity.toFixed(2)}</td>

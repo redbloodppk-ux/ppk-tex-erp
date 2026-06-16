@@ -20,6 +20,11 @@ interface CountOption  { id: number; code: string; display_name: string; }
 interface EndsOption   { id: number; code: string; name: string; ends_count: number; }
 interface BobbinOption { id: number; code: string; description: string; }
 
+// Latest yarn purchase per yarn_count_id, surfaced as an inline hint
+// next to each Rs/kg input on the Save panel so the operator can
+// pre-fill from real recent invoices instead of guessing.
+interface LatestYarnRate { rate: number; date: string; invoice: string; }
+
 interface BobbinRow {
   key: string;       // local React key only - random uuid
   bobbinId: string;  // bobbin master id (as string for select compat)
@@ -167,6 +172,9 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   const [counts, setCounts] = useState<CountOption[]>([]);
   const [endsOptions, setEndsOptions] = useState<EndsOption[]>([]);
   const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
+  // Per-yarn_count latest purchase rate, used to render a "Use Rs X"
+  // pill next to each yarn rate input on the Save panel.
+  const [latestYarnRates, setLatestYarnRates] = useState<Map<number, LatestYarnRate>>(new Map());
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -179,14 +187,43 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [yc, em, bb] = await Promise.all([
+      const [yc, em, bb, yl] = await Promise.all([
         sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
         sb.from('ends_master').select('id, code, name, ends_count').eq('active', true).order('ends_count'),
         sb.from('bobbin').select('id, code, description').neq('status', 'archived').order('code'),
+        // All priced yarn lots — we collapse to "latest per yarn_count_id"
+        // on the client so we can sidestep DISTINCT ON over PostgREST.
+        sb.from('yarn_lot')
+          .select('yarn_count_id, cost_per_kg, received_date, invoice_no')
+          .gt('cost_per_kg', 0)
+          .order('received_date', { ascending: false })
+          .order('id', { ascending: false }),
       ]);
       setCounts((yc.data ?? []) as unknown as CountOption[]);
       setEndsOptions((em.data ?? []) as unknown as EndsOption[]);
       setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
+
+      type YarnLotRow = {
+        yarn_count_id: number | null;
+        cost_per_kg: number | string | null;
+        received_date: string | null;
+        invoice_no: string | null;
+      };
+      const map = new Map<number, LatestYarnRate>();
+      for (const row of (yl.data ?? []) as YarnLotRow[]) {
+        if (row.yarn_count_id == null) continue;
+        // First hit per yarn_count_id wins — list is already ordered by
+        // received_date DESC, id DESC so this is the latest purchase.
+        if (map.has(row.yarn_count_id)) continue;
+        const rate = Number(row.cost_per_kg ?? 0);
+        if (!(rate > 0)) continue;
+        map.set(row.yarn_count_id, {
+          rate,
+          date: row.received_date ?? '',
+          invoice: row.invoice_no ?? '',
+        });
+      }
+      setLatestYarnRates(map);
     })();
   }, [supabase]);
 
@@ -642,7 +679,16 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Warp rates</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Yarn (Rs/kg)</L><Num value={warpRate} set={setWarpRate} step={5} lock={lockRates} /></Row>
+              <div>
+                <Row><L>Yarn (Rs/kg)</L><Num value={warpRate} set={setWarpRate} step={5} lock={lockRates} /></Row>
+                <LatestRateHint
+                  countId={warpCountId}
+                  currentRate={warpRate}
+                  latest={latestYarnRates}
+                  apply={setWarpRate}
+                  lock={lockRates}
+                />
+              </div>
               <Row><L>Sizing (Rs/kg)</L><Num value={sizingRate} set={setSizingRate} step={1} lock={lockRates} /></Row>
               <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWarp} set={setAutoWarp} step={0.5} lock={lockRates} /></Row>
               <Row><L>Sales commission (Rs/m)</L><Num value={salesCommM} set={setSalesCommM} step={0.1} lock={lockRates} /></Row>
@@ -652,7 +698,16 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           <div className="border-t border-line/60 pt-3">
             <h3 className="font-display font-bold text-sm mb-2">Weft rates</h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} lock={lockRates} /></Row>
+              <div>
+                <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} lock={lockRates} /></Row>
+                <LatestRateHint
+                  countId={weftCountId}
+                  currentRate={weftRate}
+                  latest={latestYarnRates}
+                  apply={setWeftRate}
+                  lock={lockRates}
+                />
+              </div>
               <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} lock={lockRates} /></Row>
               {productionMode === 'inhouse' ? (
                 <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} lock={lockRates} /></Row>
@@ -772,7 +827,16 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
                   )}
                   <Row><L>Porvai pick</L><Num value={porvaiPick} set={setPorvaiPick} lock={lockConstruction} /></Row>
                   <Row><L>Selvedge length (in)</L><Num value={selvedgeLengthIn} set={setSelvedgeLengthIn} step={0.25} lock={lockConstruction} /></Row>
-                  <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} lock={lockRates} /></Row>
+                  <div>
+                    <Row><L>Porvai yarn (Rs/kg)</L><Num value={porvaiYarnCost} set={setPorvaiYarnCost} step={5} lock={lockRates} /></Row>
+                    <LatestRateHint
+                      countId={porvaiCountId}
+                      currentRate={porvaiYarnCost}
+                      latest={latestYarnRates}
+                      apply={setPorvaiYarnCost}
+                      lock={lockRates}
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -956,6 +1020,63 @@ function Toggle({ label, checked, set, lock = false }: {
     </label>
   );
 }
+// Inline "Latest purchase" hint that sits under a yarn rate input.
+// Shows only when a yarn_count is picked, a priced lot exists for it,
+// and the rate currently in the input differs from the latest. Click
+// the pill to apply the rate.
+function LatestRateHint({
+  countId, currentRate, latest, apply, lock = false,
+}: {
+  countId: string;
+  currentRate: number;
+  latest: Map<number, LatestYarnRate>;
+  apply: (n: number) => void;
+  lock?: boolean;
+}) {
+  if (countId === '') return null;
+  const num = Number(countId);
+  if (!Number.isFinite(num)) return null;
+  const hit = latest.get(num);
+  if (!hit) return null;
+  // Hide when input already matches the latest rate (round to paise).
+  if (Math.abs(Number(currentRate) - hit.rate) < 0.005) return null;
+  const dateLabel = formatLatestDate(hit.date);
+  const invoiceLabel = hit.invoice.trim() === '' ? 'recent lot' : hit.invoice;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-mute">
+      <span>
+        Latest purchase: <span className="font-semibold text-ink-soft">Rs {hit.rate.toFixed(2)}</span>
+        {' '}from <span className="font-mono">{invoiceLabel}</span>
+        {dateLabel ? <> dated <span className="font-mono">{dateLabel}</span></> : null}.
+      </span>
+      <button
+        type="button"
+        disabled={lock}
+        onClick={() => apply(hit.rate)}
+        className={
+          'inline-flex items-center rounded-full text-white text-[10px] font-semibold px-2 py-0.5 ' +
+          (lock ? 'bg-ink-mute cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700')
+        }
+      >
+        Use Rs {hit.rate.toFixed(2)}
+      </button>
+    </div>
+  );
+}
+
+// Short, locale-stable date format ("12-Jun-26") for the hint line.
+// Falls back to the raw string if parsing fails so we never crash.
+function formatLatestDate(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  const year = String(d.getFullYear()).slice(-2);
+  return `${day}-${month}-${year}`;
+}
+
 function Divider() { return <div className="h-px bg-line/60 my-2" />; }
 function ResultRow({ label, value, small, big, highlight }: {
   label: string; value: string; small?: boolean; big?: boolean;
