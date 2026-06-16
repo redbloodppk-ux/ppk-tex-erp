@@ -65,7 +65,7 @@ import { JobworkPaymentTab } from './payment-tab';
 type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'payment' | 'weavers';
 
 interface PartyOpt { id: number; code: string; name: string; }
-interface QualityOpt { id: number; code: string | null; name: string; }
+interface QualityOpt { id: number; code: string | null; name: string; production_mode: 'inhouse' | 'job_work' | 'outsourcing' | null; }
 interface CountOpt { id: number; code: string; display_name: string; }
 interface EndsOpt { id: number; code: string; name: string; }
 interface FabricDefaults { warp_count_id: number | null; ends_id: number | null; total_ends: number | null; }
@@ -221,7 +221,7 @@ export default function JobworkPage(): React.ReactElement {
       // calc_snapshot carries the warp_count_id, ends_id, total_ends entered
       // on the Fabric Quality form - we use it to auto-fill the warp beam
       // form when a fabric is picked.
-      sb.from('fabric_quality').select('id, code, name, calc_snapshot').eq('active', true).order('name'),
+      sb.from('fabric_quality').select('id, code, name, production_mode, calc_snapshot').eq('active', true).order('name'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       // Bobbin Given = events from jobwork_bobbin_issue (migration 141).
       // The bobbin master is joined so the row still carries
@@ -1853,9 +1853,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <select className="input" value={form.fabric_quality_id}
                 onChange={(e) => onFabricChange(e.target.value)}>
                 <option value="">--- pick ---</option>
-                {qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+                {/* Job Work variant: show ONLY qualities tagged
+                    production_mode='job_work' on the fabric_quality
+                    master. The other modes (inhouse / outsourcing) are
+                    reserved for the parent flow and shouldn't appear
+                    here. */}
+                {qualities.filter((q) => q.production_mode === 'job_work')
+                  .map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
               </select>
-              <p className="text-[10px] text-ink-mute mt-0.5">Picking a quality fills warp count + total ends; you can still edit them.</p>
+              <p className="text-[10px] text-ink-mute mt-0.5">Picking a quality fills warp count + total ends; you can still edit them. List filtered to Job Work qualities only.</p>
             </div>
           </div>
 
@@ -2147,7 +2153,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                         <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                        <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
+                        <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
                         {/* Auto-populated from fabric quality â€” read-only in edit. */}
                         <td className="px-3 py-2 text-ink-mute italic">{ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'}</td>
                         <td className="px-3 py-2 text-right num text-ink-mute italic">{ef.total_ends ?? '-'}</td>
