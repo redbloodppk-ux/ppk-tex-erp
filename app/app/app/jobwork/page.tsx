@@ -258,7 +258,7 @@ export default function JobworkPage(): React.ReactElement {
       // Build map: fabric_quality_id -> {warp_count_id, ends_id, total_ends}
       // from each fabric's calc_snapshot. Snapshot fields are stored as
       // strings (form state), so coerce to number.
-      type QualityRow = { id: number; code: string | null; name: string; calc_snapshot: Record<string, unknown> | null };
+      type QualityRow = { id: number; code: string | null; name: string; production_mode: 'inhouse' | 'job_work' | 'outsourcing' | null; calc_snapshot: Record<string, unknown> | null };
       const qRows = (q.data ?? []) as QualityRow[];
       const defaults = new Map<number, FabricDefaults>();
       const toNumOrNull = (v: unknown): number | null => {
@@ -280,7 +280,7 @@ export default function JobworkPage(): React.ReactElement {
       setAllParties((ap.data ?? []) as PartyOpt[]);
       setBobbinSuppliers((bs.data ?? []) as PartyOpt[]);
       setSizingParties((sp.data ?? []) as PartyOpt[]);
-      setQualities(qRows.map((r) => ({ id: r.id, code: r.code, name: r.name })));
+      setQualities(qRows.map((r) => ({ id: r.id, code: r.code, name: r.name, production_mode: r.production_mode })));
       setCounts((c.data ?? []) as CountOpt[]);
       setFabricDefaults(defaults);
       // Reshape jobwork_bobbin_issue rows into BobbinRow so the
