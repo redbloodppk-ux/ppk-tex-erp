@@ -357,11 +357,18 @@ export default function JobworkPage(): React.ReactElement {
       <div className="border-b border-line mb-4 flex gap-1 flex-wrap">
         <TabButton active={tab === 'dc'}        onClick={() => setTab('dc')}>DC</TabButton>
         <TabButton active={tab === 'bobbin'}    onClick={() => setTab('bobbin')}>Bobbin given</TabButton>
-        {variant.kind === 'outsource' && (
-          <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
-        )}
+        {/* Warp beam given — shown on BOTH jobwork and outsource. The
+            inside-the-tab sizing-job cascade only runs for outsource
+            (kind !== 'outsource' early-returns), so jobwork users get a
+            simpler add form without auto-narrowed sizing dropdowns. */}
+        <TabButton active={tab === 'warp_beam'} onClick={() => setTab('warp_beam')}>Warp beam given</TabButton>
         <TabButton active={tab === 'weft_bag'}  onClick={() => setTab('weft_bag')}>Weft bag given</TabButton>
-        <TabButton active={tab === 'warp_yarn'} onClick={() => setTab('warp_yarn')}>Warp yarn given</TabButton>
+        {/* Warp yarn given — hidden on jobwork (operators use Warp Beam
+            instead). Still shown on outsource where the sizing /
+            warp-yarn flow makes sense. */}
+        {variant.kind === 'outsource' && (
+          <TabButton active={tab === 'warp_yarn'} onClick={() => setTab('warp_yarn')}>Warp yarn given</TabButton>
+        )}
         <TabButton active={tab === 'payment'}   onClick={() => setTab('payment')}>Payment Status</TabButton>
         {variant.kind === 'outsource' && (
           <TabButton active={tab === 'weavers'} onClick={() => setTab('weavers')}>Weavers</TabButton>
@@ -386,7 +393,7 @@ export default function JobworkPage(): React.ReactElement {
           partyLabel={variant.partyLabel}
           onChanged={load}
         />
-      ) : tab === 'warp_beam' && variant.kind === 'outsource' ? (
+      ) : tab === 'warp_beam' ? (
         <WarpBeamTab
           rows={warpBeams.filter((w) => w.jobwork_party_id != null && partyById.has(w.jobwork_party_id))}
           parties={parties} qualities={qualities} counts={counts}
@@ -404,7 +411,7 @@ export default function JobworkPage(): React.ReactElement {
           partyLabel={variant.partyLabel}
           onChanged={load}
         />
-      ) : tab === 'warp_yarn' ? (
+      ) : tab === 'warp_yarn' && variant.kind === 'outsource' ? (
         <WarpYarnTab
           rows={warpYarns.filter((r) => r.jobwork_party_id != null && partyById.has(r.jobwork_party_id))}
           parties={parties} qualities={qualities} counts={counts}
