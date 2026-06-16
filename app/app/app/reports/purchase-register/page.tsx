@@ -37,8 +37,7 @@ type SourceFilter =
   | 'bobbin'
   | 'sizing'
   | 'fabric'
-  | 'outsource_weaving'
-  | 'jobwork';
+  | 'outsource_weaving';
 
 type GstFilter = 'all' | 'with' | 'without';
 
@@ -131,7 +130,6 @@ function sourceLabel(s: string | null): string {
     case 'sizing':            return 'Sizing';
     case 'fabric':            return 'Fabric';
     case 'outsource_weaving': return 'Outsource';
-    case 'jobwork':           return 'Jobwork';
     default:                  return s ?? '—';
   }
 }
@@ -143,7 +141,6 @@ function sourceTone(s: string | null): string {
     case 'sizing':            return 'bg-sky-50 text-sky-700 border-sky-200';
     case 'fabric':            return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     case 'outsource_weaving': return 'bg-rose-50 text-rose-700 border-rose-200';
-    case 'jobwork':           return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     default:                  return 'bg-slate-50 text-slate-700 border-slate-200';
   }
 }
@@ -175,7 +172,6 @@ const SOURCE_OPTIONS: SourceFilter[] = [
   'sizing',
   'fabric',
   'outsource_weaving',
-  'jobwork',
 ];
 
 export default async function PurchaseRegisterReport({
@@ -325,7 +321,7 @@ export default async function PurchaseRegisterReport({
           { label: 'Reports', href: '/app/reports' },
           { label: 'Purchase Register' },
         ]}
-        subtitle={`Every supplier bill between ${from} and ${to}. Unions yarn, bobbin, sizing, fabric, outsource-weaving and jobwork. GST split is auto-derived from supplier state.`}
+        subtitle={`Every supplier bill between ${from} and ${to}. Unions yarn, bobbin, sizing, fabric, and outsource-weaving bills. GST split is auto-derived from supplier state.`}
         actions={
           <ExcelExportButton
             filename="purchase-register"
@@ -379,7 +375,6 @@ export default async function PurchaseRegisterReport({
             <option value="sizing">Sizing</option>
             <option value="fabric">Fabric</option>
             <option value="outsource_weaving">Outsource Weaving</option>
-            <option value="jobwork">Jobwork</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">

@@ -136,14 +136,15 @@ fabric AS (
   WHERE fp.total_amount IS NOT NULL AND fp.total_amount > 0
     AND fp.status::text NOT IN ('archived', 'inactive')
 ),
--- E) Weaving bill + jobwork bill (invoice table). These already carry
---    proper CGST/SGST/IGST split — pass them through directly.
+-- E) Outsource Weaving Bills (invoice doc_type='weaving_bill').
+--    These already carry proper CGST/SGST/IGST split — pass them
+--    through directly.
+--    Note: jobwork_invoice rows are NOT included here — they are not
+--    purchases (they relate to jobwork we perform for jobwork
+--    parties, recorded on the invoice table for unified numbering).
 weaving AS (
   SELECT
-    CASE inv.doc_type
-      WHEN 'weaving_bill'    THEN 'outsource_weaving'
-      WHEN 'jobwork_invoice' THEN 'jobwork'
-    END                              AS source,
+    'outsource_weaving'::text        AS source,
     inv.id                           AS source_id,
     inv.invoice_date                 AS bill_date,
     inv.invoice_no                   AS bill_no,
@@ -164,7 +165,7 @@ weaving AS (
     inv.igst_amount::numeric(14,2)   AS igst_inv,
     inv.is_interstate                AS is_interstate_inv
   FROM public.invoice inv
-  WHERE inv.doc_type IN ('weaving_bill', 'jobwork_invoice')
+  WHERE inv.doc_type = 'weaving_bill'
     AND inv.status::text NOT IN ('draft', 'cancelled')
 ),
 all_sources AS (
