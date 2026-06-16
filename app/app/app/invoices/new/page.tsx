@@ -34,13 +34,13 @@ interface YarnLot  { id: number; lot_code: string; current_kg: number; cost_per_
                      supplier?: { name: string } | null }
 interface SalesOrder { id: number; so_number: string; customer_id: number; total: number; status: string }
 interface SoLine { id: number; so_id: number; quantity_m: number; rate_per_m: number; delivered_m: number;
-                   costing?: { quality_code: string; quality_name: string } | null }
+                   costing?: { id: number; quality_code: string; quality_name: string } | null }
 /** In-house fabric stock batch = a fabric_purchase row with metres
  *  left. Quality info comes from the fabric master so the dropdown is
  *  organised by fabric quality and the rate/GST prefill correctly. */
 interface FabricStock { id: number; code: string | null; current_metres: number; rate: number;
                         fabric_quality_id: number | null;
-                        quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null } | null }
+                        quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null } | null }
 interface OriginalInvoice { id: number; invoice_no: string; doc_type: string; customer_id: number; total: number;
                             party_state: string | null; is_interstate: boolean }
 interface OriginalLine    { id: number; description: string; hsn_sac: string | null; uom: string;
@@ -55,7 +55,7 @@ interface InhouseReceiptItem {
   received_metres: number | string | null;
   no_of_pieces: number | null;
   entry_mode: string | null;
-  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null } | null;
+  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null } | null;
 }
 interface InhouseReceiptDc {
   id: number;
@@ -92,6 +92,12 @@ interface Row {
   /** Set when the row was seeded from an in-house fabric receipt — the
    *  source DC id, so unticking the receipt removes its rows. */
   dc_id: string;
+  /** costing_master.id this line is sold AGAINST. Auto-filled from the
+   *  source's fabric_quality.costing_id (DC receipt items + fabric
+   *  stock) or sales_order_line.costing_id. Persisted to
+   *  invoice_line.costing_id so the Profit by Quality report can
+   *  attribute revenue to a quality. */
+  costing_id: string;
 }
 
 const DOC_OPTIONS: { key: DocType; label: string; icon: any; tagline: string }[] = [
@@ -110,7 +116,7 @@ const newRow = (): Row => ({
   id: Math.random().toString(36).slice(2),
   description: '', hsn_sac: '', uom: 'mtr',
   quantity: '', rate: '', discount_pct: '0', gst_rate_pct: GST_DEFAULT,
-  yarn_lot_id: '', fabric_stock_id: '', fabric_purchase_id: '', so_line_id: '', original_line_id: '', dc_id: '',
+  yarn_lot_id: '', fabric_stock_id: '', fabric_purchase_id: '', so_line_id: '', original_line_id: '', dc_id: '', costing_id: '',
 });
 
 export default function NewInvoicePage() {
@@ -246,7 +252,7 @@ export default function NewInvoicePage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('fabric_purchase').select(`
           id, code, current_metres, rate, fabric_quality_id,
-          quality:fabric_quality_id ( code, name, rate_per_m, gst_pct )
+          quality:fabric_quality_id ( code, name, rate_per_m, gst_pct, costing_id )
         `).eq('status', 'active')
           .eq('delivery_destination', 'in_house')
           .gt('current_metres', 0)
@@ -276,7 +282,7 @@ export default function NewInvoicePage() {
               id, code, receipt_date,
               items:fabric_receipt_item (
                 id, received_metres, no_of_pieces, entry_mode,
-                quality:fabric_quality_id ( code, name, rate_per_m, gst_pct )
+                quality:fabric_quality_id ( code, name, rate_per_m, gst_pct, costing_id )
               )
             )
           `)
@@ -395,6 +401,12 @@ export default function NewInvoicePage() {
             rate: it.quality?.rate_per_m != null ? String(it.quality.rate_per_m) : '',
             gst_rate_pct: it.quality?.gst_pct != null ? String(it.quality.gst_pct) : GST_DEFAULT,
             dc_id: String(dc.id),
+            // Auto-fill costing_id from the fabric_quality master so
+            // Profit by Quality / margin reports can attribute this
+            // revenue to a quality without manual entry. Falls back
+            // to '' (no link) when the fabric_quality has no costing
+            // mapped yet.
+            costing_id: it.quality?.costing_id != null ? String(it.quality.costing_id) : '',
           };
         })
       : [{
@@ -420,7 +432,7 @@ export default function NewInvoicePage() {
     (async () => {
       const { data } = await supabase
         .from('sales_order_line')
-        .select('id, so_id, quantity_m, rate_per_m, delivered_m, costing:costing_id ( quality_code, quality_name )')
+        .select('id, so_id, quantity_m, rate_per_m, delivered_m, costing_id, costing:costing_id ( id, quality_code, quality_name )')
         .eq('so_id', Number(pickedSoId));
       setSoLines((data ?? []) as any);
       const so = salesOrders.find(s => s.id === Number(pickedSoId));
@@ -433,6 +445,9 @@ export default function NewInvoicePage() {
         quantity: String(l.quantity_m),
         rate: String(l.rate_per_m),
         so_line_id: String(l.id),
+        // Carry the SO line's costing_id through onto the invoice
+        // line — Profit by Quality reads invoice_line.costing_id.
+        costing_id: l.costing_id != null ? String(l.costing_id) : '',
       })));
     })();
   }, [pickedSoId, salesOrders, supabase]);
@@ -642,6 +657,9 @@ export default function NewInvoicePage() {
       // rate when the master has none.
       rate: fs.quality?.rate_per_m != null ? String(fs.quality.rate_per_m) : String(fs.rate),
       gst_rate_pct: fs.quality?.gst_pct != null ? String(fs.quality.gst_pct) : GST_DEFAULT,
+      // Auto-link to costing_master via fabric_quality.costing_id so
+      // Profit by Quality can attribute the revenue.
+      costing_id: fs.quality?.costing_id != null ? String(fs.quality.costing_id) : '',
     });
   }
 
@@ -855,6 +873,11 @@ export default function NewInvoicePage() {
       fabric_purchase_id: r.fabric_purchase_id ? Number(r.fabric_purchase_id) : null,
       so_line_id:     r.so_line_id     ? Number(r.so_line_id)     : null,
       original_line_id: r.original_line_id ? Number(r.original_line_id) : null,
+      // Persist the costing link so Profit by Quality and any margin
+      // report can attribute revenue to a quality. Auto-filled during
+      // row seeding from the source's fabric_quality.costing_id or
+      // sales_order_line.costing_id.
+      costing_id: r.costing_id ? Number(r.costing_id) : null,
     }));
 
     // Cast: generated types predate the fabric_purchase_id column.
