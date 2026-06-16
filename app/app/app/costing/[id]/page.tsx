@@ -422,6 +422,12 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0 ? Number((1 / r.porvaiMPerKg).toFixed(6)) : null,
       grams_per_m: Number(r.gramsPerM.toFixed(2)),
       gsm:         Number(r.gramsPerSqM.toFixed(2)),
+      // Persist the two per-metre cost numbers so v_costing_two_cost
+      // (and the Fabric Costing list page) can show Quoted ₹/m and
+      // True ₹/m without recomputing. True = quoted until LOOMS
+      // overhead per metre is wired in.
+      quoted_cost_per_m: Number(r.costPerM.toFixed(2)),
+      true_cost_per_m:   Number(r.costPerM.toFixed(2)),
       calc_snapshot: {
         warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn,
         finishedWidthIn, reedCount, tapeLengthIn,
