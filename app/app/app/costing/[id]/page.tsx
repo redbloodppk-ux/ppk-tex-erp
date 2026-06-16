@@ -20,14 +20,41 @@ interface CountOption  { id: number; code: string; display_name: string; }
 interface EndsOption   { id: number; code: string; name: string; ends_count: number; }
 interface BobbinOption { id: number; code: string; description: string; }
 
+interface BobbinRow {
+  key: string;       // local React key only - random uuid
+  bobbinId: string;  // bobbin master id (as string for select compat)
+  price: number;
+  metres: number;
+  waste: number;
+}
+
+const newBobbinRow = (): BobbinRow => ({
+  key: Math.random().toString(36).slice(2),
+  bobbinId: '',
+  price: 4704,
+  metres: 2000,
+  waste: 0.10,
+});
+
+interface SnapshotBobbinRow {
+  bobbinId?: string;
+  price?: number;
+  metres?: number;
+  waste?: number;
+}
+
 interface CalcSnapshot {
   warpCount?: number; weftCount?: number; totalEnds?: number;
   picksPerInch?: number; loomWidthIn?: number; finishedWidthIn?: number;
   reedCount?: number; tapeLengthIn?: number;
   warpRate?: number; sizingRate?: number; autoWarp?: number; salesCommM?: number;
   weftRate?: number; autoWeft?: number; weavingPaise?: number;
-  useBobbin?: boolean; bobbinPrice?: number; bobbinMetres?: number;
+  useBobbin?: boolean;
+  // Legacy single-bobbin fields (older snapshots)
+  bobbinPrice?: number; bobbinMetres?: number;
   bobbinWaste?: number; bobbinId?: string;
+  // New multi-bobbin list
+  bobbinRows?: SnapshotBobbinRow[];
   usePorvai?: boolean; porvaiByDenier?: boolean; porvaiDenier?: number;
   porvaiCountManual?: number; porvaiPick?: number; selvedgeLengthIn?: number;
   porvaiYarnCost?: number; porvaiCountId?: string;
@@ -89,9 +116,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   const [weavingPaise, setWeavingPaise] = useState(16);
 
   const [useBobbin, setUseBobbin] = useState(true);
-  const [bobbinPrice, setBobbinPrice] = useState(4704);
-  const [bobbinMetres, setBobbinMetres] = useState(2000);
-  const [bobbinWaste, setBobbinWaste] = useState(0.10);
+  const [bobbinRows, setBobbinRows] = useState<BobbinRow[]>([]);
 
   const [usePorvai, setUsePorvai] = useState(true);
   const [porvaiByDenier, setPorvaiByDenier] = useState(true);
@@ -128,7 +153,6 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   const [warpCountId, setWarpCountId] = useState('');
   const [weftCountId, setWeftCountId] = useState('');
   const [endsId, setEndsId] = useState('');
-  const [bobbinId, setBobbinId] = useState('');
   const [porvaiCountId, setPorvaiCountId] = useState('');
   const [counts, setCounts] = useState<CountOption[]>([]);
   const [endsOptions, setEndsOptions] = useState<EndsOption[]>([]);
@@ -164,7 +188,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       const sb = supabase as any;
       const { data, error } = await sb
         .from('costing_master')
-        .select('quality_code, quality_name, fabric_type, calc_snapshot')
+        .select('quality_code, quality_name, fabric_type, calc_snapshot, use_bobbin_1, bobbin_1_id, bobbin_1_loading')
         .eq('id', id)
         .single();
       if (error) {
@@ -191,10 +215,6 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       if (s.autoWeft          != null) setAutoWeft(s.autoWeft);
       if (s.weavingPaise      != null) setWeavingPaise(s.weavingPaise);
       if (s.useBobbin         != null) setUseBobbin(s.useBobbin);
-      if (s.bobbinPrice       != null) setBobbinPrice(s.bobbinPrice);
-      if (s.bobbinMetres      != null) setBobbinMetres(s.bobbinMetres);
-      if (s.bobbinWaste       != null) setBobbinWaste(s.bobbinWaste);
-      if (s.bobbinId          != null) setBobbinId(s.bobbinId);
       if (s.usePorvai         != null) setUsePorvai(s.usePorvai);
       if (s.porvaiByDenier    != null) setPorvaiByDenier(s.porvaiByDenier);
       if (s.porvaiDenier      != null) setPorvaiDenier(s.porvaiDenier);
@@ -213,6 +233,56 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       if (s.warpCountId       != null) setWarpCountId(s.warpCountId);
       if (s.weftCountId       != null) setWeftCountId(s.weftCountId);
       if (s.endsId            != null) setEndsId(s.endsId);
+
+      // Load multi-bobbin child rows. Resolution order:
+      //   1. costing_master_bobbin rows (the source of truth)
+      //   2. snapshot.bobbinRows (fresh saves that haven't hit child table)
+      //   3. legacy bobbin_1_* columns + legacy snapshot fields
+      const { data: cmbRows } = await sb
+        .from('costing_master_bobbin')
+        .select('id, bobbin_id, price, metres, waste, sort_order')
+        .eq('costing_id', Number(id))
+        .order('sort_order');
+      const childRows: BobbinRow[] = (cmbRows ?? []).map((row: {
+        bobbin_id: number; price: number | null; metres: number | null; waste: number | null;
+      }) => ({
+        key: Math.random().toString(36).slice(2),
+        bobbinId: String(row.bobbin_id),
+        price: Number(row.price ?? 0),
+        metres: Number(row.metres ?? 0),
+        waste: Number(row.waste ?? 0),
+      }));
+
+      if (childRows.length > 0) {
+        setBobbinRows(childRows);
+      } else if (Array.isArray(s.bobbinRows) && s.bobbinRows.length > 0) {
+        setBobbinRows(s.bobbinRows.map((row) => ({
+          key: Math.random().toString(36).slice(2),
+          bobbinId: row.bobbinId ?? '',
+          price: Number(row.price ?? 0),
+          metres: Number(row.metres ?? 0),
+          waste: Number(row.waste ?? 0),
+        })));
+      } else if (data.bobbin_1_id != null) {
+        // Synthesize one row from legacy columns + legacy snapshot.
+        setBobbinRows([{
+          key: Math.random().toString(36).slice(2),
+          bobbinId: String(data.bobbin_1_id),
+          price: Number(s.bobbinPrice ?? 4704),
+          metres: Number(s.bobbinMetres ?? 2000),
+          waste: Number(data.bobbin_1_loading ?? s.bobbinWaste ?? 0.10),
+        }]);
+      } else if (s.bobbinId || s.bobbinPrice != null || s.bobbinMetres != null) {
+        // Older snapshot with bobbin numbers but no FK saved.
+        setBobbinRows([{
+          key: Math.random().toString(36).slice(2),
+          bobbinId: s.bobbinId ?? '',
+          price: Number(s.bobbinPrice ?? 4704),
+          metres: Number(s.bobbinMetres ?? 2000),
+          waste: Number(s.bobbinWaste ?? 0.10),
+        }]);
+      }
+
       didApplySnapshot.current = true;
       setLoaded(true);
     })();
@@ -232,8 +302,12 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       ? (warpRate + sizingRate + autoWarp) / warpMPerKg + salesCommM : 0;
     const weftCost = weftMPerKg > 0 ? (weftRate + autoWeft) / weftMPerKg : 0;
     const pickCost = (picksPerInch * weavingPaise) / 100;
-    const bobbinCost = useBobbin && bobbinMetres > 0
-      ? bobbinPrice / bobbinMetres + bobbinWaste : 0;
+    const bobbinCost = useBobbin
+      ? bobbinRows.reduce((sum, row) => {
+          if (row.metres > 0) return sum + row.price / row.metres + row.waste;
+          return sum;
+        }, 0)
+      : 0;
     const porvaiCount = porvaiByDenier
       ? (porvaiDenier > 0 ? 5315 / porvaiDenier : 0) : porvaiCountManual;
     const porvaiMPerKg = usePorvai && porvaiCount > 0 && porvaiPick > 0 && (selvedgeLengthIn + 3) > 0
@@ -262,7 +336,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
     reedCount, tapeLengthIn,
     warpRate, sizingRate, autoWarp, salesCommM, weftRate, autoWeft, weavingPaise,
-    useBobbin, bobbinPrice, bobbinMetres, bobbinWaste,
+    useBobbin, bobbinRows,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual, porvaiPick, selvedgeLengthIn, porvaiYarnCost,
     bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
     profitPct, marketRate, isTowel, towelLength,
@@ -295,6 +369,17 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       return;
     }
 
+    // Defensive filter: drop rows whose bobbinId is blank or unknown to
+    // avoid FK violations on costing_master_bobbin.
+    const validBobbinRows = useBobbin
+      ? bobbinRows.filter((row) =>
+          row.bobbinId !== '' &&
+          Number.isFinite(Number(row.bobbinId)) &&
+          bobbins.some((b) => b.id === Number(row.bobbinId)),
+        )
+      : [];
+    const firstValidBobbinRow = validBobbinRows[0] ?? null;
+
     const payload = {
       quality_code: trimmedCode,
       quality_name: qualityName.trim(),
@@ -309,24 +394,19 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       fabric_length_m: Number((loomWidthIn / 39.37).toFixed(4)),
       reed_count:      reedCount,
       fabric_width_in: finishedWidthIn,
-      // Pre-validate the picked bobbin so we never send a stale /
-      // non-existent id to the DB (otherwise the
-      // costing_master_bobbin_1_id_fkey FK trips). If the id doesn't
-      // resolve in the loaded bobbins list, drop it and flip
-      // use_bobbin_1 to false.
-      use_bobbin_1:
-        useBobbin &&
-        bobbinId !== '' &&
-        Number.isFinite(Number(bobbinId)) &&
-        bobbins.some((b) => b.id === Number(bobbinId)),
-      bobbin_1_id:
-        useBobbin &&
-        bobbinId !== '' &&
-        Number.isFinite(Number(bobbinId)) &&
-        bobbins.some((b) => b.id === Number(bobbinId))
-          ? Number(bobbinId)
-          : null,
-      bobbin_1_loading: useBobbin ? bobbinWaste : null,
+      // Legacy single-bobbin columns. Mirror the FIRST valid child row
+      // (if any) for back-compat. Full list lives in
+      // costing_master_bobbin (synced below).
+      use_bobbin_1: useBobbin && firstValidBobbinRow !== null,
+      bobbin_1_id:  useBobbin && firstValidBobbinRow !== null
+        ? Number(firstValidBobbinRow.bobbinId)
+        : null,
+      bobbin_1_loading: useBobbin && firstValidBobbinRow !== null
+        ? firstValidBobbinRow.waste
+        : null,
+      use_bobbin_2:     false,
+      bobbin_2_id:      null,
+      bobbin_2_loading: null,
       use_porvai:      usePorvai && isTowel,
       porvai_count_id: usePorvai && porvaiCountId !== '' ? Number(porvaiCountId) : null,
       porvai_slevage_length_m: usePorvai ? Number((selvedgeLengthIn / 39.37).toFixed(4)) : null,
@@ -347,7 +427,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
         finishedWidthIn, reedCount, tapeLengthIn,
         warpRate, sizingRate, autoWarp, salesCommM,
         weftRate, autoWeft, weavingPaise,
-        useBobbin, bobbinPrice, bobbinMetres, bobbinWaste, bobbinId,
+        useBobbin, bobbinRows,
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiYarnCost, porvaiCountId,
         bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
@@ -359,8 +439,8 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     };
 
     const { error } = await sb.from('costing_master').update(payload).eq('id', id);
-    setSaving(false);
     if (error) {
+      setSaving(false);
       const code = (error as { code?: string }).code;
       if (code === '23505') {
         setSaveError(`Quality code "${trimmedCode}" is already used. Pick a different code.`);
@@ -369,6 +449,38 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       }
       return;
     }
+
+    // Sync child bobbin rows: nuke and re-insert. Simpler than diffing
+    // and the table is small (a handful of rows per costing).
+    const delChildren = await sb
+      .from('costing_master_bobbin')
+      .delete()
+      .eq('costing_id', id);
+    if (delChildren.error) {
+      setSaving(false);
+      setSaveError('Saved master but failed to clear old bobbin rows: ' + delChildren.error.message);
+      return;
+    }
+    if (validBobbinRows.length > 0) {
+      const childPayload = validBobbinRows.map((row, idx) => ({
+        costing_id: id,
+        bobbin_id:  Number(row.bobbinId),
+        price:      row.price,
+        metres:     row.metres,
+        waste:      row.waste,
+        sort_order: idx,
+      }));
+      const insChildren = await sb
+        .from('costing_master_bobbin')
+        .insert(childPayload);
+      if (insChildren.error) {
+        setSaving(false);
+        setSaveError('Saved master but failed to insert bobbin rows: ' + insChildren.error.message);
+        return;
+      }
+    }
+
+    setSaving(false);
     setSaveOk('Saved.');
     setTimeout(() => {
       router.push('/app/costing');
@@ -483,10 +595,89 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           <div className="border-t border-line/60 pt-3">
             <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} lock={lockConstruction} />
             {useBobbin && (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} lock={lockRates} /></Row>
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} lock={lockConstruction} /></Row>
-                <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} lock={lockRates} /></Row>
+              <div className="mt-2 space-y-3">
+                {bobbinRows.length === 0 && (
+                  <p className="text-xs text-ink-mute italic">
+                    No bobbins added yet. Click below to add the first one.
+                  </p>
+                )}
+                {bobbinRows.map((row, idx) => (
+                  <div key={row.key} className="rounded-lg border border-line/60 p-3 bg-white/40">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-ink-soft">
+                        Bobbin #{idx + 1}
+                      </span>
+                      <button type="button"
+                        disabled={lockConstruction}
+                        onClick={() => setBobbinRows((prev) => prev.filter((_, i) => i !== idx))}
+                        className={
+                          'text-xs font-semibold ' +
+                          (lockConstruction
+                            ? 'text-ink-mute cursor-not-allowed'
+                            : 'text-rose-700 hover:text-rose-900')
+                        }>
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                      <Row>
+                        <L>Bobbin</L>
+                        <select
+                          className={
+                            'input h-8 text-sm w-56 ' +
+                            (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
+                          }
+                          disabled={lockConstruction}
+                          value={row.bobbinId}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBobbinRows((prev) => prev.map((r, i) =>
+                              i === idx ? { ...r, bobbinId: v } : r,
+                            ));
+                          }}>
+                          <option value="">--- pick ---</option>
+                          {bobbins.map((b) => (
+                            <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
+                          ))}
+                        </select>
+                      </Row>
+                      <Row>
+                        <L>Bobbin price (Rs)</L>
+                        <Num value={row.price} step={50} lock={lockRates}
+                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                            i === idx ? { ...r, price: n } : r,
+                          ))} />
+                      </Row>
+                      <Row>
+                        <L>Bobbin metres</L>
+                        <Num value={row.metres} step={50} lock={lockConstruction}
+                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                            i === idx ? { ...r, metres: n } : r,
+                          ))} />
+                      </Row>
+                      <Row>
+                        <L>Waste add (Rs/m)</L>
+                        <Num value={row.waste} step={0.05} lock={lockRates}
+                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                            i === idx ? { ...r, waste: n } : r,
+                          ))} />
+                      </Row>
+                    </div>
+                  </div>
+                ))}
+                <button type="button"
+                  disabled={lockConstruction}
+                  onClick={() => setBobbinRows((prev) => [...prev, newBobbinRow()])}
+                  className={
+                    'inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg border px-3 py-1.5 ' +
+                    (lockConstruction
+                      ? 'bg-cloud/40 text-ink-mute border-line cursor-not-allowed'
+                      : bobbinRows.length === 0
+                        ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                        : 'bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50')
+                  }>
+                  + Add bobbin
+                </button>
               </div>
             )}
           </div>
@@ -613,15 +804,6 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Bobbin</label>
-            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
-              value={bobbinId} disabled={lockConstruction || useBobbin === false}
-              onChange={(e) => setBobbinId(e.target.value)}>
-              <option value="">--- none ---</option>
-              {bobbins.map((b) => (<option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>))}
             </select>
           </div>
           <div>
