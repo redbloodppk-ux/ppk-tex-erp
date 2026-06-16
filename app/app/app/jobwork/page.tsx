@@ -1267,6 +1267,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     sizing_job_id: number | null;
   }
   const [sizingJobs,       setSizingJobs]       = useState<SizingJobOpt[]>([]);
+  // Jobwork-variant only: an unfiltered list of every active sizing
+  // job for the manual sizing-job dropdown. Kept separate from
+  // `sizingJobs` (which is narrowed to outsource-routed pavus only).
+  const [allSizingJobs,    setAllSizingJobs]    = useState<SizingJobOpt[]>([]);
   const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
   // Routing relationships between outsource parties and sizing
@@ -1370,6 +1374,27 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return () => { cancelled = true; };
   }, [showAdd, kind, supabase, parties]);
 
+  // Jobwork variant: load every active sizing job for the manual
+  // dropdown. No cascade â€” the operator picks freely, then types in
+  // the totals (or auto-fills from a fabric quality).
+  useEffect(() => {
+    if (!showAdd || kind !== 'jobwork') return;
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data } = await sb
+        .from('sizing_job')
+        .select('id, job_code, set_no, warp_count_id, sizing_ledger_id')
+        .not('status', 'in', '(draft,cancelled)')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (cancelled) return;
+      setAllSizingJobs((data ?? []) as SizingJobOpt[]);
+    })();
+    return () => { cancelled = true; };
+  }, [showAdd, kind, supabase]);
+
   // â”€â”€ Cascade memos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectedOutsourceLedgerId = form.jobwork_party_id === ''
     ? null
@@ -1424,15 +1449,22 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, form.supplier_party_id, selectedOutsourceLedgerId]);
 
   // When the outsource party changes, clear stale sizing-party and
-  // sizing-job selections so the cascade doesn't get confused.
+  // sizing-job selections so the cascade doesn't get confused. Only
+  // applies to the outsource variant â€” the jobwork variant uses
+  // independent manual dropdowns.
   useEffect(() => {
+    if (kind !== 'outsource') return;
     setForm((f) => ({ ...f, supplier_party_id: '', sizing_job_id: '' }));
-  }, [form.jobwork_party_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.jobwork_party_id, kind]);
 
-  // When the sizing party changes, clear the sizing-job selection.
+  // When the sizing party changes, clear the sizing-job selection
+  // (outsource cascade only).
   useEffect(() => {
+    if (kind !== 'outsource') return;
     setForm((f) => ({ ...f, sizing_job_id: '' }));
-  }, [form.supplier_party_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.supplier_party_id, kind]);
 
   // Load pavu rows when the sizing job picker changes. Outsource
   // warp-given is, by definition, only about outsource-routed beams,
@@ -1540,7 +1572,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   async function add() {
     setErr(null);
-    if (form.jobwork_party_id === '') { setErr('Pick an outsource party.'); return; }
+    if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
     if (kind === 'outsource') {
       // Pavu-driven flow on the outsource page. Cascading dropdowns
       // and the pavu checklist are all required; the totals are
@@ -1633,8 +1665,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       return;
     }
 
-    // Legacy flat-form path (jobwork variant â€” kept for back-compat
-    // even though that tab is no longer rendered by default).
+    // Legacy flat-form path (jobwork variant â€” simpler manual form
+    // re-introduced on /app/jobwork). Sizing party + sizing job are
+    // both optional FK references that just tag the warp-given row.
     const payload = {
       jobwork_party_id: Number(form.jobwork_party_id),
       fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -1646,6 +1679,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no: form.reference_no.trim() || null,
       notes: form.notes.trim() || null,
       supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+      sizing_job_id: form.sizing_job_id === '' ? null : Number(form.sizing_job_id),
     };
     const { error } = await sb.from('jobwork_warp_beam').insert(payload);
     setBusy(false);
@@ -1751,9 +1785,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
-  // Outsource-only blurb (this tab is no longer rendered on the
-  // jobwork variant â€” warp beams aren't issued to jobwork parties).
-  const tabBlurb = 'Warp beams sent to outsource weavers. Add captures each issue; the table reflects only what\u2019s been logged here.';
+  // Blurb adapts to the variant â€” the jobwork form is a simple
+  // manual entry, the outsource form runs through the pavu cascade.
+  const tabBlurb = kind === 'jobwork'
+    ? 'Warp beams sent to jobwork parties. Pick sizing party + sizing job, then assign the metres to a fabric quality.'
+    : 'Warp beams sent to outsource weavers. Add captures each issue; the table reflects only what\u2019s been logged here.';
 
   return (
     <div>
@@ -1775,6 +1811,96 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       <div className="card p-4 mb-4 space-y-4">
         <h3 className="font-display font-bold text-sm">Add warp beam given</h3>
 
+        {kind === 'jobwork' ? (
+        <>
+          {/* Step 1 â€” Date, Jobwork Party, Sizing party, Sizing job.
+              All manual; no cascade. */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div><label className="label text-xs">ID</label>
+              <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
+            </div>
+            <div><label className="label text-xs">Date *</label>
+              <input type="date" className="input" value={form.given_date}
+                onChange={(e) => setForm({ ...form, given_date: e.target.value })} />
+            </div>
+            <div><label className="label text-xs">{partyLabel} *</label>
+              <select className="input" value={form.jobwork_party_id}
+                onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+                <option value="">--- pick ---</option>
+                {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+              </select>
+            </div>
+            <div><label className="label text-xs">Sizing party</label>
+              <select className="input" value={form.supplier_party_id}
+                onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
+                <option value="">--- pick ---</option>
+                {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+              </select>
+            </div>
+            <div><label className="label text-xs">Sizing job</label>
+              <select className="input" value={form.sizing_job_id}
+                onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}>
+                <option value="">--- pick ---</option>
+                {allSizingJobs.map((j) => (
+                  <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' Â· Set ' + j.set_no : ''}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+            <div><label className="label text-xs">Fabric quality *</label>
+              <select className="input" value={form.fabric_quality_id}
+                onChange={(e) => onFabricChange(e.target.value)}>
+                <option value="">--- pick ---</option>
+                {qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+              </select>
+              <p className="text-[10px] text-ink-mute mt-0.5">Picking a quality fills warp count + total ends; you can still edit them.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div><label className="label text-xs">Warp count</label>
+              <select className="input" value={form.warp_count_id}
+                onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
+                <option value="">---</option>
+                {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
+              </select>
+            </div>
+            <div><label className="label text-xs">Total ends</label>
+              <input type="number" className="input num" value={form.total_ends}
+                onChange={(e) => setForm({ ...form, total_ends: e.target.value })} />
+            </div>
+            <div><label className="label text-xs">No. of beams</label>
+              <input type="number" className="input num" value={form.beam_count}
+                onChange={(e) => setForm({ ...form, beam_count: e.target.value })} />
+            </div>
+            <div><label className="label text-xs">Total metres</label>
+              <input type="number" step={0.01} className="input num" value={form.total_metres}
+                onChange={(e) => setForm({ ...form, total_metres: e.target.value })} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label text-xs">Reference / DC no</label>
+              <input className="input" value={form.reference_no}
+                onChange={(e) => setForm({ ...form, reference_no: e.target.value })} />
+            </div>
+            <div><label className="label text-xs">Notes</label>
+              <input className="input" value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </div>
+          </div>
+
+          {err && <div className="text-sm text-err">{err}</div>}
+          <div className="flex justify-end">
+            <button type="button" onClick={add} disabled={busy} className="btn-primary">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp beam
+            </button>
+          </div>
+        </>
+        ) : (
+        <>
         {/* Step 1 â€” pick date, party, sizing party, sizing job. The
             cascade is: Outsourcing party â†’ narrows Sizing party â†’
             narrows Sizing job â†’ drives the pavu list below. The
@@ -1940,6 +2066,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp beam
           </button>
         </div>
+        </>
+        )}
       </div>
       )}
 
