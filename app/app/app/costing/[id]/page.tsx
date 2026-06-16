@@ -49,6 +49,9 @@ interface CalcSnapshot {
   reedCount?: number; tapeLengthIn?: number;
   warpRate?: number; sizingRate?: number; autoWarp?: number; salesCommM?: number;
   weftRate?: number; autoWeft?: number; weavingPaise?: number;
+  // Mode + outsource per-metre rate (used when productionMode === 'outsource')
+  productionMode?: 'inhouse' | 'outsource';
+  pickCostPerM?: number;
   useBobbin?: boolean;
   // Legacy single-bobbin fields (older snapshots)
   bobbinPrice?: number; bobbinMetres?: number;
@@ -114,6 +117,13 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
   const [weftRate, setWeftRate] = useState(285);
   const [autoWeft, setAutoWeft] = useState(2);
   const [weavingPaise, setWeavingPaise] = useState(16);
+
+  // Costing mode: 'inhouse' uses picks-per-inch × paise/100 for the
+  // pick cost; 'outsource' uses a single Rs/m rate paid to the
+  // outsource weaver. Defaults to 'inhouse' — overwritten from the
+  // loaded row's production_mode.
+  const [productionMode, setProductionMode] = useState<'inhouse' | 'outsource'>('inhouse');
+  const [pickCostPerM, setPickCostPerM] = useState(7.36);
 
   const [useBobbin, setUseBobbin] = useState(true);
   const [bobbinRows, setBobbinRows] = useState<BobbinRow[]>([]);
@@ -188,7 +198,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       const sb = supabase as any;
       const { data, error } = await sb
         .from('costing_master')
-        .select('quality_code, quality_name, fabric_type, calc_snapshot, use_bobbin_1, bobbin_1_id, bobbin_1_loading')
+        .select('quality_code, quality_name, fabric_type, production_mode, calc_snapshot, use_bobbin_1, bobbin_1_id, bobbin_1_loading')
         .eq('id', id)
         .single();
       if (error) {
@@ -198,7 +208,15 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       }
       setQualityCode(data.quality_code ?? '');
       setQualityName(data.quality_name ?? '');
+      // Production mode lives on the row directly. Legacy values
+      // (vendor / both / null) collapse to 'inhouse' so the form has a
+      // valid mode to render.
+      const rowMode = data.production_mode === 'outsource' ? 'outsource' : 'inhouse';
+      setProductionMode(rowMode);
       const s = (data.calc_snapshot ?? {}) as CalcSnapshot;
+      // Restore the outsource per-metre rate from the snapshot if it
+      // was saved (only relevant for outsource costings).
+      if (typeof s.pickCostPerM === 'number') setPickCostPerM(s.pickCostPerM);
       if (s.warpCount         != null) setWarpCount(s.warpCount);
       if (s.weftCount         != null) setWeftCount(s.weftCount);
       if (s.totalEnds         != null) setTotalEnds(s.totalEnds);
@@ -301,7 +319,10 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     const warpCost = warpMPerKg > 0
       ? (warpRate + sizingRate + autoWarp) / warpMPerKg + salesCommM : 0;
     const weftCost = weftMPerKg > 0 ? (weftRate + autoWeft) / weftMPerKg : 0;
-    const pickCost = (picksPerInch * weavingPaise) / 100;
+    // Pick cost contribution branches on mode — see costing/new.
+    const pickCost = productionMode === 'inhouse'
+      ? (picksPerInch * weavingPaise) / 100
+      : pickCostPerM;
     const bobbinCost = useBobbin
       ? bobbinRows.reduce((sum, row) => {
           if (row.metres > 0) return sum + row.price / row.metres + row.waste;
@@ -336,6 +357,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
     reedCount, tapeLengthIn,
     warpRate, sizingRate, autoWarp, salesCommM, weftRate, autoWeft, weavingPaise,
+    productionMode, pickCostPerM,
     useBobbin, bobbinRows,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual, porvaiPick, selvedgeLengthIn, porvaiYarnCost,
     bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
@@ -384,6 +406,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
       quality_code: trimmedCode,
       quality_name: qualityName.trim(),
       fabric_type: isTowel ? 'towel' : 'woven',
+      production_mode: productionMode,
       warp_count_id: Number(warpCountId),
       weft_count_id: Number(weftCountId),
       warp_ends: endsId !== ''
@@ -433,6 +456,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
         finishedWidthIn, reedCount, tapeLengthIn,
         warpRate, sizingRate, autoWarp, salesCommM,
         weftRate, autoWeft, weavingPaise,
+        productionMode, pickCostPerM,
         useBobbin, bobbinRows,
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiYarnCost, porvaiCountId,
@@ -554,6 +578,42 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         <div className="card p-5 space-y-4">
+          {/* Mode toggle — In-house vs Outsource. Locked when this
+              page is in 'rates' mode (only editable from the
+              construction edit path on the list). */}
+          <div className="flex items-center gap-2 -mt-1 pb-2 border-b border-line/60">
+            <span className="text-xs uppercase tracking-wide text-ink-mute">Mode:</span>
+            <button
+              type="button"
+              disabled={lockConstruction}
+              onClick={() => setProductionMode('inhouse')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'inhouse'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              } ${lockConstruction ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              In-house
+            </button>
+            <button
+              type="button"
+              disabled={lockConstruction}
+              onClick={() => setProductionMode('outsource')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'outsource'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              } ${lockConstruction ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              Outsource
+            </button>
+            <span className="ml-2 text-[11px] text-ink-mute">
+              {productionMode === 'inhouse'
+                ? 'Mill weaves — picks × paise drives the pick cost.'
+                : 'Outsource weaver — enter the Rs/m rate they charge.'}
+            </span>
+          </div>
+
           <h2 className="font-display font-bold text-base flex items-center gap-2">
             <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
           </h2>
@@ -594,7 +654,11 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} lock={lockRates} /></Row>
               <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} lock={lockRates} /></Row>
-              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} lock={lockRates} /></Row>
+              {productionMode === 'inhouse' ? (
+                <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} lock={lockRates} /></Row>
+              ) : (
+                <Row><L title="Outsource weaver's rate per metre. Replaces picks-per-inch x paise for the cost calc.">Pick cost (Rs/m)</L><Num value={pickCostPerM} set={setPickCostPerM} step={0.5} lock={lockRates} /></Row>
+              )}
             </div>
           </div>
 

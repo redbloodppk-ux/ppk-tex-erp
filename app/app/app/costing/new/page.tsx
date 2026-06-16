@@ -61,6 +61,13 @@ export default function NewCostingPage() {
   const [autoWeft, setAutoWeft] = useState(2);
   const [weavingPaise, setWeavingPaise] = useState(16);
 
+  // Costing mode: 'inhouse' uses picks-per-inch × paise/100 for the
+  // pick cost contribution. 'outsource' uses a single Rs/m rate the
+  // outsource weaver charges. Yarn/sizing/bobbin/porvai sections are
+  // identical for both modes (we supply those either way).
+  const [productionMode, setProductionMode] = useState<'inhouse' | 'outsource'>('inhouse');
+  const [pickCostPerM, setPickCostPerM] = useState(7.36);
+
   const [useBobbin, setUseBobbin] = useState(true);
   const [bobbinRows, setBobbinRows] = useState<BobbinRow[]>([]);
 
@@ -137,7 +144,11 @@ export default function NewCostingPage() {
       ? (warpRate + sizingRate + autoWarp) / warpMPerKg + salesCommM
       : 0;
     const weftCost = weftMPerKg > 0 ? (weftRate + autoWeft) / weftMPerKg : 0;
-    const pickCost = (picksPerInch * weavingPaise) / 100;
+    // Pick cost contribution. Inhouse computes from picks-per-inch x
+    // paise; outsource uses a direct Rs/m rate.
+    const pickCost = productionMode === 'inhouse'
+      ? (picksPerInch * weavingPaise) / 100
+      : pickCostPerM;
 
     const bobbinCost = useBobbin
       ? bobbinRows.reduce((sum, row) => {
@@ -183,6 +194,7 @@ export default function NewCostingPage() {
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
     reedCount, tapeLengthIn,
     warpRate, sizingRate, autoWarp, salesCommM, weftRate, autoWeft, weavingPaise,
+    productionMode, pickCostPerM,
     useBobbin, bobbinRows,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual, porvaiPick, selvedgeLengthIn, porvaiYarnCost,
     bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
@@ -218,7 +230,7 @@ export default function NewCostingPage() {
       // quality_code intentionally omitted — auto-filled by trigger.
       quality_name: qualityName.trim(),
       fabric_type:  isTowel ? 'towel' : 'woven',
-      production_mode: 'inhouse' as const,
+      production_mode: productionMode,
       warp_count_id: Number(warpCountId),
       weft_count_id: Number(weftCountId),
       warp_ends:        endsId !== ''
@@ -275,6 +287,7 @@ export default function NewCostingPage() {
         finishedWidthIn, reedCount, tapeLengthIn,
         warpRate, sizingRate, autoWarp, salesCommM,
         weftRate, autoWeft, weavingPaise,
+        productionMode, pickCostPerM,
         useBobbin, bobbinRows,
         usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual,
         porvaiPick, selvedgeLengthIn, porvaiYarnCost, porvaiCountId,
@@ -338,6 +351,42 @@ export default function NewCostingPage() {
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         <div className="card p-5 space-y-4">
+          {/* Mode toggle — picks whether the pick cost comes from
+              picks-per-inch x paise (inhouse) or a direct Rs/m rate
+              the outsource weaver charges (outsource). Jobwork costs
+              are NOT entered here — they live on the Fabric Quality
+              master. */}
+          <div className="flex items-center gap-2 -mt-1 pb-2 border-b border-line/60">
+            <span className="text-xs uppercase tracking-wide text-ink-mute">Mode:</span>
+            <button
+              type="button"
+              onClick={() => setProductionMode('inhouse')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'inhouse'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              }`}
+            >
+              In-house
+            </button>
+            <button
+              type="button"
+              onClick={() => setProductionMode('outsource')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'outsource'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              }`}
+            >
+              Outsource
+            </button>
+            <span className="ml-2 text-[11px] text-ink-mute">
+              {productionMode === 'inhouse'
+                ? 'Mill weaves — picks × paise drives the pick cost.'
+                : 'Outsource weaver — enter the Rs/m rate they charge.'}
+            </span>
+          </div>
+
           <h2 className="font-display font-bold text-base flex items-center gap-2">
             <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
           </h2>
@@ -373,7 +422,11 @@ export default function NewCostingPage() {
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} /></Row>
               <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} /></Row>
-              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
+              {productionMode === 'inhouse' ? (
+                <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
+              ) : (
+                <Row><L title="Outsource weaver's rate per metre. Replaces picks-per-inch x paise for the cost calc.">Pick cost (Rs/m)</L><Num value={pickCostPerM} set={setPickCostPerM} step={0.5} /></Row>
+              )}
             </div>
           </div>
 
