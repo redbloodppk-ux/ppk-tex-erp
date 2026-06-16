@@ -1627,11 +1627,11 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
   const grandOut     = data.columns.reduce((s, c) => s + (totals[c.id]?.out ?? 0), 0);
 
   // Pre-compute the per-event running balance per column so each row
-  // can render the new balance INSIDE the active cell. Walking the
-  // sorted events once, we keep a Map<column_id, running_balance> and
-  // capture the snapshot of the active column AFTER applying that
-  // event. Rendering uses this lookup directly so the running balance
-  // stays in sync with the displayed order.
+  // can render the new balance INSIDE the active cell. Walk the
+  // chronologically-sorted events once, capture the snapshot of the
+  // active column AFTER applying that event. The running-balance pass
+  // MUST stay chronological for the math to work — once it's done we
+  // reverse the rows for display so the newest event is at the top.
   const runningByCol: Record<string, number> = {};
   for (const col of data.columns) runningByCol[col.id] = 0;
   const balanceAfterEvent: number[] = new Array(sorted.length).fill(0);
@@ -1641,6 +1641,15 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
     const next = e.direction === 'in' ? cur + e.quantity : cur - e.quantity;
     runningByCol[e.column_id] = next;
     balanceAfterEvent[i] = next;
+  }
+  // Display order: newest at the top so the most recent entry is
+  // visible without scrolling. We pair each event with its
+  // chronological running balance index so the "bal X" inside the
+  // active cell still reflects the balance AS OF that event.
+  type DisplayRow = { event: PivotEvent; balanceAfter: number };
+  const displayRows: DisplayRow[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    displayRows.push({ event: sorted[i]!, balanceAfter: balanceAfterEvent[i] ?? 0 });
   }
 
   return (
@@ -1669,7 +1678,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
           <tbody>
             {sorted.length === 0 ? (
               <tr><td colSpan={2 + data.columns.length} className="px-3 py-6 text-center text-ink-mute text-xs">No movements yet. Issue stock from Job Work or post a Fabric Receipt to see entries here.</td></tr>
-            ) : sorted.map((e, i) => (
+            ) : displayRows.map(({ event: e, balanceAfter }, i) => (
               <tr key={i} className="border-t border-line/40">
                 <td className="px-3 py-2 text-xs text-ink-soft sticky left-0 bg-paper">{e.event_date || '-'}</td>
                 <td className="px-3 py-2 text-xs">
@@ -1678,7 +1687,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
                 </td>
                 {data.columns.map(c => {
                   const isActive = e.column_id === c.id;
-                  const newBalance = balanceAfterEvent[i] ?? 0;
+                  const newBalance = balanceAfter;
                   return (
                     <td key={c.id} className={`px-3 py-2 text-right num text-xs ${isActive ? (e.direction === 'in' ? 'text-emerald-700' : 'text-rose-700') : ''}`}>
                       {isActive ? (
