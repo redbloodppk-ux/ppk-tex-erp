@@ -1813,9 +1813,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
         {kind === 'jobwork' ? (
         <>
-          {/* Step 1 â€” Date, Jobwork Party, Sizing party, Sizing job.
-              All manual; no cascade. */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {/* Step 1 â€” Date, Jobwork Party, Sizing party. All manual;
+              no cascade. Sizing job removed per operator request â€”
+              jobwork warp beams are tracked at the party level only. */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div><label className="label text-xs">ID</label>
               <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
             </div>
@@ -1835,15 +1836,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                 onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
                 <option value="">--- pick ---</option>
                 {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-              </select>
-            </div>
-            <div><label className="label text-xs">Sizing job</label>
-              <select className="input" value={form.sizing_job_id}
-                onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}>
-                <option value="">--- pick ---</option>
-                {allSizingJobs.map((j) => (
-                  <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' Â· Set ' + j.set_no : ''}</option>
-                ))}
               </select>
             </div>
           </div>
