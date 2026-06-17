@@ -2274,6 +2274,78 @@ async function loadInhouseOpeningStock(
     }
   }
 
+  // ── Production batch outflows (shared, all in-house buckets) ─────
+  // Saving a Production Batch (/app/production/new) writes one
+  // stock_ledger row per material consumed, with
+  // source_kind='production_batch'. These outflows must land on the
+  // same in-house pivot columns as every other source so the live
+  // balance reflects what production actually used. No other source
+  // currently uses source_kind='production_batch', so we don't have
+  // to dedupe against existing events.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any; // table not in generated types
+  const slRows = await safeSelect<{
+    id: number;
+    fabric_quality_id: number | null;
+    yarn_count_id: number | null;
+    bobbin_id: number | null;
+    quantity: number | string | null;
+    event_date: string | null;
+    reference_no: string | null;
+    notes: string | null;
+    direction: string;
+  }>(
+    sb.from('stock_ledger')
+      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, quantity, event_date, reference_no, notes, direction')
+      .eq('bucket', bucket)
+      .eq('source_kind', 'production_batch'),
+  );
+  for (const row of slRows) {
+    let colId: string | null = null;
+    if (bucket === 'warp_beam') {
+      // Resolve to the same shared (ends + count) column used by
+      // pavu / opening stock / fabric receipts. Pull ends from the
+      // fabric_quality's costing snapshot (already loaded into
+      // qualityById earlier in this function).
+      let ends: number | null = null;
+      if (row.fabric_quality_id != null) {
+        const q = qualityById.get(row.fabric_quality_id) as
+          | { calc_snapshot?: Record<string, unknown> | null }
+          | undefined;
+        const snap = q?.calc_snapshot ?? {};
+        const e = Number(snap['totalEnds']);
+        if (Number.isFinite(e) && e > 0) ends = e;
+      }
+      if (ends != null) {
+        colId = ensureEndsCountCol(ends, row.yarn_count_id);
+      } else if (row.yarn_count_id != null) {
+        colId = ensureCountCol(row.yarn_count_id);
+      } else {
+        continue;
+      }
+    } else if (bucket === 'weft_yarn' || bucket === 'porvai_yarn') {
+      if (row.yarn_count_id == null) continue;
+      colId = ensureCountCol(row.yarn_count_id);
+    } else if (bucket === 'bobbin') {
+      if (row.bobbin_id == null) continue;
+      const bm = bobMasterById.get(row.bobbin_id) as
+        | { ends_per_bobbin?: number | null }
+        | undefined;
+      const ends = Number(bm?.ends_per_bobbin ?? 0);
+      if (!Number.isFinite(ends) || ends <= 0) continue;
+      colId = ensureEndsCol(ends);
+    }
+    if (colId == null) continue;
+    events.push({
+      event_date: row.event_date ?? '',
+      column_id: colId,
+      direction: row.direction === 'in' ? 'in' : 'out',
+      quantity: Number(row.quantity ?? 0),
+      reference: row.reference_no ?? `Ledger #${row.id}`,
+      notes: row.notes ?? 'Production batch',
+    });
+  }
+
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   return { unit, columns, events };
 }
