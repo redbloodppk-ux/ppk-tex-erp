@@ -17,7 +17,7 @@
  */
 
 import Link from 'next/link';
-import { Boxes, Package, Layers, AlertTriangle, Coins, TrendingDown, Factory, Truck, Ruler } from 'lucide-react';
+import { Boxes, Package, PackageOpen, Layers, AlertTriangle, Coins, TrendingDown, Factory, Truck, Ruler } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
@@ -49,11 +49,14 @@ const MODE_TABS = [
 // Sizing is now its own top-level mode (Sizing Warehouse) so we no
 // longer surface it here as an in-house sub-tab.
 const INHOUSE_TABS = [
-  { key: 'warp_metre',  label: 'Warp Metre (m)',   icon: Ruler   },
-  { key: 'weft_yarn',   label: 'Weft Yarn (kg)',   icon: Boxes   },
-  { key: 'porvai_yarn', label: 'Porvai Yarn (kg)', icon: Boxes   },
-  { key: 'bobbin',      label: 'Bobbins (m)',      icon: Package },
-  { key: 'fabric',      label: 'Fabric (m)',       icon: Layers  },
+  { key: 'warp_metre',         label: 'Warp Metre (m)',         icon: Ruler   },
+  { key: 'weft_yarn',          label: 'Weft Yarn (kg)',         icon: Boxes   },
+  { key: 'porvai_yarn',        label: 'Porvai Yarn (kg)',       icon: Boxes   },
+  { key: 'bobbin',             label: 'Bobbins (m)',            icon: Package },
+  { key: 'fabric',             label: 'Fabric (m)',             icon: Layers  },
+  // Production-batch fabric inflows (stock_ledger.bucket='production_fabric').
+  // Currently inflow-only; outflows (DC shipments) will arrive later.
+  { key: 'production_fabric',  label: 'Production Fabric (m)',  icon: PackageOpen },
 ] as const;
 
 const SIZING_TABS = [
@@ -282,6 +285,11 @@ export default async function WarehousePage({
   const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
   const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  // Production Fabric — stock_ledger rows with bucket='production_fabric'.
+  // Currently inflow-only (writes from /app/production/new); outflows
+  // (DC shipments) will be added later. Columns key by fabric_quality_id
+  // with merged-group collapsing (same colInfo pattern the warp pivot uses).
+  const inProdFabricRows = mode === 'inhouse' && tab === 'production_fabric' ? await loadInhouseProductionFabric(supabase, fabricQualities ?? []) : null;
   // Sizing warehouse — its own top-level mode. The loader pivots
   // yarn_lot inflows (delivery_destination='sizing') and sizing_job
   // outflows by yarn count, one column per count.
@@ -597,6 +605,12 @@ export default async function WarehousePage({
             </>
           )}
         </>
+      )}
+      {mode === 'inhouse' && tab === 'production_fabric' && (
+        <PivotView
+          data={inProdFabricRows!}
+          emptyMessage="No production fabric stock yet. Save a production batch from Production → New Batch to see inflows here."
+        />
       )}
       {isJobworkLike && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage={mode === 'outsource' ? 'No warp beam entries yet. Issue beams from Outsource Weaving → Warp Beam Given to see them here.' : 'No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here.'} />}
       {isJobworkLike && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage={mode === 'outsource' ? 'No weft yarn entries yet. Issue yarn from Outsource Weaving → Weft Yarn Given to see them here.' : 'No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here.'} />}
@@ -2891,6 +2905,112 @@ function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMess
       </div>
     </>
   );
+}
+
+// ─── In-house Production Fabric pivot ───────────────────────────────────────
+// Sources stock_ledger rows tagged with bucket='production_fabric'. These
+// are written by the production-batch save endpoint (/app/production/new)
+// when a finished fabric quantity is recorded against a production batch.
+//
+// Currently all rows are direction='in' — there is no DC-shipment writer
+// yet that emits direction='out' for this bucket. The loader handles both
+// directions anyway so the pivot will net correctly once outflows ship.
+//
+// Columns key by fabric_quality_id with the same merged-group collapsing
+// used by the warp_beam pivot (loadJobworkWarpBeam) — qualities with
+// is_merged=true and a merged_name share one column labelled with that
+// merged name. Standalone qualities get their own column.
+//
+// Unit: production fabric is recorded in metres in the production form;
+// the pivot label in INHOUSE_TABS reflects 'm'. If a row sneaks in with
+// unit='pcs' (e.g. a non-woven/garment SKU later) we still render the
+// quantity as a number — the pivot itself uses a single unit string.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadInhouseProductionFabric(supabase: any, qualities: any[]): Promise<PivotData> {
+  // Read merge metadata for every known fabric_quality so we can
+  // collapse merged siblings into a single pivot column. Mirrors the
+  // pattern in loadJobworkWarpBeam.
+  const fqMergeById = new Map<number, { code: string; name: string; is_merged: boolean; merged_name: string | null }>();
+  if (qualities.length > 0) {
+    const qIds = (qualities as Array<{ id: number }>).map((q) => q.id);
+    const mergeRows = await safeSelect<{ id: number; code: string; name: string; is_merged: boolean | null; merged_name: string | null }>(
+      supabase.from('fabric_quality')
+        .select('id, code, name, is_merged, merged_name')
+        .in('id', qIds),
+    );
+    for (const r of mergeRows) {
+      fqMergeById.set(r.id, {
+        code: r.code ?? '',
+        name: r.name ?? '',
+        is_merged: r.is_merged === true,
+        merged_name: r.merged_name ?? null,
+      });
+    }
+  }
+
+  // Pull every production_fabric ledger row. Cast through any because
+  // stock_ledger isn't fully typed in the generated database.types.ts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: ledger } = await (supabase as any)
+    .from('stock_ledger')
+    .select('id, bucket, direction, fabric_quality_id, quantity, unit, event_date, source_kind, source_id, reference_no, notes')
+    .eq('bucket', 'production_fabric')
+    .order('event_date');
+  const rows = ((ledger ?? []) as Array<{
+    id: number;
+    direction: 'in' | 'out' | string;
+    fabric_quality_id: number | null;
+    quantity: number | string | null;
+    unit: string | null;
+    event_date: string | null;
+    reference_no: string | null;
+    notes: string | null;
+  }>);
+
+  const colMap = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  // colInfo: maps a fabric_quality_id to its pivot column identity,
+  // collapsing merged siblings via merged_name. Same shape used by the
+  // warp-beam pivot loader.
+  const colInfo = (qualityId: number | null): { id: string; label: string; sublabel: string } => {
+    if (qualityId == null) return { id: 'unknown', label: '(no quality)', sublabel: '' };
+    const m = fqMergeById.get(qualityId);
+    if (m && m.is_merged && m.merged_name && m.merged_name.trim() !== '') {
+      return { id: `m:${m.merged_name.trim()}`, label: m.merged_name.trim(), sublabel: 'merged group' };
+    }
+    return { id: `fq:${qualityId}`, label: m?.code ?? `FQ #${qualityId}`, sublabel: m?.name ?? '' };
+  };
+  const ensureCol = (qualityId: number | null): string => {
+    const info = colInfo(qualityId);
+    if (!colMap.has(info.id)) {
+      colMap.set(info.id, { id: info.id, label: info.label, sublabel: info.sublabel });
+    }
+    return info.id;
+  };
+
+  // Determine the pivot unit. If every row reports 'pcs' we render as
+  // pcs; otherwise default to 'm' (the production form writes metres).
+  let unit: LedgerUnit = 'm';
+  if (rows.length > 0 && rows.every((r) => (r.unit ?? '').toLowerCase() === 'pcs')) {
+    unit = 'pcs';
+  }
+
+  for (const r of rows) {
+    const colId = ensureCol(r.fabric_quality_id);
+    const dir: 'in' | 'out' = r.direction === 'out' ? 'out' : 'in';
+    events.push({
+      event_date: r.event_date ?? '',
+      column_id: colId,
+      direction: dir,
+      quantity: Number(r.quantity ?? 0),
+      reference: r.reference_no ?? `Ledger #${r.id}`,
+      notes: r.notes ?? '',
+    });
+  }
+
+  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return { unit, columns, events };
 }
 
 // ─── Low stock alerts ────────────────────────────────────────────────────────

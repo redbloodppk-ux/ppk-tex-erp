@@ -21,7 +21,9 @@ import {
   Factory,
   PackageCheck,
   Printer,
+  Pencil,
 } from 'lucide-react';
+import { ProductionBatchDeleteButton } from '@/app/components/production-batch-delete-button';
 
 export const metadata = { title: 'Production' };
 export const dynamic = 'force-dynamic';
@@ -264,6 +266,7 @@ export default async function ProductionPage() {
                   <th className="text-right px-3 py-2">Rejected m</th>
                   <th className="text-right px-3 py-2">True rupees/m</th>
                   <th className="text-right px-3 py-2">Sizing variance</th>
+                  <th className="text-right px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -317,6 +320,16 @@ export default async function ProductionPage() {
                         ) : (
                           <span className="text-ink-soft">on plan</span>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <Link
+                          href={`/app/production/${b.id}/edit`}
+                          className="p-1 rounded hover:bg-indigo-50 text-indigo inline-flex mr-1"
+                          title="Edit this batch"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Link>
+                        <ProductionBatchDeleteButton id={b.id} code={b.batch_code} />
                       </td>
                     </tr>
                   );
