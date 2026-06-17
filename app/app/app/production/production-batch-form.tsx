@@ -392,20 +392,39 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ledgerRows: any[] = [];
 
-    // Warp metre outflow — 1:1 with produced metres.
+    // Unit semantics of the typed `producedMetres` value:
+    //
+    //   Convert to towel pieces TOGGLE ON  → value entered IN METRES
+    //     warp/weft/porvai/bobbin: use as-is (metres)
+    //     fabric stock: convert m → pcs via round(m / length)
+    //
+    //   Convert to towel pieces TOGGLE OFF → value entered IN PIECES
+    //     warp/weft/porvai/bobbin: expand pcs × length → metres
+    //     fabric stock: save pcs as-is (no conversion)
+    //
+    // When towel length is 0 / blank, fall back to "value is in metres"
+    // and skip the pcs conversion entirely (non-towel qualities).
+    const towelLenNum = Number(towelLength);
+    const hasTowelLen = towelLenNum > 0;
+    const entryInPieces = !convertToTowel && hasTowelLen;
+    const actualMetres = entryInPieces
+      ? producedMetres * towelLenNum   // pcs × length → metres
+      : producedMetres;                // already metres
+
+    // Warp metre outflow — uses TRUE metres consumed by the weaving.
     ledgerRows.push({
       bucket: 'warp_beam',
       direction: 'out',
       fabric_quality_id: linkedFqId,
       yarn_count_id: costing.warp_count_id ?? null,
-      quantity: producedMetres,
+      quantity: actualMetres,
       unit: 'm',
       ...src,
       notes: 'Consumed by production batch',
     });
 
     const weftKgPerM = Number(costing.weft_kg_per_m ?? 0);
-    const weftKg = weftKgPerM * producedMetres;
+    const weftKg = weftKgPerM * actualMetres;
     if (weftKg > 0) {
       ledgerRows.push({
         bucket: 'weft_yarn',
@@ -420,7 +439,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     }
 
     const porvaiKgPerM = Number(costing.porvai_kg_per_m ?? 0);
-    const porvaiKg = porvaiKgPerM * producedMetres;
+    const porvaiKg = porvaiKgPerM * actualMetres;
     if (porvaiKg > 0) {
       ledgerRows.push({
         bucket: 'porvai_yarn',
@@ -437,7 +456,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     for (const b of bobbins) {
       const metres = Number(b.metres ?? 0);
       if (!(metres > 0)) continue;
-      const pieces = producedMetres / metres;
+      const pieces = actualMetres / metres;
       ledgerRows.push({
         bucket: 'bobbin',
         direction: 'out',
@@ -450,22 +469,34 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       });
     }
 
-    // Production fabric INFLOW
-    const towelLenNum = Number(towelLength);
-    const towelMode = convertToTowel === true && towelLenNum > 0;
-    // Towel pieces are physical units — round to the nearest whole
-    // piece. Non-towel inflow stays as metres (the natural unit).
-    const inflowQty = towelMode
-      ? Math.round(producedMetres / towelLenNum)
-      : producedMetres;
+    // Production fabric INFLOW — unit depends on the entry mode:
+    //   convertToTowel ON  : value is metres → save pcs (round m/length)
+    //   convertToTowel OFF + hasTowelLen: value already pcs → save pcs as-is
+    //   convertToTowel OFF + no towelLen: save metres (non-towel fallback)
+    let inflowQty: number;
+    let inflowUnit: 'pcs' | 'm';
+    let inflowNote: string;
+    if (convertToTowel && hasTowelLen) {
+      inflowQty = Math.round(producedMetres / towelLenNum);
+      inflowUnit = 'pcs';
+      inflowNote = `Produced as towel (${towelLenNum} m/pc)`;
+    } else if (entryInPieces) {
+      inflowQty = Math.round(producedMetres);
+      inflowUnit = 'pcs';
+      inflowNote = `Produced as towel — entered in pcs (${towelLenNum} m/pc)`;
+    } else {
+      inflowQty = producedMetres;
+      inflowUnit = 'm';
+      inflowNote = 'Produced fabric stock';
+    }
     ledgerRows.push({
       bucket: 'production_fabric',
       direction: 'in',
       fabric_quality_id: linkedFqId,
       quantity: inflowQty,
-      unit: towelMode ? 'pcs' : 'm',
+      unit: inflowUnit,
       ...src,
-      notes: towelMode ? `Produced as towel (${towelLenNum} m/pc)` : 'Produced fabric stock',
+      notes: inflowNote,
     });
 
     const { error: insErr } = await sb.from('stock_ledger').insert(ledgerRows);
@@ -899,7 +930,14 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           </div>
         </div>
 
-        {/* Convert to towel pieces toggle */}
+        {/* Towel-pieces conversion. Toggle interpretation:
+              ON  → operator entered METRES; we convert to pieces for
+                    fabric stock (m / length), warp metre outflow uses
+                    the metres as-is.
+              OFF → operator entered PIECES; fabric stock saved as
+                    pieces unchanged, warp metre outflow expands to
+                    metres (pieces × length). Towel length input is
+                    visible in BOTH modes whenever a length is needed. */}
         <div className="rounded-lg border border-line/60 bg-cloud/30 p-3 space-y-2">
           <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
             <input
@@ -907,22 +945,28 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
               checked={convertToTowel}
               onChange={e => setConvertToTowel(e.target.checked)}
             />
-            <span className="font-semibold">Convert to towel pieces</span>
-            <span className="text-ink-mute text-xs">— produced fabric will be recorded as pieces, not metres.</span>
+            <span className="font-semibold">Quantity entered in metres</span>
+            <span className="text-ink-mute text-xs">— when off, the produced value is treated as towel pieces.</span>
           </label>
-          {convertToTowel && (
-            <div className="max-w-xs">
-              <label className="label">Length per towel (m)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={towelLength}
-                onChange={e => setTowelLength(e.target.value)}
-                className="input num"
-              />
+          <div className="max-w-xs">
+            <label className="label">Length per towel (m)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={towelLength}
+              onChange={e => setTowelLength(e.target.value)}
+              className="input num"
+              placeholder="leave blank for non-towel"
+            />
+            <div className="text-[10px] text-ink-mute mt-0.5">
+              {convertToTowel
+                ? 'Metres ÷ length → pieces for fabric stock.'
+                : Number(towelLength) > 0
+                  ? 'Pieces × length → metres for raw materials (warp / weft / bobbin).'
+                  : 'No length set — produced value will be saved as metres on fabric stock.'}
             </div>
-          )}
+          </div>
         </div>
 
         <div>
