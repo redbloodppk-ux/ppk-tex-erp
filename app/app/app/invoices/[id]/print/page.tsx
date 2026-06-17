@@ -408,7 +408,8 @@ export default async function InvoicePrintPage({
         .inv-sheet { zoom: 0.92; }
         .inv-sheet.inv-compact { zoom: 0.9; }
         /* DC-style header: centered title band + meta strip + bill/ship grid */
-        .inv-title { text-align: center; font-size: 23px; font-weight: 800; letter-spacing: 2px; color: #000; padding-top: 4px; }
+        .inv-title { text-align: left; font-size: 34px; font-weight: 900; letter-spacing: 1px; color: #000; padding-top: 2px; line-height: 1.1; }
+        .inv-doc-label { text-align: right; font-size: 20px; font-weight: 800; letter-spacing: 3px; color: #1f2937; border: 1.5px solid #1f2937; padding: 6px 14px; border-radius: 4px; white-space: nowrap; }
         .inv-orig  { text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 3px; margin-bottom: 9px; }
         .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
         .inv-meta > div { padding: 8px 10px; border-right: 1px solid #000; font-size: 14px; font-weight: 600; }
@@ -474,7 +475,7 @@ export default async function InvoicePrintPage({
       {/* Fixed print-only header — repeats on every printed page.
           Hidden on screen by CSS. */}
       <div className="inv-print-header">
-        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; {style.title.toUpperCase()}</div>
+        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; TAX INVOICE</div>
         <div className="ph-meta">
           <div>Invoice # <b>{inv.invoice_no}</b></div>
           <div>Date: <b>{fmtDate(inv.invoice_date)}</b></div>
@@ -502,15 +503,20 @@ export default async function InvoicePrintPage({
           (inv.doc_type === 'jobwork_invoice' || inv.doc_type === 'weaving_bill' ? 'inv-compact ' : '') +
           (inv.status === 'draft' ? 'inv-status-draft' : inv.status === 'cancelled' ? 'inv-status-cancelled' : '')}
       >
-        {/* ───── Header band: logo + company name + doc title (DC-style) ───── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <BrandLogo variant="mark" height={56} />
-          <div style={{ flex: 1 }}>
-            <div className="inv-title">{COMPANY.name} &nbsp; {style.title.toUpperCase()}</div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#555', marginTop: 2 }}>
-              {COMPANY.address}
-            </div>
+        {/* ───── Header band: logo + company name (left), TAX INVOICE
+                label (right). Address line removed per operator's
+                redesign brief — it lives in the printed footer band
+                instead. Doc title is hard-coded to "TAX INVOICE" so
+                every variant (sale, credit note, jobwork, weaving,
+                etc.) shares the same recognisable header; the bill-to
+                strip + reference banner downstream still convey the
+                specific doc type. ───── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
+          <BrandLogo variant="mark" height={64} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="inv-title">{COMPANY.name}</div>
           </div>
+          <div className="inv-doc-label">TAX INVOICE</div>
         </div>
 
         <div className="inv-orig">{copyLabel} COPY</div>
