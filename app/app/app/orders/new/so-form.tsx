@@ -49,7 +49,9 @@ interface SoFormValues {
   customer_id: string;
   order_date: string;
   delivery_date: string;
-  payment_date: string;
+  /** Payment terms in DAYS (e.g. 15, 30). Optional. Saved as a
+   *  derived payment_date = order_date + N days. */
+  payment_days: string;
   notes: string;
   lines: SoLine[];
 }
@@ -80,7 +82,7 @@ const EMPTY_FORM: SoFormValues = {
   customer_id: '',
   order_date: todayISO(),
   delivery_date: '',
-  payment_date: '',
+  payment_days: '',
   notes: '',
   lines: [emptyLine()],
 };
@@ -229,7 +231,18 @@ export function SalesOrderForm(): React.ReactElement {
       business_model: 'inhouse',
       order_date: form.order_date,
       delivery_date: form.delivery_date,
-      payment_date: form.payment_date === '' ? null : form.payment_date,
+      // Convert "Payment terms (days)" into an absolute payment_date by
+      // adding the days to order_date. Stored as a date on the SO so
+      // the existing auto-status trigger ("Paid" → stamps payment_date)
+      // and any downstream reports keep working unchanged.
+      payment_date: (() => {
+        const n = Number(form.payment_days);
+        if (!Number.isFinite(n) || n <= 0 || !form.order_date) return null;
+        const d = new Date(form.order_date + 'T00:00:00');
+        if (Number.isNaN(d.getTime())) return null;
+        d.setDate(d.getDate() + Math.round(n));
+        return d.toISOString().slice(0, 10);
+      })(),
       status: 'approved',
       subtotal,
       gst_amount: 0,
@@ -320,15 +333,31 @@ export function SalesOrderForm(): React.ReactElement {
         </div>
         <div>
           <label className="label">
-            Expected Payment Date
+            Payment Terms (days)
             <span className="text-[10px] text-ink-mute font-normal ml-2">(optional)</span>
           </label>
           <input
-            type="date"
-            className="input"
-            value={form.payment_date}
-            onChange={(e) => setForm({ ...form, payment_date: e.target.value })}
+            type="number"
+            min={0}
+            step={1}
+            className="input num"
+            placeholder="e.g. 15"
+            value={form.payment_days}
+            onChange={(e) => setForm({ ...form, payment_days: e.target.value })}
           />
+          {(() => {
+            const n = Number(form.payment_days);
+            if (!Number.isFinite(n) || n <= 0 || !form.order_date) return null;
+            const d = new Date(form.order_date + 'T00:00:00');
+            if (Number.isNaN(d.getTime())) return null;
+            d.setDate(d.getDate() + Math.round(n));
+            const iso = d.toISOString().slice(0, 10);
+            return (
+              <div className="text-[10px] text-ink-mute mt-1">
+                Due on {iso}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
