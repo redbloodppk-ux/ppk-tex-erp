@@ -2294,28 +2294,46 @@ async function loadInhouseOpeningStock(
     reference_no: string | null;
     notes: string | null;
     direction: string;
+    source_id: number | null;
   }>(
     sb.from('stock_ledger')
-      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, quantity, event_date, reference_no, notes, direction')
+      .select('id, fabric_quality_id, yarn_count_id, bobbin_id, quantity, event_date, reference_no, notes, direction, source_id')
       .eq('bucket', bucket)
       .eq('source_kind', 'production_batch'),
   );
+
+  // For warp_beam, resolve `ends` via costing_master.warp_ends keyed
+  // by production_batch.id. The outer qualityById map doesn't carry
+  // calc_snapshot, and costing_master is the source of truth anyway.
+  const endsByBatch = new Map<number, number>();
+  if (bucket === 'warp_beam' && slRows.length > 0) {
+    const batchIds = Array.from(
+      new Set(slRows.map((r) => r.source_id).filter((v): v is number => v != null)),
+    );
+    if (batchIds.length > 0) {
+      const batches = await safeSelect<{
+        id: number; costing_id: number | null;
+        costing: { warp_ends: number | null } | null;
+      }>(
+        sb.from('production_batch')
+          .select('id, costing_id, costing:costing_id ( warp_ends )')
+          .in('id', batchIds),
+      );
+      for (const b of batches) {
+        const we = Number(b.costing?.warp_ends ?? 0);
+        if (Number.isFinite(we) && we > 0) endsByBatch.set(b.id, we);
+      }
+    }
+  }
+
   for (const row of slRows) {
     let colId: string | null = null;
     if (bucket === 'warp_beam') {
       // Resolve to the same shared (ends + count) column used by
-      // pavu / opening stock / fabric receipts. Pull ends from the
-      // fabric_quality's costing snapshot (already loaded into
-      // qualityById earlier in this function).
-      let ends: number | null = null;
-      if (row.fabric_quality_id != null) {
-        const q = qualityById.get(row.fabric_quality_id) as
-          | { calc_snapshot?: Record<string, unknown> | null }
-          | undefined;
-        const snap = q?.calc_snapshot ?? {};
-        const e = Number(snap['totalEnds']);
-        if (Number.isFinite(e) && e > 0) ends = e;
-      }
+      // pavu / opening stock / fabric receipts. Ends come from
+      // costing_master.warp_ends (canonical), count from the
+      // stock_ledger row's yarn_count_id.
+      const ends = row.source_id != null ? endsByBatch.get(row.source_id) ?? null : null;
       if (ends != null) {
         colId = ensureEndsCountCol(ends, row.yarn_count_id);
       } else if (row.yarn_count_id != null) {
