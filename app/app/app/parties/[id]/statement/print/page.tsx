@@ -6,13 +6,16 @@
  * printed and handed to the party as a polite reminder, or saved as
  * a PDF and WhatsApp'd.
  *
- * Pulls from six sources, same set as UnpaidBillsPicker:
+ * Pulls from seven sources:
  *   - invoice (sales / jobwork / weaving bills)
  *   - party_opening_ledger (opening balances)
  *   - sizing_job
  *   - bobbin_purchase
  *   - yarn_lot
  *   - fabric_purchase (supplier-source rows only)
+ *   - bank_entry (direct bank transactions where the party's linked
+ *     ledger is the offset side — these adjust the net outstanding
+ *     when something is settled or accrued outside the payment flow).
  *
  * No app shell so the page prints cleanly. PrintActions toolbar at
  * the top is hidden under @media print.
@@ -46,6 +49,8 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   fabric_purchase:    'Fabric Purchase',
   opening_receivable: 'Opening (Receivable)',
   opening_payable:    'Opening (Payable)',
+  bank_in:            'Bank Receipt',
+  bank_out:           'Bank Payment',
 };
 
 function fmtINR(n: number): string {
@@ -85,7 +90,7 @@ export default async function PartyStatementPrintPage({
 
   const [partyRes, cpRes] = await Promise.all([
     sb.from('party')
-      .select('id, code, name, gstin, state, billing_address, phone, whatsapp')
+      .select('id, code, name, gstin, state, billing_address, phone, whatsapp, ledger_id')
       .eq('id', partyId)
       .maybeSingle(),
     sb.from('company_profile')
@@ -98,6 +103,7 @@ export default async function PartyStatementPrintPage({
     id: number; code: string; name: string; gstin: string | null;
     state: string | null; billing_address: string | null;
     phone: string | null; whatsapp: string | null;
+    ledger_id: number | null;
   } | null;
   if (!party) notFound();
 
@@ -107,8 +113,24 @@ export default async function PartyStatementPrintPage({
     city?: string; state?: string; pincode?: string; phone?: string;
   };
 
-  // Fetch the six bill sources in parallel.
-  const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
+  // Fetch the six bill sources in parallel + bank entries that touch
+  // the party's linked ledger. Bank entries are only meaningful when
+  // party.ledger_id is set — otherwise we hand back an empty array so
+  // the downstream code can stay uniform.
+  const partyLedgerId = party.ledger_id;
+  const bankPromise = partyLedgerId != null
+    ? sb.from('bank_entry')
+        .select(`
+          id, entry_no, entry_date, direction, amount, mode, reference, notes,
+          status, bank_ledger_id, other_ledger_id, category_id,
+          bank:bank_ledger_id ( id, name ),
+          category:category_id ( id, code, name )
+        `)
+        .eq('status', 'active')
+        .eq('other_ledger_id', partyLedgerId)
+    : Promise.resolve({ data: [] as unknown[], error: null });
+
+  const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, bankRes] = await Promise.all([
     sb.from('invoice')
       .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
       .ilike('party_name', party.name)
@@ -135,6 +157,7 @@ export default async function PartyStatementPrintPage({
       .eq('supplier_party_id', partyId)
       .eq('source', 'supplier')
       .eq('status', 'active'),
+    bankPromise,
   ]);
 
   const bills: Bill[] = [];
@@ -230,6 +253,49 @@ export default async function PartyStatementPrintPage({
     });
   }
 
+  // Bank entries — only fetched when the party has a linked ledger,
+  // and only the rows where the party's ledger is the OFFSET side
+  // (the company's bank is the bank side). Sign convention mirrors
+  // ledger-view-tab: from the offset ledger's POV, a bank dir='out'
+  // is a debit ("grew" the offset, i.e. +balance), and a bank dir='in'
+  // is a credit (reduces it, i.e. -balance). For the outstanding
+  // statement this naturally nets: paying a supplier from bank
+  // (dir='out' on the supplier ledger context) DEBITS the supplier
+  // (reduces what we owe) → +balance on a payable account in standard
+  // accounting actually means the credit balance shrinks toward zero,
+  // which matches "outstanding goes DOWN". We model that as a paid
+  // adjustment with negative balance contribution. See README and
+  // ledger-view-tab.tsx for the full reasoning.
+  //
+  // Concretely:
+  //   - dir='out' (bank paid out, e.g. we paid this supplier):
+  //       paid = amount, balance = -amount  (reduces outstanding)
+  //   - dir='in'  (bank received, e.g. customer paid us):
+  //       paid = amount, balance = -amount  (also reduces outstanding)
+  // Both directions of a direct bank↔party movement settle balance,
+  // so they reduce the outstanding sum at the bottom of the page.
+  // If a bank entry needs to INCREASE outstanding (rare adjustments),
+  // the operator should use a payment / debit note / opening row
+  // instead — that's outside the scope of this surface.
+  for (const r of ((bankRes?.data ?? []) as Array<{
+    id: number; entry_no: string | null; entry_date: string;
+    direction: 'in' | 'out'; amount: number | string;
+    reference: string | null; notes: string | null;
+    bank?: { id: number; name: string } | null;
+    category?: { id: number; name: string } | null;
+  }>)) {
+    const amt = Number(r.amount ?? 0);
+    if (!Number.isFinite(amt) || amt <= 0.005) continue;
+    bills.push({
+      doc_no:   r.entry_no ?? `BE-${r.id}`,
+      doc_date: r.entry_date,
+      doc_type: r.direction === 'in' ? 'bank_in' : 'bank_out',
+      total:    0,
+      paid:     amt,
+      balance:  -amt,
+    });
+  }
+
   bills.sort((a, b) => (a.doc_date ?? '').localeCompare(b.doc_date ?? ''));
 
   const totalOutstanding = bills.reduce((s, b) => s + b.balance, 0);
@@ -271,7 +337,7 @@ export default async function PartyStatementPrintPage({
           </div>
           <div className="rounded-md border border-line/60 p-3 text-right bg-cloud/20">
             <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total outstanding</div>
-            <div className="text-3xl font-extrabold tabular-nums num text-rose-700">
+            <div className={'text-3xl font-extrabold tabular-nums num ' + (totalOutstanding < 0 ? 'text-emerald-700' : 'text-rose-700')}>
               Rs {fmtINR(totalOutstanding)}
             </div>
             <div className="text-[10px] text-ink-mute mt-0.5">
@@ -302,6 +368,10 @@ export default async function PartyStatementPrintPage({
             <tbody>
               {bills.map((b, i) => {
                 const days = daysBetween(b.doc_date);
+                // Negative balance = the row REDUCES the outstanding
+                // sum (a bank-side settlement). Show it in emerald so
+                // it visually reads as a credit, not as a debt.
+                const isCredit = b.balance < 0;
                 return (
                   <tr key={`${b.doc_type}-${b.doc_no}-${i}`} className="border-b border-line/40">
                     <td className="px-2 py-1.5 text-ink-soft">{i + 1}</td>
@@ -311,7 +381,9 @@ export default async function PartyStatementPrintPage({
                     <td className="px-2 py-1.5 text-right num">{days}</td>
                     <td className="px-2 py-1.5 text-right num">{fmtINR(b.total)}</td>
                     <td className="px-2 py-1.5 text-right num text-emerald-700">{fmtINR(b.paid)}</td>
-                    <td className="px-2 py-1.5 text-right num font-semibold text-rose-700">{fmtINR(b.balance)}</td>
+                    <td className={'px-2 py-1.5 text-right num font-semibold ' + (isCredit ? 'text-emerald-700' : 'text-rose-700')}>
+                      {fmtINR(b.balance)}
+                    </td>
                   </tr>
                 );
               })}
@@ -321,7 +393,7 @@ export default async function PartyStatementPrintPage({
                 <td className="px-2 py-2" colSpan={5}>Totals</td>
                 <td className="px-2 py-2 text-right num">{fmtINR(billedTotal)}</td>
                 <td className="px-2 py-2 text-right num text-emerald-700">{fmtINR(paidTotal)}</td>
-                <td className="px-2 py-2 text-right num text-rose-700">{fmtINR(totalOutstanding)}</td>
+                <td className={'px-2 py-2 text-right num ' + (totalOutstanding < 0 ? 'text-emerald-700' : 'text-rose-700')}>{fmtINR(totalOutstanding)}</td>
               </tr>
             </tfoot>
           </table>

@@ -8,13 +8,17 @@
  *   3. Start date + End date (optional; empty = unbounded)
  *   4. Show button     — runs the query
  *
- * The result table merges nine sources in date order with a running
+ * The result table merges ten sources in date order with a running
  * balance column. Cash side:
  *
  *   - payment         — receipts / payments to / from parties or via
  *                       BANK / CASH ledgers
  *   - wage_entry      — wages tagged to a WAGES-type ledger
  *   - expense_entry   — expenses tagged to an EXPENSES-type ledger
+ *   - bank_entry      — direct bank/cash transactions tagged to a
+ *                       category; rows where either side of the
+ *                       contra (bank_ledger_id OR other_ledger_id)
+ *                       points at this ledger are surfaced.
  *
  * Bill side (only when the ledger is linked to a party via
  * party.ledger_id):
@@ -33,6 +37,14 @@
  *   - Receipts (payment direction='in') still count as Inflow and
  *     payments out (direction='out') as Outflow, matching the cash
  *     ledger semantic that's been on this page from day one.
+ *
+ * Bank entry sign convention:
+ *   - When the picked ledger IS the bank/cash side (bank_ledger_id
+ *     matches), direction='in' → Inflow, direction='out' → Outflow.
+ *   - When the picked ledger is the OTHER (offset) side, the sign is
+ *     inverted: an "out" from bank is a debit on the offset ledger,
+ *     so it counts as an Inflow there ("grew" the expense/asset).
+ *     direction='out' → Inflow, direction='in' → Outflow.
  */
 import { useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -67,8 +79,9 @@ interface PaymentRow {
 // render is a single loop.
 interface LedgerEntry {
   key:           string;
-  source:        'payment' | 'wage' | 'expense' | 'bill';
-  /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc. */
+  source:        'payment' | 'wage' | 'expense' | 'bill' | 'bank';
+  /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc.
+   *  Bank rows use 'bank_in' / 'bank_out'. */
   bill_kind?:    string;
   date:          string;
   voucher:       string;
@@ -224,6 +237,23 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     if (startDate) expensesQ = expensesQ.gte('pay_date', startDate);
     if (endDate)   expensesQ = expensesQ.lte('pay_date', endDate);
 
+    // Bank entries — pull rows where this ledger is either the bank
+    // side (bank_ledger_id) or the contra/offset side (other_ledger_id).
+    // The sign of the inflow/outflow projection depends on which side
+    // matches; see the projection loop below.
+    let bankQ = sb.from('bank_entry')
+      .select(`
+        id, entry_no, entry_date, direction, amount, mode, reference, notes,
+        status, bank_ledger_id, other_ledger_id, category_id,
+        bank:bank_ledger_id ( id, name ),
+        other:other_ledger_id ( id, name ),
+        category:category_id ( id, code, name )
+      `)
+      .eq('status', 'active')
+      .or(`bank_ledger_id.eq.${numericId},other_ledger_id.eq.${numericId}`);
+    if (startDate) bankQ = bankQ.gte('entry_date', startDate);
+    if (endDate)   bankQ = bankQ.lte('entry_date', endDate);
+
     // Step 3b: bills for the matching parties. Only fires when the
     // ledger is linked to a party (CUSTOMER / SUPPLIER / MILL / etc.).
     // BANK / CASH / WAGES ledgers won't have matching parties and
@@ -286,9 +316,10 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = billRes;
     }
 
-    const [wagesRes, expensesRes] = await Promise.all([wagesQ, expensesQ]);
+    const [wagesRes, expensesRes, bankRes] = await Promise.all([wagesQ, expensesQ, bankQ]);
     if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
     if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
+    if (bankRes.error)     { setError(bankRes.error.message);     setLoading(false); return; }
 
     // Step 4: project into LedgerEntry, sort, store.
     const all: LedgerEntry[] = [];
@@ -332,6 +363,58 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         reference:    null,
         inflow:       0,
         outflow:      Number(x.amount ?? 0),
+      });
+    }
+
+    // Bank entries. The same bank_entry row can appear on either side
+    // of the contra (bank or offset). We figure out which side this
+    // ledger sits on and project the amount with the right sign:
+    //   - On the BANK side: in → inflow, out → outflow (matches the
+    //     bank account's POV).
+    //   - On the OTHER side: in → outflow, out → inflow (the contra
+    //     account moves opposite to the bank).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const be of ((bankRes.data ?? []) as any[])) {
+      const amt = Number(be.amount ?? 0);
+      if (!Number.isFinite(amt) || amt === 0) continue;
+      const isBankSide  = Number(be.bank_ledger_id)  === numericId;
+      const isOtherSide = Number(be.other_ledger_id) === numericId;
+      // Defensive: skip rows that don't actually touch this ledger
+      // (shouldn't happen given the .or filter, but keeps the math
+      // honest if Supabase returns something unexpected).
+      if (!isBankSide && !isOtherSide) continue;
+
+      let inflow = 0;
+      let outflow = 0;
+      if (isBankSide) {
+        if (be.direction === 'in') inflow = amt;
+        else                       outflow = amt;
+      } else {
+        // isOtherSide — sign inverted relative to bank POV.
+        if (be.direction === 'out') inflow = amt;
+        else                        outflow = amt;
+      }
+
+      // Counterparty label: when we're on the bank side, the
+      // interesting "who" is the offset ledger; when we're on the
+      // offset side, it's the bank account. Fall back to the
+      // category name, then a generic placeholder.
+      const counterparty =
+        isBankSide
+          ? (be.other?.name ?? be.category?.name ?? '(bank entry)')
+          : (be.bank?.name  ?? be.category?.name ?? '(bank entry)');
+
+      all.push({
+        key:          `bank-${be.id}`,
+        source:       'bank',
+        bill_kind:    be.direction === 'in' ? 'bank_in' : 'bank_out',
+        date:         be.entry_date,
+        voucher:      be.entry_no ?? `BE-${be.id}`,
+        counterparty,
+        mode:         be.mode ?? (be.category?.name ?? '-'),
+        reference:    be.reference ?? be.notes ?? null,
+        inflow,
+        outflow,
       });
     }
 
@@ -596,9 +679,14 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                           r.source === 'wage'    ? 'bg-amber-50 text-amber-700'
                           : r.source === 'expense' ? 'bg-violet-50 text-violet-700'
                           : r.source === 'bill'  ? 'bg-indigo-50 text-indigo-700'
+                          : r.source === 'bank'  ? 'bg-sky-50 text-sky-700'
                                                  : 'bg-cloud text-ink-soft',
                         )}>
-                          {r.source === 'bill' ? (r.bill_kind ?? 'bill') : r.source}
+                          {r.source === 'bill'
+                            ? (r.bill_kind ?? 'bill')
+                            : r.source === 'bank'
+                              ? (r.bill_kind === 'bank_in' ? 'bank in' : 'bank out')
+                              : r.source}
                         </span>
                       )}
                     </td>
@@ -636,7 +724,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
-            Sorted oldest → newest. Inflows are payments received; outflows are payments paid out (including wages and expenses tagged to this ledger).
+            Sorted oldest → newest. Inflows are payments received; outflows are payments paid out (including wages, expenses, and bank entries tagged to this ledger).
           </div>
         </div>
       )}
