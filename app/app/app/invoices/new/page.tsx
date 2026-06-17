@@ -41,6 +41,26 @@ interface SoLine { id: number; so_id: number; quantity_m: number; rate_per_m: nu
 interface FabricStock { id: number; code: string | null; current_metres: number; rate: number;
                         fabric_quality_id: number | null;
                         quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null } | null }
+/** Production stock = net balance per fabric_quality_id from
+ *  stock_ledger bucket='production_fabric'. Net = SUM(in) − SUM(out).
+ *  These are fabric metres/pcs produced in-house and held in stock,
+ *  separate from the fabric_purchase (resale) bucket above. */
+interface ProductionStockOpt {
+  /** Synthetic id = 'prod:<fabric_quality_id>:<unit>' — distinguishes
+   *  from fabric_purchase ids when the operator picks it from the
+   *  dropdown. */
+  key: string;
+  fabric_quality_id: number;
+  qualityCode: string | null;
+  qualityName: string;
+  rate_per_m: number | string | null;
+  gst_pct: number | string | null;
+  unit: 'm' | 'pcs';
+  /** Net = SUM(direction='in') − SUM(direction='out'). */
+  available: number;
+  /** Resolved costing_master.id via fabric_quality.costing_id (nullable). */
+  costing_id: number | null;
+}
 interface OriginalInvoice { id: number; invoice_no: string; doc_type: string; customer_id: number; total: number;
                             party_state: string | null; is_interstate: boolean }
 interface OriginalLine    { id: number; description: string; hsn_sac: string | null; uom: string;
@@ -87,6 +107,11 @@ interface Row {
   /** Fabric Sale "Direct from Stock": the fabric_purchase batch the
    *  line sells from. Saved on invoice_line and reduced on save. */
   fabric_purchase_id: string;
+  /** Fabric Sale "Direct from Stock" — production bucket: the
+   *  fabric_quality_id whose production stock the line sells from.
+   *  When set, an outflow row is written to stock_ledger
+   *  bucket='production_fabric' on save. */
+  production_fabric_quality_id: string;
   so_line_id: string;
   original_line_id: string;
   /** Set when the row was seeded from an in-house fabric receipt — the
@@ -116,7 +141,7 @@ const newRow = (): Row => ({
   id: Math.random().toString(36).slice(2),
   description: '', hsn_sac: '', uom: 'mtr',
   quantity: '', rate: '', discount_pct: '0', gst_rate_pct: GST_DEFAULT,
-  yarn_lot_id: '', fabric_stock_id: '', fabric_purchase_id: '', so_line_id: '', original_line_id: '', dc_id: '', costing_id: '',
+  yarn_lot_id: '', fabric_stock_id: '', fabric_purchase_id: '', production_fabric_quality_id: '', so_line_id: '', original_line_id: '', dc_id: '', costing_id: '',
 });
 
 export default function NewInvoicePage() {
@@ -147,6 +172,10 @@ export default function NewInvoicePage() {
   const [soLines,     setSoLines]     = useState<SoLine[]>([]);
   const [pickedSoId,  setPickedSoId]  = useState('');
   const [fabricStock, setFabricStock] = useState<FabricStock[]>([]);
+  /** Production fabric stock — net balance per (fabric_quality, unit)
+   *  from stock_ledger bucket='production_fabric'. Loaded once on
+   *  mount alongside fabric_purchase. */
+  const [productionStock, setProductionStock] = useState<ProductionStockOpt[]>([]);
   const [yarnLots,    setYarnLots]    = useState<YarnLot[]>([]);
   // Un-invoiced in-house fabric receipts (via their confirmed DCs).
   const [inhouseDcs,  setInhouseDcs]  = useState<InhouseReceiptDc[]>([]);
@@ -220,7 +249,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm, slRaw] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -304,6 +333,15 @@ export default function NewInvoicePage() {
         // empty.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('party').select('id, name').eq('status', 'active'),
+        // Production fabric stock — raw stock_ledger rows for
+        // bucket='production_fabric'. Net balance is aggregated in JS
+        // below (group by fabric_quality_id + unit). Joined to
+        // fabric_quality for the dropdown labels and rate/GST/costing
+        // prefill.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('stock_ledger')
+          .select('fabric_quality_id, direction, quantity, unit')
+          .eq('bucket', 'production_fabric'),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -341,6 +379,53 @@ export default function NewInvoicePage() {
         lookup.set(p.name.trim().toUpperCase(), p.id);
       }
       setPartyByName(lookup);
+
+      // Aggregate production_fabric stock_ledger rows into per
+      // (fabric_quality_id, unit) net balances. Filter to net > 0.
+      // Then join to fabric_quality for label/rate/gst/costing.
+      const balances = new Map<string, { fabric_quality_id: number; unit: 'm' | 'pcs'; net: number }>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const r of (((slRaw as any).data ?? []) as Array<{ fabric_quality_id: number | null; direction: string; quantity: number | string; unit: string }>)) {
+        if (r.fabric_quality_id == null) continue;
+        const u: 'm' | 'pcs' = r.unit === 'pcs' ? 'pcs' : 'm';
+        const k = `${r.fabric_quality_id}|${u}`;
+        const cur = balances.get(k) ?? { fabric_quality_id: r.fabric_quality_id, unit: u, net: 0 };
+        cur.net += (r.direction === 'in' ? 1 : -1) * Number(r.quantity ?? 0);
+        balances.set(k, cur);
+      }
+      const positiveBalances = Array.from(balances.values()).filter((b) => b.net > 0);
+      const fqIds = Array.from(new Set(positiveBalances.map((b) => b.fabric_quality_id)));
+      let prodOpts: ProductionStockOpt[] = [];
+      if (fqIds.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: fqs } = await (supabase as any)
+          .from('fabric_quality')
+          .select('id, code, name, rate_per_m, gst_pct, costing_id')
+          .in('id', fqIds);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fqMap = new Map<number, any>();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const fq of ((fqs ?? []) as any[])) fqMap.set(Number(fq.id), fq);
+        prodOpts = positiveBalances
+          .map((b) => {
+            const fq = fqMap.get(b.fabric_quality_id);
+            if (!fq) return null;
+            return {
+              key: `prod:${b.fabric_quality_id}:${b.unit}`,
+              fabric_quality_id: b.fabric_quality_id,
+              qualityCode: fq.code ?? null,
+              qualityName: fq.name ?? 'Fabric',
+              rate_per_m: fq.rate_per_m ?? null,
+              gst_pct: fq.gst_pct ?? null,
+              unit: b.unit,
+              available: b.net,
+              costing_id: fq.costing_id ?? null,
+            } as ProductionStockOpt;
+          })
+          .filter((x): x is ProductionStockOpt => x !== null);
+      }
+      setProductionStock(prodOpts);
+
       setLoading(false);
     })();
   }, [supabase]);
@@ -645,11 +730,43 @@ export default function NewInvoicePage() {
     });
   }
 
-  function pickFabricStockForRow(rowId: string, purchaseId: string) {
-    const fs = fabricStock.find(f => f.id === Number(purchaseId));
-    if (!fs) { updateRow(rowId, { fabric_purchase_id: purchaseId }); return; }
+  function pickFabricStockForRow(rowId: string, pickedValue: string) {
+    // Empty pick = clear all source linkage on the row.
+    if (pickedValue === '') {
+      updateRow(rowId, { fabric_purchase_id: '', production_fabric_quality_id: '' });
+      return;
+    }
+    // Production stock options carry a 'prod:<fabric_quality_id>:<unit>'
+    // synthetic id so we can distinguish them from numeric
+    // fabric_purchase ids in this single dropdown.
+    if (pickedValue.startsWith('prod:')) {
+      const parts = pickedValue.split(':');
+      const fqId = Number(parts[1]);
+      const unit = parts[2] === 'pcs' ? 'pcs' : 'm';
+      const opt = productionStock.find(
+        (p) => p.fabric_quality_id === fqId && p.unit === unit,
+      );
+      if (!opt) {
+        updateRow(rowId, { production_fabric_quality_id: String(fqId), fabric_purchase_id: '' });
+        return;
+      }
+      updateRow(rowId, {
+        production_fabric_quality_id: String(fqId),
+        fabric_purchase_id: '',
+        description: `${opt.qualityName} (production stock)`,
+        hsn_sac: FABRIC_HSN,
+        uom: opt.unit === 'pcs' ? 'pcs' : 'mtr',
+        rate: opt.rate_per_m != null ? String(opt.rate_per_m) : '',
+        gst_rate_pct: opt.gst_pct != null ? String(opt.gst_pct) : GST_DEFAULT,
+        costing_id: opt.costing_id != null ? String(opt.costing_id) : '',
+      });
+      return;
+    }
+    const fs = fabricStock.find(f => f.id === Number(pickedValue));
+    if (!fs) { updateRow(rowId, { fabric_purchase_id: pickedValue, production_fabric_quality_id: '' }); return; }
     updateRow(rowId, {
-      fabric_purchase_id: purchaseId,
+      fabric_purchase_id: pickedValue,
+      production_fabric_quality_id: '',
       description: fs.quality?.name ?? 'Fabric',
       hsn_sac: FABRIC_HSN,
       uom: 'mtr',
@@ -881,11 +998,59 @@ export default function NewInvoicePage() {
     }));
 
     // Cast: generated types predate the fabric_purchase_id column.
+    // Request the inserted ids back so we can map production stock
+    // outflows 1:1 onto their parent line. Postgres returns rows in
+    // insert order, so index-matching is safe here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: lineErr } = await (supabase as any).from('invoice_line').insert(lineRows);
+    const { data: insertedLines, error: lineErr } = await (supabase as any)
+      .from('invoice_line')
+      .insert(lineRows)
+      .select('id');
     if (lineErr) {
       setBusy(false);
       return setError(`Invoice ${inv.invoice_no} created but lines failed: ${lineErr.message}`);
+    }
+
+    // Production fabric outflow: for every row that was picked from
+    // production stock, write a stock_ledger 'out' row. Lines come
+    // back in insert order so we can pair them by index; if the row
+    // count mismatches (defensive), we fall back to linking the
+    // outflow to the invoice itself rather than the line.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertedLineIds: number[] = (((insertedLines ?? []) as Array<{ id: number }>) ?? []).map((l) => l.id);
+    const indexMatched = insertedLineIds.length === computedRows.length;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const productionOutflows: any[] = [];
+    for (let i = 0; i < computedRows.length; i++) {
+      const r = computedRows[i];
+      if (!r || !r.production_fabric_quality_id) continue;
+      const lineId = indexMatched ? insertedLineIds[i] : null;
+      productionOutflows.push({
+        bucket: 'production_fabric',
+        direction: 'out',
+        fabric_quality_id: Number(r.production_fabric_quality_id),
+        quantity: Number(r.quantity),
+        unit: r.uom === 'pcs' ? 'pcs' : 'm',
+        event_date: headerPayload.invoice_date ?? new Date().toISOString().slice(0, 10),
+        source_kind: lineId !== null ? 'invoice_line' : 'invoice',
+        source_id: lineId !== null ? lineId : inv.id,
+        reference_no: inv.invoice_no,
+        notes: 'Shipped from production stock',
+      });
+    }
+    if (productionOutflows.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: sledErr } = await (supabase as any)
+        .from('stock_ledger')
+        .insert(productionOutflows);
+      if (sledErr) {
+        // Non-fatal: the invoice is saved, but the warehouse pivot
+        // won't deduct until this is reconciled. Surface a warning
+        // but don't roll the invoice back.
+        // eslint-disable-next-line no-console
+        console.warn('invoice saved but stock ledger update failed:', sledErr);
+        setError(`Invoice ${inv.invoice_no} saved but stock ledger update failed: ${sledErr.message}`);
+      }
     }
 
     // Fabric Sale from in-house receipts: advance each picked DC's
@@ -1343,15 +1508,33 @@ export default function NewInvoicePage() {
                             ))}
                           </select>
                         ) : (docType === 'tax_invoice' && sourceKind === 'fabric_stock') ? (
-                          <select value={r.fabric_purchase_id}
+                          <select
+                            value={
+                              r.production_fabric_quality_id
+                                ? `prod:${r.production_fabric_quality_id}:${r.uom === 'pcs' ? 'pcs' : 'm'}`
+                                : r.fabric_purchase_id
+                            }
                             onChange={e => pickFabricStockForRow(r.id, e.target.value)}
                             className="input input-sm w-full mb-1">
                             <option value="">— pick fabric stock (by quality) —</option>
-                            {fabricStock.map(f => (
-                              <option key={f.id} value={f.id}>
-                                {f.quality?.name ?? 'Fabric'} · {Number(f.current_metres).toFixed(0)} m avail · {f.code ?? '#' + f.id}
-                              </option>
-                            ))}
+                            {fabricStock.length > 0 && (
+                              <optgroup label="── Resale (fabric_purchase) ──">
+                                {fabricStock.map(f => (
+                                  <option key={f.id} value={f.id}>
+                                    {f.quality?.name ?? 'Fabric'} · {Number(f.current_metres).toFixed(0)} m avail · {f.code ?? '#' + f.id}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {productionStock.length > 0 && (
+                              <optgroup label="── From Production ──">
+                                {productionStock.map(p => (
+                                  <option key={p.key} value={p.key}>
+                                    {p.qualityName} · {Number(p.available).toFixed(0)} {p.unit} avail (production)
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
                         ) : null}
                         <input value={r.description}
