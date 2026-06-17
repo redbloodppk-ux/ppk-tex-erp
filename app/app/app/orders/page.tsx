@@ -77,6 +77,36 @@ export default async function OrdersPage({
   // (Pending Delivery Challan inbox removed per operator — they manage
   // DCs from /app/delivery-challan now. The query is no longer run.)
 
+  // Per-SO delivery progress (ordered vs delivered metres) so the list
+  // can show a Balance column + a clearer Partial / Dispatched picture.
+  const soIds = orders.map((o) => o.id);
+  const orderedById = new Map<number, number>();
+  const deliveredById = new Map<number, number>();
+  if (soIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const [{ data: linesData }, { data: dcLinks }] = await Promise.all([
+      sb.from('sales_order_line').select('so_id, quantity_m').in('so_id', soIds),
+      sb.from('delivery_challan').select('id, sales_order_id, status')
+        .in('sales_order_id', soIds).not('status', 'eq', 'cancelled'),
+    ]);
+    for (const l of (linesData ?? []) as Array<{ so_id: number; quantity_m: number | string | null }>) {
+      orderedById.set(l.so_id, (orderedById.get(l.so_id) ?? 0) + Number(l.quantity_m ?? 0));
+    }
+    const linkedDcIds = ((dcLinks ?? []) as Array<{ id: number; sales_order_id: number }>);
+    if (linkedDcIds.length > 0) {
+      const dcIdSet = linkedDcIds.map((d) => d.id);
+      const { data: items } = await sb.from('delivery_challan_item')
+        .select('dc_id, metres').in('dc_id', dcIdSet);
+      const soByDc = new Map(linkedDcIds.map((d) => [d.id, d.sales_order_id]));
+      for (const it of (items ?? []) as Array<{ dc_id: number; metres: number | string | null }>) {
+        const soId = soByDc.get(it.dc_id);
+        if (soId == null) continue;
+        deliveredById.set(soId, (deliveredById.get(soId) ?? 0) + Number(it.metres ?? 0));
+      }
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -107,6 +137,9 @@ export default async function OrdersPage({
                 <th className="text-left px-4 py-3">Customer</th>
                 <SortableTh column="order_date" label="Order Date" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3 hidden md:table-cell">Delivery</th>
+                <th className="text-right px-4 py-3 hidden sm:table-cell">Ordered (m)</th>
+                <th className="text-right px-4 py-3 hidden sm:table-cell">Delivered (m)</th>
+                <th className="text-right px-4 py-3">Balance (m)</th>
                 <th className="text-right px-4 py-3">Total</th>
                 <th className="text-right px-4 py-3">Status</th>
               </tr>
@@ -114,6 +147,10 @@ export default async function OrdersPage({
             <tbody>
               {orders.map((o) => {
                 const meta = STATUS_META[o.status] ?? { label: o.status, cls: 'bg-slate-100 text-slate-600' };
+                const ordered = orderedById.get(o.id) ?? 0;
+                const delivered = deliveredById.get(o.id) ?? 0;
+                const balance = Math.max(ordered - delivered, 0);
+                const fmtM = (n: number) => n > 0 ? n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '-';
                 return (
                   <tr key={o.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs">{o.so_number}</td>
@@ -122,6 +159,9 @@ export default async function OrdersPage({
                     </td>
                     <td className="px-4 py-3 text-xs text-ink-soft">{formatDate(o.order_date)}</td>
                     <td className="px-4 py-3 text-xs text-ink-soft hidden md:table-cell">{formatDate(o.delivery_date)}</td>
+                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell">{fmtM(ordered)}</td>
+                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell text-emerald-700">{fmtM(delivered)}</td>
+                    <td className={`px-4 py-3 text-right num text-xs font-semibold ${balance > 0 ? 'text-rose-700' : 'text-ink-mute'}`}>{fmtM(balance)}</td>
                     <td className="px-4 py-3 text-right num font-semibold">{formatRupee(o.total ?? 0, { compact: true })}</td>
                     <td className="px-4 py-3 text-right text-xs">
                       <span className={`pill ${meta.cls} text-xs uppercase tracking-wide`}>{meta.label}</span>
