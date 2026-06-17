@@ -21,6 +21,7 @@ interface DcRow {
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
   entry_mode: 'detailed' | 'summary';
+  sales_order_id: number | null;
   party_id: number | null;
   ship_to_same: boolean;
   ship_to_party_id: number | null;
@@ -100,7 +101,7 @@ export default async function EditDcPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, entry_mode, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
+      .select('id, code, dc_date, status, production_mode, entry_mode, sales_order_id, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -136,6 +137,7 @@ export default async function EditDcPage({
     status: dc.status,
     production_mode: dc.production_mode,
     entry_mode: dc.entry_mode ?? 'detailed',
+    sales_order_id: dc.sales_order_id != null ? String(dc.sales_order_id) : '',
     party_id: dc.party_id != null ? String(dc.party_id) : '',
     ship_to_same: dc.ship_to_same,
     ship_to_party_id: dc.ship_to_party_id != null ? String(dc.ship_to_party_id) : '',

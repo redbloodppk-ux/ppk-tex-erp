@@ -89,6 +89,12 @@ export interface DcFormValues {
    * summary  - flat totals only per fabric quality
    */
   entry_mode: DcEntryMode;
+  /**
+   * Optional link to the sales_order this DC partially / fully fulfils.
+   * When set, the AFTER-trigger fn_so_refresh_status (migration 193)
+   * walks the SO forward to partial_dispatch / dispatched.
+   */
+  sales_order_id: string;
   party_id: string;
   ship_to_same: boolean;
   ship_to_party_id: string;
@@ -134,6 +140,7 @@ export const EMPTY_DC: DcFormValues = {
   status: 'draft',
   production_mode: 'inhouse',
   entry_mode: 'detailed',
+  sales_order_id: '',
   party_id: '',
   ship_to_same: true,
   ship_to_party_id: '',
@@ -188,6 +195,14 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const [form, setForm] = useState<DcFormValues>({ ...EMPTY_DC, ...(initial ?? {}) });
   const [allParties, setAllParties]         = useState<PartyOpt[]>([]);
   const [qualities,  setQualities]          = useState<QualityOpt[]>([]);
+  // Open sales orders for the currently-picked customer. Refreshed
+  // whenever the customer changes so the operator only sees SOs they
+  // could plausibly be delivering against. Each row carries the total
+  // metres and delivered-so-far metres so we can show the balance.
+  const [openSos, setOpenSos] = useState<Array<{
+    id: number; so_number: string; delivery_date: string | null;
+    total_metres: number; delivered_metres: number;
+  }>>([]);
   const [customerTypeId,  setCustomerTypeId]  = useState<number | null>(null);
   const [jobworkTypeId,   setJobworkTypeId]   = useState<number | null>(null);
   const [outsourceTypeId, setOutsourceTypeId] = useState<number | null>(null);
@@ -245,6 +260,59 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       setVehicleSuggestions(uniques);
     })();
   }, [supabase]);
+
+  // ---- Load open SOs for the current customer ----
+  // Only the "Against Sales Order" picker uses this list, and it's only
+  // meaningful on in-house DCs (the SO flow doesn't apply to job-work /
+  // outsource). Re-fetches when the picked customer changes; runs only
+  // while production_mode='inhouse' so we don't ping the table for
+  // jobwork / outsource party_ids.
+  useEffect(() => {
+    if (form.production_mode !== 'inhouse' || form.party_id === '') {
+      setOpenSos([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { data: soRows } = await sb
+        .from('sales_order')
+        .select('id, so_number, delivery_date, status')
+        .eq('customer_id', Number(form.party_id))
+        .in('status', ['approved', 'in_production', 'partial_dispatch', 'dispatched'])
+        .order('order_date', { ascending: false })
+        .limit(50);
+      const sos = (soRows ?? []) as Array<{
+        id: number; so_number: string; delivery_date: string | null;
+      }>;
+      if (sos.length === 0) { if (!cancelled) setOpenSos([]); return; }
+
+      const ids = sos.map((s) => s.id);
+      const { data: lineRows } = await sb
+        .from('sales_order_line')
+        .select('so_id, quantity_m, delivered_m')
+        .in('so_id', ids);
+      const tot = new Map<number, { total_metres: number; delivered_metres: number }>();
+      for (const id of ids) tot.set(id, { total_metres: 0, delivered_metres: 0 });
+      for (const ln of (lineRows ?? []) as Array<{ so_id: number; quantity_m: number | string | null; delivered_m: number | string | null }>) {
+        const slot = tot.get(ln.so_id);
+        if (!slot) continue;
+        slot.total_metres     += Number(ln.quantity_m  ?? 0);
+        slot.delivered_metres += Number(ln.delivered_m ?? 0);
+      }
+
+      if (cancelled) return;
+      setOpenSos(sos.map((s) => ({
+        id: s.id,
+        so_number: s.so_number,
+        delivery_date: s.delivery_date,
+        total_metres:     tot.get(s.id)?.total_metres     ?? 0,
+        delivered_metres: tot.get(s.id)?.delivered_metres ?? 0,
+      })));
+    })();
+    return () => { cancelled = true; };
+  }, [form.party_id, form.production_mode, supabase]);
 
   // ---- Party dropdown filtered by mode ----
   // Each production mode targets a specific party type:
@@ -377,7 +445,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
 
   function pickParty(partyIdStr: string): void {
     setForm((f) => {
-      const next = { ...f, party_id: partyIdStr };
+      // Clear any previously-selected SO — it belonged to the old
+      // customer and is no longer in the openSos list once the
+      // customer changes.
+      const next = { ...f, party_id: partyIdStr, sales_order_id: '' };
       const p = partyById.get(Number(partyIdStr));
       if (p) {
         next.bill_to_name       = p.name;
@@ -610,6 +681,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       status: form.status,
       production_mode: form.production_mode,
       entry_mode: form.entry_mode,
+      sales_order_id: form.sales_order_id === '' ? null : Number(form.sales_order_id),
       party_id: Number(form.party_id),
       ship_to_same: form.ship_to_same,
       ship_to_party_id: form.ship_to_same ? null
@@ -783,19 +855,19 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               without truncating. */}
           <div className="grid grid-cols-3 gap-1.5">
             <button type="button"
-              onClick={() => setForm({ ...form, production_mode: 'inhouse', party_id: '' })}
+              onClick={() => setForm({ ...form, production_mode: 'inhouse', party_id: '', sales_order_id: '' })}
               className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'inhouse'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>In-house</button>
             <button type="button"
-              onClick={() => setForm({ ...form, production_mode: 'jobwork', party_id: '' })}
+              onClick={() => setForm({ ...form, production_mode: 'jobwork', party_id: '', sales_order_id: '' })}
               className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'jobwork'
                   ? 'border-transparent bg-indigo-600 text-white'
                   : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>Job-work</button>
             <button type="button"
-              onClick={() => setForm({ ...form, production_mode: 'outsource', party_id: '' })}
+              onClick={() => setForm({ ...form, production_mode: 'outsource', party_id: '', sales_order_id: '' })}
               className={'w-full px-2 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap ' +
                 (form.production_mode === 'outsource'
                   ? 'border-transparent bg-indigo-600 text-white'
@@ -881,6 +953,52 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             placeholder={`Type to search ${form.production_mode === 'jobwork' ? 'jobwork party' : form.production_mode === 'outsource' ? 'outsource party' : 'customer'} name…`}
           />
         </div>
+
+        {/* Against Sales Order — optional. Only shown for in-house DCs
+            (the SO flow doesn't apply to job-work or outsource), once
+            the operator has picked a customer. Listing open SOs lets
+            the operator point this DC at one so the trigger from
+            migration 193 walks the SO status forward. The summary line
+            below shows balance metres so they can tell at a glance if
+            this DC partially or fully fulfils it. */}
+        {form.production_mode === 'inhouse' && form.party_id !== '' && openSos.length > 0 && (
+          <div>
+            <label className="label">
+              Against Sales Order
+              <span className="text-[10px] text-ink-mute font-normal ml-2">(optional)</span>
+            </label>
+            <select
+              className="input h-9 text-sm"
+              value={form.sales_order_id}
+              onChange={(e) => setForm({ ...form, sales_order_id: e.target.value })}
+            >
+              <option value="">--- none ---</option>
+              {openSos.map((s) => {
+                const balance = Math.max(0, s.total_metres - s.delivered_metres);
+                const parts = [s.so_number];
+                if (s.delivery_date) parts.push(`delivery ${s.delivery_date}`);
+                parts.push(`${balance.toFixed(2)} m left`);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {parts.join(' · ')}
+                  </option>
+                );
+              })}
+            </select>
+            {form.sales_order_id !== '' && (() => {
+              const s = openSos.find((x) => String(x.id) === form.sales_order_id);
+              if (!s) return null;
+              const balance = Math.max(0, s.total_metres - s.delivered_metres);
+              return (
+                <p className="text-[11px] text-ink-mute mt-1">
+                  {s.so_number} · delivery {s.delivery_date ?? '—'} ·
+                  ordered {s.total_metres.toFixed(2)} m · delivered {s.delivered_metres.toFixed(2)} m ·
+                  <span className="font-semibold text-indigo-700"> balance {balance.toFixed(2)} m</span>
+                </p>
+              );
+            })()}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="label text-xs">Bill-To Name</label>

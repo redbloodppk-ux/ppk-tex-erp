@@ -3,26 +3,56 @@ import { PageHeader, ComingSoon } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { Plus, Pencil, FileText } from 'lucide-react';
-import { formatRupee, formatDate, formatMetres } from '@/lib/utils';
+import { formatRupee, formatDate } from '@/lib/utils';
 import { DcConfirmButton } from './dc-confirm-button';
 
 export const metadata = { title: 'Sales Orders' };
 export const dynamic = 'force-dynamic';
 
 // Whitelisted sort keys on the sales_order list.
-const SORTABLE_COLUMNS = new Set(['doc_no', 'customer_name']);
+const SORTABLE_COLUMNS = new Set(['so_number', 'order_date']);
 
 interface PendingDc {
   id: number;
   code: string;
   dc_date: string;
-  production_mode: 'inhouse' | 'jobwork';
+  production_mode: 'inhouse' | 'jobwork' | 'outsource';
   bill_to_name: string | null;
   total_metres: number | string | null;
   total_pieces: number | null;
   total_bundles: number | null;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
 }
+
+type SoStatus =
+  | 'draft' | 'pending_approval' | 'approved' | 'in_production'
+  | 'partial_dispatch' | 'dispatched' | 'invoiced' | 'paid' | 'cancelled';
+
+interface SoRow {
+  id: number;
+  so_number: string;
+  customer_id: number | null;
+  order_date: string;
+  delivery_date: string | null;
+  total: number | string | null;
+  status: SoStatus;
+}
+
+/** Friendly label + colour for each status. The trigger in migration
+ *  193 walks the SO through approved -> dispatched -> invoiced -> paid;
+ *  this map covers every value the enum can hold so the pill never
+ *  reads "undefined". */
+const STATUS_META: Record<SoStatus, { label: string; cls: string }> = {
+  draft:             { label: 'Draft',            cls: 'bg-slate-100 text-slate-600' },
+  pending_approval:  { label: 'Pending Approval', cls: 'bg-amber-50 text-amber-700' },
+  approved:          { label: 'Confirmed',        cls: 'bg-indigo-50 text-indigo-700' },
+  in_production:     { label: 'In Production',    cls: 'bg-sky-50 text-sky-700' },
+  partial_dispatch:  { label: 'Partial Dispatch', cls: 'bg-amber-50 text-amber-700' },
+  dispatched:        { label: 'Dispatched',       cls: 'bg-emerald-50 text-emerald-700' },
+  invoiced:          { label: 'Invoiced',         cls: 'bg-emerald-50 text-emerald-700' },
+  paid:              { label: 'Paid',             cls: 'bg-emerald-100 text-emerald-800' },
+  cancelled:         { label: 'Cancelled',        cls: 'bg-rose-50 text-rose-700' },
+};
 
 export default async function OrdersPage({
   searchParams,
@@ -34,11 +64,27 @@ export default async function OrdersPage({
   const dir: SortDir = sp.dir === 'desc' ? 'desc' : sp.dir === 'asc' ? 'asc' : 'desc';
 
   const supabase = await createClient();
-  const { data: orders } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: ordersRaw } = await (supabase as any)
     .from('sales_order')
-    .select('id, doc_no, customer_name, order_date, expected_delivery_date, total_metres, total_amount, status')
+    .select('id, so_number, customer_id, order_date, delivery_date, total, status')
     .order(sort, { ascending: dir === 'asc' })
     .limit(50);
+  const orders = (ordersRaw ?? []) as SoRow[];
+
+  // Pull customer names for the SOs in one shot rather than joining in
+  // Supabase (the `customer` FK isn't always present in the generated
+  // types, so a separate query is the least friction).
+  const customerIds = Array.from(new Set(orders.map((o) => o.customer_id).filter((id): id is number => id != null)));
+  let customerNameById = new Map<number, string>();
+  if (customerIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: cust } = await (supabase as any)
+      .from('customer')
+      .select('id, name')
+      .in('id', customerIds);
+    customerNameById = new Map((cust ?? []).map((c: { id: number; name: string }) => [c.id, c.name]));
+  }
 
   // Draft DCs that are waiting for the operator to confirm before they
   // can be turned into invoices.
@@ -58,8 +104,8 @@ export default async function OrdersPage({
         title="Sales Orders"
         subtitle="Track every customer purchase order from creation to invoicing."
         actions={
-          <Link href="/app/delivery-challan/new" className="btn-primary">
-            <Plus className="w-4 h-4" /> New DC
+          <Link href="/app/orders/new" className="btn-primary">
+            <Plus className="w-4 h-4" /> New Sales Order
           </Link>
         }
       />
@@ -139,34 +185,39 @@ export default async function OrdersPage({
         </div>
       )}
 
-      {!orders?.length ? (
-        <ComingSoon note="No sales orders yet. Once you create one, it appears here with delivery date and invoiced status." />
+      {orders.length === 0 ? (
+        <ComingSoon note="No sales orders yet. Click New Sales Order to capture your first one — it will appear here with its delivery date, status, and total." />
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <SortableTh column="doc_no" label="Doc No" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
-                <SortableTh column="customer_name" label="Customer" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
-                <th className="text-left px-4 py-3">Date</th>
+                <SortableTh column="so_number" label="SO No" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
+                <th className="text-left px-4 py-3">Customer</th>
+                <SortableTh column="order_date" label="Order Date" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3 hidden md:table-cell">Delivery</th>
-                <th className="text-right px-4 py-3 hidden lg:table-cell">Metres</th>
-                <th className="text-right px-4 py-3">Amount</th>
+                <th className="text-right px-4 py-3">Total</th>
                 <th className="text-right px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((o: any) => (
-                <tr key={o.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-4 py-3 font-mono text-xs">{o.doc_no}</td>
-                  <td className="px-4 py-3 font-semibold">{o.customer_name}</td>
-                  <td className="px-4 py-3 text-xs text-ink-soft">{formatDate(o.order_date)}</td>
-                  <td className="px-4 py-3 text-xs text-ink-soft hidden md:table-cell">{formatDate(o.expected_delivery_date)}</td>
-                  <td className="px-4 py-3 text-right num hidden lg:table-cell">{formatMetres(o.total_metres)}</td>
-                  <td className="px-4 py-3 text-right num font-semibold">{formatRupee(o.total_amount, { compact: true })}</td>
-                  <td className="px-4 py-3 text-right text-xs"><span className="pill bg-indigo-50 text-indigo-700">{o.status}</span></td>
-                </tr>
-              ))}
+              {orders.map((o) => {
+                const meta = STATUS_META[o.status] ?? { label: o.status, cls: 'bg-slate-100 text-slate-600' };
+                return (
+                  <tr key={o.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-4 py-3 font-mono text-xs">{o.so_number}</td>
+                    <td className="px-4 py-3 font-semibold">
+                      {o.customer_id != null ? (customerNameById.get(o.customer_id) ?? '-') : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-ink-soft">{formatDate(o.order_date)}</td>
+                    <td className="px-4 py-3 text-xs text-ink-soft hidden md:table-cell">{formatDate(o.delivery_date)}</td>
+                    <td className="px-4 py-3 text-right num font-semibold">{formatRupee(o.total ?? 0, { compact: true })}</td>
+                    <td className="px-4 py-3 text-right text-xs">
+                      <span className={`pill ${meta.cls} text-xs uppercase tracking-wide`}>{meta.label}</span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
