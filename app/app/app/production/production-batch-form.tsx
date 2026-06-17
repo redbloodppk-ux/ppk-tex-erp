@@ -95,6 +95,25 @@ export interface InitialBatch {
   end_date: string | null;
   notes: string | null;
   batch_code: string;
+  // Batch DC fields (migration 195). Older rows pre-dating the migration
+  // may arrive without these set — we treat missing values as 'summary'
+  // mode with an empty bundles list.
+  entry_mode?: 'summary' | 'detailed' | null;
+  total_pieces?: number | null;
+  total_bundles?: number | null;
+  bundles_detail?: BundleDetailRow[] | null;
+}
+
+/** Shape of one entry in production_batch.bundles_detail JSONB. */
+interface BundleDetailRow {
+  sno: number;
+  pieces: number[];
+}
+
+/** UI-side bundle entry — piece metres held as controlled string inputs. */
+interface BundleEntry {
+  sno: number;
+  pieces: string[];
 }
 
 interface ProductionBatchFormProps {
@@ -124,6 +143,35 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
   const [producedM, setProducedM] = useState(initial ? String(initial.produced_m) : '');
   const [rejectedM, setRejectedM] = useState(initial ? String(initial.rejected_m) : '0');
   const [notes, setNotes] = useState(initial?.notes ?? '');
+
+  // ── Batch DC state (migration 195) ────────────────────────────────────────
+  // Mirrors the DC form's bundle/piece UX. In summary mode the operator
+  // types totals directly; in detailed mode each piece's metres are typed
+  // and rolled up into produced_m.
+  const [entryMode, setEntryMode] = useState<'summary' | 'detailed'>(
+    initial?.entry_mode === 'detailed' ? 'detailed' : 'summary',
+  );
+  const [bundles, setBundles] = useState<BundleEntry[]>(() => {
+    const src = initial?.bundles_detail;
+    if (Array.isArray(src) && src.length > 0) {
+      return src.map((b, i) => ({
+        sno: Number(b?.sno) || i + 1,
+        pieces: Array.isArray(b?.pieces) && b.pieces.length > 0
+          ? b.pieces.map((p) => String(p))
+          : [''],
+      }));
+    }
+    return [{ sno: 1, pieces: [''] }];
+  });
+  const [summaryTotalBundles, setSummaryTotalBundles] = useState<string>(
+    initial?.total_bundles != null ? String(initial.total_bundles) : '',
+  );
+  const [summaryTotalPieces, setSummaryTotalPieces] = useState<string>(
+    initial?.total_pieces != null ? String(initial.total_pieces) : '',
+  );
+  const [summaryTotalMetres, setSummaryTotalMetres] = useState<string>(
+    initial ? String(initial.produced_m) : '',
+  );
 
   const [convertToTowel, setConvertToTowel] = useState(false);
   const [towelLength, setTowelLength] = useState('1.7');
@@ -208,6 +256,84 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       setPreview(data as unknown as CostingPreview);
     })();
   }, [supabase, costingId]);
+
+  // ── Batch DC computed totals ──────────────────────────────────────────────
+  // Summary mode: trust the operator's typed values verbatim.
+  // Detailed mode: walk every bundle/piece, ignore blank or non-positive
+  // entries, and round metres to 2 dp to avoid drifting float noise.
+  const dcTotals = useMemo(() => {
+    if (entryMode === 'summary') {
+      return {
+        bundles: Number(summaryTotalBundles) || 0,
+        pieces: Number(summaryTotalPieces) || 0,
+        metres: Number(summaryTotalMetres) || 0,
+      };
+    }
+    let bundleCount = 0;
+    let pieceCount = 0;
+    let metres = 0;
+    for (const b of bundles) {
+      bundleCount += 1;
+      for (const p of b.pieces) {
+        const v = Number(p);
+        if (Number.isFinite(v) && v > 0) {
+          pieceCount += 1;
+          metres += v;
+        }
+      }
+    }
+    return {
+      bundles: bundleCount,
+      pieces: pieceCount,
+      metres: Number(metres.toFixed(2)),
+    };
+  }, [entryMode, bundles, summaryTotalBundles, summaryTotalPieces, summaryTotalMetres]);
+
+  // Keep the existing producedM in sync with the Batch DC roll-up so all
+  // downstream code paths (validation, ledger writes, payload) stay
+  // correct without a parallel state model.
+  useEffect(() => {
+    setProducedM(String(dcTotals.metres));
+  }, [dcTotals.metres]);
+
+  // ── Bundle helpers (detailed mode) ────────────────────────────────────────
+  function addBundle(): void {
+    setBundles((bs) => [...bs, { sno: bs.length + 1, pieces: [''] }]);
+  }
+  function removeBundle(idx: number): void {
+    setBundles((bs) => {
+      const next = bs.filter((_, i) => i !== idx).map((b, i) => ({ ...b, sno: i + 1 }));
+      return next.length === 0 ? [{ sno: 1, pieces: [''] }] : next;
+    });
+  }
+  function setBundlePieceCount(idx: number, count: number): void {
+    setBundles((bs) =>
+      bs.map((b, i) => {
+        if (i !== idx) return b;
+        const target = Math.max(1, Math.min(count, 200));
+        const cur = b.pieces;
+        let next: string[];
+        if (target > cur.length) {
+          const grow: string[] = [];
+          for (let k = cur.length; k < target; k++) grow.push('');
+          next = [...cur, ...grow];
+        } else if (target < cur.length) {
+          next = cur.slice(0, target);
+        } else {
+          next = cur;
+        }
+        return { ...b, pieces: next };
+      }),
+    );
+  }
+  function setPieceValue(bundleIdx: number, pieceIdx: number, value: string): void {
+    setBundles((bs) =>
+      bs.map((b, i) => {
+        if (i !== bundleIdx) return b;
+        return { ...b, pieces: b.pieces.map((p, k) => (k === pieceIdx ? value : p)) };
+      }),
+    );
+  }
 
   // ── react to pavu_assign selection: auto-fill loom + warp_lot ─────────────
   useEffect(() => {
@@ -361,7 +487,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     }
     const producedNum = Number(producedM);
     if (!producedM || !(producedNum > 0)) {
-      setError('Produced metres must be > 0.');
+      setError('Enter the Batch DC bundle/piece data first.');
       return;
     }
     if (convertToTowel && !(Number(towelLength) > 0)) {
@@ -373,6 +499,18 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    // Snapshot the Batch DC data once so both insert/update use the same
+    // shape. In summary mode we ship an empty bundles_detail array — the
+    // print template uses that as the signal to skip the bundle grid.
+    const bundlesDetailPayload = entryMode === 'detailed'
+      ? bundles.map((b) => ({
+          sno: b.sno,
+          pieces: b.pieces
+            .map((p) => Number(p))
+            .filter((n) => Number.isFinite(n) && n > 0),
+        }))
+      : [];
 
     let batchId: number;
     let batchCode: string;
@@ -389,6 +527,10 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         produced_m: producedNum,
         rejected_m: Number(rejectedM || 0),
         notes: notes || null,
+        entry_mode: entryMode,
+        total_pieces: dcTotals.pieces,
+        total_bundles: dcTotals.bundles,
+        bundles_detail: bundlesDetailPayload,
       };
       const { data: updated, error: updErr } = await sb
         .from('production_batch')
@@ -417,7 +559,15 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       }
     } else {
       // INSERT new row. batch_code auto-generated by trigger (migration 008).
-      const payload: ProductionBatchInsert = {
+      // Payload is widened beyond ProductionBatchInsert because the
+      // Batch DC columns (migration 195) aren't in the generated types
+      // yet — they'll get folded in next time database.types.ts is regen'd.
+      const payload: ProductionBatchInsert & {
+        entry_mode: 'summary' | 'detailed';
+        total_pieces: number;
+        total_bundles: number;
+        bundles_detail: BundleDetailRow[];
+      } = {
         batch_code: '',
         costing_id: Number(costingId),
         so_line_id: null,
@@ -433,6 +583,10 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         produced_m: producedNum,
         rejected_m: Number(rejectedM || 0),
         notes: notes || null,
+        entry_mode: entryMode,
+        total_pieces: dcTotals.pieces,
+        total_bundles: dcTotals.bundles,
+        bundles_detail: bundlesDetailPayload,
       };
       const { data: inserted, error: insErr } = await sb
         .from('production_batch')
@@ -517,6 +671,188 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           elsewhere. The stock_ledger writes use the costing's
           warp_count_id, so the warp_metre outflow is still recorded. */}
 
+      {/* ─── Batch DC ──────────────────────────────────────────────────
+          Mirrors the delivery_challan_item bundle/piece capture UX.
+          Whichever mode is active feeds dcTotals.metres, which is then
+          mirrored into produced_m so the existing ledger / cost paths
+          stay correct without a parallel state model. */}
+      <section className="card p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">
+            2. Batch DC
+          </h3>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setEntryMode('summary')}
+              className={
+                'px-3 py-1.5 rounded-lg text-xs font-semibold border ' +
+                (entryMode === 'summary'
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+              }
+            >
+              Summary
+            </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode('detailed')}
+              className={
+                'px-3 py-1.5 rounded-lg text-xs font-semibold border ' +
+                (entryMode === 'detailed'
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+              }
+            >
+              Detailed
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] text-ink-mute">
+          {entryMode === 'summary'
+            ? 'Type bundle / piece / metre totals directly.'
+            : 'Capture every bundle and piece. Metres roll up automatically.'}
+        </p>
+
+        {entryMode === 'summary' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="label">Total bundles</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={summaryTotalBundles}
+                onChange={(e) => setSummaryTotalBundles(e.target.value)}
+                className="input num text-right"
+              />
+            </div>
+            <div>
+              <label className="label">Total pieces</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={summaryTotalPieces}
+                onChange={(e) => setSummaryTotalPieces(e.target.value)}
+                className="input num text-right"
+              />
+            </div>
+            <div>
+              <label className="label">Total metres *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={summaryTotalMetres}
+                onChange={(e) => setSummaryTotalMetres(e.target.value)}
+                className="input num text-right"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {bundles.map((b, bIdx) => {
+              const bMetres = b.pieces.reduce((s, p) => {
+                const v = Number(p);
+                return Number.isFinite(v) && v > 0 ? s + v : s;
+              }, 0);
+              const bPieces = b.pieces.filter((p) => {
+                const v = Number(p);
+                return Number.isFinite(v) && v > 0;
+              }).length;
+              return (
+                <div
+                  key={bIdx}
+                  className="rounded-lg border border-line bg-cloud/20 p-3 space-y-2"
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs font-semibold text-ink-soft">
+                      Bundle #{b.sno}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-ink-mute">
+                        {bPieces} pcs / {bMetres.toFixed(2)} m
+                      </span>
+                      <label className="text-[10px] uppercase tracking-wide text-ink-mute">
+                        No. of pieces
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        step={1}
+                        className="input h-7 text-xs num w-16 text-right"
+                        value={b.pieces.length}
+                        onChange={(e) =>
+                          setBundlePieceCount(bIdx, Number(e.target.value) || 1)
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeBundle(bIdx)}
+                        className="text-rose-600 hover:bg-rose-50 text-[11px] px-2 py-0.5 rounded"
+                        title="Remove bundle"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+                    {b.pieces.map((p, pIdx) => (
+                      <div key={pIdx} className="flex items-center gap-1">
+                        <span className="text-[10px] text-ink-mute w-6 text-right">
+                          {pIdx + 1}.
+                        </span>
+                        <input
+                          type="number"
+                          step={0.01}
+                          min={0}
+                          placeholder="metres"
+                          className="input h-8 text-xs num flex-1 text-right"
+                          value={p}
+                          onChange={(e) =>
+                            setPieceValue(bIdx, pIdx, e.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={addBundle}
+              className="w-full text-xs text-indigo-700 hover:bg-indigo-50 py-2 rounded border border-dashed border-line"
+            >
+              + Add bundle
+            </button>
+            <div className="border-t border-line/60 pt-2 text-right text-xs font-semibold text-ink-soft">
+              Bundles: <span className="num text-indigo-700">{dcTotals.bundles}</span>
+              {' · '}
+              Pieces: <span className="num text-indigo-700">{dcTotals.pieces}</span>
+              {' · '}
+              Metres: <span className="num text-indigo-700">{dcTotals.metres.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Single source of truth for Produced metres — flows into
+            produced_m via the dcTotals.metres useEffect above. */}
+        <div className="rounded-lg bg-indigo-50/60 border border-indigo-100 px-3 py-2 text-xs font-semibold text-indigo-800">
+          Produced: <span className="num">{dcTotals.metres.toFixed(2)}</span> m
+          {' · '}
+          <span className="num">{dcTotals.pieces}</span> pcs
+          {' · '}
+          <span className="num">{dcTotals.bundles}</span> bundles
+          <span className="ml-2 font-normal text-indigo-700/70">(auto from Batch DC)</span>
+        </div>
+      </section>
+
       {/* ─── Section 2: Production data ────────────────────────────────── */}
       <section className="card p-4 space-y-3">
         <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">
@@ -542,16 +878,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
             />
           </div>
           <div>
-            <label className="label">Produced (m) *</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              value={producedM}
-              onChange={e => setProducedM(e.target.value)}
-              className="input num"
-            />
+            <label className="label">
+              Produced (m) *
+              <span className="text-[10px] text-ink-mute font-normal ml-2">(from Batch DC)</span>
+            </label>
+            <div className="input num bg-cloud/40 text-ink-soft cursor-not-allowed">
+              {dcTotals.metres > 0 ? dcTotals.metres.toFixed(2) : '—'}
+            </div>
           </div>
           <div>
             <label className="label">Rejected (m)</label>
@@ -621,7 +954,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         >
           Cancel
         </button>
-        <button type="submit" className="btn-primary" disabled={busy || !costingId || !producedM}>
+        <button type="submit" className="btn-primary" disabled={busy || !costingId || !(dcTotals.metres > 0)}>
           {busy ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" /> Saving…
