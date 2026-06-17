@@ -74,6 +74,41 @@ export interface DcItem {
   summary_metres: string;
   summary_pieces: string;
   summary_bundles: string;
+  /**
+   * When the operator seeds an item from the "From production batches"
+   * picker, this carries the source production_batch.id. On save we
+   * persist it to delivery_challan_item.production_batch_id and write a
+   * stock_ledger outflow with bucket='production_fabric',
+   * source_kind='delivery_challan_item', referencing the same batch.
+   *
+   * Manually-entered items leave this null.
+   */
+  production_batch_id?: number | null;
+}
+
+/**
+ * "From production batches" picker model. Each row represents one
+ * production_batch that still has remaining production_fabric stock
+ * (net inflow > outflow) so the operator can pick from it.
+ */
+export interface BatchOpt {
+  id: number;
+  batch_code: string;
+  costing_id: number;
+  quality_code: string | null;
+  quality_name: string | null;
+  /** fabric_quality.id whose costing_id matches this batch's costing_id. */
+  fabric_quality_id: number | null;
+  fabric_quality_hsn: string | null;
+  entry_mode: 'summary' | 'detailed';
+  produced_m: number;
+  total_pieces: number | null;
+  total_bundles: number | null;
+  bundles_detail: Array<{ sno: number; pieces: number[] }>;
+  /** Remaining (net inflow − outflow) in the inflow's unit. */
+  available: number;
+  /** Unit the batch's production_fabric inflow was recorded in. */
+  unit: 'm' | 'pcs';
 }
 
 export type DcEntryMode = 'detailed' | 'summary';
@@ -132,6 +167,7 @@ function emptyItem(sno: number): DcItem {
     summary_metres: '',
     summary_pieces: '',
     summary_bundles: '',
+    production_batch_id: null,
   };
 }
 
@@ -218,6 +254,25 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   // of saving. Re-read whenever production_mode changes; each mode
   // pulls from its own series (DC / JDC / ODC).
   const [nextDcCode, setNextDcCode] = useState<string>('');
+
+  // Items source toggle. 'manual' (default) keeps the existing form
+  // behaviour where the operator types each item by hand. 'production_batch'
+  // opens a picker that lists in-house production batches with leftover
+  // stock and seeds one DC item per picked batch (quality, metres, pieces,
+  // bundles, bundles_detail). Only meaningful for inhouse DCs.
+  const [itemsSource, setItemsSource] = useState<'manual' | 'production_batch'>('manual');
+  const [batchOpts, setBatchOpts] = useState<BatchOpt[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState<boolean>(false);
+  // Set of production_batch.ids currently ticked in the picker. Driven
+  // off form.items so unchecking the picker stays in sync if the
+  // operator deletes a seeded item directly from the list below.
+  const pickedBatchIds = useMemo<Set<number>>(() => {
+    const s = new Set<number>();
+    for (const it of form.items) {
+      if (it.production_batch_id != null) s.add(it.production_batch_id);
+    }
+    return s;
+  }, [form.items]);
 
   // ---- Load reference data ----
   useEffect(() => {
@@ -389,6 +444,152 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     return () => { cancelled = true; };
   }, [form.production_mode, isEdit, supabase]);
 
+  // ---- Load production batches with leftover stock ----
+  // Fires whenever the operator flips the items source to
+  // 'production_batch' on an in-house DC. We:
+  //   1. Read every stock_ledger row for bucket='production_fabric'
+  //      keyed by source_kind='production_batch', sum inflow − outflow
+  //      per batch id and keep those with a positive remainder.
+  //   2. Pull the matching production_batch rows + their costing_master
+  //      (for quality_code / quality_name).
+  //   3. Resolve a fabric_quality row whose costing_id matches, so the
+  //      seeded item has the right fabric_quality_id + hsn. Batches
+  //      whose costing has no linked fabric_quality are still shown but
+  //      seeded with a null fabric_quality_id (the operator can pick
+  //      one manually before saving).
+  useEffect(() => {
+    if (itemsSource !== 'production_batch' || form.production_mode !== 'inhouse') {
+      setBatchOpts([]);
+      return;
+    }
+    let cancelled = false;
+    setBatchesLoading(true);
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      // 1. Sum all production_fabric ledger rows per batch.
+      const { data: ledgerRows, error: ledErr } = await sb
+        .from('stock_ledger')
+        .select('source_id, direction, quantity, unit')
+        .eq('bucket', 'production_fabric')
+        .eq('source_kind', 'production_batch');
+      if (ledErr || cancelled) {
+        if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+        return;
+      }
+      // Track per-batch: net available, the inflow unit (copied from
+      // the first 'in' row we see for that batch).
+      const perBatch = new Map<number, { net: number; unit: 'm' | 'pcs' }>();
+      for (const r of (ledgerRows ?? []) as Array<{
+        source_id: number | null; direction: string; quantity: number | string | null; unit: string | null;
+      }>) {
+        if (r.source_id == null) continue;
+        const id = Number(r.source_id);
+        const qty = Number(r.quantity ?? 0);
+        const slot = perBatch.get(id) ?? { net: 0, unit: 'm' as 'm' | 'pcs' };
+        if (r.direction === 'in') {
+          slot.net += qty;
+          // Lock the unit to the inflow's unit. If multiple inflows
+          // disagree (shouldn't happen) the first one wins.
+          const u = r.unit === 'pcs' ? 'pcs' : 'm';
+          slot.unit = u;
+        } else if (r.direction === 'out') {
+          slot.net -= qty;
+        }
+        perBatch.set(id, slot);
+      }
+      const liveIds: number[] = [];
+      for (const [id, slot] of perBatch) {
+        if (slot.net > 0.0001) liveIds.push(id);
+      }
+      // Also keep batches that are currently selected in the form so
+      // the picker still shows them as ticked (otherwise the operator
+      // could lose track of an already-seeded batch whose remainder is
+      // 0 only because we've already counted this DC's planned outflow).
+      for (const id of pickedBatchIds) {
+        if (!liveIds.includes(id)) liveIds.push(id);
+      }
+      if (liveIds.length === 0) {
+        if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+        return;
+      }
+
+      // 2. Pull production_batch rows for those ids.
+      const { data: batchRows, error: batchErr } = await sb
+        .from('production_batch')
+        .select('id, batch_code, costing_id, produced_m, entry_mode, total_pieces, total_bundles, bundles_detail')
+        .in('id', liveIds)
+        .order('batch_code', { ascending: false });
+      if (batchErr || cancelled) {
+        if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+        return;
+      }
+      const batches = (batchRows ?? []) as Array<{
+        id: number; batch_code: string; costing_id: number;
+        produced_m: number | string | null;
+        entry_mode: string | null;
+        total_pieces: number | null;
+        total_bundles: number | null;
+        bundles_detail: Array<{ sno: number; pieces: number[] }> | null;
+      }>;
+      if (batches.length === 0) {
+        if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+        return;
+      }
+
+      // 3. Costings + their fabric_quality linkage.
+      const costingIds = Array.from(new Set(batches.map((b) => b.costing_id)));
+      const [cmRes, fqRes] = await Promise.all([
+        sb.from('costing_master')
+          .select('id, quality_code, quality_name')
+          .in('id', costingIds),
+        sb.from('fabric_quality')
+          .select('id, name, hsn, costing_id')
+          .in('costing_id', costingIds),
+      ]);
+      if (cancelled) { setBatchesLoading(false); return; }
+      const cmById = new Map<number, { quality_code: string | null; quality_name: string | null }>();
+      for (const c of (cmRes.data ?? []) as Array<{ id: number; quality_code: string | null; quality_name: string | null }>) {
+        cmById.set(c.id, { quality_code: c.quality_code, quality_name: c.quality_name });
+      }
+      const fqByCostingId = new Map<number, { id: number; name: string; hsn: string | null }>();
+      for (const fq of (fqRes.data ?? []) as Array<{ id: number; name: string; hsn: string | null; costing_id: number | null }>) {
+        if (fq.costing_id == null) continue;
+        // First fabric_quality wins per costing — multiple is rare.
+        if (!fqByCostingId.has(fq.costing_id)) {
+          fqByCostingId.set(fq.costing_id, { id: fq.id, name: fq.name, hsn: fq.hsn });
+        }
+      }
+
+      const opts: BatchOpt[] = batches.map((b) => {
+        const cm = cmById.get(b.costing_id);
+        const fq = fqByCostingId.get(b.costing_id);
+        const slot = perBatch.get(b.id) ?? { net: 0, unit: 'm' as 'm' | 'pcs' };
+        return {
+          id: b.id,
+          batch_code: b.batch_code,
+          costing_id: b.costing_id,
+          quality_code: cm?.quality_code ?? null,
+          quality_name: cm?.quality_name ?? null,
+          fabric_quality_id: fq?.id ?? null,
+          fabric_quality_hsn: fq?.hsn ?? null,
+          entry_mode: (b.entry_mode === 'detailed' ? 'detailed' : 'summary'),
+          produced_m: Number(b.produced_m ?? 0),
+          total_pieces: b.total_pieces,
+          total_bundles: b.total_bundles,
+          bundles_detail: (b.bundles_detail ?? []) as Array<{ sno: number; pieces: number[] }>,
+          available: slot.net,
+          unit: slot.unit,
+        };
+      });
+      if (!cancelled) {
+        setBatchOpts(opts);
+        setBatchesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [itemsSource, form.production_mode, supabase, pickedBatchIds]);
+
   // ---- Fabric quality dropdown filtered by DC production mode ----
   // String mismatch alert: delivery_challan.production_mode stores
   // 'jobwork' (no underscore) but fabric_quality.production_mode stores
@@ -498,6 +699,77 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       fabric_quality_id: fqIdStr,
       description: fq?.name ?? '',
       hsn: fq?.hsn ?? '',
+    });
+  }
+
+  // ---- Production batch picker helpers ----
+  // Seeds (or removes) a DC item for one batch. The seeded item is
+  // pre-filled with the batch's fabric_quality, metres / pieces /
+  // bundles snapshots, and a copy of its bundles_detail so the print
+  // grid rehydrates correctly. The operator can still edit any field.
+  function toggleBatchPick(batch: BatchOpt, checked: boolean): void {
+    setForm((f) => {
+      if (!checked) {
+        // Remove every item that points at this batch.
+        const filtered = f.items.filter((it) => it.production_batch_id !== batch.id);
+        const items = (filtered.length === 0 ? [emptyItem(1)] : filtered)
+          .map((it, i) => ({ ...it, sno: i + 1 }));
+        return { ...f, items };
+      }
+      // Already seeded? No-op.
+      if (f.items.some((it) => it.production_batch_id === batch.id)) return f;
+
+      const qualityLabel = batch.quality_name ?? batch.quality_code ?? '';
+      const description = qualityLabel === ''
+        ? batch.batch_code
+        : `${qualityLabel} — ${batch.batch_code}`;
+
+      // Mirror the batch's entry_mode onto this item so the operator
+      // sees either the bundle grid (detailed) or the flat totals
+      // (summary). We also rebuild the local `bundles` Bundle[] shape
+      // from the saved bundles_detail so the grid is editable.
+      const isDetailed = batch.entry_mode === 'detailed' && batch.bundles_detail.length > 0;
+      const bundles: Bundle[] = isDetailed
+        ? batch.bundles_detail.map((bd, i) => ({
+            sno: i + 1,
+            pieces: (bd.pieces ?? []).map((p) => String(p)),
+          }))
+        : [{ sno: 1, pieces: [''] }];
+
+      // Summary totals — used in 'summary' entry mode AND surfaced as
+      // the totals snapshot so the operator can verify at a glance.
+      // 'metres' field on the DC item conceptually holds metres for
+      // non-towel batches and pcs for towel-batches whose inflow was
+      // recorded in pcs. The save flow uses these directly.
+      const metres = batch.unit === 'm'
+        ? batch.produced_m
+        : (batch.total_pieces ?? batch.produced_m);
+      const pieces = batch.total_pieces ?? 0;
+      const bundleCount = batch.total_bundles ?? bundles.length;
+
+      const seeded: DcItem = {
+        sno: 0, // re-numbered below
+        fabric_quality_id: batch.fabric_quality_id != null ? String(batch.fabric_quality_id) : '',
+        description,
+        hsn: batch.fabric_quality_hsn ?? '',
+        bundles,
+        summary_metres:  metres > 0 ? String(metres) : '',
+        summary_pieces:  pieces > 0 ? String(pieces) : '',
+        summary_bundles: bundleCount > 0 ? String(bundleCount) : '',
+        production_batch_id: batch.id,
+      };
+
+      // If the current items list is just the default empty starter,
+      // replace it; otherwise append.
+      const isEmptyStarter = f.items.length === 1
+        && f.items[0]!.fabric_quality_id === ''
+        && f.items[0]!.description === ''
+        && f.items[0]!.production_batch_id == null
+        && f.items[0]!.summary_metres === ''
+        && (f.items[0]!.bundles.length === 1 && (f.items[0]!.bundles[0]?.pieces.length ?? 0) === 1
+            && (f.items[0]!.bundles[0]?.pieces[0] ?? '') === '');
+      const next = isEmptyStarter ? [seeded] : [...f.items, seeded];
+      return { ...f, items: next.map((it, i) => ({ ...it, sno: i + 1 })) };
     });
   }
 
@@ -704,6 +976,11 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     };
 
     let dcId: number;
+    // dcCode is needed downstream when writing stock_ledger reference_no
+    // entries for production-batch outflows. On edit we already have it
+    // in form.code; on create we pull it back from the insert (the
+    // BEFORE INSERT trigger fills it).
+    let dcCode: string = (form.code ?? '').trim();
     if (isEdit && form.id != null) {
       // On edit only, allow overriding the auto-generated DC code so the
       // user can correct a typo or re-align to a different series. On
@@ -715,6 +992,22 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const { error: err } = await sb.from('delivery_challan').update(editPayload).eq('id', form.id);
       if (err) { setBusy(false); setError(err.message); return; }
       dcId = form.id;
+      // Drop and re-create items so the bundles_detail / batch link
+      // stay in lock-step with the form state.
+      // Also clear any prior production_fabric outflows tied to the
+      // old items so the ledger doesn't double-count after re-insert.
+      const { data: oldItems } = await sb
+        .from('delivery_challan_item')
+        .select('id')
+        .eq('dc_id', dcId);
+      const oldItemIds = ((oldItems ?? []) as Array<{ id: number }>).map((x) => x.id);
+      if (oldItemIds.length > 0) {
+        await sb.from('stock_ledger')
+          .delete()
+          .eq('bucket', 'production_fabric')
+          .eq('source_kind', 'delivery_challan_item')
+          .in('source_id', oldItemIds);
+      }
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
     } else {
       // On create, jobwork + outsource DCs may set a custom code
@@ -726,9 +1019,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const createPayload = customCodeAllowed && (form.code ?? '').trim() !== ''
         ? { ...headerPayload, code: (form.code ?? '').trim() }
         : headerPayload;
-      const { data, error: err } = await sb.from('delivery_challan').insert(createPayload).select('id').single();
+      const { data, error: err } = await sb.from('delivery_challan').insert(createPayload).select('id, code').single();
       if (err || !data?.id) { setBusy(false); setError(err?.message ?? 'Insert failed'); return; }
       dcId = data.id as number;
+      dcCode = (data.code as string | null) ?? dcCode;
     }
 
     const itemsPayload = form.items.map((it) => {
@@ -752,12 +1046,95 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         pieces: t.pieces || null,
         bundles: t.bundles || null,
         bundles_detail,
+        production_batch_id: it.production_batch_id ?? null,
       };
     });
+    // Track which inserted item.id belongs to which production_batch_id
+    // so the post-insert ledger write knows where to point its outflow.
+    // Items come back from Supabase in insert order, so pairing by
+    // index is safe.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let insertedItems: Array<{ id: number; production_batch_id: number | null; fabric_quality_id: number | null; metres: number | null; pieces: number | null }> = [];
     if (itemsPayload.length > 0) {
-      const { error: itemErr } = await sb.from('delivery_challan_item').insert(itemsPayload);
+      const { data: itemRows, error: itemErr } = await sb
+        .from('delivery_challan_item')
+        .insert(itemsPayload)
+        .select('id, production_batch_id, fabric_quality_id, metres, pieces');
       if (itemErr) { setBusy(false); setError(itemErr.message); return; }
+      insertedItems = (itemRows ?? []) as typeof insertedItems;
     }
+
+    // Production-batch outflows: for every saved item that points at a
+    // production_batch, write a stock_ledger row that depletes that
+    // batch's production_fabric inflow. The outflow unit must match
+    // the inflow unit (m vs pcs), so we read the original inflow row
+    // once per batch and cache it.
+    const ledgerBatchItems = insertedItems.filter((it) => it.production_batch_id != null);
+    if (ledgerBatchItems.length > 0) {
+      const uniqueBatchIds = Array.from(
+        new Set(ledgerBatchItems.map((it) => Number(it.production_batch_id))),
+      );
+      const { data: inflowRows, error: inflowErr } = await sb
+        .from('stock_ledger')
+        .select('source_id, unit, fabric_quality_id')
+        .eq('bucket', 'production_fabric')
+        .eq('source_kind', 'production_batch')
+        .eq('direction', 'in')
+        .in('source_id', uniqueBatchIds);
+      // Build a unit-lookup cache so we don't re-query per item.
+      const unitByBatch = new Map<number, { unit: 'm' | 'pcs'; fabric_quality_id: number | null }>();
+      if (!inflowErr) {
+        for (const r of (inflowRows ?? []) as Array<{ source_id: number | null; unit: string | null; fabric_quality_id: number | null }>) {
+          if (r.source_id == null) continue;
+          unitByBatch.set(Number(r.source_id), {
+            unit: r.unit === 'pcs' ? 'pcs' : 'm',
+            fabric_quality_id: r.fabric_quality_id,
+          });
+        }
+      }
+
+      const outflowRows: Array<Record<string, unknown>> = [];
+      for (const it of ledgerBatchItems) {
+        const batchId = Number(it.production_batch_id);
+        const lookup = unitByBatch.get(batchId);
+        // Defensive fallback: if we couldn't find the inflow row (e.g.
+        // stock_ledger was hand-edited), default to 'm' and the item's
+        // own fabric_quality_id. The outflow will still write — it'll
+        // just look mismatched in the warehouse pivot.
+        const unit: 'm' | 'pcs' = lookup?.unit ?? 'm';
+        const fqId = lookup?.fabric_quality_id ?? it.fabric_quality_id;
+        const qty = unit === 'pcs'
+          ? Number(it.pieces ?? 0)
+          : Number(it.metres ?? 0);
+        if (!(qty > 0)) continue;
+        outflowRows.push({
+          bucket: 'production_fabric',
+          direction: 'out',
+          fabric_quality_id: fqId,
+          quantity: qty,
+          unit,
+          event_date: form.dc_date,
+          source_kind: 'delivery_challan_item',
+          source_id: it.id,
+          reference_no: dcCode || null,
+          notes: 'Shipped via DC from production batch',
+        });
+      }
+      if (outflowRows.length > 0) {
+        const { error: sledErr } = await sb.from('stock_ledger').insert(outflowRows);
+        if (sledErr) {
+          // Non-fatal: the DC is already saved. Surface a warning so
+          // the operator can reconcile the warehouse pivot later
+          // (same pattern as the invoice flow).
+          // eslint-disable-next-line no-console
+          console.warn('DC saved but production-batch stock ledger write failed:', sledErr);
+          setError(`DC saved but production-batch stock ledger write failed: ${sledErr.message}`);
+          setBusy(false);
+          return;
+        }
+      }
+    }
+
     setBusy(false);
     router.push('/app/delivery-challan');
     router.refresh();
@@ -1076,6 +1453,116 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           </>
         )}
       </div>
+
+      {/* Items source toggle.
+          'Manual entry' keeps the original UX where the operator types
+          each item by hand. 'From production batches' opens a checklist
+          of in-house production batches that still have leftover stock
+          (net inflow > outflow in the production_fabric bucket) — ticking
+          one seeds a DC item with the batch's quality, metres, pieces,
+          bundles, and bundles_detail. On save the DC writes a matching
+          stock_ledger outflow that depletes the batch's inflow.
+          Only meaningful on inhouse DCs — jobwork / outsource modes still
+          flow through the fabric_receipt path. */}
+      {form.production_mode === 'inhouse' && (
+        <div>
+          <label className="label">
+            Items Source
+            <span className="text-[10px] text-ink-mute font-normal ml-2">
+              {itemsSource === 'manual'
+                ? 'Type each item by hand (default).'
+                : 'Pick from in-house production batches with leftover stock.'}
+            </span>
+          </label>
+          <div className="flex gap-1.5 max-w-md">
+            <button type="button"
+              onClick={() => setItemsSource('manual')}
+              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+                (itemsSource === 'manual'
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
+              Manual entry
+            </button>
+            <button type="button"
+              onClick={() => setItemsSource('production_batch')}
+              className={'flex-1 px-3 py-2 rounded-lg text-xs font-semibold border ' +
+                (itemsSource === 'production_batch'
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')}>
+              From production batches
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Production batch picker — only when in-house + the toggle is
+          flipped. Each row is a checkbox that seeds (or removes) a DC
+          item for that batch. Selected items remain freely editable
+          below in the items grid. */}
+      {form.production_mode === 'inhouse' && itemsSource === 'production_batch' && (
+        <div className="rounded-lg border border-line bg-paper">
+          <div className="flex items-center justify-between p-3 border-b border-line/60">
+            <h3 className="font-display font-bold text-sm">Pick production batches</h3>
+            <span className="text-[11px] text-ink-mute">
+              {batchesLoading
+                ? 'Loading…'
+                : `${batchOpts.length} batch${batchOpts.length === 1 ? '' : 'es'} with stock`}
+            </span>
+          </div>
+          <div className="p-3 space-y-1.5 max-h-96 overflow-auto">
+            {batchesLoading && (
+              <div className="text-xs text-ink-mute py-2">Loading production batches…</div>
+            )}
+            {!batchesLoading && batchOpts.length === 0 && (
+              <div className="text-xs text-ink-mute py-2">
+                No production batches with leftover stock right now.
+              </div>
+            )}
+            {batchOpts.map((b) => {
+              const checked = pickedBatchIds.has(b.id);
+              const qualityLabel = b.quality_name ?? b.quality_code ?? '(no quality)';
+              const unitLabel = b.unit === 'pcs' ? 'pcs' : 'm';
+              const noLink = b.fabric_quality_id == null;
+              return (
+                <label
+                  key={b.id}
+                  className={'flex items-start gap-2 p-2 rounded border cursor-pointer ' +
+                    (checked
+                      ? 'border-indigo-400 bg-indigo-50/60'
+                      : 'border-line bg-white hover:bg-haze/40')}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={checked}
+                    onChange={(e) => toggleBatchPick(b, e.target.checked)}
+                  />
+                  <div className="flex-1 text-xs">
+                    <div className="font-semibold text-ink">
+                      {b.batch_code}
+                      <span className="ml-2 text-ink-soft font-normal">{qualityLabel}</span>
+                    </div>
+                    <div className="text-[11px] text-ink-mute mt-0.5">
+                      Available: <span className="font-mono">{b.available.toFixed(2)} {unitLabel}</span>
+                      {b.total_pieces != null && b.total_pieces > 0 && (
+                        <> · {b.total_pieces} pcs</>
+                      )}
+                      {b.total_bundles != null && b.total_bundles > 0 && (
+                        <> · {b.total_bundles} bundles</>
+                      )}
+                      {noLink && (
+                        <span className="ml-2 text-amber-700">
+                          no fabric_quality linked — set one before saving
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Items + bundles */}
       <div className="rounded-lg border border-line bg-paper">
