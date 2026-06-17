@@ -2303,25 +2303,35 @@ async function loadInhouseOpeningStock(
   );
 
   // For warp_beam, resolve `ends` via costing_master.warp_ends keyed
-  // by production_batch.id. The outer qualityById map doesn't carry
-  // calc_snapshot, and costing_master is the source of truth anyway.
+  // by production_batch.id. Two-step plain fetch instead of a nested
+  // PostgREST relational select — that syntax was silently returning
+  // null on this DB, so events landed on no column and got skipped.
   const endsByBatch = new Map<number, number>();
   if (bucket === 'warp_beam' && slRows.length > 0) {
     const batchIds = Array.from(
       new Set(slRows.map((r) => r.source_id).filter((v): v is number => v != null)),
     );
     if (batchIds.length > 0) {
-      const batches = await safeSelect<{
-        id: number; costing_id: number | null;
-        costing: { warp_ends: number | null } | null;
-      }>(
-        sb.from('production_batch')
-          .select('id, costing_id, costing:costing_id ( warp_ends )')
-          .in('id', batchIds),
+      const batches = await safeSelect<{ id: number; costing_id: number | null }>(
+        sb.from('production_batch').select('id, costing_id').in('id', batchIds),
       );
+      const costingIds = Array.from(
+        new Set(batches.map((b) => b.costing_id).filter((v): v is number => v != null)),
+      );
+      const endsByCosting = new Map<number, number>();
+      if (costingIds.length > 0) {
+        const costings = await safeSelect<{ id: number; warp_ends: number | null }>(
+          sb.from('costing_master').select('id, warp_ends').in('id', costingIds),
+        );
+        for (const c of costings) {
+          const we = Number(c.warp_ends ?? 0);
+          if (Number.isFinite(we) && we > 0) endsByCosting.set(c.id, we);
+        }
+      }
       for (const b of batches) {
-        const we = Number(b.costing?.warp_ends ?? 0);
-        if (Number.isFinite(we) && we > 0) endsByBatch.set(b.id, we);
+        if (b.costing_id == null) continue;
+        const we = endsByCosting.get(b.costing_id);
+        if (we != null) endsByBatch.set(b.id, we);
       }
     }
   }
