@@ -53,7 +53,11 @@ const INHOUSE_TABS = [
   { key: 'weft_yarn',          label: 'Weft Yarn (kg)',         icon: Boxes   },
   { key: 'porvai_yarn',        label: 'Porvai Yarn (kg)',       icon: Boxes   },
   { key: 'bobbin',             label: 'Bobbins (m)',            icon: Package },
-  { key: 'fabric',             label: 'Fabric (m)',             icon: Layers  },
+  // The per-event fabric audit log (Fabric (m)) moved to a standalone
+  // report under Reports & Alerts: /app/reports/fabric-movements. The
+  // loaders below (loadFabric, loadFabricLineage) stay in place so the
+  // Jobwork / Outsource sub-tab "Fabric (m)" still renders and so any
+  // future report can reuse them.
   // Production-batch fabric inflows (stock_ledger.bucket='production_fabric').
   // Currently inflow-only; outflows (DC shipments) will arrive later.
   { key: 'production_fabric',  label: 'Production Fabric (m)',  icon: PackageOpen },
@@ -258,22 +262,12 @@ export default async function WarehousePage({
   // loaders aggregate by party_id and discard rows whose party isn't
   // in the passed-in set, so jobwork data never leaks into outsource
   // and vice-versa.
-  const fabricRowsRaw  = tab === 'fabric'                                ? await loadFabric(supabase, sp, mode) : null;
-  // In-house Fabric tab gets a second table below the aggregate showing
-  // every stock event (in & out) joined to its DC / Fabric Receipt /
-  // Invoice / payment status. Only runs on the in-house Fabric tab.
-  const fabricLineage  = (mode === 'inhouse' && tab === 'fabric')        ? await loadFabricLineage(supabase, sp) : null;
-  // Apply the in-house "Fabric Quality" filter at the page level —
-  // loadFabric returns rows keyed by quality_code, so we look up the
-  // picked quality's code in the fabricQualities master and keep only
-  // matching stock rows. No filter set → full list.
-  const fabricRows = (() => {
-    if (!fabricRowsRaw) return fabricRowsRaw;
-    if (mode !== 'inhouse' || !sp.quality) return fabricRowsRaw;
-    const picked = (fabricQualities ?? []).find((q: { id: number; code: string; name: string }) => q.id === Number(sp.quality));
-    if (!picked) return fabricRowsRaw;
-    return fabricRowsRaw.filter((r) => r.quality_code === picked.code || r.quality_name === picked.name);
-  })();
+  // In-house no longer has a Fabric tab — the per-event audit log
+  // moved to /app/reports/fabric-movements. loadFabric() still runs for
+  // jobwork / outsource modes where the aggregate Fabric (m) sub-tab
+  // remains.
+  const fabricRowsRaw  = (mode !== 'inhouse' && tab === 'fabric')        ? await loadFabric(supabase, sp, mode) : null;
+  const fabricRows = fabricRowsRaw;
   const warpBeamRows   = isJobworkLike && tab === 'warp_beam'           ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
   const weftYarnRows   = isJobworkLike && tab === 'weft_yarn'           ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
   const porvaiYarnRows = isJobworkLike && tab === 'porvai_yarn'         ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
@@ -461,19 +455,6 @@ export default async function WarehousePage({
           </>
         )}
 
-        {/* In-house Fabric tab keeps the Fabric Quality filter so the
-            operator can drill into one quality at a time. The Warp
-            Metre tab no longer uses this filter — its pivot columns
-            are now keyed by warp ends, not quality. */}
-        {mode === 'inhouse' && tab === 'fabric' && (
-          <FilterSelect
-            name="quality"
-            label="Fabric Quality"
-            value={sp.quality}
-            options={(fabricQualities ?? []).map((q: { id: number; code: string; name: string }) => ({ value: String(q.id), label: `${q.code} - ${q.name}` }))}
-          />
-        )}
-
         {/* In-house weft / porvai tabs share a Yarn Count filter — the
             pivot's columns are already keyed by yarn count, so the
             filter just collapses the table to the chosen column. */}
@@ -588,24 +569,9 @@ export default async function WarehousePage({
           />
         </>
       )}
-      {mode === 'inhouse' && tab === 'fabric'      && (
-        <>
-          <FabricView rows={fabricRows!} />
-          {/* Per-event lineage: DC → FR → Invoice → payment status.
-              Hidden when the loader returned no rows so an empty
-              database doesn't double-paint "no results" cards. */}
-          {fabricLineage && fabricLineage.length > 0 && (
-            <>
-              <h2 className="text-base font-semibold text-ink mt-8 mb-1">Per-event lineage</h2>
-              <p className="text-xs text-ink-mute mb-3">
-                Each row is one fabric movement — incoming via Fabric Receipt or outgoing via a Sales DC.
-                Status shows whether stock is still on hand or has been invoiced (with payment state).
-              </p>
-              <FabricLineageView rows={fabricLineage} />
-            </>
-          )}
-        </>
-      )}
+      {/* In-house Fabric (m) tab has moved — see
+          /app/reports/fabric-movements. The render branch was removed
+          along with its data loader. */}
       {mode === 'inhouse' && tab === 'production_fabric' && (
         <PivotView
           data={inProdFabricRows!}

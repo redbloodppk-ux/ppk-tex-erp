@@ -124,6 +124,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/fabric-movements',
+    title: 'Fabric Movements',
+    description:
+      'Per-event log of every fabric receipt and invoice line — what came in from production, what shipped out, and which invoices are still unpaid.',
+    ready: true,
+  },
+  {
     href: '/app/reports/attendance-daily',
     title: 'Daily Attendance',
     description:

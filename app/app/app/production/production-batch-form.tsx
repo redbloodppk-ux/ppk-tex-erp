@@ -327,11 +327,16 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     // Production fabric INFLOW
     const towelLenNum = Number(towelLength);
     const towelMode = convertToTowel === true && towelLenNum > 0;
+    // Towel pieces are physical units — round to the nearest whole
+    // piece. Non-towel inflow stays as metres (the natural unit).
+    const inflowQty = towelMode
+      ? Math.round(producedMetres / towelLenNum)
+      : producedMetres;
     ledgerRows.push({
       bucket: 'production_fabric',
       direction: 'in',
       fabric_quality_id: linkedFqId,
-      quantity: towelMode ? producedMetres / towelLenNum : producedMetres,
+      quantity: inflowQty,
       unit: towelMode ? 'pcs' : 'm',
       ...src,
       notes: towelMode ? `Produced as towel (${towelLenNum} m/pc)` : 'Produced fabric stock',
@@ -507,35 +512,12 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         )}
       </section>
 
-      {/* ─── Section 2: Warp (pavu_assign) ─────────────────────────────── */}
-      <section className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">
-          2. Pavu assignment
-        </h3>
-        <div>
-          <label className="label">Pavu assignment (drives loom + warp lot)</label>
-          <select
-            value={pavuAssignId}
-            onChange={e => setPavuAssignId(e.target.value)}
-            className="input"
-          >
-            <option value="">— None —</option>
-            {assigns.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.loom?.loom_code ?? '?'} ·{' '}
-                {a.pavu?.pavu_code ?? '?'} (Beam {a.pavu?.beam_no ?? '?'}) ·{' '}
-                Sizing {a.pavu?.sizing_job?.job_code ?? '?'}{' '}
-                · {Number(a.pavu?.meters ?? 0).toFixed(0)} m
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-ink-mute mt-1">
-            Picking a pavu auto-fills the loom + warp lot and snapshots the actual sizing ₹/kg.
-          </div>
-        </div>
-      </section>
+      {/* Pavu assignment section removed per operator request — loom_id
+          and warp_lot_id stay NULL on the batch row unless seeded
+          elsewhere. The stock_ledger writes use the costing's
+          warp_count_id, so the warp_metre outflow is still recorded. */}
 
-      {/* ─── Section 3: Production data ────────────────────────────────── */}
+      {/* ─── Section 2: Production data ────────────────────────────────── */}
       <section className="card p-4 space-y-3">
         <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">
           3. Production
