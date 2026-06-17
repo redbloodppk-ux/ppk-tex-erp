@@ -1508,34 +1508,54 @@ export default function NewInvoicePage() {
                             ))}
                           </select>
                         ) : (docType === 'tax_invoice' && sourceKind === 'fabric_stock') ? (
-                          <select
-                            value={
-                              r.production_fabric_quality_id
-                                ? `prod:${r.production_fabric_quality_id}:${r.uom === 'pcs' ? 'pcs' : 'm'}`
-                                : r.fabric_purchase_id
-                            }
-                            onChange={e => pickFabricStockForRow(r.id, e.target.value)}
-                            className="input input-sm w-full mb-1">
-                            <option value="">— pick fabric stock (by quality) —</option>
-                            {fabricStock.length > 0 && (
-                              <optgroup label="── Resale (fabric_purchase) ──">
-                                {fabricStock.map(f => (
-                                  <option key={f.id} value={f.id}>
-                                    {f.quality?.name ?? 'Fabric'} · {Number(f.current_metres).toFixed(0)} m avail · {f.code ?? '#' + f.id}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {productionStock.length > 0 && (
-                              <optgroup label="── From Production ──">
-                                {productionStock.map(p => (
-                                  <option key={p.key} value={p.key}>
-                                    {p.qualityName} · {Number(p.available).toFixed(0)} {p.unit} avail (production)
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                          </select>
+                          (r.production_fabric_quality_id || r.fabric_purchase_id) ? (
+                            /* Stock already picked — collapse into a
+                               compact chip so we don't show two
+                               descriptions next to each other. The
+                               row's description input below remains
+                               the single editable description. */
+                            <div className="flex items-center gap-2 mb-1 text-[11px]">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded font-medium ${
+                                r.production_fabric_quality_id
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                              }`}>
+                                {r.production_fabric_quality_id ? '⚙ Production' : '📦 Resale'} stock picked
+                              </span>
+                              <button
+                                type="button"
+                                className="text-indigo hover:underline"
+                                onClick={() => pickFabricStockForRow(r.id, '')}
+                              >
+                                Change
+                              </button>
+                            </div>
+                          ) : (
+                            <select
+                              value=""
+                              onChange={e => pickFabricStockForRow(r.id, e.target.value)}
+                              className="input input-sm w-full mb-1">
+                              <option value="">— pick fabric stock —</option>
+                              {fabricStock.length > 0 && (
+                                <optgroup label="── Resale ──">
+                                  {fabricStock.map(f => (
+                                    <option key={f.id} value={f.id}>
+                                      {f.code ?? '#' + f.id} · {f.quality?.code ?? '?'} · {Number(f.current_metres).toFixed(0)} m
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {productionStock.length > 0 && (
+                                <optgroup label="── From Production ──">
+                                  {productionStock.map(p => (
+                                    <option key={p.key} value={p.key}>
+                                      {p.qualityCode ?? p.qualityName} · {Number(p.available).toFixed(0)} {p.unit}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+                          )
                         ) : null}
                         <input value={r.description}
                           onChange={e => updateRow(r.id, { description: e.target.value })}
