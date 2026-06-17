@@ -573,10 +573,32 @@ export default async function WarehousePage({
           /app/reports/fabric-movements. The render branch was removed
           along with its data loader. */}
       {mode === 'inhouse' && tab === 'production_fabric' && (
-        <PivotView
-          data={inProdFabricRows!}
-          emptyMessage="No production fabric stock yet. Save a production batch from Production → New Batch to see inflows here."
-        />
+        <div className="space-y-6">
+          {/* Production fabric can be stocked in pieces (operator entered
+              towel pieces directly) or in metres (operator entered metres,
+              optionally with a towel-length to convert into pieces on
+              another batch). Showing them in separate pivots keeps the
+              totals at the bottom unambiguous — each table footers in its
+              own unit. */}
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-soft">
+              In pieces
+            </div>
+            <PivotView
+              data={inProdFabricRows!.pcs}
+              emptyMessage="No production fabric stocked in pieces yet. Save a batch from Production → New Batch with the metres toggle off to see pcs inflows here."
+            />
+          </div>
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-soft">
+              In metres
+            </div>
+            <PivotView
+              data={inProdFabricRows!.metres}
+              emptyMessage="No production fabric stocked in metres yet. Save a batch from Production → New Batch with the metres toggle on to see metre inflows here."
+            />
+          </div>
+        </div>
       )}
       {isJobworkLike && tab === 'warp_beam'   && <PivotView data={warpBeamRows!}   emptyMessage={mode === 'outsource' ? 'No warp beam entries yet. Issue beams from Outsource Weaving → Warp Beam Given to see them here.' : 'No warp beam entries yet. Issue beams from Job Work → Warp Beam Given to see them here.'} />}
       {isJobworkLike && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage={mode === 'outsource' ? 'No weft yarn entries yet. Issue yarn from Outsource Weaving → Weft Yarn Given to see them here.' : 'No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here.'} />}
@@ -2987,12 +3009,18 @@ function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMess
 // is_merged=true and a merged_name share one column labelled with that
 // merged name. Standalone qualities get their own column.
 //
-// Unit: production fabric is recorded in metres in the production form;
-// the pivot label in INHOUSE_TABS reflects 'm'. If a row sneaks in with
-// unit='pcs' (e.g. a non-woven/garment SKU later) we still render the
-// quantity as a number — the pivot itself uses a single unit string.
+// Unit: production fabric may be recorded in metres (when the batch was
+// entered in metres) or pieces (when the operator entered towel pieces
+// directly with no conversion). Both forms can co-exist for the same
+// quality, so we split the ledger into two PivotData blocks — one
+// for pcs rows and one for m rows — and render them stacked. Each
+// pivot keeps its own totals/footer so the operator can read the
+// pcs and metres balance independently.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadInhouseProductionFabric(supabase: any, qualities: any[]): Promise<PivotData> {
+async function loadInhouseProductionFabric(
+  supabase: any,
+  qualities: any[],
+): Promise<{ pcs: PivotData; metres: PivotData }> {
   // Read merge metadata for every known fabric_quality so we can
   // collapse merged siblings into a single pivot column. Mirrors the
   // pattern in loadJobworkWarpBeam.
@@ -3033,9 +3061,6 @@ async function loadInhouseProductionFabric(supabase: any, qualities: any[]): Pro
     notes: string | null;
   }>);
 
-  const colMap = new Map<string, PivotColumn>();
-  const events: PivotEvent[] = [];
-
   // colInfo: maps a fabric_quality_id to its pivot column identity,
   // collapsing merged siblings via merged_name. Same shape used by the
   // warp-beam pivot loader.
@@ -3047,25 +3072,35 @@ async function loadInhouseProductionFabric(supabase: any, qualities: any[]): Pro
     }
     return { id: `fq:${qualityId}`, label: m?.code ?? `FQ #${qualityId}`, sublabel: m?.name ?? '' };
   };
-  const ensureCol = (qualityId: number | null): string => {
+
+  // One pivot per unit. Columns are only added to a pivot when at least
+  // one row of that unit lands on the quality so the pcs/metres tables
+  // don't show empty columns for qualities that only ship in the other
+  // unit.
+  const pcsCols = new Map<string, PivotColumn>();
+  const pcsEvents: PivotEvent[] = [];
+  const mCols = new Map<string, PivotColumn>();
+  const mEvents: PivotEvent[] = [];
+
+  const ensureCol = (
+    target: Map<string, PivotColumn>,
+    qualityId: number | null,
+  ): string => {
     const info = colInfo(qualityId);
-    if (!colMap.has(info.id)) {
-      colMap.set(info.id, { id: info.id, label: info.label, sublabel: info.sublabel });
+    if (!target.has(info.id)) {
+      target.set(info.id, { id: info.id, label: info.label, sublabel: info.sublabel });
     }
     return info.id;
   };
 
-  // Determine the pivot unit. If every row reports 'pcs' we render as
-  // pcs; otherwise default to 'm' (the production form writes metres).
-  let unit: LedgerUnit = 'm';
-  if (rows.length > 0 && rows.every((r) => (r.unit ?? '').toLowerCase() === 'pcs')) {
-    unit = 'pcs';
-  }
-
   for (const r of rows) {
-    const colId = ensureCol(r.fabric_quality_id);
     const dir: 'in' | 'out' = r.direction === 'out' ? 'out' : 'in';
-    events.push({
+    const u = (r.unit ?? '').toLowerCase();
+    const isPcs = u === 'pcs';
+    const target = isPcs ? pcsCols : mCols;
+    const bucket = isPcs ? pcsEvents : mEvents;
+    const colId = ensureCol(target, r.fabric_quality_id);
+    bucket.push({
       event_date: r.event_date ?? '',
       column_id: colId,
       direction: dir,
@@ -3075,8 +3110,13 @@ async function loadInhouseProductionFabric(supabase: any, qualities: any[]): Pro
     });
   }
 
-  const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  return { unit, columns, events };
+  const sortCols = (m: Map<string, PivotColumn>) =>
+    Array.from(m.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+  return {
+    pcs: { unit: 'pcs', columns: sortCols(pcsCols), events: pcsEvents },
+    metres: { unit: 'm', columns: sortCols(mCols), events: mEvents },
+  };
 }
 
 // ─── Low stock alerts ────────────────────────────────────────────────────────

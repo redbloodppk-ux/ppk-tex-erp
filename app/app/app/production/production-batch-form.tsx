@@ -19,7 +19,7 @@
  *        warp_beam     out  produced_m              (m)
  *        weft_yarn     out  weft_kg_per_m * m       (kg, if > 0)
  *        porvai_yarn   out  porvai_kg_per_m * m     (kg, if > 0)
- *        bobbin        out  produced_m / metres     (pcs, per costing row)
+ *        bobbin        out  produced_m              (m, per costing row — 1:1 with fabric)
  *        production_fabric in produced_m or pcs      (m or pcs)
  *
  *   On edit, old ledger rows (source_kind='production_batch',
@@ -453,37 +453,44 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       });
     }
 
+    // Bobbin outflow — 1 metre of bobbin tape per 1 metre of fabric
+    // (same ratio fabric_receipt uses, see the "1 m per fabric metre"
+    // notes on FR ledger rows). Each bobbin attached to the costing
+    // gets its own outflow row at the full actualMetres; bobbin spec
+    // `metres` (yield per bobbin spool) is only relevant to costing,
+    // not to stock consumption — the bobbin warehouse holds the tape
+    // in metres, not in spool count.
     for (const b of bobbins) {
-      const metres = Number(b.metres ?? 0);
-      if (!(metres > 0)) continue;
-      const pieces = actualMetres / metres;
       ledgerRows.push({
         bucket: 'bobbin',
         direction: 'out',
         fabric_quality_id: linkedFqId,
         bobbin_id: b.bobbin_id,
-        quantity: pieces,
-        unit: 'pcs',
+        quantity: actualMetres,
+        unit: 'm',
         ...src,
-        notes: 'Consumed by production batch',
+        notes: 'In-house bobbin consumption (1 m per fabric metre)',
       });
     }
 
-    // Production fabric INFLOW — unit depends on the entry mode:
-    //   convertToTowel ON  : value is metres → save pcs (round m/length)
-    //   convertToTowel OFF + hasTowelLen: value already pcs → save pcs as-is
-    //   convertToTowel OFF + no towelLen: save metres (non-towel fallback)
+    // Production fabric INFLOW — store the operator's entered value
+    // as-is, no unit conversion. Per the owner's spec: warp/weft/porvai/
+    // bobbin convert pcs→metres so raw-material consumption is always
+    // in metres, but the produced fabric goes into stock in whatever
+    // unit the operator entered.
+    //   entryInPieces (toggle OFF + hasTowelLen) → save pcs as-is
+    //   else (toggle ON, or no towel length)     → save metres as-is
     let inflowQty: number;
     let inflowUnit: 'pcs' | 'm';
     let inflowNote: string;
-    if (convertToTowel && hasTowelLen) {
-      inflowQty = Math.round(producedMetres / towelLenNum);
-      inflowUnit = 'pcs';
-      inflowNote = `Produced as towel (${towelLenNum} m/pc)`;
-    } else if (entryInPieces) {
+    if (entryInPieces) {
       inflowQty = Math.round(producedMetres);
       inflowUnit = 'pcs';
       inflowNote = `Produced as towel — entered in pcs (${towelLenNum} m/pc)`;
+    } else if (hasTowelLen) {
+      inflowQty = producedMetres;
+      inflowUnit = 'm';
+      inflowNote = `Produced as towel — entered in metres (${towelLenNum} m/pc)`;
     } else {
       inflowQty = producedMetres;
       inflowUnit = 'm';
