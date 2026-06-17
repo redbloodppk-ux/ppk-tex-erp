@@ -410,6 +410,10 @@ export default async function InvoicePrintPage({
         /* DC-style header: centered title band + meta strip + bill/ship grid */
         .inv-title { text-align: left; font-size: 34px; font-weight: 900; letter-spacing: 1px; color: #000; padding-top: 2px; line-height: 1.1; }
         .inv-doc-label { text-align: right; font-size: 20px; font-weight: 800; letter-spacing: 3px; color: #1f2937; border: 1.5px solid #1f2937; padding: 6px 14px; border-radius: 4px; white-space: nowrap; }
+        /* Credit / debit note variants: tinted background so the
+           operator can't miss that this isn't a regular tax invoice. */
+        .inv-doc-label-cn { color: #9f1239; border-color: #9f1239; background: #fff1f2; }
+        .inv-doc-label-dn { color: #92400e; border-color: #92400e; background: #fffbeb; }
         .inv-orig  { text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 3px; margin-bottom: 9px; }
         .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
         .inv-meta > div { padding: 8px 10px; border-right: 1px solid #000; font-size: 14px; font-weight: 600; }
@@ -475,7 +479,13 @@ export default async function InvoicePrintPage({
       {/* Fixed print-only header — repeats on every printed page.
           Hidden on screen by CSS. */}
       <div className="inv-print-header">
-        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; TAX INVOICE</div>
+        <div className="ph-title">
+          {COMPANY.name} &nbsp;&middot;&nbsp; {
+            inv.doc_type === 'credit_note' ? 'CREDIT NOTE'
+              : inv.doc_type === 'debit_note' ? 'DEBIT NOTE'
+              : 'TAX INVOICE'
+          }
+        </div>
         <div className="ph-meta">
           <div>Invoice # <b>{inv.invoice_no}</b></div>
           <div>Date: <b>{fmtDate(inv.invoice_date)}</b></div>
@@ -516,7 +526,15 @@ export default async function InvoicePrintPage({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="inv-title">{COMPANY.name}</div>
           </div>
-          <div className="inv-doc-label">TAX INVOICE</div>
+          {/* Doc label: TAX INVOICE for every sale-side document so
+              the header looks consistent; CREDIT NOTE / DEBIT NOTE
+              shown explicitly because they're legally distinct
+              documents and the operator needs to see at a glance. */}
+          <div className={'inv-doc-label' + (inv.doc_type === 'credit_note' ? ' inv-doc-label-cn' : inv.doc_type === 'debit_note' ? ' inv-doc-label-dn' : '')}>
+            {inv.doc_type === 'credit_note' ? 'CREDIT NOTE'
+              : inv.doc_type === 'debit_note' ? 'DEBIT NOTE'
+              : 'TAX INVOICE'}
+          </div>
         </div>
 
         <div className="inv-orig">{copyLabel} COPY</div>
