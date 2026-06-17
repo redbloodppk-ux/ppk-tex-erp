@@ -931,18 +931,32 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
             <input type="number" className="input num w-full" step={0.5}
               value={gstPct} onChange={(e) => setGstPct(Number(e.target.value))} />
           </div>
-          <div>
-            <label className="label">Pick cost / m (Rs)</label>
-            <input
-              type="number" className="input num w-full" step={0.01} min={0}
-              placeholder="e.g. 12.50"
-              value={pickCostPerM}
-              onChange={(e) => setPickCostPerM(e.target.value)}
-            />
-            <p className="text-[10px] text-ink-mute mt-0.5">
-              Pick yarn cost allocated per metre of fabric.
-            </p>
-          </div>
+          {/* Pick cost / m (Rs) only matters for Job Work qualities —
+              it's the per-metre wages we pay the jobwork party. For
+              In-house and Outsourcing the cost is built up in the
+              full Fabric Costing form and saved on costing_master, so
+              this field is hidden to keep the mental model clean.
+              Future: if mode is changed away from job_work, the value
+              still persists in the DB but is no longer surfaced. */}
+          {productionMode === 'job_work' ? (
+            <div>
+              <label className="label">Job work cost / m (Rs)</label>
+              <input
+                type="number" className="input num w-full" step={0.01} min={0}
+                placeholder="e.g. 12.50"
+                value={pickCostPerM}
+                onChange={(e) => setPickCostPerM(e.target.value)}
+              />
+              <p className="text-[10px] text-ink-mute mt-0.5">
+                Wages we pay the jobwork party per metre. Drives Job work P&L cost line and the jobwork bill rate.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-line/40 bg-cloud/20 p-2 text-[11px] text-ink-mute">
+              <div className="font-semibold text-ink-soft mb-1">Costing for this quality</div>
+              <p>Cost build-up for {productionMode === 'inhouse' ? 'In-house' : 'Outsource'} qualities lives in the full <a href="/app/costing" className="text-indigo underline">Fabric Costing</a> form. Switch this quality's mode to "Job Work" if you'd like a simple per-metre wages field here instead.</p>
+            </div>
+          )}
           <div className="md:col-span-2 rounded-md border border-line/60 bg-cloud/20 p-2">
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <input
