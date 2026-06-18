@@ -97,7 +97,7 @@ export default async function InvoiceDetailPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [hdrRes, lineRes, dcRes] = await Promise.all([
+  const [hdrRes, lineRes, dcRes, commRes] = await Promise.all([
     sb.from('invoice')
       .select(`
         id, invoice_no, doc_type, source_kind, invoice_date, due_date, notes, status, vehicle_no,
@@ -120,12 +120,28 @@ export default async function InvoiceDetailPage({
       .select('id, code, dc_date, total_metres, total_pieces, total_bundles')
       .eq('invoice_id', numericId)
       .order('dc_date'),
+    sb.from('agent_commission')
+      .select('id, commission_type, commission_rate, amount, amount_paid, balance, agent:agent_party_id ( name )')
+      .eq('invoice_id', numericId)
+      .maybeSingle(),
   ]);
 
   const inv = hdrRes.data;
   if (!inv) notFound();
 
   const lines = (lineRes.data ?? []) as InvoiceLine[];
+
+  // Agent commission (fabric invoices) — shown read-only in the view.
+  const comm = commRes?.data as {
+    commission_type: 'pcs' | 'metre' | 'percent';
+    commission_rate: number | string;
+    amount: number | string;
+    amount_paid: number | string;
+    balance: number | string;
+    agent: { name: string } | null;
+  } | null ?? null;
+  const commTypeLabel = (t: string): string =>
+    t === 'pcs' ? 'per pc' : t === 'metre' ? 'per metre' : '% of taxable';
   const linkedDcs = (dcRes.data ?? []) as Array<{
     id: number; code: string; dc_date: string;
     total_metres: number | string | null; total_pieces: number | null; total_bundles: number | null;
@@ -198,6 +214,36 @@ export default async function InvoiceDetailPage({
           </div>
         }
       />
+
+      {/* ───── Agent commission summary (read-only) ───── */}
+      {comm && (
+        <div className="card p-4 mb-4 border-l-4 border-amber-400">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-ink-mute">Agent commission</div>
+              <div className="font-semibold text-ink">{comm.agent?.name ?? '—'}</div>
+              <div className="text-[11px] text-ink-soft">
+                {fmtMoney(comm.commission_rate)} {commTypeLabel(comm.commission_type)}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Commission</div>
+                <div className="num font-bold text-amber-700">₹ {fmtMoney(comm.amount)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Paid</div>
+                <div className="num text-emerald-700">₹ {fmtMoney(comm.amount_paid)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Balance</div>
+                <div className={'num font-semibold ' + (Number(comm.balance ?? 0) > 0 ? 'text-rose-700' : 'text-ink-mute')}>₹ {fmtMoney(comm.balance)}</div>
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-ink-mute mt-2">Payable to the agent — not part of the customer&rsquo;s bill. Settle on the Payments screen.</p>
+        </div>
+      )}
 
       {/* ───── Editable header card ─────
           The `key` makes React remount this form whenever any of the
