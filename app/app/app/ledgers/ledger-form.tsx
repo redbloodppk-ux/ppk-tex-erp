@@ -149,15 +149,23 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     // another ledger already carries this GSTIN, intimate the operator and
     // abort rather than creating a duplicate party in the books. On edit we
     // exclude the row being edited so re-saving the same ledger is allowed.
+    // Scope the GSTIN check to the same type+group: one business legitimately
+    // has separate ledgers per accounting bucket (e.g. a party that is both a
+    // Customer and a Job Work vendor), and those share the same GSTIN. We only
+    // block a duplicate GSTIN WITHIN the same type+group.
     const gstinClean = form.gstin.trim().toUpperCase();
     if (gstinClean !== '') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let dupQ = (supabase as any).from('ledger').select('id, name, code').ilike('gstin', gstinClean).limit(1);
+      let dupQ = (supabase as any).from('ledger').select('id, name, code')
+        .ilike('gstin', gstinClean)
+        .eq('type_id', Number(form.type_id))
+        .eq('group_id', Number(form.group_id))
+        .limit(1);
       if (isEdit) dupQ = dupQ.neq('id', ledgerId);
       const { data: dup } = await dupQ.maybeSingle();
       if (dup) {
         setBusy(false);
-        setError(`GSTIN ${gstinClean} is already used by ledger "${dup.name}"${dup.code ? ` (${dup.code})` : ''}. Not saved — each GSTIN can belong to only one ledger.`);
+        setError(`GSTIN ${gstinClean} is already used by ledger "${dup.name}"${dup.code ? ` (${dup.code})` : ''} with the same type and group. Not saved.`);
         return;
       }
     }

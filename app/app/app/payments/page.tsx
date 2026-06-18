@@ -81,8 +81,9 @@ interface UnpaidBill {
    *    bobbin  -> payment_bobbin_allocation (bobbin_purchase_id)
    *    yarn    -> payment_yarn_allocation (yarn_lot_id)
    *    fabric  -> payment_fabric_allocation (fabric_purchase_id)
+   *    agent   -> payment_agent_allocation (agent_commission_id)
    */
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'agent';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -147,6 +148,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   jobwork_invoice:    'Jobwork Bill',
   weaving_bill:       'Weaving Bill',
   sizing_bill:        'Sizing Bill',
+  agent_commission:   'Agent Commission',
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
@@ -344,7 +346,7 @@ function NewPaymentTab(): React.ReactElement {
     // in parallel. After migration 165 the Payments page is the unified
     // settlement screen for invoices + opening ledger + sizing bills +
     // bobbin purchases + yarn purchases.
-    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
+    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', party.name)
@@ -389,6 +391,12 @@ function NewPaymentTab(): React.ReactElement {
         .eq('source', 'supplier')
         .eq('status', 'active')
         .gt('total_amount', 0),
+      // Agent / broker commission owed to this party (from fabric invoices).
+      sb.from('agent_commission')
+        .select('id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date )')
+        .eq('agent_party_id', party.id)
+        .eq('status', 'active')
+        .gt('balance', 0),
     ]);
     setBillsLoading(false);
     if (invRes.error) { setError(invRes.error.message); return; }
@@ -400,6 +408,7 @@ function NewPaymentTab(): React.ReactElement {
     if (bobRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('bobbin_purchase not loadable:', bobRes.error.message); }
     if (yarnRes?.error) { /* eslint-disable-next-line no-console */ console.warn('yarn_lot not loadable:', yarnRes.error.message); }
     if (fabRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('fabric_purchase not loadable:', fabRes.error.message); }
+    if (agentRes?.error){ /* eslint-disable-next-line no-console */ console.warn('agent_commission not loadable:', agentRes.error.message); }
 
     const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
       id: number; invoice_no: string; invoice_date: string; doc_type: string;
@@ -483,9 +492,24 @@ function NewPaymentTab(): React.ReactElement {
          balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
        }));
 
+    const agentBills: UnpaidBill[] = ((agentRes?.data ?? []) as Array<{
+      id: number; amount: number | string; amount_paid: number | string; balance: number | string;
+      invoice: { invoice_no: string | null; invoice_date: string | null } | null;
+    }>).filter((r) => Number(r.balance ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'agent',
+         id: r.id,
+         invoice_no: r.invoice?.invoice_no ? `${r.invoice.invoice_no} (Comm)` : `COMM-${r.id}`,
+         invoice_date: r.invoice?.invoice_date ?? '',
+         doc_type: 'agent_commission',
+         total: r.amount,
+         amount_paid: r.amount_paid,
+         balance: r.balance,
+       }));
+
     // Sort merged list by date (oldest first) so the operator's mental
     // model is "settle the oldest bill first" regardless of source.
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills].sort((a, b) => {
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...agentBills].sort((a, b) => {
       const dc = a.invoice_date.localeCompare(b.invoice_date);
       return dc !== 0 ? dc : a.id - b.id;
     });
@@ -601,6 +625,7 @@ function NewPaymentTab(): React.ReactElement {
     const bobbinAllocs:   { bobbin_purchase_id: number; amount: number }[] = [];
     const yarnAllocs:     { yarn_lot_id: number; amount: number }[]        = [];
     const fabricAllocs:   { fabric_purchase_id: number; amount: number }[] = [];
+    const agentAllocs:    { agent_commission_id: number; amount: number }[] = [];
     for (const b of bills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
@@ -623,12 +648,13 @@ function NewPaymentTab(): React.ReactElement {
         case 'bobbin':  bobbinAllocs .push({ bobbin_purchase_id: b.id, amount: rounded }); break;
         case 'yarn':    yarnAllocs   .push({ yarn_lot_id:        b.id, amount: rounded }); break;
         case 'fabric':  fabricAllocs .push({ fabric_purchase_id: b.id, amount: rounded }); break;
+        case 'agent':   agentAllocs  .push({ agent_commission_id: b.id, amount: rounded }); break;
         default:        allocations  .push({ invoice_id:         b.id, amount: rounded });
       }
     }
     const totalAllocCount = allocations.length + openingAllocs.length
                           + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length
-                          + fabricAllocs.length;
+                          + fabricAllocs.length + agentAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
     if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
@@ -643,7 +669,8 @@ function NewPaymentTab(): React.ReactElement {
                     + sizingAllocs.reduce((s, a) => s + a.amount, 0)
                     + bobbinAllocs.reduce((s, a) => s + a.amount, 0)
                     + yarnAllocs.reduce((s, a) => s + a.amount, 0)
-                    + fabricAllocs.reduce((s, a) => s + a.amount, 0);
+                    + fabricAllocs.reduce((s, a) => s + a.amount, 0)
+                    + agentAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -767,6 +794,19 @@ function NewPaymentTab(): React.ReactElement {
       if (fErr) {
         setBusy(false);
         setError(`Payment ${data?.payment_no ?? ''} saved, but the fabric-purchase adjustment failed: ${fErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    // Agent commission allocations: the trigger bumps agent_commission.amount_paid.
+    if (agentAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: aErr } = await (supabase as any)
+        .from('payment_agent_allocation')
+        .insert(agentAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (aErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the agent-commission adjustment failed: ${aErr.message}`);
         await loadBills();
         return;
       }
