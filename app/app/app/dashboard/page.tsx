@@ -96,6 +96,7 @@ export default async function DashboardPage() {
     { data: yarnBills },
     { data: fabricBills },
     { data: openingPayables },
+    { data: agentComm },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid outsource-weaving bill, oldest first.
@@ -158,6 +159,13 @@ export default async function DashboardPage() {
       .eq('direction', 'payable')
       .gt('balance', 0)
       .order('invoice_date', { ascending: true }),
+    // Agent / broker commission payables (from fabric invoices). The
+    // commission we owe each agent that hasn't been paid yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('agent_commission')
+      .select('id, agent_party_id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date )')
+      .eq('status', 'active')
+      .gt('balance', 0),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -275,7 +283,23 @@ export default async function DashboardPage() {
       balance:          bal,
     });
   }
-  // Group across all five sources by the supplier party id.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((agentComm ?? []) as any[])) {
+    const bal = Number(r.balance ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       (r.invoice?.invoice_no ? `${r.invoice.invoice_no} (Comm)` : `COMM-${r.id}`),
+      party_name:       r.agent_party_id ? (partyNameById.get(r.agent_party_id) ?? null) : null,
+      invoice_date:     r.invoice?.invoice_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.agent_party_id ?? null,
+      total:            r.amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // Group across all sources by the supplier / agent party id.
   const supplierGroups = groupByParty(
     supplierBills,
     parties,

@@ -223,6 +223,15 @@ export default function NewInvoicePage() {
   // ── line rows ──────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([newRow()]);
 
+  // ── agent / broker commission (fabric tax invoices only) ────────────────────
+  // Optional: pick a Broker/Agent party + a commission (per piece, per metre,
+  // or a % of the taxable value). The computed amount becomes a payable to the
+  // agent (agent_commission table) and is settled on the Payments screen.
+  const [agents,   setAgents]   = useState<{ id: number; name: string }[]>([]);
+  const [agentId,  setAgentId]  = useState('');
+  const [commType, setCommType] = useState<'pcs' | 'metre' | 'percent'>('pcs');
+  const [commRate, setCommRate] = useState('');
+
   // Type-ahead options for the party pickers (Customer / Vendor).
   // Labels keep the same text the old <option>s showed so search works
   // on name, state and ledger type alike.
@@ -249,7 +258,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm, slRaw] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm, slRaw, atm] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -332,7 +341,7 @@ export default function NewInvoicePage() {
         // so without this lookup the picker would always come back
         // empty.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase as any).from('party').select('id, name').eq('status', 'active'),
+        (supabase as any).from('party').select('id, name, party_type_ids').eq('status', 'active'),
         // Production fabric stock — raw stock_ledger rows for
         // bucket='production_fabric'. Net balance is aggregated in JS
         // below (group by fabric_quality_id + unit). Joined to
@@ -342,6 +351,11 @@ export default function NewInvoicePage() {
         (supabase as any).from('stock_ledger')
           .select('fabric_quality_id, direction, quantity, unit')
           .eq('bucket', 'production_fabric'),
+        // Broker / Agent party type id(s) — used to filter the party
+        // master down to agents for the commission dropdown.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('party_type_master')
+          .select('id, name').or('name.ilike.%broker%,name.ilike.%agent%'),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -379,6 +393,17 @@ export default function NewInvoicePage() {
         lookup.set(p.name.trim().toUpperCase(), p.id);
       }
       setPartyByName(lookup);
+
+      // Agents for the commission dropdown: active parties tagged with a
+      // Broker/Agent party type.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const brokerTypeIds = (((atm as any).data ?? []) as Array<{ id: number }>).map((t) => Number(t.id));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const agentList = (((pm as any).data ?? []) as Array<{ id: number; name: string; party_type_ids: number[] | null }>)
+        .filter((p) => Array.isArray(p.party_type_ids) && p.party_type_ids.some((id) => brokerTypeIds.includes(Number(id))))
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setAgents(agentList);
 
       // Aggregate production_fabric stock_ledger rows into per
       // (fabric_quality_id, unit) net balances. Filter to net > 0.
@@ -816,6 +841,30 @@ export default function NewInvoicePage() {
     };
   }, [computedRows]);
 
+  // ── agent commission ─────────────────────────────────────────────────────────
+  // Base depends on the type: total pieces (uom 'pcs'), total metres (uom
+  // 'mtr'), or the invoice taxable value (percentage). Amount = base × rate,
+  // or base × rate / 100 for the percentage type.
+  const commission = useMemo(() => {
+    const rate = Number(commRate) || 0;
+    let base = 0;
+    let unitLabel = '';
+    if (commType === 'pcs') {
+      base = computedRows.reduce((s, r) => s + (r.uom === 'pcs' ? (Number(r.quantity) || 0) : 0), 0);
+      unitLabel = 'pcs';
+    } else if (commType === 'metre') {
+      base = computedRows.reduce((s, r) => s + (r.uom === 'mtr' ? (Number(r.quantity) || 0) : 0), 0);
+      unitLabel = 'm';
+    } else {
+      base = totals.taxable;
+      unitLabel = '₹ taxable';
+    }
+    const amount = commType === 'percent'
+      ? +(base * rate / 100).toFixed(2)
+      : +(base * rate).toFixed(2);
+    return { base, amount, unitLabel };
+  }, [commType, commRate, computedRows, totals.taxable]);
+
   // ── submit ─────────────────────────────────────────────────────────────────
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1009,6 +1058,23 @@ export default function NewInvoicePage() {
     if (lineErr) {
       setBusy(false);
       return setError(`Invoice ${inv.invoice_no} created but lines failed: ${lineErr.message}`);
+    }
+
+    // Agent commission (fabric tax invoices only). Stored as a payable to the
+    // agent so it shows as outstanding and is settled on the Payments screen.
+    if (docType === 'tax_invoice' && agentId && commission.amount > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: commErr } = await (supabase as any).from('agent_commission').insert({
+        invoice_id:      inv.id,
+        agent_party_id:  Number(agentId),
+        commission_type: commType,
+        commission_rate: Number(commRate) || 0,
+        amount:          commission.amount,
+      });
+      if (commErr) {
+        setBusy(false);
+        return setError(`Invoice ${inv.invoice_no} saved, but the agent commission failed: ${commErr.message}`);
+      }
     }
 
     // Production fabric outflow: for every row that was picked from
@@ -1628,6 +1694,66 @@ export default function NewInvoicePage() {
               </div>
             </div>
           </div>
+
+          {/* ── Agent commission (fabric tax invoices only) ─────────────────── */}
+          {docType === 'tax_invoice' && (
+            <div className="card p-6">
+              <h3 className="text-sm font-bold text-ink mb-1">Agent commission <span className="text-[11px] font-normal text-ink-mute">(optional)</span></h3>
+              <p className="text-[11px] text-ink-mute mb-3">
+                Pick a broker/agent and a commission. The amount becomes a payable
+                to the agent — it does not change the customer&rsquo;s bill.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">Agent</label>
+                  <select
+                    className="input w-full"
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                  >
+                    <option value="">— none —</option>
+                    {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Commission type</label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(['pcs', 'metre', 'percent'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setCommType(t)}
+                        className={'px-2 py-2 rounded-lg text-xs font-semibold border ' +
+                          (commType === t
+                            ? 'border-transparent bg-indigo-600 text-white'
+                            : 'border-line bg-white text-ink-soft hover:bg-haze/60')}
+                      >
+                        {t === 'pcs' ? 'Per pc' : t === 'metre' ? 'Per m' : '%'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">
+                    {commType === 'percent' ? 'Rate (%)' : commType === 'metre' ? 'Rate (₹/m)' : 'Rate (₹/pc)'}
+                  </label>
+                  <input
+                    type="number" min={0} step={0.01}
+                    className="input num w-full text-right"
+                    value={commRate}
+                    onChange={(e) => setCommRate(e.target.value)}
+                    disabled={agentId === ''}
+                  />
+                </div>
+              </div>
+              {agentId !== '' && (
+                <div className="flex flex-wrap justify-end gap-4 mt-3 text-sm border-t border-line/40 pt-2">
+                  <span className="text-ink-mute">Base: <span className="num">{commission.base.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {commission.unitLabel}</span></span>
+                  <span className="font-semibold">Commission payable: <span className="num text-amber-700">₹ {commission.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Vehicle + Notes + Submit ───────────────────────────────────── */}
           <div className="card p-6 space-y-3">
