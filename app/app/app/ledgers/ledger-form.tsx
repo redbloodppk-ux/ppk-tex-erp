@@ -144,6 +144,24 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     };
 
     setBusy(true);
+
+    // Duplicate-GSTIN guard: a GSTIN should map to exactly one ledger. If
+    // another ledger already carries this GSTIN, intimate the operator and
+    // abort rather than creating a duplicate party in the books. On edit we
+    // exclude the row being edited so re-saving the same ledger is allowed.
+    const gstinClean = form.gstin.trim().toUpperCase();
+    if (gstinClean !== '') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let dupQ = (supabase as any).from('ledger').select('id, name, code').ilike('gstin', gstinClean).limit(1);
+      if (isEdit) dupQ = dupQ.neq('id', ledgerId);
+      const { data: dup } = await dupQ.maybeSingle();
+      if (dup) {
+        setBusy(false);
+        setError(`GSTIN ${gstinClean} is already used by ledger "${dup.name}"${dup.code ? ` (${dup.code})` : ''}. Not saved — each GSTIN can belong to only one ledger.`);
+        return;
+      }
+    }
+
     if (isEdit) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any).from('ledger').update(payload).eq('id', ledgerId);
