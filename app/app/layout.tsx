@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { NumberWheelGuard } from './components/number-wheel-guard';
 import { AppleSplashLinks } from './components/apple-splash-links';
+import { LaunchSplash } from './components/launch-splash';
 
 export const metadata: Metadata = {
   title: { default: 'PPK TEX ERP', template: '%s · PPK TEX' },
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AppleSplashLinks />
       </head>
       <body className="font-body bg-haze text-ink">
+        <LaunchSplash />
         <NumberWheelGuard />
         {children}
       </body>

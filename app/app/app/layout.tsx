@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { AppShell } from '@/app/components/app-shell';
-import { LaunchSplash } from '@/app/components/launch-splash';
 
 export default async function AppShellLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -30,11 +29,8 @@ export default async function AppShellLayout({ children }: { children: React.Rea
     | 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
   return (
-    <>
-      <LaunchSplash />
-      <AppShell role={role} fullName={profile?.full_name ?? user.email ?? 'User'}>
-        {children}
-      </AppShell>
-    </>
+    <AppShell role={role} fullName={profile?.full_name ?? user.email ?? 'User'}>
+      {children}
+    </AppShell>
   );
 }
