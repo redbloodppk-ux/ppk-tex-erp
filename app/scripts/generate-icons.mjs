@@ -21,7 +21,9 @@ import { dirname, join } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const PUBLIC_DIR = join(dirname(__filename), '..', 'public');
-const SOURCE_SVG = join(PUBLIC_DIR, 'logo-mark.svg');
+// Full-bleed navy app icon (larger centred PT monogram). iOS/Android apply
+// their own corner mask, so this source paints edge-to-edge.
+const SOURCE_SVG = join(PUBLIC_DIR, 'icon.svg');
 
 const TARGETS = [
   { out: 'icon-192.png', size: 192 },
