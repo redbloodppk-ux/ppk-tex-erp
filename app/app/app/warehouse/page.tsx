@@ -1665,9 +1665,9 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[640px]">
-          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+          <thead className="bg-cloud text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-3 py-2 sticky left-0 bg-cloud/60 z-10">Date</th>
+              <th className="text-left px-3 py-2 sticky left-0 bg-cloud z-20">Date</th>
               <th className="text-left px-3 py-2">Reference</th>
               {data.columns.map(c => (
                 <th key={c.id} className="text-right px-3 py-2 min-w-[110px]">
@@ -1682,7 +1682,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               <tr><td colSpan={2 + data.columns.length} className="px-3 py-6 text-center text-ink-mute text-xs">No movements yet. Issue stock from Job Work or post a Fabric Receipt to see entries here.</td></tr>
             ) : displayRows.map(({ event: e, balanceAfter }, i) => (
               <tr key={i} className="border-t border-line/40">
-                <td className="px-3 py-2 text-xs text-ink-soft sticky left-0 bg-paper">{e.event_date || '-'}</td>
+                <td className="px-3 py-2 text-xs text-ink-soft sticky left-0 bg-paper z-10">{e.event_date || '-'}</td>
                 <td className="px-3 py-2 text-xs">
                   {e.reference}
                   {e.notes && <div className="text-[10px] text-ink-mute">{e.notes}</div>}
@@ -1708,9 +1708,9 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               </tr>
             ))}
           </tbody>
-          <tfoot className="border-t-2 border-line bg-cloud/30 font-semibold">
+          <tfoot className="border-t-2 border-line bg-cloud font-semibold">
             <tr>
-              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total In</td>
+              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Total In</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.in ?? 0;
                 return (
@@ -1721,7 +1721,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               })}
             </tr>
             <tr>
-              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Total Out</td>
+              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Total Out</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.out ?? 0;
                 return (
@@ -1732,7 +1732,7 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               })}
             </tr>
             <tr className="border-t-2 border-line">
-              <td className="px-3 py-2 sticky left-0 bg-cloud/30" colSpan={2}>Closing balance</td>
+              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Closing balance</td>
               {data.columns.map(c => {
                 const closing = (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0);
                 return (
