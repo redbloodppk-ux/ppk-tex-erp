@@ -88,6 +88,19 @@ export default async function InvoicesPage({
 
   const { data: invoices, error } = await q;
 
+  // Agent commission per invoice (for the listed rows) — shown under the party.
+  const invoiceIds = ((invoices ?? []) as Array<{ id: number }>).map((r) => r.id);
+  const commByInvoice = new Map<number, { agent: string; amount: number }>();
+  if (invoiceIds.length > 0) {
+    const { data: comms } = await sb.from('agent_commission')
+      .select('invoice_id, amount, agent:agent_party_id ( name )')
+      .in('invoice_id', invoiceIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of ((comms ?? []) as any[])) {
+      commByInvoice.set(c.invoice_id, { agent: c.agent?.name ?? '—', amount: Number(c.amount ?? 0) });
+    }
+  }
+
   // KPI counts per tab
   const { data: counts } = await supabase
     .from('invoice')
@@ -194,7 +207,14 @@ export default async function InvoicesPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-ink-soft">{inv.invoice_date}</td>
-                    <td className="px-4 py-3">{partyName}</td>
+                    <td className="px-4 py-3">
+                      {partyName}
+                      {commByInvoice.get(inv.id) && (
+                        <div className="text-[10px] text-amber-700 mt-0.5">
+                          Agent: {commByInvoice.get(inv.id)!.agent} · ₹{commByInvoice.get(inv.id)!.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right num hidden md:table-cell">{Number(inv.taxable_value).toFixed(2)}</td>
                     <td className="px-4 py-3 text-right num hidden lg:table-cell">{gst.toFixed(2)}</td>
                     {/* Bill total shown rounded — matches the figure
