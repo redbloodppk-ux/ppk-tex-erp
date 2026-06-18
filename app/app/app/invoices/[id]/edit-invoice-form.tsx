@@ -14,7 +14,7 @@
  * where the operator wants to override the rollup (e.g. apply a
  * one-off discount or hard-code a round-off).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
@@ -150,6 +150,61 @@ export function EditInvoiceForm({
   const [savedAt, setSavedAt]         = useState<number | null>(null);
   const [error, setError]             = useState<string | null>(null);
 
+  // ── agent commission (fabric tax invoices only) ─────────────────────────────
+  const isFabricInvoice = docType === 'tax_invoice';
+  const [agents,  setAgents]  = useState<{ id: number; name: string }[]>([]);
+  const [agentId, setAgentId] = useState('');
+  const [commType, setCommType] = useState<'pcs' | 'metre' | 'percent'>('pcs');
+  const [commRate, setCommRate] = useState('');
+  const [existingCommId, setExistingCommId] = useState<number | null>(null);
+  const [commPaid, setCommPaid] = useState<number>(0);
+  const [commInitial, setCommInitial] = useState<{ agentId: string; type: 'pcs' | 'metre' | 'percent'; rate: string }>({ agentId: '', type: 'pcs', rate: '' });
+  const [lineTot, setLineTot] = useState<{ pieces: number; metres: number }>({ pieces: 0, metres: 0 });
+
+  useEffect(() => {
+    if (!isFabricInvoice) return;
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [atm, pm, lines, existing] = await Promise.all([
+        sb.from('party_type_master').select('id, name').or('name.ilike.%broker%,name.ilike.%agent%'),
+        sb.from('party').select('id, name, party_type_ids').eq('status', 'active'),
+        sb.from('invoice_line').select('uom, quantity').eq('invoice_id', invoiceId),
+        sb.from('agent_commission').select('id, agent_party_id, commission_type, commission_rate, amount_paid').eq('invoice_id', invoiceId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const brokerIds = ((atm.data ?? []) as Array<{ id: number }>).map((t) => Number(t.id));
+      setAgents(((pm.data ?? []) as Array<{ id: number; name: string; party_type_ids: number[] | null }>)
+        .filter((p) => Array.isArray(p.party_type_ids) && p.party_type_ids.some((id) => brokerIds.includes(Number(id))))
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)));
+      let pieces = 0, metres = 0;
+      for (const l of ((lines.data ?? []) as Array<{ uom: string; quantity: number | string }>)) {
+        const q = Number(l.quantity) || 0;
+        if (l.uom === 'pcs') pieces += q; else if (l.uom === 'mtr') metres += q;
+      }
+      setLineTot({ pieces, metres });
+      const ex = existing.data as { id: number; agent_party_id: number; commission_type: 'pcs' | 'metre' | 'percent'; commission_rate: number; amount_paid: number } | null;
+      if (ex) {
+        setExistingCommId(ex.id);
+        setAgentId(String(ex.agent_party_id));
+        setCommType(ex.commission_type);
+        setCommRate(String(ex.commission_rate));
+        setCommPaid(Number(ex.amount_paid) || 0);
+        setCommInitial({ agentId: String(ex.agent_party_id), type: ex.commission_type, rate: String(ex.commission_rate) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isFabricInvoice, invoiceId, supabase]);
+
+  const commBase = commType === 'pcs' ? lineTot.pieces : commType === 'metre' ? lineTot.metres : num(taxable);
+  const commAmount = commType === 'percent'
+    ? round2(commBase * (Number(commRate) || 0) / 100)
+    : round2(commBase * (Number(commRate) || 0));
+  const commUnit = commType === 'pcs' ? 'pcs' : commType === 'metre' ? 'm' : '₹ taxable';
+  const commDirty = agentId !== commInitial.agentId || commType !== commInitial.type || commRate !== commInitial.rate;
+
   const dirty =
     invoiceNo !== initial.invoice_no
     || invoiceDate !== initial.invoice_date
@@ -164,7 +219,8 @@ export function EditInvoiceForm({
     || num(roundOff) !== initial.round_off
     || num(total)   !== initial.total
     || isInterstate !== initial.is_interstate
-    || (shipTo.enabled ? shipTo.name : '') !== (initial.ship_to_name ?? '');
+    || (shipTo.enabled ? shipTo.name : '') !== (initial.ship_to_name ?? '')
+    || (isFabricInvoice && commDirty);
 
   function recomputeTotal(): void {
     // Round the bill grand total to the nearest whole rupee and let
@@ -229,11 +285,52 @@ export function EditInvoiceForm({
       ...(isCreditNote ? {} : shipToPayload(shipTo)),
     };
     const { error: err } = await sb.from('invoice').update(payload).eq('id', invoiceId);
-    setBusy(false);
     if (err) {
+      setBusy(false);
       setError(err.message);
       return;
     }
+
+    // ── Agent commission upsert (fabric tax invoices) ──
+    if (isFabricInvoice) {
+      const hasAgent = agentId !== '' && commAmount > 0;
+      if (existingCommId != null) {
+        if (!hasAgent) {
+          // Removing the commission is only safe if nothing's been paid yet.
+          if (commPaid > 0.005) {
+            setBusy(false);
+            setError('This commission is already part/fully paid — reverse the agent payment before removing it.');
+            return;
+          }
+          const { error: delErr } = await sb.from('agent_commission').delete().eq('id', existingCommId);
+          if (delErr) { setBusy(false); setError(delErr.message); return; }
+        } else {
+          if (commAmount < commPaid - 0.005) {
+            setBusy(false);
+            setError(`Commission ₹${commAmount.toFixed(2)} is less than the ₹${commPaid.toFixed(2)} already paid to the agent. Raise the rate or reverse the payment first.`);
+            return;
+          }
+          const { error: upErr } = await sb.from('agent_commission').update({
+            agent_party_id:  Number(agentId),
+            commission_type: commType,
+            commission_rate: Number(commRate) || 0,
+            amount:          commAmount,
+          }).eq('id', existingCommId);
+          if (upErr) { setBusy(false); setError(upErr.message); return; }
+        }
+      } else if (hasAgent) {
+        const { error: insErr } = await sb.from('agent_commission').insert({
+          invoice_id:      invoiceId,
+          agent_party_id:  Number(agentId),
+          commission_type: commType,
+          commission_rate: Number(commRate) || 0,
+          amount:          commAmount,
+        });
+        if (insErr) { setBusy(false); setError(insErr.message); return; }
+      }
+    }
+
+    setBusy(false);
     setSavedAt(Date.now());
     // Saved — close the edit form and return to the page the operator
     // came from (invoice view / invoices list), refreshed so the edits
@@ -381,6 +478,62 @@ export function EditInvoiceForm({
             </div>
           </div>
         </div>
+
+        {/* ───── Agent commission (fabric tax invoices only) ───── */}
+        {isFabricInvoice && (
+          <div className="rounded-md border border-line/60 bg-cloud/30 p-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <h3 className="font-semibold text-xs uppercase tracking-wide text-ink-soft">Agent commission</h3>
+              <span className="text-[10px] text-ink-mute">optional · payable to the agent, not on the customer bill</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="label">Agent</label>
+                <select className="input w-full" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+                  <option value="">— none —</option>
+                  {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Commission type</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['pcs', 'metre', 'percent'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setCommType(t)}
+                      className={'px-2 py-2 rounded-lg text-xs font-semibold border ' +
+                        (commType === t
+                          ? 'border-transparent bg-indigo-600 text-white'
+                          : 'border-line bg-white text-ink-soft hover:bg-haze/60')}
+                    >
+                      {t === 'pcs' ? 'Per pc' : t === 'metre' ? 'Per m' : '%'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="label">
+                  {commType === 'percent' ? 'Rate (%)' : commType === 'metre' ? 'Rate (₹/m)' : 'Rate (₹/pc)'}
+                </label>
+                <input
+                  type="number" min={0} step={0.01}
+                  className="input num text-right w-full"
+                  value={commRate}
+                  onChange={(e) => setCommRate(e.target.value)}
+                  disabled={agentId === ''}
+                />
+              </div>
+            </div>
+            {agentId !== '' && (
+              <div className="flex flex-wrap justify-end gap-4 mt-2 text-xs border-t border-line/40 pt-2">
+                <span className="text-ink-mute">Base: <span className="num">{commBase.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {commUnit}</span></span>
+                <span className="font-semibold">Commission: <span className="num text-amber-700">₹ {commAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                {commPaid > 0 && <span className="text-emerald-700">Paid: ₹ {commPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ───── Ship to (optional consignee) ─────
             Credit notes inherit Ship-To from the original invoice
