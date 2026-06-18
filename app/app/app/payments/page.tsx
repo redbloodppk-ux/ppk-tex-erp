@@ -267,6 +267,10 @@ function NewPaymentTab(): React.ReactElement {
    *  to the party ledger (no bill adjusted). Required for the party
    *  types in BILL_ADJUST_REQUIRED_TYPES. */
   const [advanceOk,    setAdvanceOk]    = useState<boolean>(false);
+  /** Operator's explicit OK to keep the leftover (amount minus the bill
+   *  adjustments) on the party ledger as an advance, instead of being
+   *  forced to allocate the receipt in full. */
+  const [keepOnAccount, setKeepOnAccount] = useState<boolean>(false);
 
   /** Composite key for the merged invoice + opening_ledger bill list. */
   function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
@@ -329,6 +333,7 @@ function NewPaymentTab(): React.ReactElement {
     setCheckedBills(new Set());
     setAlloc({});
     setAdvanceOk(false);
+    setKeepOnAccount(false);
     if (!partyId) { setBills([]); return; }
     const party = parties.find((p) => String(p.id) === partyId);
     if (!party) { setBills([]); return; }
@@ -651,12 +656,18 @@ function NewPaymentTab(): React.ReactElement {
     // or (c) untick all bills and post the whole thing as an advance.
     if (totalAllocCount > 0 && Math.abs(amt - allocSum) > 0.005) {
       const diff = Math.round((amt - allocSum) * 100) / 100;
-      setError(
-        diff > 0
-          ? `₹${fmtINR(diff)} of the payment is still unallocated. Tick more bills or raise the bill adjustments until the total equals ₹${fmtINR(amt)}.`
-          : `Allocated ₹${fmtINR(allocSum)} is ₹${fmtINR(-diff)} more than the payment. Reduce the bill adjustments or raise the payment amount.`,
-      );
-      return;
+      // A positive leftover (payment exceeds what was adjusted) is allowed
+      // when the operator ticks "keep remaining on account" — the unallocated
+      // balance is recorded as an advance on the party ledger. Over-adjusting
+      // (negative diff) is never valid.
+      if (!(diff > 0 && keepOnAccount)) {
+        setError(
+          diff > 0
+            ? `₹${fmtINR(diff)} of the payment is still unallocated. Tick more bills, raise the bill adjustments, or tick "Keep remaining ₹${fmtINR(diff)} on account" to post it as an advance.`
+            : `Allocated ₹${fmtINR(allocSum)} is ₹${fmtINR(-diff)} more than the payment. Reduce the bill adjustments or raise the payment amount.`,
+        );
+        return;
+      }
     }
 
     setBusy(true);
@@ -1009,6 +1020,30 @@ function NewPaymentTab(): React.ReactElement {
             </div>
           </div>
         )
+      )}
+
+      {/* Keep-on-account — shown when bills ARE ticked but the receipt is
+          larger than the adjusted total. Lets the operator post the leftover
+          to the party ledger as an advance instead of being forced to
+          allocate the whole receipt. */}
+      {partyId !== '' && allocatedTotal > 0 && unallocated > 0.005 && !billsLoading && (
+        <label className="flex items-start gap-2 border border-amber-200 bg-amber-50/60 rounded-md p-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-4 h-4 mt-0.5 accent-amber-600"
+            checked={keepOnAccount}
+            onChange={(e) => setKeepOnAccount(e.target.checked)}
+          />
+          <span>
+            <span className="font-semibold text-amber-800">
+              Keep remaining ₹{fmtINR(unallocated)} on account (advance).
+            </span>{' '}
+            <span className="text-ink-soft">
+              The ticked bills are settled and the leftover is posted to this
+              party&rsquo;s ledger as an advance you can adjust against a future bill.
+            </span>
+          </span>
+        </label>
       )}
 
       {/* Advance-payment confirmation — shown for party types that
