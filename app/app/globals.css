@@ -24,6 +24,12 @@
     color: var(--ink);
     background: var(--haze);
   }
+  /* Installed PWA (iOS/Android standalone): paint the root brand-navy so any
+     gap before the launch splash paints — or rubber-band overscroll — shows
+     navy instead of a white flash. */
+  @media (display-mode: standalone) {
+    html { background: #1F2057; }
+  }
   body { min-height: 100vh; }
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
