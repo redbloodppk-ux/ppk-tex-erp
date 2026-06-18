@@ -306,7 +306,25 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 dash-stagger">
+      <style>{`
+        .dash-stagger > * { animation: dashRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        .dash-stagger > *:nth-child(1) { animation-delay: 40ms; }
+        .dash-stagger > *:nth-child(2) { animation-delay: 110ms; }
+        .dash-stagger > *:nth-child(3) { animation-delay: 180ms; }
+        .dash-stagger > *:nth-child(4) { animation-delay: 250ms; }
+        .dash-stagger > *:nth-child(5) { animation-delay: 320ms; }
+        .dash-stagger > *:nth-child(6) { animation-delay: 390ms; }
+        .dash-stagger > *:nth-child(7) { animation-delay: 460ms; }
+        .dash-stagger > *:nth-child(n+8) { animation-delay: 520ms; }
+        @keyframes dashRise {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dash-stagger > * { animation: none; }
+        }
+      `}</style>
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-display font-extrabold tracking-tight">Dashboard</h1>

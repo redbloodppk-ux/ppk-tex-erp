@@ -310,11 +310,17 @@ function NewPaymentTab(): React.ReactElement {
   }, [parties, partyTypeId]);
 
   useEffect(() => {
-    // Drop the picked party when the type filter narrows it out of view.
+    // Drop the picked party only when an explicit party-TYPE filter is active
+    // and it narrows the picked party out of view. Without the `partyTypeId`
+    // guard this also fired during the initial load window — while `parties`
+    // is still empty, `filteredParties` is empty too, which would wipe a
+    // party pre-selected via the ?party= deep link (e.g. dashboard "Collect")
+    // before its name could ever show.
+    if (!partyTypeId) return;
     if (partyId && !filteredParties.some((p) => String(p.id) === partyId)) {
       setPartyId('');
     }
-  }, [filteredParties, partyId]);
+  }, [filteredParties, partyId, partyTypeId]);
 
   // ── Load the party's unpaid bills whenever the party changes ─────────────
   // Invoices stamp party_name at creation, so we match the picked party
