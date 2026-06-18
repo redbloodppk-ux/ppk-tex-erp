@@ -162,6 +162,27 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       }
     }
 
+    // Same-name guard (catches blank-GSTIN duplicates the GSTIN check above
+    // can't see). A party that is genuinely two things — e.g. customer AND
+    // vendor — legitimately has one ledger per type+group, so we only block a
+    // new row that matches an existing one on name AND type AND group.
+    {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let nameQ = (supabase as any).from('ledger')
+        .select('id, name, code')
+        .ilike('name', name)
+        .eq('type_id', Number(form.type_id))
+        .eq('group_id', Number(form.group_id))
+        .limit(1);
+      if (isEdit) nameQ = nameQ.neq('id', ledgerId);
+      const { data: dupName } = await nameQ.maybeSingle();
+      if (dupName) {
+        setBusy(false);
+        setError(`A ledger named "${name}" with the same type and group already exists (${dupName.code}). Not saved — open that one and edit it instead of creating a duplicate.`);
+        return;
+      }
+    }
+
     if (isEdit) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any).from('ledger').update(payload).eq('id', ledgerId);
