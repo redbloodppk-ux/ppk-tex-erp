@@ -420,24 +420,24 @@ async function fetchFromProvider(
   gstin: string,
 ): Promise<{ data?: GstinData; mocked: boolean; error?: string }> {
   // Provider priority:
-  //   1. Sandbox (SANDBOX_API_KEY + SANDBOX_API_SECRET) — preferred.
-  //   2. AppyFlow (GST_API_KEY)                          — fallback.
+  //   1. AppyFlow (GST_API_KEY)                          — preferred.
+  //   2. Sandbox (SANDBOX_API_KEY + SANDBOX_API_SECRET)  — fallback.
   //   3. Mock (no env vars set)                          — dev only.
   //
   // When a real provider is configured we DO NOT silently fall back to
   // mock or the other provider: surface the real error so the operator
   // knows whether their key is invalid / quota exhausted / etc.
-  const sbKey    = process.env.SANDBOX_API_KEY?.trim();
-  const sbSecret = process.env.SANDBOX_API_SECRET?.trim();
-  if (sbKey && sbSecret) {
-    const real = await callSandbox(gstin, sbKey, sbSecret);
+  const apiKey = process.env.GST_API_KEY?.trim();
+  if (apiKey) {
+    const real = await callAppyFlow(gstin, apiKey);
     if (real.ok) return { data: real.data, mocked: false };
     return { error: real.error, mocked: false };
   }
 
-  const apiKey = process.env.GST_API_KEY?.trim();
-  if (apiKey) {
-    const real = await callAppyFlow(gstin, apiKey);
+  const sbKey    = process.env.SANDBOX_API_KEY?.trim();
+  const sbSecret = process.env.SANDBOX_API_SECRET?.trim();
+  if (sbKey && sbSecret) {
+    const real = await callSandbox(gstin, sbKey, sbSecret);
     if (real.ok) return { data: real.data, mocked: false };
     return { error: real.error, mocked: false };
   }
