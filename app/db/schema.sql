@@ -636,7 +636,10 @@ CREATE TABLE sales_order_line (
   costing_id      bigint NOT NULL REFERENCES costing_master(id),
   quantity_m      numeric(12,2) NOT NULL CHECK (quantity_m > 0),
   rate_per_m      numeric(10,4) NOT NULL CHECK (rate_per_m > 0),
-  amount          numeric(14,2) GENERATED ALWAYS AS (quantity_m * rate_per_m) STORED,
+  -- amount is written by the app: pieces*rate_per_pc for pcs lines, or
+  -- quantity_m*rate_per_m for metre lines. Not a generated column because the
+  -- per-piece case can't be expressed as quantity_m*rate_per_m. See migration 197.
+  amount          numeric(14,2),
   delivered_m     numeric(12,2) NOT NULL DEFAULT 0,
   notes           text
 );
