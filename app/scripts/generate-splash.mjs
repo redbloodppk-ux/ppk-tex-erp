@@ -7,9 +7,9 @@
  *   <link rel="apple-touch-startup-image" media="..." href="..." />
  * Without these, iOS shows a blank white screen while the app boots.
  *
- * This script renders the brand splash (PT mark + "PPK TEX" + "ERODE" on the
- * navy brand colour) into every common iPhone/iPad portrait size, and emits
- * the matching <link> tags as a React component.
+ * This script renders the brand splash (PT mark + "PPK TEX" on the navy brand
+ * colour) into every common iPhone/iPad portrait size, and emits the matching
+ * <link> tags as a React component.
  *
  * Run from the app directory:
  *     npm install --save-dev sharp
@@ -74,14 +74,11 @@ function splashSvg(pw, ph) {
   const cx = pw / 2;
   const S = Math.round(Math.min(pw, ph) * 0.26);
   const nameSize = Math.round(S * 0.22);
-  const tagSize = Math.round(S * 0.09);
   const gapMarkName = Math.round(S * 0.24);
-  const gapNameTag = Math.round(S * 0.14);
-  const blockH = S + gapMarkName + nameSize + gapNameTag + tagSize;
+  const blockH = S + gapMarkName + nameSize;
   const top = Math.round((ph - blockH) / 2);
   const markX = Math.round(cx - S / 2);
   const nameBaseline = top + S + gapMarkName + nameSize;
-  const tagBaseline = nameBaseline + gapNameTag + tagSize;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">
     <rect width="${pw}" height="${ph}" fill="${NAVY}"/>
@@ -90,10 +87,6 @@ function splashSvg(pw, ph) {
           font-family="Georgia, 'Times New Roman', serif" font-weight="700"
           font-size="${nameSize}" letter-spacing="${(nameSize * 0.08).toFixed(1)}"
           fill="${WHITE}">PPK TEX</text>
-    <text x="${cx}" y="${tagBaseline}" text-anchor="middle"
-          font-family="Arial, Helvetica, sans-serif"
-          font-size="${tagSize}" letter-spacing="${(tagSize * 0.35).toFixed(1)}"
-          fill="${GOLD}">ERODE</text>
   </svg>`;
 }
 
