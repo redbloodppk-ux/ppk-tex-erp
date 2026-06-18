@@ -87,11 +87,21 @@ const EMPTY_FORM: SoFormValues = {
   lines: [emptyLine()],
 };
 
-export function SalesOrderForm(): React.ReactElement {
+interface SalesOrderFormProps {
+  /** 'create' (default) mints a new SO; 'edit' updates an existing one. */
+  mode?: 'create' | 'edit';
+  /** Required in edit mode — the sales_order.id being edited. */
+  soId?: number;
+  /** Pre-filled values, used in edit mode. */
+  initial?: SoFormValues;
+}
+
+export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFormProps = {}): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
+  const isEdit = mode === 'edit';
 
-  const [form, setForm] = useState<SoFormValues>(EMPTY_FORM);
+  const [form, setForm] = useState<SoFormValues>(initial ?? EMPTY_FORM);
   const [customers, setCustomers] = useState<CustomerOpt[]>([]);
   const [qualities, setQualities] = useState<QualityOpt[]>([]);
   const [busy, setBusy] = useState<boolean>(false);
@@ -212,37 +222,87 @@ export function SalesOrderForm(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    // Mint the SO number via the shared helper. Falls back to a stub
-    // if the RPC isn't accessible (shouldn't happen — fn_next_doc_no is
-    // SECURITY DEFINER) so the save never silently uses a duplicate.
-    let soNumber: string;
+    const subtotal = totals.subtotal;
+    const payment_date = (() => {
+      const n = Number(form.payment_days);
+      if (!Number.isFinite(n) || n <= 0 || !form.order_date) return null;
+      const d = new Date(form.order_date + 'T00:00:00');
+      if (Number.isNaN(d.getTime())) return null;
+      d.setDate(d.getDate() + Math.round(n));
+      return d.toISOString().slice(0, 10);
+    })();
+
+    // Build the line rows for a given SO id. quantity_m stays the canonical
+    // metres figure so downstream dispatch tracking keeps working regardless
+    // of how the line was quoted; amount holds the quoted price (pcs*rate or
+    // metres*rate).
+    const buildLines = (targetSoId: number) =>
+      form.lines.map((l) => {
+        const t = lineTotals(l);
+        const qty = num(l.quantity);
+        const rate = num(l.rate);
+        return {
+          so_id: targetSoId,
+          fabric_quality_id: Number(l.fabric_quality_id),
+          quantity_m: t.metres > 0 ? t.metres : qty,
+          rate_per_m: rate,
+          amount: t.amount,
+          uom: l.uom,
+          pieces: l.uom === 'pcs' ? qty : (t.pieces > 0 ? t.pieces : null),
+          delivered_m: 0,
+          notes: null,
+        };
+      });
+
+    if (isEdit) {
+      if (soId == null) { setBusy(false); setError('Missing order id.'); return; }
+      // Update the header (keep so_number + status untouched), then replace
+      // the lines wholesale — simplest reliable way to reflect edits.
+      const { error: updErr } = await sb
+        .from('sales_order')
+        .update({
+          customer_id: Number(form.customer_id),
+          order_date: form.order_date,
+          delivery_date: form.delivery_date,
+          payment_date,
+          subtotal,
+          gst_amount: 0,
+          total: subtotal,
+          notes: form.notes || null,
+        })
+        .eq('id', soId);
+      if (updErr) { setBusy(false); setError(updErr.message); return; }
+
+      const { error: delErr } = await sb.from('sales_order_line').delete().eq('so_id', soId);
+      if (delErr) { setBusy(false); setError(delErr.message); return; }
+
+      const { error: linesErr } = await sb.from('sales_order_line').insert(buildLines(soId));
+      if (linesErr) { setBusy(false); setError(linesErr.message); return; }
+
+      setBusy(false);
+      router.push('/app/orders');
+      router.refresh();
+      return;
+    }
+
+    // ---- Create path ----
+    // Mint the SO number via the shared helper. Fails loudly rather than
+    // silently using a duplicate (fn_next_doc_no is SECURITY DEFINER).
     const { data: rpcData, error: rpcErr } = await sb.rpc('fn_next_doc_no', { p_doc_type: 'so' });
     if (rpcErr || typeof rpcData !== 'string' || rpcData === '') {
       setBusy(false);
       setError(rpcErr?.message ?? 'Could not mint SO number.');
       return;
     }
-    soNumber = rpcData;
+    const soNumber: string = rpcData;
 
-    const subtotal = totals.subtotal;
     const headerPayload = {
       so_number: soNumber,
       customer_id: Number(form.customer_id),
       business_model: 'inhouse',
       order_date: form.order_date,
       delivery_date: form.delivery_date,
-      // Convert "Payment terms (days)" into an absolute payment_date by
-      // adding the days to order_date. Stored as a date on the SO so
-      // the existing auto-status trigger ("Paid" → stamps payment_date)
-      // and any downstream reports keep working unchanged.
-      payment_date: (() => {
-        const n = Number(form.payment_days);
-        if (!Number.isFinite(n) || n <= 0 || !form.order_date) return null;
-        const d = new Date(form.order_date + 'T00:00:00');
-        if (Number.isNaN(d.getTime())) return null;
-        d.setDate(d.getDate() + Math.round(n));
-        return d.toISOString().slice(0, 10);
-      })(),
+      payment_date,
       status: 'approved',
       subtotal,
       gst_amount: 0,
@@ -260,30 +320,14 @@ export function SalesOrderForm(): React.ReactElement {
       setError(soErr?.message ?? 'Could not save SO.');
       return;
     }
-    const soId = soRow.id as number;
+    const newSoId = soRow.id as number;
 
-    const linesPayload = form.lines.map((l) => {
-      const t = lineTotals(l);
-      const qty = num(l.quantity);
-      const rate = num(l.rate);
-      return {
-        so_id: soId,
-        fabric_quality_id: Number(l.fabric_quality_id),
-        // Keep quantity_m as the canonical metres figure so downstream
-        // dispatch tracking (delivered_m vs quantity_m) keeps working
-        // regardless of how the line was quoted.
-        quantity_m: t.metres > 0 ? t.metres : qty,
-        rate_per_m: rate,
-        amount: t.amount,
-        uom: l.uom,
-        pieces: l.uom === 'pcs' ? qty : (t.pieces > 0 ? t.pieces : null),
-        delivered_m: 0,
-        notes: null,
-      };
-    });
-
-    const { error: linesErr } = await sb.from('sales_order_line').insert(linesPayload);
+    const { error: linesErr } = await sb.from('sales_order_line').insert(buildLines(newSoId));
     if (linesErr) {
+      // The header was already committed above. If the lines fail, roll it
+      // back by deleting the just-created header so a failed save never
+      // leaves an empty, line-less order behind (see SO-0001 incident).
+      await sb.from('sales_order').delete().eq('id', newSoId);
       setBusy(false);
       setError(linesErr.message);
       return;
@@ -502,7 +546,7 @@ export function SalesOrderForm(): React.ReactElement {
         </button>
         <button type="submit" className="btn-primary" disabled={busy}>
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Create Sales Order
+          {isEdit ? 'Save Changes' : 'Create Sales Order'}
         </button>
       </div>
     </form>

@@ -4,6 +4,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { formatRupee, formatDate } from '@/lib/utils';
+import { SoRowActions } from './so-row-actions';
 // DcConfirmButton import removed — the DC inbox was lifted off this page.
 
 export const metadata = { title: 'Sales Orders' };
@@ -80,18 +81,22 @@ export default async function OrdersPage({
   // Per-SO delivery progress (ordered vs delivered metres) so the list
   // can show a Balance column + a clearer Partial / Dispatched picture.
   const soIds = orders.map((o) => o.id);
-  const orderedById = new Map<number, number>();
-  const deliveredById = new Map<number, number>();
+  const orderedById = new Map<number, number>();         // ordered metres
+  const orderedPcsById = new Map<number, number>();      // ordered pieces
+  const nonPcsLineById = new Map<number, boolean>();      // has any metres line?
+  const deliveredById = new Map<number, number>();        // delivered metres
   if (soIds.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const [{ data: linesData }, { data: dcLinks }] = await Promise.all([
-      sb.from('sales_order_line').select('so_id, quantity_m').in('so_id', soIds),
+      sb.from('sales_order_line').select('so_id, quantity_m, pieces, uom').in('so_id', soIds),
       sb.from('delivery_challan').select('id, sales_order_id, status')
         .in('sales_order_id', soIds).not('status', 'eq', 'cancelled'),
     ]);
-    for (const l of (linesData ?? []) as Array<{ so_id: number; quantity_m: number | string | null }>) {
+    for (const l of (linesData ?? []) as Array<{ so_id: number; quantity_m: number | string | null; pieces: number | string | null; uom: string | null }>) {
       orderedById.set(l.so_id, (orderedById.get(l.so_id) ?? 0) + Number(l.quantity_m ?? 0));
+      orderedPcsById.set(l.so_id, (orderedPcsById.get(l.so_id) ?? 0) + Number(l.pieces ?? 0));
+      if (l.uom !== 'pcs') nonPcsLineById.set(l.so_id, true);
     }
     const linkedDcIds = ((dcLinks ?? []) as Array<{ id: number; sales_order_id: number }>);
     if (linkedDcIds.length > 0) {
@@ -137,20 +142,32 @@ export default async function OrdersPage({
                 <th className="text-left px-4 py-3">Customer</th>
                 <SortableTh column="order_date" label="Order Date" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3 hidden md:table-cell">Delivery</th>
-                <th className="text-right px-4 py-3 hidden sm:table-cell">Ordered (m)</th>
-                <th className="text-right px-4 py-3 hidden sm:table-cell">Delivered (m)</th>
-                <th className="text-right px-4 py-3">Balance (m)</th>
+                <th className="text-right px-4 py-3 hidden sm:table-cell">Ordered</th>
+                <th className="text-right px-4 py-3 hidden sm:table-cell">Delivered</th>
+                <th className="text-right px-4 py-3">Balance</th>
                 <th className="text-right px-4 py-3">Total</th>
                 <th className="text-right px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => {
                 const meta = STATUS_META[o.status] ?? { label: o.status, cls: 'bg-slate-100 text-slate-600' };
-                const ordered = orderedById.get(o.id) ?? 0;
-                const delivered = deliveredById.get(o.id) ?? 0;
+                const orderedM = orderedById.get(o.id) ?? 0;
+                const orderedPcs = orderedPcsById.get(o.id) ?? 0;
+                const deliveredM = deliveredById.get(o.id) ?? 0;
+                // An order is shown in pieces only when every one of its lines
+                // was quoted in pieces. Delivery is tracked in metres, so we
+                // convert it back to pieces using this order's own pcs↔m ratio.
+                const isPcs = orderedPcs > 0 && !nonPcsLineById.get(o.id);
+                const unit = isPcs ? 'pcs' : 'm';
+                const ordered = isPcs ? orderedPcs : orderedM;
+                const delivered = isPcs
+                  ? (orderedM > 0 ? deliveredM * (orderedPcs / orderedM) : 0)
+                  : deliveredM;
                 const balance = Math.max(ordered - delivered, 0);
-                const fmtM = (n: number) => n > 0 ? n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '-';
+                const fmtQty = (n: number) =>
+                  n > 0 ? `${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${unit}` : '-';
                 return (
                   <tr key={o.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs">{o.so_number}</td>
@@ -159,12 +176,15 @@ export default async function OrdersPage({
                     </td>
                     <td className="px-4 py-3 text-xs text-ink-soft">{formatDate(o.order_date)}</td>
                     <td className="px-4 py-3 text-xs text-ink-soft hidden md:table-cell">{formatDate(o.delivery_date)}</td>
-                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell">{fmtM(ordered)}</td>
-                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell text-emerald-700">{fmtM(delivered)}</td>
-                    <td className={`px-4 py-3 text-right num text-xs font-semibold ${balance > 0 ? 'text-rose-700' : 'text-ink-mute'}`}>{fmtM(balance)}</td>
+                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell">{fmtQty(ordered)}</td>
+                    <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell text-emerald-700">{fmtQty(delivered)}</td>
+                    <td className={`px-4 py-3 text-right num text-xs font-semibold ${balance > 0 ? 'text-rose-700' : 'text-ink-mute'}`}>{fmtQty(balance)}</td>
                     <td className="px-4 py-3 text-right num font-semibold">{formatRupee(o.total ?? 0, { compact: true })}</td>
                     <td className="px-4 py-3 text-right text-xs">
                       <span className={`pill ${meta.cls} text-xs uppercase tracking-wide`}>{meta.label}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <SoRowActions soId={o.id} soNumber={o.so_number} status={o.status} />
                     </td>
                   </tr>
                 );
