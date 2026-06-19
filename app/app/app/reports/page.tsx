@@ -28,6 +28,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/agent-commission',
+    title: 'Agent Commission',
+    description:
+      'Agent / broker-wise sales & purchase brokerage. Per agent: brokered business value plus commission payable, paid and outstanding. Date filter and per-document drill-down. Commission is always an outflow you owe the agent.',
+    ready: true,
+  },
+  {
     href: '/app/reports/purchase-register',
     title: 'Purchase Register',
     description:
