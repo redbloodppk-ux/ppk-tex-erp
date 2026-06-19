@@ -609,11 +609,11 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       });
     }
 
-    // Agent commission — a payable we owe the agent. The operator
-    // thinks of this as the agent's "inflow" (what they earned), which
-    // nets against payments paid out to them. Recorded as Inflow so the
-    // running balance reads: commission earned − amounts paid =
-    // still owed.
+    // Agent commission — a payable we owe the agent (a cash outflow),
+    // on both sales and purchases. Recorded as Outflow, matching the
+    // opening-Cr convention. Settlement payments to the agent arrive as
+    // Inflow and net against it, so the running balance reads:
+    // payments made − commission owed (negative = we still owe).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of ((agentRes.data ?? []) as any[])) {
       const amt = Number(r.amount ?? 0);
@@ -641,8 +641,8 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         counterparty: '—',
         mode:         'Agent Commission',
         reference:    null,
-        inflow:       amt,
-        outflow:      0,
+        inflow:       0,
+        outflow:      amt,
       });
     }
 
