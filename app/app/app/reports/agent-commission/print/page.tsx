@@ -110,6 +110,35 @@ function typeLabel(t: string | null): string {
   }
 }
 
+/* unit word for a per-unit commission type (bag/pcs/metre) */
+function unitWord(t: string | null): string {
+  switch (t) {
+    case 'bag':
+      return 'bags';
+    case 'pcs':
+      return 'pcs';
+    case 'metre':
+      return 'm';
+    default:
+      return '';
+  }
+}
+
+/* drill-down RATE cell — "<qty> <unit> @ Rs<rate>" for per-unit commissions,
+   just "<rate>%" for percentage commissions. Qty = amount / rate. */
+function rateQtyLabel(r: ReportRow): string {
+  const rate = r.commission_rate != null ? Number(r.commission_rate) : null;
+  if (r.commission_type === 'percent') {
+    return rate != null ? `${rate}%` : '-';
+  }
+  if (rate == null || rate === 0) {
+    return typeLabel(r.commission_type);
+  }
+  const qty = Math.round((Number(r.commission_amount ?? 0) / rate) * 100) / 100;
+  const unit = unitWord(r.commission_type);
+  return `${qty}${unit ? ` ${unit}` : ''} @ Rs${rate}`;
+}
+
 interface PageProps {
   searchParams: Promise<{
     from?: string;
@@ -361,9 +390,7 @@ export default async function AgentCommissionPrintPage({
                       {fmtINR(r.business_value, 0)}
                     </td>
                     <td className="px-2 py-1.5 text-[11px] text-ink-soft whitespace-nowrap">
-                      {r.commission_rate != null
-                        ? `${Number(r.commission_rate)} ${typeLabel(r.commission_type)}`
-                        : typeLabel(r.commission_type)}
+                      {rateQtyLabel(r)}
                     </td>
                     <td className="px-2 py-1.5 text-right num font-semibold">
                       {fmtINR(r.commission_amount)}

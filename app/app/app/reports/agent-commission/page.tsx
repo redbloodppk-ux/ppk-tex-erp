@@ -142,6 +142,35 @@ function typeLabel(t: string | null): string {
   }
 }
 
+/* unit word for a per-unit commission type (bag/pcs/metre) */
+function unitWord(t: string | null): string {
+  switch (t) {
+    case 'bag':
+      return 'bags';
+    case 'pcs':
+      return 'pcs';
+    case 'metre':
+      return 'm';
+    default:
+      return '';
+  }
+}
+
+/* drill-down RATE cell — "<qty> <unit> @ ₹<rate>" for per-unit commissions,
+   just "<rate>%" for percentage commissions. Qty = amount ÷ rate. */
+function rateQtyLabel(r: ReportRow): string {
+  const rate = r.commission_rate != null ? Number(r.commission_rate) : null;
+  if (r.commission_type === 'percent') {
+    return rate != null ? `${rate}%` : '—';
+  }
+  if (rate == null || rate === 0) {
+    return typeLabel(r.commission_type);
+  }
+  const qty = Math.round((Number(r.commission_amount ?? 0) / rate) * 100) / 100;
+  const unit = unitWord(r.commission_type);
+  return `${qty}${unit ? ` ${unit}` : ''} @ ₹${rate}`;
+}
+
 /* drill-down link target — only sales invoices have a detail page */
 function docHref(r: ReportRow): string | null {
   if (r.source === 'sales' && r.source_id != null) {
@@ -535,9 +564,7 @@ export default async function AgentCommissionReport({
                           {fmtRupees(r.business_value)}
                         </td>
                         <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap">
-                          {r.commission_rate != null
-                            ? `${Number(r.commission_rate)} ${typeLabel(r.commission_type)}`
-                            : typeLabel(r.commission_type)}
+                          {rateQtyLabel(r)}
                         </td>
                         <td className="px-3 py-2 text-right num font-semibold">
                           {fmtRupees(r.commission_amount, 2)}
