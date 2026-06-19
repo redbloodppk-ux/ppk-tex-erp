@@ -28,6 +28,9 @@ interface LedgerRow {
   area: string | null;
   active: boolean;
   notes: string | null;
+  opening_date: string | null;
+  opening_amount: number | string | null;
+  opening_dr_cr: 'Dr' | 'Cr' | null;
 }
 
 export default async function EditLedgerPage({
@@ -75,6 +78,9 @@ export default async function EditLedgerPage({
     area:     l.area ?? '',
     active:   l.active,
     notes:    l.notes ?? '',
+    opening_date:   l.opening_date ?? '',
+    opening_amount: l.opening_amount != null && Number(l.opening_amount) > 0 ? String(l.opening_amount) : '',
+    opening_dr_cr:  l.opening_dr_cr ?? 'Dr',
   };
 
   return (

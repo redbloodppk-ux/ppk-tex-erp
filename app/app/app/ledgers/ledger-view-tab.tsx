@@ -327,13 +327,50 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = billRes;
     }
 
-    const [wagesRes, expensesRes, bankRes] = await Promise.all([wagesQ, expensesQ, bankQ]);
+    // Ledger opening balance (migration 203) — a single as-on-date figure
+    // carried on the ledger row itself. Surfaced for every ledger type that
+    // isn't party-backed; the form blanks it for CUSTOMER / SUPPLIER, so the
+    // query is naturally a no-op for those.
+    const openingLedgerQ = sb.from('ledger')
+      .select('opening_date, opening_amount, opening_dr_cr')
+      .eq('id', numericId)
+      .maybeSingle();
+
+    const [wagesRes, expensesRes, bankRes, openingLedgerRes] = await Promise.all([wagesQ, expensesQ, bankQ, openingLedgerQ]);
     if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
     if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
     if (bankRes.error)     { setError(bankRes.error.message);     setLoading(false); return; }
 
     // Step 4: project into LedgerEntry, sort, store.
     const all: LedgerEntry[] = [];
+
+    // Ledger opening balance row. Dr → grows the running balance (inflow),
+    // Cr → reduces it (outflow), mirroring the trial-balance sense. We carry
+    // it as a normal dated row so it sorts into place; same date-range filter
+    // as every other source.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const openRow = (openingLedgerRes?.data ?? null) as { opening_date: string | null; opening_amount: number | string | null; opening_dr_cr: 'Dr' | 'Cr' | null } | null;
+    if (openRow && openRow.opening_date && openRow.opening_dr_cr) {
+      const oAmt = Number(openRow.opening_amount ?? 0);
+      const oDate = openRow.opening_date;
+      const inRange = (!startDate || oDate >= startDate) && (!endDate || oDate <= endDate);
+      if (oAmt > 0 && inRange) {
+        const isDr = openRow.opening_dr_cr === 'Dr';
+        all.push({
+          key:          'ledopen',
+          source:       'bill',
+          bill_kind:    'opening',
+          date:         oDate,
+          voucher:      'OPENING',
+          counterparty: '—',
+          mode:         isDr ? 'Opening (Dr)' : 'Opening (Cr)',
+          reference:    null,
+          inflow:       isDr ? oAmt : 0,
+          outflow:      isDr ? 0    : oAmt,
+        });
+      }
+    }
+
     for (const p of payments) {
       const amt = Number(p.amount);
       all.push({

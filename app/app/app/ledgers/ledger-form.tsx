@@ -36,6 +36,12 @@ export interface LedgerFormValues {
   bank_account_no: string;
   bank_ifsc: string;
   bank_branch: string;
+  /** Opening balance (migration 203). A single as-on-date figure with an
+   *  explicit Dr/Cr side. Hidden for CUSTOMER / SUPPLIER types, which carry
+   *  their opening via party_opening_ledger instead. */
+  opening_date: string;
+  opening_amount: string;
+  opening_dr_cr: 'Dr' | 'Cr';
 }
 
 interface LedgerFormProps {
@@ -52,6 +58,7 @@ const EMPTY: LedgerFormValues = {
   phone: '', email: '', pan_no: '', gstin: '', gstin_verified_at: null, area: '',
   active: true, notes: '',
   bank_name: '', bank_account_no: '', bank_ifsc: '', bank_branch: '',
+  opening_date: '', opening_amount: '', opening_dr_cr: 'Dr',
 };
 
 export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFormProps) {
@@ -71,6 +78,16 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     if (!form.type_id) return false;
     const t = types.find((x) => String(x.id) === String(form.type_id));
     return t?.name === 'BANK';
+  })();
+
+  // CUSTOMER / SUPPLIER ledgers carry their pre-ERP outstanding through the
+  // per-bill party_opening_ledger (Settings → Opening Ledger), so the single
+  // opening figure here would double count. Hide it for those two types; show
+  // it for every other accounting ledger (BANK, AGENT, CASH, TAX, …).
+  const isPartyBackedType: boolean = (() => {
+    if (!form.type_id) return false;
+    const t = types.find((x) => String(x.id) === String(form.type_id));
+    return t?.name === 'CUSTOMER' || t?.name === 'SUPPLIER';
   })();
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -117,6 +134,18 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       if (form.bank_ifsc.trim()       === '') { setError('IFSC code is required for BANK ledgers.');     return; }
     }
 
+    // Opening balance — parse + light validation. Only enforced for ledgers
+    // that actually show the field (non party-backed).
+    const openingAmt = Number(form.opening_amount) || 0;
+    if (!isPartyBackedType && openingAmt < 0) {
+      setError('Opening amount cannot be negative — use the Dr / Cr toggle to set the side.');
+      return;
+    }
+    if (!isPartyBackedType && openingAmt > 0 && form.opening_date.trim() === '') {
+      setError('Opening date is required when an opening amount is entered.');
+      return;
+    }
+
     const payload = {
       name,
       type_id: Number(form.type_id),
@@ -141,6 +170,12 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       bank_account_no: isBankType && form.bank_account_no.trim() !== '' ? form.bank_account_no.trim()            : null,
       bank_ifsc:       isBankType && form.bank_ifsc.trim()       !== '' ? form.bank_ifsc.trim().toUpperCase()    : null,
       bank_branch:     isBankType && form.bank_branch.trim()     !== '' ? form.bank_branch.trim()                : null,
+      // Opening balance — only for non party-backed ledgers. Cleared
+      // (zeroed) for CUSTOMER / SUPPLIER so a re-typed ledger can't carry a
+      // stray opening that double counts against party_opening_ledger.
+      opening_date:   !isPartyBackedType && form.opening_date.trim() !== '' ? form.opening_date : null,
+      opening_amount: !isPartyBackedType ? openingAmt : 0,
+      opening_dr_cr:  !isPartyBackedType && openingAmt > 0 ? form.opening_dr_cr : null,
     };
 
     setBusy(true);
@@ -353,6 +388,40 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
                 value={form.bank_ifsc}
                 onChange={(e) => patch({ bank_ifsc: e.target.value.toUpperCase().replace(/\s+/g, '') })}
                 maxLength={11} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Opening balance — shown for every ledger except CUSTOMER /
+          SUPPLIER (those carry opening via Settings → Opening Ledger).
+          A single as-on-date figure with an explicit Dr / Cr side. */}
+      {!isPartyBackedType && form.type_id !== '' && (
+        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-emerald-900">📒 Opening balance</span>
+            <span className="text-[11px] text-emerald-700">balance carried in as on a date (optional)</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="label">As on date</label>
+              <input type="date" className="input w-full" value={form.opening_date}
+                onChange={(e) => patch({ opening_date: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Opening amount</label>
+              <input type="number" inputMode="decimal" step="0.01" min="0"
+                className="input num w-full" placeholder="0.00"
+                value={form.opening_amount}
+                onChange={(e) => patch({ opening_amount: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Dr / Cr</label>
+              <select className="input w-full" value={form.opening_dr_cr}
+                onChange={(e) => patch({ opening_dr_cr: e.target.value as 'Dr' | 'Cr' })}>
+                <option value="Dr">Dr — receivable / asset (they owe us / we hold)</option>
+                <option value="Cr">Cr — payable / liability (we owe)</option>
+              </select>
             </div>
           </div>
         </div>
