@@ -206,7 +206,7 @@ export default async function DcPrintPage({
            so the live preview stays clean. */
         @page {
           size: A4;
-          margin: 8mm 8mm 12mm 8mm;
+          margin: 7mm 8mm 8mm 8mm;
           /* Bottom-centre page counter — rendered by Chrome's print engine. */
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
@@ -264,15 +264,15 @@ export default async function DcPrintPage({
         .dc-head .doctype { text-align: right; font-size: 19px; font-weight: 800; letter-spacing: 1.2px; color: #111; }
         .dc-orig { text-align: right; font-size: 11px; font-weight: 700; margin: 5px 0; color: #222; letter-spacing: 0.5px; }
         .dc-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border: 1px solid #000; }
-        .dc-meta > div { border-right: 0.5px solid #000; padding: 7px 10px; }
+        .dc-meta > div { border-right: 0.5px solid #000; padding: 5px 10px; }
         .dc-meta > div:last-child { border-right: none; }
         .dc-meta .lbl { font-size: 10px; color: #333; letter-spacing: 0.5px; font-weight: 700; }
         .dc-meta .val { font-size: 13px; font-weight: 800; }
-        .dc-secbar { background: #e8e8e8; font-weight: 800; font-size: 12px; padding: 6px 10px; border: 1px solid #000; border-top: none; letter-spacing: 0.6px; }
-        .dc-deliv { border: 1px solid #000; border-top: none; padding: 8px 12px; display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; font-weight: 600; }
+        .dc-secbar { background: #e8e8e8; font-weight: 800; font-size: 12px; padding: 4px 10px; border: 1px solid #000; border-top: none; letter-spacing: 0.6px; }
+        .dc-deliv { border: 1px solid #000; border-top: none; padding: 6px 12px; display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; font-weight: 600; }
         .dc-deliv .for { font-weight: 800; font-size: 13px; }
         .dc-billship { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
-        .dc-billship > div { padding: 9px 12px; }
+        .dc-billship > div { padding: 6px 12px; }
         .dc-billship > div + div { border-left: 0.5px solid #000; }
         .dc-billship .tag { display: inline-block; background: #000; color: #fff; font-size: 11px; padding: 3px 13px; letter-spacing: 1.5px; margin-bottom: 6px; font-weight: 800; }
         .dc-billship .gst { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
@@ -280,22 +280,22 @@ export default async function DcPrintPage({
         .dc-billship .addr { font-size: 12px; font-weight: 600; color: #111; }
         .dc-billship .ps { font-size: 11px; color: #222; margin-top: 6px; font-weight: 700; letter-spacing: 0.3px; }
         .dc-item { border: 1px solid #000; border-top: none; }
-        .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 7px 12px; font-size: 12px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
+        .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 5px 12px; font-size: 12px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
         .dc-item .qline .agent { text-align: right; }
         .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-        .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 4px 6px; text-align: right; height: 22px; font-weight: 700; overflow: hidden; }
+        .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 3px 6px; text-align: right; height: 18px; font-weight: 700; overflow: hidden; }
         .dc-item table.bundles th { background: #e8e8e8; font-weight: 800; text-align: center; font-size: 12px; }
         .dc-item table.bundles td.empty { color: #ccc; font-weight: 500; }
         .dc-item table.bundles td.lbl, .dc-item table.bundles th.lbl { text-align: left; background: #fafafa; font-weight: 700; width: 56px; }
         .dc-item table.bundles tr.total td { background: #efefef; font-weight: 800; border-top: 1.4px solid #000; font-size: 12px; }
         .dc-item .summary { display: grid; grid-template-columns: 1fr 1fr; border-top: 0.5px solid #000; }
-        .dc-item .summary > div { padding: 8px 12px; }
+        .dc-item .summary > div { padding: 5px 12px; }
         .dc-item .summary > div + div { border-left: 0.5px solid #000; }
         .dc-item .summary table { width: 100%; font-size: 12px; }
-        .dc-item .summary td { padding: 5px 0; }
+        .dc-item .summary td { padding: 3px 0; }
         .dc-item .summary td.l { color: #222; font-weight: 700; }
         .dc-item .summary td.v { text-align: right; font-weight: 800; font-size: 12px; }
-        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 7px 12px; font-size: 12px; font-weight: 700; }
+        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 5px 12px; font-size: 12px; font-weight: 700; }
         /* Signature footer block — margin-top:auto pushes it to the
            bottom of the dc-sheet flex column, so it sits at the bottom
            of the last printed page even when bundle content is short.
@@ -306,10 +306,10 @@ export default async function DcPrintPage({
            Keeping them grouped stops the address/totals from being shoved
            onto a second page. page-break-inside:avoid keeps the unit whole. */
         .dc-bottom { margin-top: auto; }
-        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 105px; }
-        .dc-foot > div { padding: 9px 12px; font-size: 12px; font-weight: 700; }
+        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 76px; }
+        .dc-foot > div { padding: 7px 12px; font-size: 12px; font-weight: 700; }
         .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
-        .dc-foot .sig { font-weight: 800; margin-bottom: 36px; font-size: 12px; letter-spacing: 0.4px; }
+        .dc-foot .sig { font-weight: 800; margin-bottom: 22px; font-size: 12px; letter-spacing: 0.4px; }
         .dc-foot .auth { font-weight: 800; letter-spacing: 0.6px; font-size: 12px; }
         .dc-foot .seal { color: #333; font-weight: 700; letter-spacing: 0.5px; margin-top: 6px; text-align: center; font-size: 11px; }
         .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 11px; font-weight: 700; line-height: 1.55; }
@@ -519,7 +519,7 @@ export default async function DcPrintPage({
             <div className="seal">COMMON SEAL</div>
           </div>
           <div>
-            <div style={{ marginBottom: 36 }}>FOR, {COMPANY.name}</div>
+            <div style={{ marginBottom: 22 }}>FOR, {COMPANY.name}</div>
             <div className="auth">AUTHORISED SIGNATORY</div>
           </div>
         </div>
