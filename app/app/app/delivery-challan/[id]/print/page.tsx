@@ -301,7 +301,12 @@ export default async function DcPrintPage({
            of the last printed page even when bundle content is short.
            The top border stays solid because the auto-margin can leave
            visible whitespace between .dc-vehicle and .dc-foot. */
-        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 105px; margin-top: auto; }
+        /* The whole bottom block (vehicle + signatures + address + totals)
+           is pushed to the page bottom as ONE unit via margin-top:auto.
+           Keeping them grouped stops the address/totals from being shoved
+           onto a second page. page-break-inside:avoid keeps the unit whole. */
+        .dc-bottom { margin-top: auto; }
+        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 105px; }
         .dc-foot > div { padding: 9px 12px; font-size: 12px; font-weight: 700; }
         .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
         .dc-foot .sig { font-weight: 800; margin-bottom: 36px; font-size: 12px; letter-spacing: 0.4px; }
@@ -501,7 +506,9 @@ export default async function DcPrintPage({
           );
         })}
 
-        {/* ───── Vehicle + footer signatures ───── */}
+        {/* ───── Bottom block: vehicle + signatures + address + totals.
+              Grouped so they sit together at the page bottom on ONE page. ───── */}
+        <div className="dc-bottom">
         <div className="dc-vehicle">
           <b style={{ letterSpacing: 0.5 }}>VEHICLE NUM :</b> {dc.vehicle_no || '-'}
         </div>
@@ -533,6 +540,7 @@ export default async function DcPrintPage({
             {dc.total_bundles ?? 0} bundles
           </div>
         )}
+        </div>
       </div>
     </>
   );
