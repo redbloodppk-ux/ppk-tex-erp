@@ -22,6 +22,7 @@
  */
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
 
 export const dynamic = 'force-dynamic';
@@ -302,7 +303,6 @@ export default async function PartyStatementPrintPage({
   const billedTotal      = bills.reduce((s, b) => s + b.total,   0);
   const paidTotal        = bills.reduce((s, b) => s + b.paid,    0);
 
-  const companyName    = cp.legal_name ?? cp.display_name ?? 'Your Company';
   const companyAddress = [cp.address_line1, cp.address_line2, [cp.city, cp.state, cp.pincode].filter(Boolean).join(' ')]
     .filter(Boolean).join('\n');
 
@@ -314,7 +314,12 @@ export default async function PartyStatementPrintPage({
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-ink pb-3 mb-4">
           <div>
-            <h1 className="text-2xl font-display font-extrabold tracking-tight">{companyName}</h1>
+            <div className="flex items-center gap-2.5 mb-1">
+              <BrandLogo variant="mark" height={56} />
+              <span className="text-4xl font-display font-extrabold tracking-tight text-ink leading-none">
+                {cp.display_name ?? 'PPK TEX'}
+              </span>
+            </div>
             {companyAddress && <pre className="text-xs text-ink-soft mt-0.5 whitespace-pre-line font-sans">{companyAddress}</pre>}
             {cp.gstin && <div className="text-xs text-ink-soft mt-0.5">GSTIN: <span className="font-mono">{cp.gstin}</span></div>}
             {cp.phone && <div className="text-xs text-ink-soft">Phone: {cp.phone}</div>}
