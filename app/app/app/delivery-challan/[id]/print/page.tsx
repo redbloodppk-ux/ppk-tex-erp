@@ -206,7 +206,7 @@ export default async function DcPrintPage({
            so the live preview stays clean. */
         @page {
           size: A4;
-          margin: 28mm 10mm 26mm 10mm;
+          margin: 8mm 8mm 12mm 8mm;
           /* Bottom-centre page counter — rendered by Chrome's print engine. */
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
@@ -229,47 +229,11 @@ export default async function DcPrintPage({
              preview. 100vh in print mode = the printable area height
              between the @page margins. */
           .dc-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
-          .dc-print-header {
-            display: flex !important;
-            position: fixed;
-            top: 0; left: 10mm; right: 10mm;
-            height: 20mm;
-            align-items: center;
-            justify-content: space-between;
-            padding: 4mm 0;
-            border-bottom: 1px solid #000;
-            font-family: 'Calibri', Arial, sans-serif;
-            font-size: 10px;
-            font-weight: 700;
-            color: #111;
-            background: #fff;
-          }
-          .dc-print-header .ph-title { font-size: 13px; font-weight: 800; letter-spacing: 0.6px; }
-          .dc-print-header .ph-meta  { text-align: right; font-size: 11px; font-weight: 700; line-height: 1.35; color: #222; }
-          .dc-print-header .ph-meta b { color: #000; font-weight: 800; }
-          .dc-print-footer {
-            display: block !important;
-            position: fixed;
-            bottom: 0; left: 10mm; right: 10mm;
-            padding: 3mm 0 2mm 0;
-            border-top: 1px solid #000;
-            text-align: center;
-            font-family: 'Calibri', Arial, sans-serif;
-            font-size: 11px;
-            font-weight: 700;
-            line-height: 1.5;
-            color: #111;
-            background: #fff;
-          }
-          .dc-print-footer .pf-small { font-weight: 600; font-size: 10px; color: #222; }
           /* Tighten page breaks: don't split an item's bundle table across
              two pages if it can be avoided, and never orphan a header row. */
           .dc-item table.bundles { page-break-inside: avoid; }
           .dc-item table.bundles thead { display: table-header-group; }
           .dc-item table.bundles tfoot { display: table-footer-group; }
-          /* The existing on-page address footer becomes redundant when the
-             fixed footer is on. Hide it during print to avoid duplication. */
-          .dc-addrfoot { display: none !important; }
         }
         body { background: #f3f4f6; }
         /* The sheet is a flex column so .dc-foot (signature block) can
@@ -294,7 +258,10 @@ export default async function DcPrintPage({
           display: flex;
           flex-direction: column;
         }
-        .dc-title { text-align: center; font-size: 22px; font-weight: 800; letter-spacing: 1.4px; }
+        .dc-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 8px; border-bottom: 2px solid #000; padding-bottom: 8px; }
+        .dc-head .brandwrap { display: flex; align-items: center; gap: 12px; }
+        .dc-head .brand { font-size: 32px; font-weight: 900; letter-spacing: 1px; color: #111; line-height: 1; }
+        .dc-head .doctype { text-align: right; font-size: 19px; font-weight: 800; letter-spacing: 1.2px; color: #111; }
         .dc-orig { text-align: right; font-size: 11px; font-weight: 700; margin: 5px 0; color: #222; letter-spacing: 0.5px; }
         .dc-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border: 1px solid #000; }
         .dc-meta > div { border-right: 0.5px solid #000; padding: 7px 10px; }
@@ -315,11 +282,11 @@ export default async function DcPrintPage({
         .dc-item { border: 1px solid #000; border-top: none; }
         .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 7px 12px; font-size: 12px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
         .dc-item .qline .agent { text-align: right; }
-        .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 5px 6px; text-align: right; height: 25px; font-weight: 700; }
+        .dc-item table.bundles { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+        .dc-item table.bundles th, .dc-item table.bundles td { border: 0.5px solid #000; padding: 4px 6px; text-align: right; height: 22px; font-weight: 700; overflow: hidden; }
         .dc-item table.bundles th { background: #e8e8e8; font-weight: 800; text-align: center; font-size: 12px; }
         .dc-item table.bundles td.empty { color: #ccc; font-weight: 500; }
-        .dc-item table.bundles td.lbl, .dc-item table.bundles th.lbl { text-align: left; background: #fafafa; font-weight: 700; }
+        .dc-item table.bundles td.lbl, .dc-item table.bundles th.lbl { text-align: left; background: #fafafa; font-weight: 700; width: 56px; }
         .dc-item table.bundles tr.total td { background: #efefef; font-weight: 800; border-top: 1.4px solid #000; font-size: 12px; }
         .dc-item .summary { display: grid; grid-template-columns: 1fr 1fr; border-top: 0.5px solid #000; }
         .dc-item .summary > div { padding: 8px 12px; }
@@ -352,39 +319,17 @@ export default async function DcPrintPage({
 
       <PrintActions dcId={dc.id} dcCode={dc.code} partyName={dc.bill_to_name} dcDate={dc.dc_date} />
 
-      {/* Fixed print-only header. Shows on every page when the DC content
-          flows across multiple sheets. Hidden on screen by CSS. */}
-      <div className="dc-print-header">
-        <div className="ph-title">{COMPANY.name} &nbsp;&middot;&nbsp; DELIVERY CHELLAN</div>
-        <div className="ph-meta">
-          <div>Chellan # <b>{dc.code}</b></div>
-          <div>Date: <b>{fmtDc(dc.dc_date)}</b></div>
-        </div>
-      </div>
-
-      {/* Fixed print-only footer — company address. The page-counter
-          "Page X of Y" is injected by the @page rule's @bottom-center
-          margin box (see CSS above). */}
-      <div className="dc-print-footer">
-        <div>{COMPANY.address}</div>
-        <div className="pf-small">
-          GSTIN: {COMPANY.gstin} &nbsp;&middot;&nbsp; MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
-        </div>
-      </div>
-
       <div
         className={'dc-sheet dc-watermark ' +
           (dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
       >
-        {/* ───── Header band: logo on the left, "DELIVERY CHELLAN" centre ───── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <BrandLogo variant="mark" height={56} />
-          <div style={{ flex: 1 }}>
-            <div className="dc-title">{COMPANY.name} &nbsp; DELIVERY CHELLAN</div>
-            <div style={{ textAlign: 'center', fontSize: 10, color: '#555', marginTop: 2 }}>
-              {COMPANY.address}
-            </div>
+        {/* ───── Header band: logo + brand on the left, "DELIVERY CHELLAN" on the right ───── */}
+        <div className="dc-head">
+          <div className="brandwrap">
+            <BrandLogo variant="mark" height={52} />
+            <span className="brand">{COMPANY.name}</span>
           </div>
+          <div className="doctype">DELIVERY CHELLAN</div>
         </div>
 
         <div className="dc-orig">{dc.status === 'invoiced' ? 'ORIGINAL COPY' : 'ORIGINAL COPY'}</div>
