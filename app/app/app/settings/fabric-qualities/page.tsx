@@ -19,6 +19,7 @@ interface FQRow {
   fabric_type: string | null;
   production_mode: string | null;
   width_in: number | null;
+  reed_space: number | null;
   pick_per_inch: number | null;
   reed: number | null;
   active: boolean;
@@ -50,7 +51,7 @@ export default async function FabricQualitiesPage({
   const sb = supabase as any;
   const { data, error } = await sb
     .from('fabric_quality')
-    .select('id, code, name, fabric_type, production_mode, width_in, pick_per_inch, reed, active, is_merged, merged_name')
+    .select('id, code, name, fabric_type, production_mode, width_in, reed_space, pick_per_inch, reed, active, is_merged, merged_name')
     .order(sort, { ascending: dir === 'asc' });
 
   const rows = (data ?? []) as unknown as FQRow[];
@@ -115,7 +116,7 @@ export default async function FabricQualitiesPage({
               <th className="text-right px-4 py-3 hidden lg:table-cell">Merged warp m</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Pick/inch</th>
               <th className="text-right px-4 py-3 hidden md:table-cell">Reed</th>
-              <th className="text-right px-4 py-3 hidden md:table-cell">Width (in)</th>
+              <th className="text-right px-4 py-3 hidden md:table-cell">Loom Width (in)</th>
               <th className="text-center px-4 py-3">Status</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
@@ -152,7 +153,7 @@ export default async function FabricQualitiesPage({
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.pick_per_inch ?? '-'}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-right num">{r.reed ?? '-'}</td>
-                <td className="px-4 py-3 hidden md:table-cell text-right num">{r.width_in ?? '-'}</td>
+                <td className="px-4 py-3 hidden md:table-cell text-right num">{r.reed_space ?? '-'}</td>
                 <td className="px-4 py-3 text-center">
                   <FabricActiveToggle id={r.id} initialActive={r.active} />
                 </td>
