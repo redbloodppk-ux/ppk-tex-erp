@@ -264,6 +264,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     let bobRes:  typeof invRes = { data: [], error: null };
     let yarnRes: typeof invRes = { data: [], error: null };
     let fabRes:  typeof invRes = { data: [], error: null };
+    let agentRes: typeof invRes = { data: [], error: null };
     if (partyIds.length > 0) {
       // Pull every active invoice where party_name matches any of
       // the linked party names. Supabase doesn't have a clean
@@ -312,8 +313,17 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       if (startDate) fabQ = fabQ.gte('received_date', startDate);
       if (endDate)   fabQ = fabQ.lte('received_date', endDate);
 
-      const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ]);
-      [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = billRes;
+      // Agent / broker commission we owe this party. The amount is a
+      // payable (what WE owe the agent) earned on a fabric invoice. It
+      // has no date column of its own, so we carry the invoice's date
+      // and number and filter by the chosen range client-side below.
+      const agentCommQ = sb.from('agent_commission')
+        .select('id, amount, invoice:invoice_id ( invoice_no, invoice_date )')
+        .eq('status', 'active')
+        .in('agent_party_id', partyIds);
+
+      const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ, agentCommQ]);
+      [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = billRes;
     }
 
     const [wagesRes, expensesRes, bankRes] = await Promise.all([wagesQ, expensesQ, bankQ]);
@@ -534,6 +544,34 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         reference:    null,
         inflow:       0,
         outflow:      amt,
+      });
+    }
+
+    // Agent commission — a payable we owe the agent. The operator
+    // thinks of this as the agent's "inflow" (what they earned), which
+    // nets against payments paid out to them. Recorded as Inflow so the
+    // running balance reads: commission earned − amounts paid =
+    // still owed.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((agentRes.data ?? []) as any[])) {
+      const amt = Number(r.amount ?? 0);
+      if (amt <= 0) continue;
+      const inv = r.invoice ?? {};
+      const date = (inv.invoice_date ?? null) as string | null;
+      if (!date) continue;
+      if (startDate && date < startDate) continue;
+      if (endDate && date > endDate) continue;
+      all.push({
+        key:          `agentcomm-${r.id}`,
+        source:       'bill',
+        bill_kind:    'commission',
+        date,
+        voucher:      inv.invoice_no ?? `AC-${r.id}`,
+        counterparty: '—',
+        mode:         'Agent Commission',
+        reference:    null,
+        inflow:       amt,
+        outflow:      0,
       });
     }
 
