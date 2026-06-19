@@ -265,6 +265,10 @@ function NewPaymentTab(): React.ReactElement {
   // rows whose IDs come from two different sequences and could collide.
   const [checkedBills, setCheckedBills] = useState<Set<string>>(new Set());
   const [alloc,        setAlloc]        = useState<Record<string, string>>({});
+  /** True while AMOUNT is being driven by the ticked bills (so each new
+   *  tick GROWS the total). Becomes false the moment the operator types a
+   *  custom amount, after which ticking only re-spreads that fixed amount. */
+  const [amountAuto,   setAmountAuto]   = useState<boolean>(true);
   /** Operator's explicit confirmation that this payment is an ADVANCE
    *  to the party ledger (no bill adjusted). Required for the party
    *  types in BILL_ADJUST_REQUIRED_TYPES. */
@@ -334,6 +338,7 @@ function NewPaymentTab(): React.ReactElement {
   const loadBills = useCallback(async (): Promise<void> => {
     setCheckedBills(new Set());
     setAlloc({});
+    setAmountAuto(true);
     setAdvanceOk(false);
     setKeepOnAccount(false);
     if (!partyId) { setBills([]); return; }
@@ -551,21 +556,25 @@ function NewPaymentTab(): React.ReactElement {
     setCheckedBills(next);
 
     const amt = Number(amount);
-    if (amount.trim() === '' || !Number.isFinite(amt) || amt <= 0) {
-      // No amount typed yet → bill-to-bill mode: amount becomes the sum
-      // of the ticked bills' balances, fully adjusted.
+    if (amountAuto || amount.trim() === '' || !Number.isFinite(amt) || amt <= 0) {
+      // Bill-to-bill mode: the operator hasn't typed a custom amount, so
+      // AMOUNT tracks the ticked bills — each new tick GROWS the total to
+      // the sum of all ticked bills' balances, fully adjusted.
       const sum = bills.filter((x) => next.has(billKey(x)))
         .reduce((s, x) => s + Number(x.balance), 0);
       setAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
       setAlloc(distribute(sum, next));
+      setAmountAuto(true);
     } else {
-      // Amount already typed → spread it across the ticked bills.
+      // Operator typed a custom amount → keep it fixed, just re-spread it.
       setAlloc(distribute(amt, next));
     }
   }
 
   function handleAmountChange(v: string): void {
     setAmount(v);
+    // Operator is now driving the amount by hand; stop auto-summing ticks.
+    setAmountAuto(false);
     const amt = Number(v);
     if (checkedBills.size > 0 && Number.isFinite(amt)) {
       setAlloc(distribute(amt, checkedBills));
