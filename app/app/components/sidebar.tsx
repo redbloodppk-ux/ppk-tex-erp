@@ -367,10 +367,10 @@ function Brand({ onClick }: { onClick?: () => void }) {
       className="px-5 py-5 border-b border-line/60 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
       title="Go to dashboard"
     >
-      <BrandLogo variant="mark" height={36} />
+      <BrandLogo variant="mark" height={48} />
       <div>
-        <div className="font-display font-extrabold text-ink leading-tight text-sm tracking-wider">PPK TEX</div>
-        <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+        <div className="font-display font-extrabold text-ink leading-tight text-xl tracking-wider">PPK TEX</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
       </div>
     </Link>
   );
@@ -431,7 +431,7 @@ export function Sidebar({
               className="flex-1 px-5 py-5 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
               title="Go to dashboard"
             >
-              <BrandLogo variant="mark" height={36} />
+              <BrandLogo variant="mark" height={48} />
               <div className="flex-1">
                 <div className="font-display font-extrabold text-ink leading-tight text-sm tracking-wider">PPK TEX</div>
                 <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
