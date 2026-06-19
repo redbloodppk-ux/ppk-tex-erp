@@ -397,6 +397,21 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
 
     for (const p of payments) {
       const amt = Number(p.amount);
+      // A payment touches this ledger from one of two sides, and the
+      // inflow/outflow sense flips depending on which one (mirrors the
+      // bank_entry bank-side vs. contra-side projection below):
+      //   - MODE side: this ledger IS the bank / cash account the money
+      //     moved through. Use the cash POV — in → inflow, out → outflow.
+      //   - PARTY side: this ledger is the customer / supplier / agent the
+      //     payment is FOR. Use the party POV, which is INVERTED. A payment
+      //     we paid out to them (out) settles what we owe → reads as Inflow
+      //     here; a payment they paid us (in) settles what they owe →
+      //     reads as Outflow. So paying an agent their commission shows in
+      //     the Inflow column and nets against the commission outflow.
+      const isModeSide = Number(p.mode_ledger_id) === numericId;
+      const isInflow = isModeSide
+        ? p.direction === 'in'
+        : p.direction === 'out';
       all.push({
         key:          `pay-${p.id}`,
         source:       'payment',
@@ -405,8 +420,8 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         counterparty: p.party?.name ?? '-',
         mode:         p.mode_ledger?.name ?? '-',
         reference:    p.reference,
-        inflow:       p.direction === 'in'  ? amt : 0,
-        outflow:      p.direction === 'out' ? amt : 0,
+        inflow:       isInflow ? amt : 0,
+        outflow:      isInflow ? 0   : amt,
       });
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
