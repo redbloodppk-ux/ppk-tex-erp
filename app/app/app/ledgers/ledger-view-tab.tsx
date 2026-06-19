@@ -127,6 +127,12 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   // days" question.
   const [typeId,    setTypeId]    = useState<string>('');
   const [ledgerId,  setLedgerId]  = useState<string>('');
+  // Free-text shadow of the two pickers so the operator can type to
+  // filter (native datalist autocomplete). The *Id values above stay the
+  // source of truth for the query; the *Text values only drive the input
+  // box and are resolved back to an id on every keystroke.
+  const [typeText,   setTypeText]   = useState<string>('');
+  const [ledgerText, setLedgerText] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate,   setEndDate]   = useState<string>(() => new Date().toISOString().slice(0, 10));
 
@@ -162,6 +168,13 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     return ledgers.filter((l) => l.type_id === id);
   }, [ledgers, typeId]);
 
+  // Unique, human-readable label for a ledger. Code is appended so two
+  // ledgers that share a name (e.g. two banks) stay distinguishable and
+  // the typed text resolves to exactly one id.
+  function ledgerLabel(l: LedgerOpt): string {
+    return l.code ? `${l.name} \u00b7 ${l.code}` : l.name;
+  }
+
   // Drop the picked ledger when the type filter narrows it out of view.
   function onTypeChange(next: string): void {
     setTypeId(next);
@@ -169,7 +182,34 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       const id = Number(next);
       if (ledgerId && !ledgers.some((l) => String(l.id) === ledgerId && l.type_id === id)) {
         setLedgerId('');
+        setLedgerText('');
       }
+    }
+  }
+
+  // Type-ahead handler for the Ledger Type box. Resolves the typed text
+  // to a type id only on an exact (case-insensitive) name match; partial
+  // text leaves the id empty so the cascade doesn't thrash mid-typing.
+  function onTypeInput(next: string): void {
+    setTypeText(next);
+    const match = types.find((t) => t.name.toLowerCase() === next.trim().toLowerCase());
+    onTypeChange(match ? String(match.id) : '');
+  }
+
+  // Type-ahead handler for the Ledger box. On an exact label match it
+  // sets the ledger id and, as a convenience, back-fills the type box so
+  // the operator can jump straight to a ledger without picking the type.
+  function onLedgerInput(next: string): void {
+    setLedgerText(next);
+    const match = ledgers.find((l) => ledgerLabel(l).toLowerCase() === next.trim().toLowerCase());
+    if (match) {
+      setLedgerId(String(match.id));
+      if (match.type_id != null && String(match.type_id) !== typeId) {
+        setTypeId(String(match.type_id));
+        setTypeText(match.type_name ?? '');
+      }
+    } else {
+      setLedgerId('');
     }
   }
 
@@ -652,33 +692,33 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       <form onSubmit={handleShow} className="card p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
         <div>
           <label className="label">Ledger type *</label>
-          <select
+          <input
             className="input"
-            value={typeId}
-            onChange={(e) => onTypeChange(e.target.value)}
-          >
-            <option value="">All types</option>
+            list="ledger-type-list"
+            value={typeText}
+            placeholder="Type or pick a type…"
+            onChange={(e) => onTypeInput(e.target.value)}
+          />
+          <datalist id="ledger-type-list">
             {types.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+              <option key={t.id} value={t.name} />
             ))}
-          </select>
+          </datalist>
         </div>
         <div>
           <label className="label">Ledger *</label>
-          <select
+          <input
             className="input"
-            value={ledgerId}
-            onChange={(e) => setLedgerId(e.target.value)}
-          >
-            <option value="">
-              {filteredLedgers.length
-                ? (typeId ? 'Select ledger…' : 'Pick a type first or select…')
-                : 'No ledgers under this type'}
-            </option>
+            list="ledger-list"
+            value={ledgerText}
+            placeholder={typeId ? 'Type or pick a ledger…' : 'Type a name or pick…'}
+            onChange={(e) => onLedgerInput(e.target.value)}
+          />
+          <datalist id="ledger-list">
             {filteredLedgers.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
+              <option key={l.id} value={ledgerLabel(l)} />
             ))}
-          </select>
+          </datalist>
         </div>
         <div>
           <label className="label">Start date</label>
