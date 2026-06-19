@@ -39,3 +39,4 @@ coverage/
 # Dropbox conflict copies (this project sits inside Dropbox)
 *conflicted copy*
 *.~lock.*
+app/tsc_out.txt
