@@ -25,6 +25,7 @@ import {
   ShoppingCart,
   Wallet,
   AlertCircle,
+  FileDown,
 } from 'lucide-react';
 
 export const metadata = { title: 'Agent Commission' };
@@ -271,13 +272,23 @@ export default async function AgentCommissionReport({
         ]}
         subtitle={`Agent-wise sales & purchase brokerage between ${from} and ${to}. Business value is the brokered invoice/bill amount. Commission — on both sales and purchases — is always payable to the agent (a cash outflow).`}
         actions={
-          <ExcelExportButton
-            filename="agent-commission"
-            sheetName="Agent Commission"
-            title={`Agent Commission · ${from} to ${to}`}
-            columns={exportColumns}
-            rows={exportRows}
-          />
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/app/reports/agent-commission/print?${dateQs}${agentIdParam ? `&agent_id=${agentIdParam}` : ''}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              PDF
+            </Link>
+            <ExcelExportButton
+              filename="agent-commission"
+              sheetName="Agent Commission"
+              title={`Agent Commission · ${from} to ${to}`}
+              columns={exportColumns}
+              rows={exportRows}
+            />
+          </div>
         }
       />
 
