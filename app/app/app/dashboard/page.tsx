@@ -163,7 +163,7 @@ export default async function DashboardPage() {
     // commission we owe each agent that hasn't been paid yet.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('agent_commission')
-      .select('id, agent_party_id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date )')
+      .select('id, agent_party_id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
       .eq('status', 'active')
       .gt('balance', 0),
   ]);
@@ -287,11 +287,15 @@ export default async function DashboardPage() {
   for (const r of ((agentComm ?? []) as any[])) {
     const bal = Number(r.balance ?? 0);
     if (bal <= 0.005) continue;
+    // Commission points at exactly one source: fabric sales invoice,
+    // yarn lot, or fabric purchase. Label + date come from whichever set.
+    const srcNo = r.invoice?.invoice_no ?? r.yarn_lot?.lot_code ?? r.fabric_purchase?.code ?? null;
+    const srcDate = r.invoice?.invoice_date ?? r.yarn_lot?.received_date ?? r.fabric_purchase?.received_date ?? '';
     supplierBills.push({
       id:               r.id,
-      invoice_no:       (r.invoice?.invoice_no ? `${r.invoice.invoice_no} (Comm)` : `COMM-${r.id}`),
+      invoice_no:       (srcNo ? `${srcNo} (Comm)` : `COMM-${r.id}`),
       party_name:       r.agent_party_id ? (partyNameById.get(r.agent_party_id) ?? null) : null,
-      invoice_date:     r.invoice?.invoice_date ?? '',
+      invoice_date:     srcDate,
       customer_id:      null,
       jobwork_party_id: r.agent_party_id ?? null,
       total:            r.amount,

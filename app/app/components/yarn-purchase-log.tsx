@@ -10,11 +10,14 @@
  *
  * Mandatory: yarn_count, mill, received_date, received_kg, invoice_no.
  *
- * Extras (migration 051):
- *   - Delivery destination dropdown ('in_house' default, or 'sizing')
- *   - Broker dropdown (vendors where vendor_type='broker')
- *   - Bag count + brokerage_per_bag (auto-filled from picked broker)
- *   - Brokerage amount preview = bags * rate
+ * Agent commission (migration 202): an optional commission PAYABLE to an
+ * agent / broker PARTY, recorded against the yarn lot in agent_commission
+ * (yarn_lot_id). Two bases for yarn purchases:
+ *   - 'bag'     -> commission = bag_count * rate
+ *   - 'percent' -> commission = total_amount * rate / 100
+ * The commission then surfaces on the dashboard, in the agent's Ledger
+ * View (as an inflow) and is settled on the Payments screen, exactly like
+ * the sales-side commission. Bag count is kept as real inventory.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -23,6 +26,7 @@ import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-rea
 
 type YarnKind = 'yarn' | 'porvai';
 type Delivery = 'in_house' | 'sizing';
+type CommType = 'bag' | 'percent';
 
 interface Lot {
   id: number;
@@ -43,16 +47,26 @@ interface Lot {
   invoice_no: string | null;
   notes: string | null;
   delivery_destination: Delivery;
-  broker_ledger_id: number | null;
   bag_count: number;
-  brokerage_per_bag: number;
-  brokerage_amount: number;
+}
+
+/** Commission row tied to one yarn lot (agent_commission.yarn_lot_id). */
+interface CommissionRow {
+  id: number;
+  yarn_lot_id: number;
+  agent_party_id: number;
+  commission_type: CommType;
+  commission_rate: number;
+  amount: number;
+  amount_paid: number;
 }
 
 interface CountOption    { id: number; code: string; display_name: string; }
 // Yarn suppliers come from the unified party table.
 interface SupplierOption { id: number; code: string; name: string; }
-interface BrokerOption   { id: number; code: string; name: string; brokerage_per_bag: number | null; }
+// Agents / brokers are PARTIES (party_type ilike '%broker%' or '%agent%'),
+// the same dropdown source as the sales invoice's agent commission.
+interface AgentOption    { id: number; name: string; }
 
 interface FormState {
   yarn_count_id: string;
@@ -68,9 +82,11 @@ interface FormState {
   invoice_no: string;
   notes: string;
   delivery_destination: Delivery;
-  broker_ledger_id: string;
   bag_count: string;
-  brokerage_per_bag: string;
+  // Agent commission (optional).
+  agent_party_id: string;
+  commission_type: CommType;
+  commission_rate: string;
 }
 
 const EMPTY: FormState = {
@@ -84,9 +100,10 @@ const EMPTY: FormState = {
   invoice_no: '',
   notes: '',
   delivery_destination: 'in_house',
-  broker_ledger_id: '',
   bag_count: '',
-  brokerage_per_bag: '',
+  agent_party_id: '',
+  commission_type: 'bag',
+  commission_rate: '',
 };
 
 function toNumOrNull(v: string): number | null {
@@ -127,7 +144,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   const [rows, setRows] = useState<Lot[]>([]);
   const [counts, setCounts] = useState<CountOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
-  const [brokers, setBrokers] = useState<BrokerOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  // yarn_lot_id -> commission row, so the table + edit form can show it.
+  const [commByLot, setCommByLot] = useState<Map<number, CommissionRow>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -149,9 +168,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       .select('id').eq('name', 'Mill / Yarn Supplier').maybeSingle();
     const supplierTypeId = ptRes.data?.id as number | undefined;
 
-    const [lotRes, countRes, suppRes, brokerRes] = await Promise.all([
+    const [lotRes, countRes, suppRes, agentTypeRes, partyRes, commRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, broker_ledger_id, bag_count, brokerage_per_bag, brokerage_amount')
+        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, bag_count')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -171,24 +190,36 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             .eq('status', 'active')
             .order('name')
         : Promise.resolve({ data: [] as SupplierOption[], error: null }),
-      // Brokers are AGENT-type ledgers since migration 053. Query the ledger
-      // master joined with ledger_type so the broker dropdown stays in sync
-      // with the Ledgers screen.
-      sb.from('ledger')
-        .select('id, code, name, brokerage_per_bag, ledger_type:type_id!inner(name)')
-        .eq('active', true)
-        .eq('ledger_type.name', 'AGENT')
-        .order('name'),
+      // Agent / broker PARTY types (same source as the sales invoice).
+      sb.from('party_type_master').select('id, name').or('name.ilike.%broker%,name.ilike.%agent%'),
+      sb.from('party').select('id, name, party_type_ids').eq('status', 'active').order('name'),
+      // All active yarn-purchase commissions, so the table + edit form
+      // can show the agent + payable amount per lot.
+      sb.from('agent_commission')
+        .select('id, yarn_lot_id, agent_party_id, commission_type, commission_rate, amount, amount_paid')
+        .eq('status', 'active')
+        .not('yarn_lot_id', 'is', null),
     ]);
-    if (lotRes.error)         setError(lotRes.error.message);
-    else if (countRes.error)  setError(countRes.error.message);
-    else if (suppRes.error)   setError(suppRes.error.message);
-    else if (brokerRes.error) setError(brokerRes.error.message);
+    if (lotRes.error)        setError(lotRes.error.message);
+    else if (countRes.error) setError(countRes.error.message);
+    else if (suppRes.error)  setError(suppRes.error.message);
+    else if (agentTypeRes.error) setError(agentTypeRes.error.message);
+    else if (partyRes.error) setError(partyRes.error.message);
+    else if (commRes.error)  setError(commRes.error.message);
     else {
+      const brokerIds = ((agentTypeRes.data ?? []) as Array<{ id: number }>).map((t) => Number(t.id));
+      const agentList = ((partyRes.data ?? []) as Array<{ id: number; name: string; party_type_ids: number[] | null }>)
+        .filter((p) => Array.isArray(p.party_type_ids) && p.party_type_ids.some((id) => brokerIds.includes(Number(id))))
+        .map((p) => ({ id: p.id, name: p.name }));
+      const commMap = new Map<number, CommissionRow>();
+      for (const c of ((commRes.data ?? []) as CommissionRow[])) {
+        if (c.yarn_lot_id != null) commMap.set(c.yarn_lot_id, c);
+      }
       setRows((lotRes.data ?? []) as unknown as Lot[]);
       setCounts((countRes.data ?? []) as unknown as CountOption[]);
       setSuppliers((suppRes.data ?? []) as unknown as SupplierOption[]);
-      setBrokers((brokerRes.data ?? []) as unknown as BrokerOption[]);
+      setAgents(agentList);
+      setCommByLot(commMap);
       setError(null);
     }
     setLoading(false);
@@ -203,11 +234,16 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
   }, [form.received_kg, form.cost_per_kg, form.gst_pct]);
 
-  const brokeragePreview = useMemo<number>(() => {
-    const bags = toNumOrNull(form.bag_count) ?? 0;
-    const rate = toNumOrNull(form.brokerage_per_bag) ?? 0;
-    return Math.round(bags * rate * 100) / 100;
-  }, [form.bag_count, form.brokerage_per_bag]);
+  // Commission preview: per bag = bags * rate; percent = total * rate / 100.
+  const commissionPreview = useMemo<number>(() => {
+    const rate = toNumOrNull(form.commission_rate) ?? 0;
+    if (form.agent_party_id === '' || rate <= 0) return 0;
+    if (form.commission_type === 'bag') {
+      const bags = toNumOrNull(form.bag_count) ?? 0;
+      return Math.round(bags * rate * 100) / 100;
+    }
+    return Math.round(totalPreview * rate / 100 * 100) / 100;
+  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.bag_count, totalPreview]);
 
   function openNewForm() {
     setEditingId(null);
@@ -230,6 +266,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       const diff = Math.round((b - a) / (1000 * 60 * 60 * 24));
       if (Number.isFinite(diff) && diff >= 0) dueDays = String(diff);
     }
+    const comm = commByLot.get(l.id);
     setForm({
       yarn_count_id:        String(l.yarn_count_id),
       supplier_party_id:    l.supplier_party_id === null ? '' : String(l.supplier_party_id),
@@ -241,9 +278,10 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       invoice_no:           l.invoice_no ?? '',
       notes:                l.notes ?? '',
       delivery_destination: l.delivery_destination,
-      broker_ledger_id:     l.broker_ledger_id === null ? '' : String(l.broker_ledger_id),
       bag_count:            String(l.bag_count),
-      brokerage_per_bag:    String(l.brokerage_per_bag),
+      agent_party_id:       comm ? String(comm.agent_party_id) : '',
+      commission_type:      comm ? comm.commission_type : 'bag',
+      commission_rate:      comm ? String(comm.commission_rate) : '',
     });
     setFormOpen(true);
     setSavedMsg(null);
@@ -256,25 +294,6 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setForm(EMPTY);
   }
 
-  /** When the user picks a broker, auto-fill the per-bag rate from the
-   *  broker's master record (only if the user hasn't typed one). */
-  function onPickBroker(value: string) {
-    if (value === '') {
-      setForm((f) => ({ ...f, broker_ledger_id: '' }));
-      return;
-    }
-    const id = Number(value);
-    const b = brokers.find((x) => x.id === id);
-    setForm((f) => ({
-      ...f,
-      broker_ledger_id: value,
-      brokerage_per_bag:
-        f.brokerage_per_bag.trim() === '' && b && b.brokerage_per_bag !== null
-          ? String(b.brokerage_per_bag)
-          : f.brokerage_per_bag,
-    }));
-  }
-
   async function handleSave() {
     setError(null);
     setSavedMsg(null);
@@ -284,9 +303,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const receivedKg  = toNumOrNull(form.received_kg);
     const costPerKg   = toNumOrNull(form.cost_per_kg);
     const gst         = toNumOrNull(form.gst_pct) ?? 0;
-    const brokerId    = form.broker_ledger_id === '' ? null : Number(form.broker_ledger_id);
     const bagCount    = Math.trunc(toNumOrNull(form.bag_count) ?? 0);
-    const brokerRate  = toNumOrNull(form.brokerage_per_bag) ?? 0;
 
     if (yarnCountId === null) { setError('Yarn count is required.'); return; }
     if (supplierId === null)  { setError('Supplier is required.'); return; }
@@ -294,6 +311,12 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     if (receivedKg === null || receivedKg <= 0) { setError('Quantity (kg) is required.'); return; }
     if (costPerKg === null || costPerKg < 0)    { setError('Rate per kg is required.'); return; }
     if (form.invoice_no.trim() === '')          { setError('Invoice number is required.'); return; }
+
+    // Agent commission inputs.
+    const agentId   = form.agent_party_id === '' ? null : Number(form.agent_party_id);
+    const commRate  = toNumOrNull(form.commission_rate) ?? 0;
+    const commAmt   = commissionPreview;
+    const hasComm   = agentId !== null && commAmt > 0;
 
     // due_date = received_date + N days. Empty days = no due date.
     const dueDate: string | null = (() => {
@@ -316,26 +339,64 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       invoice_no: form.invoice_no.trim(),
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
       delivery_destination: form.delivery_destination,
-      broker_ledger_id: brokerId,
       bag_count: bagCount,
-      brokerage_per_bag: brokerRate,
       ...(editingId === null ? { current_kg: receivedKg } : {}),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
     setBusy(true);
+
+    let lotId: number;
     if (editingId === null) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('yarn_lot').insert(payload);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Added purchase.');
+      const { data: ins, error: err } = await sb.from('yarn_lot').insert(payload).select('id').single();
+      if (err) { setBusy(false); setError(err.message); return; }
+      lotId = Number(ins.id);
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('yarn_lot').update(payload).eq('id', editingId);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Updated.');
+      lotId = editingId;
+      const { error: err } = await sb.from('yarn_lot').update(payload).eq('id', editingId);
+      if (err) { setBusy(false); setError(err.message); return; }
     }
+
+    // ── Agent commission upsert (payable to the agent party) ──
+    const existing = commByLot.get(lotId) ?? null;
+    if (existing != null) {
+      if (!hasComm) {
+        // Removing the commission is only safe if nothing's been paid yet.
+        if (Number(existing.amount_paid) > 0.005) {
+          setBusy(false);
+          setError('This commission is already part/fully paid — reverse the agent payment before removing it.');
+          return;
+        }
+        const { error: delErr } = await sb.from('agent_commission').delete().eq('id', existing.id);
+        if (delErr) { setBusy(false); setError(delErr.message); return; }
+      } else {
+        if (commAmt < Number(existing.amount_paid) - 0.005) {
+          setBusy(false);
+          setError(`Commission ₹${commAmt.toFixed(2)} is less than the ₹${Number(existing.amount_paid).toFixed(2)} already paid to the agent. Raise the rate or reverse the payment first.`);
+          return;
+        }
+        const { error: upErr } = await sb.from('agent_commission').update({
+          agent_party_id:  agentId,
+          commission_type: form.commission_type,
+          commission_rate: commRate,
+          amount:          commAmt,
+        }).eq('id', existing.id);
+        if (upErr) { setBusy(false); setError(upErr.message); return; }
+      }
+    } else if (hasComm) {
+      const { error: insErr } = await sb.from('agent_commission').insert({
+        yarn_lot_id:     lotId,
+        agent_party_id:  agentId,
+        commission_type: form.commission_type,
+        commission_rate: commRate,
+        amount:          commAmt,
+      });
+      if (insErr) { setBusy(false); setError(insErr.message); return; }
+    }
+
+    setBusy(false);
+    setSavedMsg(editingId === null ? 'Added purchase.' : 'Updated.');
     closeForm();
     await load();
   }
@@ -362,10 +423,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     const s = suppliers.find((x) => x.id === id);
     return s ? s.code + ' - ' + s.name : '#' + String(id);
   }
-  function brokerLabel(id: number | null): string {
-    if (id === null) return '-';
-    const b = brokers.find((x) => x.id === id);
-    return b ? b.name : '#' + String(id);
+  function agentLabel(id: number): string {
+    const a = agents.find((x) => x.id === id);
+    return a ? a.name : '#' + String(id);
   }
 
   return (
@@ -484,50 +544,75 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="y-broker">Broker</label>
-              <select id="y-broker" className="input w-full"
-                value={form.broker_ledger_id}
-                onChange={(e) => onPickBroker(e.target.value)}>
-                <option value="">--- none ---</option>
-                {brokers.map((b) => (
-                  <option key={b.id} value={String(b.id)}>
-                    {b.name}{b.brokerage_per_bag !== null ? ' (Rs ' + String(b.brokerage_per_bag) + '/bag)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
               <label className="label" htmlFor="y-bags">Bag count</label>
               <input id="y-bags" type="number" min={0} step="1" className="input num w-full"
                 value={form.bag_count}
                 onChange={(e) => setForm((f) => ({ ...f, bag_count: e.target.value }))} />
             </div>
-            <div>
-              <label className="label" htmlFor="y-brk-rate">Brokerage Rs/bag</label>
-              <input id="y-brk-rate" type="number" min={0} step="0.01" className="input num w-full"
-                placeholder="auto from broker"
-                value={form.brokerage_per_bag}
-                onChange={(e) => setForm((f) => ({ ...f, brokerage_per_bag: e.target.value }))} />
-            </div>
-
-            <div>
+            <div className="md:col-span-2">
               <label className="label" htmlFor="y-inv">Invoice no *</label>
               <input id="y-inv" type="text" required className="input w-full" placeholder="INV-12345"
                 value={form.invoice_no}
                 onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))} />
             </div>
-            <div>
-              <label className="label">Brokerage total (auto)</label>
-              <div className="input num bg-amber-50 text-amber-800 font-semibold select-none">
-                {fmtMoney(brokeragePreview)}
+          </div>
+
+          {/* ───── Agent commission (optional · payable to the agent) ───── */}
+          <div className="rounded-lg border border-line/60 bg-haze/40 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-xs uppercase tracking-wide text-ink-soft">Agent commission</h3>
+              <span className="text-[10px] text-ink-mute">optional · payable to the agent, not part of the supplier bill</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label className="label" htmlFor="y-agent">Agent / broker</label>
+                <select id="y-agent" className="input w-full"
+                  value={form.agent_party_id}
+                  onChange={(e) => setForm((f) => ({ ...f, agent_party_id: e.target.value }))}>
+                  <option value="">--- none ---</option>
+                  {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="y-comm-type">Commission basis</label>
+                <select id="y-comm-type" className="input w-full"
+                  value={form.commission_type}
+                  disabled={form.agent_party_id === ''}
+                  onChange={(e) => setForm((f) => ({ ...f, commission_type: e.target.value as CommType }))}>
+                  <option value="bag">Per bag</option>
+                  <option value="percent">% of value</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="y-comm-rate">
+                  {form.commission_type === 'bag' ? 'Rate (Rs/bag)' : 'Rate (%)'}
+                </label>
+                <input id="y-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
+                  value={form.commission_rate}
+                  disabled={form.agent_party_id === ''}
+                  onChange={(e) => setForm((f) => ({ ...f, commission_rate: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Commission (auto)</label>
+                <div className="input num bg-amber-50 text-amber-800 font-semibold select-none">
+                  {fmtMoney(commissionPreview)}
+                </div>
               </div>
             </div>
-            <div className="md:col-span-2">
-              <label className="label" htmlFor="y-notes">Notes</label>
-              <input id="y-notes" type="text" className="input w-full" placeholder="(optional)"
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
-            </div>
+            {form.agent_party_id !== '' && (
+              <p className="text-[11px] text-ink-mute">
+                {form.commission_type === 'bag'
+                  ? 'Commission = bag count × rate per bag.'
+                  : 'Commission = total value × rate %.'}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="label" htmlFor="y-notes">Notes</label>
+            <input id="y-notes" type="text" className="input w-full" placeholder="(optional)"
+              value={form.notes}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -568,15 +653,17 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <th className="text-right px-3 py-3">GST %</th>
                 <th className="text-right px-3 py-3">Total Rs</th>
                 <th className="text-left px-3 py-3">Delivery</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Broker</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Agent</th>
                 <th className="text-right px-3 py-3">Bags</th>
-                <th className="text-right px-3 py-3">Brokerage Rs</th>
+                <th className="text-right px-3 py-3">Commission Rs</th>
                 <th className="text-left px-3 py-3">Due Date</th>
                 <th className="text-right px-3 py-3 w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((l) => (
+              {rows.map((l) => {
+                const comm = commByLot.get(l.id);
+                return (
                 <tr key={l.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 text-ink-soft whitespace-nowrap">{fmtDate(l.received_date)}</td>
                   <td className="px-3 py-3 font-mono text-xs">
@@ -597,9 +684,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   <td className="px-3 py-3 text-right num">{l.gst_pct}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(l.total_amount)}</td>
                   <td className="px-3 py-3 text-ink-soft">{deliveryLabel(l.delivery_destination)}</td>
-                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{brokerLabel(l.broker_ledger_id)}</td>
+                  <td className="px-3 py-3 hidden md:table-cell text-ink-soft">{comm ? agentLabel(comm.agent_party_id) : '-'}</td>
                   <td className="px-3 py-3 text-right num">{l.bag_count}</td>
-                  <td className="px-3 py-3 text-right num text-amber-700">{fmtMoney(l.brokerage_amount)}</td>
+                  <td className="px-3 py-3 text-right num text-amber-700">{comm ? fmtMoney(comm.amount) : '-'}</td>
                   <td className={
                     'px-3 py-3 ' + (
                       l.due_date && l.due_date < todayISO()
@@ -622,7 +709,8 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

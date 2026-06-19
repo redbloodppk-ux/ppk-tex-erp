@@ -27,6 +27,7 @@ import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-rea
 type RateUnit = 'm' | 'pcs';
 type Delivery = 'in_house' | 'sizing';
 type SourceMode = 'supplier' | 'customer';
+type CommType = 'pcs' | 'metre' | 'percent';
 
 interface FabricRow {
   id: number;
@@ -52,6 +53,20 @@ interface FabricRow {
 
 interface QualityOption { id: number; code: string | null; name: string; }
 interface PartyOption { id: number; code: string; name: string; }
+// Agents / brokers are PARTIES (party_type ilike '%broker%' or '%agent%'),
+// the same source as the sales invoice's agent commission.
+interface AgentOption { id: number; name: string; }
+
+/** Commission row tied to one fabric purchase (agent_commission.fabric_purchase_id). */
+interface CommissionRow {
+  id: number;
+  fabric_purchase_id: number;
+  agent_party_id: number;
+  commission_type: CommType;
+  commission_rate: number;
+  amount: number;
+  amount_paid: number;
+}
 
 interface FormState {
   /** Whether this row came from a supplier purchase or a customer
@@ -80,6 +95,10 @@ interface FormState {
   invoice_no:           string;
   notes:                string;
   delivery_destination: Delivery;
+  // Agent commission (optional, supplier purchases only).
+  agent_party_id:       string;
+  commission_type:      CommType;
+  commission_rate:      string;
 }
 
 const EMPTY: FormState = {
@@ -95,6 +114,9 @@ const EMPTY: FormState = {
   invoice_no:           '',
   notes:                '',
   delivery_destination: 'in_house',
+  agent_party_id:       '',
+  commission_type:      'pcs',
+  commission_rate:      '',
 };
 
 function toNumOrNull(v: string): number | null {
@@ -130,6 +152,9 @@ export function FabricPurchaseLog(): React.ReactElement {
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [suppliers, setSuppliers] = useState<PartyOption[]>([]);
   const [customers, setCustomers] = useState<PartyOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  // fabric_purchase_id -> commission row, for the table + edit form.
+  const [commByPurchase, setCommByPurchase] = useState<Map<number, CommissionRow>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -158,7 +183,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     const supplierTypeId = ptByName['Mill / Yarn Supplier'];
     const customerTypeId = ptByName['Customer'];
 
-    const [rowsRes, qRes, sRes, cRes] = await Promise.all([
+    const [rowsRes, qRes, sRes, cRes, agentTypeRes, partyRes, commRes] = await Promise.all([
       sb.from('fabric_purchase')
         .select('id, code, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, total_amount, invoice_no, notes, delivery_destination')
         .eq('status', 'active')
@@ -182,16 +207,37 @@ export function FabricPurchaseLog(): React.ReactElement {
             .eq('status', 'active')
             .order('name')
         : Promise.resolve({ data: [] as PartyOption[], error: null }),
+      // Agent / broker PARTY types (same source as the sales invoice).
+      sb.from('party_type_master').select('id, name').or('name.ilike.%broker%,name.ilike.%agent%'),
+      sb.from('party').select('id, name, party_type_ids').eq('status', 'active').order('name'),
+      // All active fabric-purchase commissions, for the table + edit form.
+      sb.from('agent_commission')
+        .select('id, fabric_purchase_id, agent_party_id, commission_type, commission_rate, amount, amount_paid')
+        .eq('status', 'active')
+        .not('fabric_purchase_id', 'is', null),
     ]);
     if (rowsRes.error)    setError(rowsRes.error.message);
     else if (qRes.error)  setError(qRes.error.message);
     else if (sRes.error)  setError(sRes.error.message);
     else if (cRes.error)  setError(cRes.error.message);
+    else if (agentTypeRes.error) setError(agentTypeRes.error.message);
+    else if (partyRes.error) setError(partyRes.error.message);
+    else if (commRes.error)  setError(commRes.error.message);
     else {
+      const brokerIds = ((agentTypeRes.data ?? []) as Array<{ id: number }>).map((t) => Number(t.id));
+      const agentList = ((partyRes.data ?? []) as Array<{ id: number; name: string; party_type_ids: number[] | null }>)
+        .filter((p) => Array.isArray(p.party_type_ids) && p.party_type_ids.some((id) => brokerIds.includes(Number(id))))
+        .map((p) => ({ id: p.id, name: p.name }));
+      const commMap = new Map<number, CommissionRow>();
+      for (const c of ((commRes.data ?? []) as CommissionRow[])) {
+        if (c.fabric_purchase_id != null) commMap.set(c.fabric_purchase_id, c);
+      }
       setRows((rowsRes.data ?? []) as unknown as FabricRow[]);
       setQualities((qRes.data ?? []) as unknown as QualityOption[]);
       setSuppliers((sRes.data ?? []) as unknown as PartyOption[]);
       setCustomers((cRes.data ?? []) as unknown as PartyOption[]);
+      setAgents(agentList);
+      setCommByPurchase(commMap);
       setError(null);
     }
     setLoading(false);
@@ -208,6 +254,26 @@ export function FabricPurchaseLog(): React.ReactElement {
     const qty  = toNumOrNull(form.quantity) ?? 0;
     return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
   }, [form.quantity, form.rate, form.gst_pct]);
+
+  // Agent commission preview. Base depends on the basis:
+  //   pcs     -> pieces  (quantity when unit=pcs)
+  //   metre   -> metres  (quantity when unit=m)
+  //   percent -> total value
+  const commissionPreview = useMemo<number>(() => {
+    const rate = toNumOrNull(form.commission_rate) ?? 0;
+    if (form.agent_party_id === '' || rate <= 0) return 0;
+    const qty = toNumOrNull(form.quantity) ?? 0;
+    if (form.commission_type === 'percent') {
+      return Math.round(totalPreview * rate / 100 * 100) / 100;
+    }
+    // pcs basis uses pieces, metre basis uses metres. The single Quantity
+    // field carries whichever the unit toggle is set to, so a basis that
+    // doesn't match the unit has no quantity to bill on (0).
+    const base = form.commission_type === 'metre'
+      ? (form.rate_unit === 'm' ? qty : 0)
+      : (form.rate_unit === 'pcs' ? qty : 0);
+    return Math.round(base * rate * 100) / 100;
+  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.quantity, form.rate_unit, totalPreview]);
 
   function openNewForm(): void {
     setEditingId(null);
@@ -228,6 +294,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     const qty = r.rate_unit === 'm'
       ? (r.received_metres ?? 0)
       : (r.received_pieces ?? 0);
+    const comm = commByPurchase.get(r.id);
     setForm({
       source:               'supplier',
       fabric_quality_id:    r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
@@ -241,6 +308,9 @@ export function FabricPurchaseLog(): React.ReactElement {
       invoice_no:           r.invoice_no ?? '',
       notes:                r.notes ?? '',
       delivery_destination: r.delivery_destination,
+      agent_party_id:       comm ? String(comm.agent_party_id) : '',
+      commission_type:      comm ? comm.commission_type : (r.rate_unit === 'm' ? 'metre' : 'pcs'),
+      commission_rate:      comm ? String(comm.commission_rate) : '',
     });
     setCustomerAllocs([]);
     setFormOpen(true);
@@ -334,9 +404,54 @@ export function FabricPurchaseLog(): React.ReactElement {
       }
     }
 
+    // Agent commission inputs (supplier purchases only).
+    const agentId  = form.agent_party_id === '' ? null : Number(form.agent_party_id);
+    const commRate = toNumOrNull(form.commission_rate) ?? 0;
+    const commAmt  = commissionPreview;
+    const hasComm  = !isCustomer && agentId !== null && commAmt > 0;
+
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    // Upsert the agent commission against the saved purchase. Returns an
+    // error message on failure, or null on success. Customer-adjustment
+    // rows never carry a commission.
+    const upsertCommission = async (fabricPurchaseId: number): Promise<string | null> => {
+      if (isCustomer) return null;
+      const existing = commByPurchase.get(fabricPurchaseId) ?? null;
+      if (existing != null) {
+        if (!hasComm) {
+          if (Number(existing.amount_paid) > 0.005) {
+            return 'This commission is already part/fully paid — reverse the agent payment before removing it.';
+          }
+          const { error } = await sb.from('agent_commission').delete().eq('id', existing.id);
+          return error ? error.message : null;
+        }
+        if (commAmt < Number(existing.amount_paid) - 0.005) {
+          return `Commission ₹${commAmt.toFixed(2)} is less than the ₹${Number(existing.amount_paid).toFixed(2)} already paid to the agent. Raise the rate or reverse the payment first.`;
+        }
+        const { error } = await sb.from('agent_commission').update({
+          agent_party_id:  agentId,
+          commission_type: form.commission_type,
+          commission_rate: commRate,
+          amount:          commAmt,
+        }).eq('id', existing.id);
+        return error ? error.message : null;
+      }
+      if (hasComm) {
+        const { error } = await sb.from('agent_commission').insert({
+          fabric_purchase_id: fabricPurchaseId,
+          agent_party_id:     agentId,
+          commission_type:    form.commission_type,
+          commission_rate:    commRate,
+          amount:             commAmt,
+        });
+        return error ? error.message : null;
+      }
+      return null;
+    };
+
     if (editingId === null) {
       const { data: inserted, error: err } = await sb
         .from('fabric_purchase')
@@ -408,14 +523,19 @@ export function FabricPurchaseLog(): React.ReactElement {
             : 'Added customer-adjustment purchase. Fabric value sits as advance credit on their ledger.',
         );
       } else {
+        // Supplier purchase: record the optional agent commission.
+        const commErr = await upsertCommission(inserted.id as number);
+        if (commErr) { setBusy(false); setError(`Purchase saved, but the commission failed: ${commErr}`); await load(); return; }
         setSavedMsg('Added purchase.');
       }
       setBusy(false);
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await sb.from('fabric_purchase').update(payload).eq('id', editingId);
+      if (err) { setBusy(false); setError(err.message); return; }
+      const commErr = await upsertCommission(editingId);
       setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (commErr) { setError(commErr); return; }
       setSavedMsg('Updated.');
     }
     closeForm();
@@ -451,6 +571,10 @@ export function FabricPurchaseLog(): React.ReactElement {
     // lookup would mislabel them.
     const s = suppliers.find((x) => x.id === id) ?? customers.find((x) => x.id === id);
     return s ? s.code + ' - ' + s.name : '#' + String(id);
+  }
+  function agentLabel(id: number): string {
+    const a = agents.find((x) => x.id === id);
+    return a ? a.name : '#' + String(id);
   }
 
   return (
@@ -643,6 +767,62 @@ export function FabricPurchaseLog(): React.ReactElement {
             </div>
           </div>
 
+          {/* ───── Agent commission (supplier purchases only) ───── */}
+          {form.source === 'supplier' && (
+            <div className="rounded-lg border border-line/60 bg-haze/40 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-xs uppercase tracking-wide text-ink-soft">Agent commission</h3>
+                <span className="text-[10px] text-ink-mute">optional · payable to the agent, not part of the supplier bill</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="label" htmlFor="fp-agent">Agent / broker</label>
+                  <select id="fp-agent" className="input w-full"
+                    value={form.agent_party_id}
+                    onChange={(e) => setForm((f) => ({ ...f, agent_party_id: e.target.value }))}>
+                    <option value="">--- none ---</option>
+                    {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="fp-comm-type">Commission basis</label>
+                  <select id="fp-comm-type" className="input w-full"
+                    value={form.commission_type}
+                    disabled={form.agent_party_id === ''}
+                    onChange={(e) => setForm((f) => ({ ...f, commission_type: e.target.value as CommType }))}>
+                    <option value="pcs">Per pc</option>
+                    <option value="metre">Per metre</option>
+                    <option value="percent">% of value</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="fp-comm-rate">
+                    {form.commission_type === 'percent' ? 'Rate (%)'
+                      : form.commission_type === 'metre' ? 'Rate (Rs/metre)' : 'Rate (Rs/pc)'}
+                  </label>
+                  <input id="fp-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
+                    value={form.commission_rate}
+                    disabled={form.agent_party_id === ''}
+                    onChange={(e) => setForm((f) => ({ ...f, commission_rate: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Commission (auto)</label>
+                  <div className="input num bg-amber-50 text-amber-800 font-semibold select-none">
+                    {fmtMoney(commissionPreview)}
+                  </div>
+                </div>
+              </div>
+              {form.agent_party_id !== '' && form.commission_type !== 'percent'
+                && ((form.commission_type === 'metre') !== (form.rate_unit === 'm')) && (
+                <p className="text-[11px] text-amber-700">
+                  This basis bills on {form.commission_type === 'metre' ? 'metres' : 'pieces'}, but the
+                  purchase is entered in {form.rate_unit === 'm' ? 'metres' : 'pieces'}. Switch the basis
+                  (or use % of value) so the commission isn&apos;t zero.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Customer-adjustment: pick which unpaid bills this fabric
               value should settle. Hidden in supplier mode. */}
           {editingId === null && form.source === 'customer' && pickedPartyId !== null && (
@@ -688,6 +868,8 @@ export function FabricPurchaseLog(): React.ReactElement {
                 <th className="text-right px-3 py-3">Rate (Rs)</th>
                 <th className="text-right px-3 py-3">GST %</th>
                 <th className="text-right px-3 py-3">Total Rs</th>
+                <th className="text-left  px-3 py-3 hidden lg:table-cell">Agent</th>
+                <th className="text-right px-3 py-3">Commission Rs</th>
                 <th className="text-left  px-3 py-3">Delivery</th>
                 <th className="text-left  px-3 py-3">Date</th>
                 <th className="text-left  px-3 py-3 hidden lg:table-cell">Invoice</th>
@@ -695,7 +877,9 @@ export function FabricPurchaseLog(): React.ReactElement {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                const comm = commByPurchase.get(r.id);
+                return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 font-mono text-xs">{r.code}</td>
                   <td className="px-3 py-3 font-semibold">{qualityLabel(r)}</td>
@@ -709,6 +893,8 @@ export function FabricPurchaseLog(): React.ReactElement {
                   <td className="px-3 py-3 text-right num">{fmtMoney(Number(r.rate))}</td>
                   <td className="px-3 py-3 text-right num">{Number(r.gst_pct)}</td>
                   <td className="px-3 py-3 text-right num font-semibold text-emerald-700">{fmtMoney(Number(r.total_amount))}</td>
+                  <td className="px-3 py-3 hidden lg:table-cell text-ink-soft">{comm ? agentLabel(comm.agent_party_id) : '-'}</td>
+                  <td className="px-3 py-3 text-right num text-amber-700">{comm ? fmtMoney(Number(comm.amount)) : '-'}</td>
                   <td className="px-3 py-3 text-ink-soft">{deliveryLabel(r.delivery_destination)}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(r.received_date)}</td>
                   <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{r.invoice_no ?? '-'}</td>
@@ -725,7 +911,8 @@ export function FabricPurchaseLog(): React.ReactElement {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

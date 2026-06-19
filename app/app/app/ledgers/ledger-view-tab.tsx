@@ -314,11 +314,12 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       if (endDate)   fabQ = fabQ.lte('received_date', endDate);
 
       // Agent / broker commission we owe this party. The amount is a
-      // payable (what WE owe the agent) earned on a fabric invoice. It
-      // has no date column of its own, so we carry the invoice's date
-      // and number and filter by the chosen range client-side below.
+      // payable (what WE owe the agent) earned on a fabric sales invoice
+      // OR a yarn / fabric purchase. It has no date column of its own, so
+      // we carry the source document's date and number and filter by the
+      // chosen range client-side below.
       const agentCommQ = sb.from('agent_commission')
-        .select('id, amount, invoice:invoice_id ( invoice_no, invoice_date )')
+        .select('id, amount, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
         .eq('status', 'active')
         .in('agent_party_id', partyIds);
 
@@ -556,8 +557,17 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     for (const r of ((agentRes.data ?? []) as any[])) {
       const amt = Number(r.amount ?? 0);
       if (amt <= 0) continue;
-      const inv = r.invoice ?? {};
-      const date = (inv.invoice_date ?? null) as string | null;
+      // The commission points at exactly one source document: a fabric
+      // sales invoice, a yarn lot, or a fabric purchase. Pull the date
+      // and voucher from whichever one is set.
+      const inv  = r.invoice ?? null;
+      const yarn = r.yarn_lot ?? null;
+      const fab  = r.fabric_purchase ?? null;
+      let date: string | null = null;
+      let voucher = `AC-${r.id}`;
+      if (inv) { date = inv.invoice_date ?? null; voucher = inv.invoice_no ?? voucher; }
+      else if (yarn) { date = yarn.received_date ?? null; voucher = yarn.lot_code ?? voucher; }
+      else if (fab)  { date = fab.received_date ?? null;  voucher = fab.code ?? voucher; }
       if (!date) continue;
       if (startDate && date < startDate) continue;
       if (endDate && date > endDate) continue;
@@ -566,7 +576,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         source:       'bill',
         bill_kind:    'commission',
         date,
-        voucher:      inv.invoice_no ?? `AC-${r.id}`,
+        voucher,
         counterparty: '—',
         mode:         'Agent Commission',
         reference:    null,

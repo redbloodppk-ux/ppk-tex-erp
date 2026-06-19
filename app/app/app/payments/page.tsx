@@ -393,7 +393,7 @@ function NewPaymentTab(): React.ReactElement {
         .gt('total_amount', 0),
       // Agent / broker commission owed to this party (from fabric invoices).
       sb.from('agent_commission')
-        .select('id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date )')
+        .select('id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
         .eq('agent_party_id', party.id)
         .eq('status', 'active')
         .gt('balance', 0),
@@ -495,17 +495,25 @@ function NewPaymentTab(): React.ReactElement {
     const agentBills: UnpaidBill[] = ((agentRes?.data ?? []) as Array<{
       id: number; amount: number | string; amount_paid: number | string; balance: number | string;
       invoice: { invoice_no: string | null; invoice_date: string | null } | null;
+      yarn_lot: { lot_code: string | null; received_date: string | null } | null;
+      fabric_purchase: { code: string | null; received_date: string | null } | null;
     }>).filter((r) => Number(r.balance ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'agent',
-         id: r.id,
-         invoice_no: r.invoice?.invoice_no ? `${r.invoice.invoice_no} (Comm)` : `COMM-${r.id}`,
-         invoice_date: r.invoice?.invoice_date ?? '',
-         doc_type: 'agent_commission',
-         total: r.amount,
-         amount_paid: r.amount_paid,
-         balance: r.balance,
-       }));
+       .map((r) => {
+         // Commission points at one source: fabric sales invoice, yarn
+         // lot, or fabric purchase. Label + date come from whichever set.
+         const srcNo = r.invoice?.invoice_no ?? r.yarn_lot?.lot_code ?? r.fabric_purchase?.code ?? null;
+         const srcDate = r.invoice?.invoice_date ?? r.yarn_lot?.received_date ?? r.fabric_purchase?.received_date ?? '';
+         return {
+           kind: 'agent' as const,
+           id: r.id,
+           invoice_no: srcNo ? `${srcNo} (Comm)` : `COMM-${r.id}`,
+           invoice_date: srcDate,
+           doc_type: 'agent_commission',
+           total: r.amount,
+           amount_paid: r.amount_paid,
+           balance: r.balance,
+         };
+       });
 
     // Sort merged list by date (oldest first) so the operator's mental
     // model is "settle the oldest bill first" regardless of source.
