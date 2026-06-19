@@ -295,7 +295,7 @@ export default async function DcPrintPage({
         .dc-item .summary td { padding: 3px 0; }
         .dc-item .summary td.l { color: #222; font-weight: 700; }
         .dc-item .summary td.v { text-align: right; font-weight: 800; font-size: 12px; }
-        .dc-vehicle { border: 1px solid #000; border-top: none; padding: 5px 12px; font-size: 12px; font-weight: 700; }
+        .notforsale { font-size: 13px; font-weight: 900; color: #000; letter-spacing: 1.5px; border: 1.6px solid #000; padding: 1px 9px; white-space: nowrap; }
         /* Signature footer block — margin-top:auto pushes it to the
            bottom of the dc-sheet flex column, so it sits at the bottom
            of the last printed page even when bundle content is short.
@@ -306,10 +306,10 @@ export default async function DcPrintPage({
            Keeping them grouped stops the address/totals from being shoved
            onto a second page. page-break-inside:avoid keeps the unit whole. */
         .dc-bottom { margin-top: auto; }
-        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 76px; }
-        .dc-foot > div { padding: 7px 12px; font-size: 12px; font-weight: 700; }
+        .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 100px; }
+        .dc-foot > div { padding: 9px 12px; font-size: 12px; font-weight: 700; }
         .dc-foot > div + div { border-left: 0.5px solid #000; text-align: center; }
-        .dc-foot .sig { font-weight: 800; margin-bottom: 22px; font-size: 12px; letter-spacing: 0.4px; }
+        .dc-foot .sig { font-weight: 800; margin-bottom: 34px; font-size: 12px; letter-spacing: 0.4px; }
         .dc-foot .auth { font-weight: 800; letter-spacing: 0.6px; font-size: 12px; }
         .dc-foot .seal { color: #333; font-weight: 700; letter-spacing: 0.5px; margin-top: 6px; text-align: center; font-size: 11px; }
         .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 11px; font-weight: 700; line-height: 1.55; }
@@ -350,8 +350,16 @@ export default async function DcPrintPage({
         {/* ───── Delivery Details section ───── */}
         <div className="dc-secbar">DELIVERY DETAILS :</div>
         <div className="dc-deliv">
-          <div style={{ fontSize: 11, color: '#555' }}>
-            Mode: <span style={{ fontWeight: 700, color: '#111', textTransform: 'capitalize' }}>{dc.production_mode}</span>
+          <div style={{ fontSize: 12, color: '#555' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span>Mode: <span style={{ fontWeight: 700, color: '#111', textTransform: 'capitalize' }}>{dc.production_mode}</span></span>
+              {dc.production_mode === 'jobwork' && (
+                <span className="notforsale">NOT FOR SALES</span>
+              )}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              Vehicle No: <span style={{ fontWeight: 700, color: '#111' }}>{dc.vehicle_no || '-'}</span>
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div className="for">FOR, {COMPANY.name}</div>
@@ -509,17 +517,13 @@ export default async function DcPrintPage({
         {/* ───── Bottom block: vehicle + signatures + address + totals.
               Grouped so they sit together at the page bottom on ONE page. ───── */}
         <div className="dc-bottom">
-        <div className="dc-vehicle">
-          <b style={{ letterSpacing: 0.5 }}>VEHICLE NUM :</b> {dc.vehicle_no || '-'}
-        </div>
-
         <div className="dc-foot">
           <div>
             <div className="sig">RECEIVER&apos;S SIGNATURE &amp; DATE</div>
             <div className="seal">COMMON SEAL</div>
           </div>
           <div>
-            <div style={{ marginBottom: 22 }}>FOR, {COMPANY.name}</div>
+            <div style={{ marginBottom: 34 }}>FOR, {COMPANY.name}</div>
             <div className="auth">AUTHORISED SIGNATORY</div>
           </div>
         </div>
