@@ -270,7 +270,12 @@ export default async function AgentCommissionPrintPage({
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-ink pb-3 mb-4">
           <div>
-            <BrandLogo variant="horizontal" height={46} tagline="" />
+            <div className="flex items-center gap-2.5 mb-1">
+              <BrandLogo variant="mark" height={56} />
+              <span className="text-4xl font-display font-extrabold tracking-tight text-ink leading-none">
+                {cp.display_name ?? 'PPK TEX'}
+              </span>
+            </div>
             {companyAddress && (
               <pre className="text-xs text-ink-soft mt-0.5 whitespace-pre-line font-sans">
                 {companyAddress}
