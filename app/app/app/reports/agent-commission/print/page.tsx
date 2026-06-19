@@ -11,6 +11,7 @@
  * Source: view `public.v_agent_commission_report` (migration 206).
  */
 import { createClient } from '@/lib/supabase/server';
+import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
 
 export const metadata = { title: 'Agent Commission' };
@@ -185,7 +186,6 @@ export default async function AgentCommissionPrintPage({
     pincode?: string;
     phone?: string;
   };
-  const companyName = cp.legal_name ?? cp.display_name ?? 'Your Company';
   const companyAddress = [
     cp.address_line1,
     cp.address_line2,
@@ -228,7 +228,13 @@ export default async function AgentCommissionPrintPage({
     a.balance += Number(r.commission_balance ?? 0);
     a.docs += 1;
   }
-  const agents = Array.from(byAgent.values()).sort((x, y) => y.comm - x.comm);
+  const allAgents = Array.from(byAgent.values()).sort((x, y) => y.comm - x.comm);
+
+  const selectedAgent = agentIdNum != null ? byAgent.get(agentIdNum) ?? null : null;
+
+  // When the report is filtered to one agent, the summary band + table show
+  // just that agent; otherwise every agent in the window.
+  const agents = selectedAgent ? [selectedAgent] : allAgents;
 
   const tSalesBiz = agents.reduce((s, a) => s + a.salesBiz, 0);
   const tSalesComm = agents.reduce((s, a) => s + a.salesComm, 0);
@@ -237,8 +243,6 @@ export default async function AgentCommissionPrintPage({
   const tComm = agents.reduce((s, a) => s + a.comm, 0);
   const tPaid = agents.reduce((s, a) => s + a.paid, 0);
   const tBalance = agents.reduce((s, a) => s + a.balance, 0);
-
-  const selectedAgent = agentIdNum != null ? byAgent.get(agentIdNum) ?? null : null;
   const detailRows =
     agentIdNum != null
       ? rows
@@ -266,7 +270,7 @@ export default async function AgentCommissionPrintPage({
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-ink pb-3 mb-4">
           <div>
-            <h1 className="text-2xl font-display font-extrabold tracking-tight">{companyName}</h1>
+            <BrandLogo variant="horizontal" height={46} tagline="" />
             {companyAddress && (
               <pre className="text-xs text-ink-soft mt-0.5 whitespace-pre-line font-sans">
                 {companyAddress}
