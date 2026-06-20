@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
-  Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
+  Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   ChevronRight, FileText,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
@@ -184,11 +184,31 @@ function loadStoredOpen(): Set<GroupKey> {
 function NavBody({
   role,
   onItemClick,
+  onIndigo = false,
 }: {
   role: Role;
   onItemClick?: () => void;
+  /** Render on a dark indigo background (mobile push-menu) with light text
+   *  instead of the default light-surface styling. */
+  onIndigo?: boolean;
 }) {
   const pathname = usePathname();
+  // Theme tokens so the same nav can sit on a light surface (desktop) or on
+  // the indigo push-menu (mobile) without duplicating markup.
+  const itemBase = 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors';
+  const itemActive = onIndigo ? 'bg-white/20 text-white' : 'bg-indigo/10 text-indigo';
+  const itemIdle = onIndigo
+    ? 'text-white/75 hover:bg-white/10 hover:text-white'
+    : 'text-ink-soft hover:bg-cloud hover:text-ink';
+  const iconActiveCls = onIndigo ? 'text-white' : 'text-indigo';
+  const iconIdleCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+  const groupBtnCls = onIndigo
+    ? 'text-white/85 hover:bg-white/10 hover:text-white'
+    : 'text-ink-soft hover:bg-cloud/60 hover:text-ink';
+  const groupIconCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+  const chevronCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+  const groupBorderCls = onIndigo ? 'border-white/20' : 'border-line/40';
+  const bottomBorderCls = onIndigo ? 'border-white/20' : 'border-line/60';
   const visible = NAV.filter(n => n.roles.includes(role));
   // 'home' is special: items with this group key render as flat links
   // at the very top of the sidebar without a group header (Dashboard).
@@ -296,14 +316,9 @@ function NavBody({
                     collapseAllGroups();
                     if (onItemClick) onItemClick();
                   }}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-indigo/10 text-indigo'
-                      : 'text-ink-soft hover:bg-cloud hover:text-ink'
-                  )}
+                  className={cn(itemBase, active ? itemActive : itemIdle)}
                 >
-                  <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                  <Icon className={cn('w-4 h-4 shrink-0', active ? iconActiveCls : iconIdleCls)} />
                   <span className="truncate">{item.label}</span>
                 </Link>
               </li>
@@ -328,24 +343,25 @@ function NavBody({
               onClick={() => toggleGroup(group)}
               className={cn(
                 'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md',
-                'text-sm font-semibold text-ink-soft',
-                'hover:bg-cloud/60 hover:text-ink transition-colors',
+                'text-sm font-semibold transition-colors',
+                groupBtnCls,
               )}
               aria-expanded={isOpen}
             >
               <span className="flex items-center gap-2.5 min-w-0">
-                <GroupIcon className="w-4 h-4 shrink-0 text-ink-mute" />
+                <GroupIcon className={cn('w-4 h-4 shrink-0', groupIconCls)} />
                 <span className="truncate">{GROUP_LABEL[group]}</span>
               </span>
               <ChevronRight
                 className={cn(
-                  'w-4 h-4 shrink-0 text-ink-mute transition-transform duration-150',
+                  'w-4 h-4 shrink-0 transition-transform duration-150',
+                  chevronCls,
                   isOpen ? 'rotate-90' : 'rotate-0',
                 )}
               />
             </button>
             {isOpen && (
-              <ul className="mt-1 mb-2 space-y-0.5 pl-2 border-l border-line/40 ml-3">
+              <ul className={cn('mt-1 mb-2 space-y-0.5 pl-2 border-l ml-3', groupBorderCls)}>
                 {items.map(item => {
                   const active = pathname === item.href || pathname.startsWith(item.href + '/');
                   const Icon = item.icon;
@@ -354,14 +370,9 @@ function NavBody({
                       <Link
                         href={item.href}
                         onClick={onItemClick}
-                        className={cn(
-                          'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                          active
-                            ? 'bg-indigo/10 text-indigo'
-                            : 'text-ink-soft hover:bg-cloud hover:text-ink'
-                        )}
+                        className={cn(itemBase, active ? itemActive : itemIdle)}
                       >
-                        <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                        <Icon className={cn('w-4 h-4 shrink-0', active ? iconActiveCls : iconIdleCls)} />
                         <span className="truncate">{item.label}</span>
                       </Link>
                     </li>
@@ -379,7 +390,7 @@ function NavBody({
           divider above. Sits outside the scroll area so it never
           scrolls away. */}
       {bottomItems.length > 0 && (
-        <ul className="space-y-0.5 px-3 pt-3 pb-4 shrink-0 border-t border-line/60">
+        <ul className={cn('space-y-0.5 px-3 pt-3 pb-4 shrink-0 border-t', bottomBorderCls)}>
           {bottomItems.map(item => {
             const active = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
@@ -388,14 +399,9 @@ function NavBody({
                 <Link
                   href={item.href}
                   onClick={onItemClick}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-indigo/10 text-indigo'
-                      : 'text-ink-soft hover:bg-cloud hover:text-ink'
-                  )}
+                  className={cn(itemBase, active ? itemActive : itemIdle)}
                 >
-                  <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                  <Icon className={cn('w-4 h-4 shrink-0', active ? iconActiveCls : iconIdleCls)} />
                   <span className="truncate">{item.label}</span>
                 </Link>
               </li>
@@ -450,53 +456,37 @@ export function Sidebar({
         <Footer />
       </aside>
 
-      {/* Mobile drawer (below md) */}
-      <div
+      {/* Mobile push-menu (below md). Fixed to the left edge and pinned
+          BEHIND the page surface (z-0). AppShell scales + slides the page
+          aside to reveal this indigo menu — the iOS "slide menu" effect.
+          It only becomes interactive once the page has slid open. */}
+      <aside
         className={cn(
-          'md:hidden fixed inset-0 z-50 transition-opacity duration-200',
-          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+          'md:hidden fixed inset-y-0 left-0 z-0 w-[72%] max-w-xs',
+          'flex flex-col bg-indigo text-white',
+          mobileOpen ? 'pointer-events-auto' : 'pointer-events-none',
         )}
         aria-hidden={!mobileOpen}
       >
-        {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
+        <Link
+          href="/app/dashboard"
           onClick={onClose}
-        />
-
-        {/* Sliding panel */}
-        <aside
-          className={cn(
-            'absolute left-0 top-0 h-full w-72 max-w-[85%] bg-paper border-r border-line/60',
-            'flex flex-col shadow-xl transition-transform duration-200',
-            mobileOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
+          className="px-5 py-5 flex items-center gap-3 border-b border-white/15 hover:bg-white/5 transition-colors"
+          title="Go to dashboard"
         >
-          <div className="flex items-stretch border-b border-line/60">
-            <Link
-              href="/app/dashboard"
-              onClick={onClose}
-              className="flex-1 px-5 py-5 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
-              title="Go to dashboard"
-            >
-              <BrandLogo variant="mark" height={48} />
-              <div className="flex-1">
-                <div className="font-display font-extrabold text-ink leading-tight text-sm tracking-wider">PPK TEX</div>
-                <div className="text-[10px] uppercase tracking-wider text-ink-mute">Cloud ERP</div>
-              </div>
-            </Link>
-            <button
-              onClick={onClose}
-              className="px-3 hover:bg-cloud"
-              aria-label="Close menu"
-            >
-              <X className="w-5 h-5 text-ink-soft" />
-            </button>
+          <span className="bg-white/95 rounded-xl p-1.5 flex items-center justify-center">
+            <BrandLogo variant="mark" height={40} />
+          </span>
+          <div className="flex-1">
+            <div className="font-display font-extrabold leading-tight text-base tracking-wider">PPK TEX</div>
+            <div className="text-[10px] uppercase tracking-wider text-white/70">Cloud ERP</div>
           </div>
-          <NavBody role={role} onItemClick={onClose} />
-          <Footer />
-        </aside>
-      </div>
+        </Link>
+        <NavBody role={role} onItemClick={onClose} onIndigo />
+        <div className="px-4 py-3 border-t border-white/15 text-[10px] text-white/60">
+          v0.1 - {new Date().getFullYear()} PPK Tex Industries
+        </div>
+      </aside>
     </>
   );
 }

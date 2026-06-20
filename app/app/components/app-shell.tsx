@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { OfflineSync } from './offline-sync';
@@ -55,13 +56,30 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen flex bg-haze">
+    // overflow-x-hidden on mobile clips the page as it slides aside; reset
+    // to visible at md+ so the desktop sticky sidebar keeps working.
+    <div className="min-h-screen flex bg-haze relative overflow-x-hidden md:overflow-x-visible">
       <Sidebar
         role={role}
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
       />
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Page surface. On mobile, opening the menu pushes + scales this whole
+          surface aside (transform-origin center) to reveal the indigo menu
+          fixed behind it — the iOS "slide menu" effect. md+ is untouched. */}
+      <div
+        className={cn(
+          // relative z-10 keeps this surface painted ABOVE the fixed indigo
+          // push-menu (z-0) so the menu only shows once the page slides aside.
+          'relative z-10 flex-1 flex flex-col min-w-0 bg-haze',
+          'transition-transform duration-300 ease-out will-change-transform',
+          'md:transform-none md:transition-none',
+          mobileOpen
+            ? 'scale-[0.82] translate-x-[72%] rounded-3xl overflow-hidden shadow-2xl'
+            : '',
+        )}
+        style={{ transformOrigin: 'center' }}
+      >
         <UpdatePrompt />
         <OfflineBanner />
         <Topbar
@@ -72,6 +90,16 @@ export function AppShell({
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 overflow-x-hidden">
           {children}
         </main>
+        {/* While the menu is open the whole pushed-aside page becomes a
+            tap-to-close target (mobile only). */}
+        {mobileOpen && (
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+            className="md:hidden absolute inset-0 z-50"
+          />
+        )}
       </div>
       {/* OfflineSync renders the bottom-right "pending sync" pill;
           InstallPrompt renders the bottom-left "Install PPK TEX" pill.
