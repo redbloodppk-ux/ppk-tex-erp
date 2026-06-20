@@ -186,11 +186,10 @@ export default function ShiftLogPage(): React.ReactElement {
   const [shift, setShift] = useState<'day' | 'night'>('day');
   const [nightEnabled, setNightEnabled] = useState<boolean>(false);
   const [activeShed, setActiveShed] = useState<number>(1);
-  // Adjustment column is optional and per-shed — hidden by default, the
-  // operator opts in for a given shed when a manual +/- correction is
-  // needed (cut metres, fix, etc.). Stored as the set of shed numbers
-  // that currently show the column.
-  const [adjustmentSheds, setAdjustmentSheds] = useState<Set<number>>(new Set());
+  // Adjustment column is per-shed and shown by default. The operator can
+  // collapse it for a given shed when no manual +/- correction is needed.
+  // Stored as the set of shed numbers that currently show the column.
+  const [adjustmentSheds, setAdjustmentSheds] = useState<Set<number>>(new Set(SHEDS));
   const showAdjustment = adjustmentSheds.has(activeShed);
 
   const [looms, setLooms] = useState<Loom[]>([]);
@@ -380,16 +379,9 @@ export default function ShiftLogPage(): React.ReactElement {
 
     setSheds(next);
 
-    // Reflect saved adjustments in the per-shed toggle: a shed that has
-    // any non-zero saved adjustment opens its column automatically so the
-    // operator sees it; sheds without one start collapsed.
-    const shedsWithAdj = new Set<number>();
-    for (const s of next) {
-      if (s.loomRows.some((r) => r.adjustment.trim() !== '')) {
-        shedsWithAdj.add(s.shed_no);
-      }
-    }
-    setAdjustmentSheds(shedsWithAdj);
+    // Adjustment column is shown by default for every shed on each date
+    // load, so saved adjustments are always visible.
+    setAdjustmentSheds(new Set(SHEDS));
 
     setLoading(false);
   }, [supabase, looms, logDate, shift, loomsByShed]);
