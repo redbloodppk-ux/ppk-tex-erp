@@ -109,6 +109,19 @@ interface InhouseReceiptDc {
   dcItems?: InhouseDcItem[];
 }
 
+/** Un-invoiced DC for the Direct-from-Stock flow. We don't seed
+ *  invoice lines from these (the lines come from fabric stock) — the
+ *  linkage is status-only: ticking a DC stamps it invoiced on save so
+ *  its sales order advances via the DB trigger. */
+interface StockDc {
+  id: number;
+  code: string | null;
+  dc_date: string | null;
+  total_metres: number | string | null;
+  sales_order_id: number | null;
+  so_number: string | null;
+}
+
 interface Row {
   id: string;                    // local key only
   description: string;
@@ -197,6 +210,12 @@ export default function NewInvoicePage() {
   // Un-invoiced in-house fabric receipts (via their confirmed DCs).
   const [inhouseDcs,  setInhouseDcs]  = useState<InhouseReceiptDc[]>([]);
   const [pickedDcIds, setPickedDcIds] = useState<Set<number>>(new Set());
+  // Direct-from-Stock: un-invoiced DCs for the picked customer, an
+  // optional SO filter that auto-ticks its DCs, and the ticked set.
+  // Ticking stamps the DC invoiced on save so the SO advances.
+  const [stockDcs,        setStockDcs]        = useState<StockDc[]>([]);
+  const [stockSoId,       setStockSoId]       = useState('');
+  const [stockPickedDcIds, setStockPickedDcIds] = useState<Set<number>>(new Set());
   // doc_sequence rows so the form can preview the NEXT invoice number.
   const [docSequences, setDocSequences] = useState<Record<string, { prefix: string; fy_code: string; format: string; next_value: number }>>({});
 
@@ -511,6 +530,65 @@ export default function NewInvoicePage() {
     if (!cust) return null;
     return partyByName.get(cust.name.trim().toUpperCase()) ?? null;
   }, [customerId, customers, partyByName]);
+
+  // ── Direct-from-Stock: load the customer's un-invoiced DCs ─────────────────
+  // SO and DC are linked, so when billing direct from stock we let the
+  // operator tick the DCs this invoice fulfils. Ticking stamps them
+  // invoiced on save and the SO advances via its DB trigger. DCs are
+  // keyed on party.id (NOT customer.id — different sequences).
+  useEffect(() => {
+    if (docType !== 'tax_invoice' || sourceKind !== 'fabric_stock' || customerPartyId == null) {
+      setStockDcs([]);
+      setStockPickedDcIds(new Set());
+      setStockSoId('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any).from('delivery_challan')
+        .select('id, code, dc_date, total_metres, sales_order_id, so:sales_order_id ( so_number )')
+        .eq('party_id', customerPartyId)
+        .is('invoice_id', null)
+        .neq('status', 'cancelled')
+        .order('dc_date', { ascending: true })
+        .order('id', { ascending: true });
+      if (cancelled) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows: StockDc[] = (((data ?? []) as any[])).map((d) => ({
+        id: d.id,
+        code: d.code ?? null,
+        dc_date: d.dc_date ?? null,
+        total_metres: d.total_metres ?? null,
+        sales_order_id: d.sales_order_id ?? null,
+        so_number: d.so?.so_number ?? null,
+      }));
+      setStockDcs(rows);
+      setStockPickedDcIds(new Set());
+      setStockSoId('');
+    })();
+    return () => { cancelled = true; };
+  }, [docType, sourceKind, customerPartyId, supabase]);
+
+  // When an SO is picked in the Direct-from-Stock flow, auto-tick all
+  // of its un-invoiced DCs. The operator can still toggle individually.
+  useEffect(() => {
+    if (stockSoId === '') return;
+    const soId = Number(stockSoId);
+    setStockPickedDcIds((prev) => {
+      const next = new Set(prev);
+      for (const d of stockDcs) if (d.sales_order_id === soId) next.add(d.id);
+      return next;
+    });
+  }, [stockSoId, stockDcs]);
+
+  const toggleStockDc = (id: number): void => {
+    setStockPickedDcIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // ── reset source when doc type changes ─────────────────────────────────────
   useEffect(() => {
@@ -1231,6 +1309,20 @@ export default function NewInvoicePage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (supabase as any).from('fabric_purchase').update({ current_metres: newM }).eq('id', fp.id);
       }
+
+      // SO/DC linkage: stamp the ticked DCs invoiced so their linked
+      // sales order advances via the DB trigger. Status-only — invoice
+      // lines come from fabric stock above, not these DCs.
+      if (stockPickedDcIds.size > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error: dcErr } = await (supabase as any).from('delivery_challan')
+          .update({ invoice_id: inv.id, status: 'invoiced' })
+          .in('id', Array.from(stockPickedDcIds));
+        if (dcErr) {
+          setBusy(false);
+          return setError(`Invoice ${inv.invoice_no} created but marking the DCs invoiced failed: ${dcErr.message}`);
+        }
+      }
     }
 
     // Stock deduction for yarn_sale: subtract from yarn_lot.current_kg
@@ -1612,6 +1704,66 @@ export default function NewInvoicePage() {
                         Tick a receipt to copy its items into the lines below. On save, the picked DCs are
                         marked <span className="font-semibold">invoiced</span> and stop appearing here.
                       </p>
+                    </div>
+                  )
+                )}
+                {sourceKind === 'fabric_stock' && (
+                  customerId === '' ? (
+                    <p className="text-sm text-ink-soft">
+                      Pick a customer above to see their open delivery challans. The fabric lines come from
+                      stock below — ticking a DC just links it so its sales order advances.
+                    </p>
+                  ) : stockDcs.length === 0 ? (
+                    <p className="text-sm text-ink-soft">
+                      No un-invoiced delivery challans for this customer. You can still bill direct from stock —
+                      add the lines below.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="label">Fulfilling a Sales Order? (optional)</label>
+                      <select value={stockSoId} onChange={e => setStockSoId(e.target.value)} className="input">
+                        <option value="">— none / pick DCs manually —</option>
+                        {salesOrders.filter(s => s.customer_id === Number(customerId)).map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.so_number} · ₹{Number(s.total).toFixed(2)} · {s.status}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-ink-mute">
+                        Picking an SO auto-ticks its delivery challans below. You can still tick/untick any DC.
+                      </p>
+                      <div className="border border-line/40 rounded-md overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
+                            <tr>
+                              <th className="px-2 py-2" />
+                              <th className="text-left  px-2 py-2">DC</th>
+                              <th className="text-left  px-2 py-2">Date</th>
+                              <th className="text-left  px-2 py-2">Sales Order</th>
+                              <th className="text-right px-2 py-2">Metres</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stockDcs.map((d) => (
+                              <tr key={d.id}
+                                className={`border-t border-line/40 cursor-pointer ${stockPickedDcIds.has(d.id) ? 'bg-indigo-50/50' : 'hover:bg-haze/60'}`}
+                                onClick={() => toggleStockDc(d.id)}>
+                                <td className="px-2 py-1.5">
+                                  <input type="checkbox" readOnly checked={stockPickedDcIds.has(d.id)} className="w-4 h-4 accent-indigo-600" />
+                                </td>
+                                <td className="px-2 py-1.5 font-mono">{d.code ?? '—'}</td>
+                                <td className="px-2 py-1.5 text-ink-soft">{d.dc_date ?? '—'}</td>
+                                <td className="px-2 py-1.5 font-mono">{d.so_number ?? <span className="text-ink-mute">—</span>}</td>
+                                <td className="px-2 py-1.5 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="text-[10px] text-ink-mute px-2 py-1.5 border-t border-line/40">
+                          On save, the ticked DCs are marked <span className="font-semibold">invoiced</span> so their
+                          sales order advances. Fabric lines still come from stock below.
+                        </p>
+                      </div>
                     </div>
                   )
                 )}
