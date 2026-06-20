@@ -14,7 +14,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Save, Trash2 } from 'lucide-react';
+import { Loader2, Save, Trash2, RotateCcw } from 'lucide-react';
 
 export interface PartyOpt {
   id: number;
@@ -30,6 +30,7 @@ export interface GeneralPurchaseInitial {
   description?: string;
   taxable?: number | string;
   gst_pct?: number | string;
+  round_off?: number | string;
   status?: string;
 }
 
@@ -56,6 +57,10 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     taxable: initial?.taxable != null ? String(initial.taxable) : '',
     gst_pct: initial?.gst_pct != null ? String(initial.gst_pct) : '0',
   });
+  // Round Off: auto-fills with the nearest-rupee adjustment but stays editable.
+  // While untouched we show the auto value; the operator can override it.
+  const [roundOff, setRoundOff] = useState<string>(initial?.round_off != null ? String(initial.round_off) : '');
+  const [roundOffTouched, setRoundOffTouched] = useState<boolean>(initial?.round_off != null && Number(initial.round_off) !== 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -85,13 +90,19 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     setPartyOpen(false);
   }
 
-  // Live total preview: taxable * (1 + gst/100), rounded to whole rupee
-  // for display (the DB stores 2-decimal precision via a generated col).
-  const total = useMemo(() => {
+  // Base = taxable * (1 + gst/100), to 2 decimals (matches the DB generated col).
+  const base = useMemo(() => {
     const t = Number(form.taxable) || 0;
     const g = Number(form.gst_pct) || 0;
     return Math.round(t * (1 + g / 100) * 100) / 100;
   }, [form.taxable, form.gst_pct]);
+
+  // Suggested round-off = adjustment to reach the nearest whole rupee.
+  const autoRoundOff = useMemo(() => Math.round((Math.round(base) - base) * 100) / 100, [base]);
+
+  // What we use: the operator's value once they've touched it, else the auto value.
+  const effectiveRoundOff = roundOffTouched ? (Number(roundOff) || 0) : autoRoundOff;
+  const grandTotal = Math.round((base + effectiveRoundOff) * 100) / 100;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
@@ -117,6 +128,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
       description: form.description.trim() || null,
       taxable,
       gst_pct: gst,
+      round_off: effectiveRoundOff,
     };
 
     if (isEdit && initial?.id != null) {
@@ -142,6 +154,19 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('general_purchase').update({ status: 'cancelled' }).eq('id', initial.id);
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    router.push('/app/general-purchases');
+    router.refresh();
+  }
+
+  async function onDeleteBill(): Promise<void> {
+    if (!isEdit || initial?.id == null) return;
+    if (!window.confirm('Delete this general purchase bill permanently? This removes the row entirely and cannot be undone.')) return;
+    setBusy(true); setError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error: err } = await sb.from('general_purchase').delete().eq('id', initial.id);
     setBusy(false);
     if (err) { setError(err.message); return; }
     router.push('/app/general-purchases');
@@ -215,27 +240,61 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
             className="input num text-right" placeholder="0" />
         </div>
         <div>
-          <label className="label">Total with GST (₹)</label>
+          <label className="label">Subtotal (Taxable + GST)</label>
+          <div className="input num text-right bg-line/30 flex items-center justify-end">
+            ₹ {base.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="md:col-start-2">
+          <label className="label flex items-center justify-between">
+            <span>Round Off (₹)</span>
+            {roundOffTouched && (
+              <button type="button"
+                onClick={() => { setRoundOffTouched(false); setRoundOff(''); }}
+                className="text-[11px] text-indigo inline-flex items-center gap-0.5"
+                title="Reset to the auto nearest-rupee value">
+                <RotateCcw className="w-3 h-3" /> auto
+              </button>
+            )}
+          </label>
+          <input type="number" step={0.01}
+            value={roundOffTouched ? roundOff : (autoRoundOff !== 0 ? String(autoRoundOff) : '0.00')}
+            onChange={(e) => { setRoundOffTouched(true); setRoundOff(e.target.value); }}
+            className="input num text-right" placeholder="0.00" />
+        </div>
+        <div>
+          <label className="label">Grand Total (₹)</label>
           <div className="input num text-right bg-indigo/5 text-indigo font-bold flex items-center justify-end">
-            ₹ {total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
 
       <p className="text-[11px] text-ink-mute">
-        Total = Taxable × (1 + GST%). This bill appears in the Purchase Register only — there is no payment tracking here.
+        Subtotal = Taxable × (1 + GST%). Grand Total = Subtotal + Round Off (auto-set to the nearest rupee, editable).
+        This bill appears in the Purchase Register only — there is no payment tracking here.
       </p>
 
       {error && <div className="p-3 rounded-lg bg-rose-50 text-rose-800 text-sm">{error}</div>}
       {okMsg && <div className="p-3 rounded-lg bg-emerald-50 text-emerald-800 text-sm">{okMsg}</div>}
 
       <div className="flex justify-between gap-2 pt-2">
-        <div>
+        <div className="flex gap-2">
           {isEdit && (
             <button type="button" onClick={onCancelBill} disabled={busy}
               className="btn-ghost text-rose-700 text-xs"
               title="Soft-cancel: status='cancelled'. The row stays for audit.">
               <Trash2 className="w-3.5 h-3.5" /> Cancel bill
+            </button>
+          )}
+          {isEdit && (
+            <button type="button" onClick={onDeleteBill} disabled={busy}
+              className="btn-ghost text-rose-800 text-xs"
+              title="Permanently delete this bill row.">
+              <Trash2 className="w-3.5 h-3.5" /> Delete
             </button>
           )}
         </div>

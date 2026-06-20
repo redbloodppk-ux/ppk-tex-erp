@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 
 type YarnKind = 'yarn' | 'porvai';
 type Delivery = 'in_house' | 'sizing';
@@ -43,6 +43,7 @@ interface Lot {
   received_kg: number;
   cost_per_kg: number;
   gst_pct: number;
+  round_off: number;
   total_amount: number;
   invoice_no: string | null;
   notes: string | null;
@@ -79,6 +80,7 @@ interface FormState {
   received_kg: string;
   cost_per_kg: string;
   gst_pct: string;
+  round_off: string;
   invoice_no: string;
   notes: string;
   delivery_destination: Delivery;
@@ -97,6 +99,7 @@ const EMPTY: FormState = {
   received_kg: '',
   cost_per_kg: '',
   gst_pct: '5',
+  round_off: '',
   invoice_no: '',
   notes: '',
   delivery_destination: 'in_house',
@@ -154,6 +157,8 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
+  // Round Off: auto-fills to the nearest rupee but stays editable.
+  const [roundOffTouched, setRoundOffTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -170,7 +175,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
     const [lotRes, countRes, suppRes, agentTypeRes, partyRes, commRes] = await Promise.all([
       sb.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, total_amount, invoice_no, notes, delivery_destination, bag_count')
+        .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, round_off, total_amount, invoice_no, notes, delivery_destination, bag_count')
         .eq('yarn_kind', yarnKind)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -227,14 +232,22 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
   useEffect(() => { void load(); }, [load]);
 
-  const totalPreview = useMemo<number>(() => {
+  // Subtotal (qty × rate + GST, 2 decimals); autoRoundOff snaps it to the
+  // nearest whole rupee. Grand Total = base + Round Off (auto, editable).
+  const billing = useMemo(() => {
     const qty = toNumOrNull(form.received_kg) ?? 0;
     const rate = toNumOrNull(form.cost_per_kg) ?? 0;
     const gst = toNumOrNull(form.gst_pct) ?? 0;
-    return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
+    const base = Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
+    const autoRoundOff = Math.round((Math.round(base) - base) * 100) / 100;
+    return { base, autoRoundOff };
   }, [form.received_kg, form.cost_per_kg, form.gst_pct]);
 
-  // Commission preview: per bag = bags * rate; percent = total * rate / 100.
+  const effectiveRoundOff = roundOffTouched ? (toNumOrNull(form.round_off) ?? 0) : billing.autoRoundOff;
+  const grandTotal = Math.round((billing.base + effectiveRoundOff) * 100) / 100;
+
+  // Commission preview: per bag = bags * rate; percent = base * rate / 100
+  // (commission is on the pre-round bill value, not the rounded total).
   const commissionPreview = useMemo<number>(() => {
     const rate = toNumOrNull(form.commission_rate) ?? 0;
     if (form.agent_party_id === '' || rate <= 0) return 0;
@@ -242,12 +255,13 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       const bags = toNumOrNull(form.bag_count) ?? 0;
       return Math.round(bags * rate * 100) / 100;
     }
-    return Math.round(totalPreview * rate / 100 * 100) / 100;
-  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.bag_count, totalPreview]);
+    return Math.round(billing.base * rate / 100 * 100) / 100;
+  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.bag_count, billing.base]);
 
   function openNewForm() {
     setEditingId(null);
     setForm({ ...EMPTY, received_date: todayISO() });
+    setRoundOffTouched(false);
     setFormOpen(true);
     setSavedMsg(null);
     setError(null);
@@ -267,6 +281,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       if (Number.isFinite(diff) && diff >= 0) dueDays = String(diff);
     }
     const comm = commByLot.get(l.id);
+    setRoundOffTouched(l.round_off != null && Number(l.round_off) !== 0);
     setForm({
       yarn_count_id:        String(l.yarn_count_id),
       supplier_party_id:    l.supplier_party_id === null ? '' : String(l.supplier_party_id),
@@ -275,6 +290,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       received_kg:          String(l.received_kg),
       cost_per_kg:          String(l.cost_per_kg),
       gst_pct:              String(l.gst_pct),
+      round_off:            l.round_off != null ? String(l.round_off) : '',
       invoice_no:           l.invoice_no ?? '',
       notes:                l.notes ?? '',
       delivery_destination: l.delivery_destination,
@@ -336,6 +352,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       received_kg: receivedKg,
       cost_per_kg: costPerKg,
       gst_pct: gst,
+      round_off: effectiveRoundOff,
       invoice_no: form.invoice_no.trim(),
       notes: form.notes.trim() === '' ? null : form.notes.trim(),
       delivery_destination: form.delivery_destination,
@@ -528,9 +545,31 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>
             <div>
-              <label className="label">Total (auto)</label>
+              <label className="label">Subtotal (auto)</label>
+              <div className="input num bg-cloud/60 text-ink-soft font-medium select-none">
+                {fmtMoney(billing.base)}
+              </div>
+            </div>
+            <div>
+              <label className="label flex items-center justify-between">
+                <span>Round Off</span>
+                {roundOffTouched && (
+                  <button type="button"
+                    onClick={() => { setRoundOffTouched(false); setForm((f) => ({ ...f, round_off: '' })); }}
+                    className="text-[11px] text-indigo-600 inline-flex items-center gap-0.5"
+                    title="Reset to the auto nearest-rupee value">
+                    <RotateCcw className="w-3 h-3" /> auto
+                  </button>
+                )}
+              </label>
+              <input type="number" step="0.01" className="input num w-full"
+                value={roundOffTouched ? form.round_off : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
+                onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
+            </div>
+            <div>
+              <label className="label">Grand Total (auto)</label>
               <div className="input num bg-emerald-50 text-emerald-800 font-semibold select-none">
-                {fmtMoney(totalPreview)}
+                {fmtMoney(grandTotal)}
               </div>
             </div>
 

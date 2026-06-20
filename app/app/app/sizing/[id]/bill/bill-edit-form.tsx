@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, RotateCcw } from 'lucide-react';
 
 export interface BillEditSeed {
   id: number;
@@ -27,6 +27,7 @@ export interface BillEditSeed {
   bill_date: string;        // YYYY-MM-DD
   sizing_rate_per_kg: number;
   gst_pct: number;
+  round_off?: number;
 }
 
 interface Props {
@@ -46,23 +47,28 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
   const [rate,     setRate]     = useState<string>(String(seed.sizing_rate_per_kg ?? 0));
   const [gstPct,   setGstPct]   = useState<string>(String(seed.gst_pct ?? 0));
 
+  // Round Off: auto-fills to the nearest rupee but stays editable.
+  const [roundOff, setRoundOff] = useState<string>(seed.round_off != null ? String(seed.round_off) : '');
+  const [roundOffTouched, setRoundOffTouched] = useState<boolean>(seed.round_off != null && Number(seed.round_off) !== 0);
+
   const [busy,  setBusy]  = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Charges multiply against Yarn Used (kg). Bill totals are rounded
-  // to whole rupees — line-level GST stays at 2 decimals, the bill's
-  // grand total snaps to the nearest rupee.
+  // Charges = Yarn Used (kg) × Rate (rounded to whole rupee). The base total
+  // keeps 2 decimals; Round Off (auto = nearest rupee, editable) is added on
+  // top to produce the Grand Total that is stored and reconciled.
   const billing = useMemo(() => {
     const kg = seed.yarn_used_kg;
     const r  = Number(rate)   || 0;
     const g  = Number(gstPct) || 0;
-    const chargesRaw = kg * r;
-    const totalRaw   = chargesRaw * (1 + g / 100);
-    return {
-      charges: Math.round(chargesRaw),
-      total:   Math.round(totalRaw),
-    };
+    const charges = Math.round(kg * r);
+    const base    = Math.round(charges * (1 + g / 100) * 100) / 100;
+    const autoRoundOff = Math.round((Math.round(base) - base) * 100) / 100;
+    return { charges, base, autoRoundOff };
   }, [seed.yarn_used_kg, rate, gstPct]);
+
+  const effectiveRoundOff = roundOffTouched ? (Number(roundOff) || 0) : billing.autoRoundOff;
+  const grandTotal = Math.round((billing.base + effectiveRoundOff) * 100) / 100;
 
   async function handleSave(): Promise<void> {
     setError(null);
@@ -80,7 +86,8 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
         sizing_rate_per_kg: Number(rate)   || 0,
         gst_pct:            Number(gstPct) || 0,
         charges_amount:     billing.charges,
-        total_amount:       billing.total,
+        round_off:          effectiveRoundOff,
+        total_amount:       grandTotal,
       })
       .eq('id', seed.id);
     if (updErr) {
@@ -162,15 +169,35 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
             </div>
           </div>
           <div>
-            <label className="label">Total with GST (₹)</label>
+            <label className="label flex items-center justify-between">
+              <span>Round Off (₹)</span>
+              {roundOffTouched && (
+                <button type="button"
+                  onClick={() => { setRoundOffTouched(false); setRoundOff(''); }}
+                  className="text-[11px] text-indigo inline-flex items-center gap-0.5"
+                  title="Reset to the auto nearest-rupee value">
+                  <RotateCcw className="w-3 h-3" /> auto
+                </button>
+              )}
+            </label>
+            <input type="number" step="0.01"
+              value={roundOffTouched ? roundOff : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
+              onChange={(e) => { setRoundOffTouched(true); setRoundOff(e.target.value); }}
+              className="input num" />
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-4 gap-4">
+          <div className="sm:col-start-4">
+            <label className="label">Grand Total (₹)</label>
             <div className="input num bg-indigo/5 text-indigo font-bold flex items-center">
-              ₹ {billing.total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              ₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         </div>
 
         <p className="text-[11px] text-ink-mute">
-          Charges = Yarn Used (kg) × Rate. Bill totals are rounded to whole rupees.
+          Charges = Yarn Used (kg) × Rate. Grand Total = Charges + GST + Round Off (auto-set to the nearest rupee, editable).
         </p>
       </div>
 

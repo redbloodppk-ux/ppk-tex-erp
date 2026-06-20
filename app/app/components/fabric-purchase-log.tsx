@@ -22,7 +22,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '@/app/components/unpaid-bills-picker';
-import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 
 type RateUnit = 'm' | 'pcs';
 type Delivery = 'in_house' | 'sizing';
@@ -45,6 +45,7 @@ interface FabricRow {
   rate_unit: RateUnit;
   rate: number;
   gst_pct: number;
+  round_off: number;
   total_amount: number;
   invoice_no: string | null;
   notes: string | null;
@@ -92,6 +93,7 @@ interface FormState {
   rate_unit:            RateUnit;
   rate:                 string;
   gst_pct:              string;
+  round_off:            string;
   invoice_no:           string;
   notes:                string;
   delivery_destination: Delivery;
@@ -111,6 +113,7 @@ const EMPTY: FormState = {
   rate_unit:            'm',
   rate:                 '',
   gst_pct:              '5',
+  round_off:            '',
   invoice_no:           '',
   notes:                '',
   delivery_destination: 'in_house',
@@ -163,6 +166,8 @@ export function FabricPurchaseLog(): React.ReactElement {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form,      setForm]      = useState<FormState>(EMPTY);
   const [busy,      setBusy]      = useState(false);
+  // Round Off: auto-fills to the nearest rupee but stays editable.
+  const [roundOffTouched, setRoundOffTouched] = useState(false);
   // Customer-mode allocation state — emitted from UnpaidBillsPicker.
   const [customerAllocs, setCustomerAllocs] = useState<BillAllocation[]>([]);
 
@@ -185,7 +190,7 @@ export function FabricPurchaseLog(): React.ReactElement {
 
     const [rowsRes, qRes, sRes, cRes, agentTypeRes, partyRes, commRes] = await Promise.all([
       sb.from('fabric_purchase')
-        .select('id, code, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, total_amount, invoice_no, notes, delivery_destination')
+        .select('id, code, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, round_off, total_amount, invoice_no, notes, delivery_destination')
         .eq('status', 'active')
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -245,15 +250,20 @@ export function FabricPurchaseLog(): React.ReactElement {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Total preview matches the DB GENERATED column:
-  //   qty × rate × (1 + gst/100), where qty is whatever the operator
-  //   entered in the single Quantity field.
-  const totalPreview = useMemo<number>(() => {
+  // Subtotal matches the pre-round part of the DB GENERATED column:
+  //   qty × rate × (1 + gst/100). autoRoundOff snaps it to the nearest
+  //   whole rupee; Grand Total = base + Round Off (auto, editable).
+  const billing = useMemo(() => {
     const rate = toNumOrNull(form.rate) ?? 0;
     const gst  = toNumOrNull(form.gst_pct) ?? 0;
     const qty  = toNumOrNull(form.quantity) ?? 0;
-    return Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
+    const base = Math.round(qty * rate * (1 + gst / 100) * 100) / 100;
+    const autoRoundOff = Math.round((Math.round(base) - base) * 100) / 100;
+    return { base, autoRoundOff };
   }, [form.quantity, form.rate, form.gst_pct]);
+
+  const effectiveRoundOff = roundOffTouched ? (toNumOrNull(form.round_off) ?? 0) : billing.autoRoundOff;
+  const grandTotal = Math.round((billing.base + effectiveRoundOff) * 100) / 100;
 
   // Agent commission preview. Base depends on the basis:
   //   pcs     -> pieces  (quantity when unit=pcs)
@@ -264,7 +274,8 @@ export function FabricPurchaseLog(): React.ReactElement {
     if (form.agent_party_id === '' || rate <= 0) return 0;
     const qty = toNumOrNull(form.quantity) ?? 0;
     if (form.commission_type === 'percent') {
-      return Math.round(totalPreview * rate / 100 * 100) / 100;
+      // Commission is on the pre-round bill value, not the rounded total.
+      return Math.round(billing.base * rate / 100 * 100) / 100;
     }
     // pcs basis uses pieces, metre basis uses metres. The single Quantity
     // field carries whichever the unit toggle is set to, so a basis that
@@ -273,11 +284,12 @@ export function FabricPurchaseLog(): React.ReactElement {
       ? (form.rate_unit === 'm' ? qty : 0)
       : (form.rate_unit === 'pcs' ? qty : 0);
     return Math.round(base * rate * 100) / 100;
-  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.quantity, form.rate_unit, totalPreview]);
+  }, [form.agent_party_id, form.commission_type, form.commission_rate, form.quantity, form.rate_unit, billing.base]);
 
   function openNewForm(): void {
     setEditingId(null);
     setForm({ ...EMPTY, received_date: todayISO() });
+    setRoundOffTouched(false);
     setCustomerAllocs([]);
     setFormOpen(true);
     setSavedMsg(null);
@@ -295,6 +307,7 @@ export function FabricPurchaseLog(): React.ReactElement {
       ? (r.received_metres ?? 0)
       : (r.received_pieces ?? 0);
     const comm = commByPurchase.get(r.id);
+    setRoundOffTouched(r.round_off != null && Number(r.round_off) !== 0);
     setForm({
       source:               'supplier',
       fabric_quality_id:    r.fabric_quality_id === null ? '' : String(r.fabric_quality_id),
@@ -305,6 +318,7 @@ export function FabricPurchaseLog(): React.ReactElement {
       rate_unit:            r.rate_unit,
       rate:                 String(r.rate),
       gst_pct:              String(r.gst_pct),
+      round_off:            r.round_off != null ? String(r.round_off) : '',
       invoice_no:           r.invoice_no ?? '',
       notes:                r.notes ?? '',
       delivery_destination: r.delivery_destination,
@@ -381,6 +395,7 @@ export function FabricPurchaseLog(): React.ReactElement {
       rate_unit:            form.rate_unit,
       rate,
       gst_pct:              gst,
+      round_off:            effectiveRoundOff,
       invoice_no:           form.invoice_no.trim(),
       notes:                form.notes.trim() === '' ? null : form.notes.trim(),
       delivery_destination: form.delivery_destination,
@@ -390,8 +405,8 @@ export function FabricPurchaseLog(): React.ReactElement {
 
     // Pre-compute the fabric value so we can use it as the synthetic
     // payment amount in customer mode. Matches the generated total_amount
-    // formula: qty * rate * (1 + gst/100).
-    const fabricTotal = Math.round(quantity * rate * (1 + gst / 100) * 100) / 100;
+    // formula: qty * rate * (1 + gst/100) + round_off (grand total).
+    const fabricTotal = grandTotal;
 
     // Customer mode save-guard: if any bills are ticked, the
     // allocations must add up to ≤ the fabric total. Leftover goes to
@@ -738,9 +753,31 @@ export function FabricPurchaseLog(): React.ReactElement {
             </div>
 
             <div>
-              <label className="label">Total (auto)</label>
+              <label className="label">Subtotal (auto)</label>
+              <div className="input num bg-cloud/60 text-ink-soft font-medium select-none">
+                {fmtMoney(billing.base)}
+              </div>
+            </div>
+            <div>
+              <label className="label flex items-center justify-between">
+                <span>Round Off</span>
+                {roundOffTouched && (
+                  <button type="button"
+                    onClick={() => { setRoundOffTouched(false); setForm((f) => ({ ...f, round_off: '' })); }}
+                    className="text-[11px] text-indigo-600 inline-flex items-center gap-0.5"
+                    title="Reset to the auto nearest-rupee value">
+                    <RotateCcw className="w-3 h-3" /> auto
+                  </button>
+                )}
+              </label>
+              <input type="number" step="0.01" className="input num w-full"
+                value={roundOffTouched ? form.round_off : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
+                onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
+            </div>
+            <div>
+              <label className="label">Grand Total (auto)</label>
               <div className="input num bg-emerald-50 text-emerald-800 font-semibold select-none">
-                {fmtMoney(totalPreview)}
+                {fmtMoney(grandTotal)}
               </div>
             </div>
             <div>
@@ -829,7 +866,7 @@ export function FabricPurchaseLog(): React.ReactElement {
             <div className="pt-2">
               <UnpaidBillsPicker
                 partyId={pickedPartyId}
-                totalAmount={totalPreview}
+                totalAmount={grandTotal}
                 direction="in"
                 heading="Customer's unpaid bills"
                 onAllocationsChange={setCustomerAllocs}

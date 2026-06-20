@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
-import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check, ArrowLeft } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check, ArrowLeft, RotateCcw } from 'lucide-react';
 import React from 'react';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
@@ -62,6 +62,7 @@ interface PurchaseRow {
   pieces_purchased: number | string | null;
   bobbin_metre: number | string | null;
   bobbin_price: number | string | null;
+  round_off: number | string | null;
   total_amount: number | string | null;
   notes: string | null;
   bobbin: {
@@ -197,14 +198,19 @@ export default function BobbinPurchasePage() {
     invoice_no: string;
     supplier_party_id: string;
     notes: string;
+    round_off: string;
     items: AddItem[];
   }>({
     purchase_date: todayISO(),
     invoice_no: '',
     supplier_party_id: '',
     notes: '',
+    round_off: '',
     items: [makeEmptyItem()],
   });
+  // Round Off: auto-fills to snap the invoice total to the nearest rupee
+  // but stays editable. Stored on the first line of the invoice.
+  const [roundOffTouched, setRoundOffTouched] = useState<boolean>(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,7 +241,7 @@ export default function BobbinPurchasePage() {
             .order('name'),
       sb.from('bobbin_purchase')
         .select(`id, bobbin_id, purchase_date, invoice_no, vendor_id, pieces_purchased,
-                 bobbin_metre, bobbin_price, total_amount, notes,
+                 bobbin_metre, bobbin_price, round_off, total_amount, notes,
                  bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex, production_mode )`)
         .order('purchase_date', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false }),
@@ -285,14 +291,35 @@ export default function BobbinPurchasePage() {
     [bobbinMasters, modePick],
   );
 
+  // Invoice base = Σ(pcs × price) across valid lines. This matches the
+  // stored total_amount (which excludes GST — GST lives in notes), so the
+  // round-off snaps the *payable* invoice total to a whole rupee.
+  const invoiceBilling = useMemo(() => {
+    const base = form.items.reduce((s, it) => {
+      const q = Number(it.qty_pcs || 0);
+      const p = Number(it.price_per_pc || 0);
+      return s + (q > 0 && p > 0 ? q * p : 0);
+    }, 0);
+    const roundedBase = Math.round(base * 100) / 100;
+    const autoRoundOff = Math.round((Math.round(roundedBase) - roundedBase) * 100) / 100;
+    return { base: roundedBase, autoRoundOff };
+  }, [form.items]);
+
+  const effectiveRoundOff = roundOffTouched
+    ? (form.round_off === '' ? 0 : Number(form.round_off) || 0)
+    : invoiceBilling.autoRoundOff;
+  const invoiceGrandTotal = Math.round((invoiceBilling.base + effectiveRoundOff) * 100) / 100;
+
   function reset(): void {
     setForm({
       purchase_date: todayISO(),
       invoice_no: '',
       supplier_party_id: '',
       notes: '',
+      round_off: '',
       items: [makeEmptyItem()],
     });
+    setRoundOffTouched(false);
     setEditInvoiceIds(null);
   }
 
@@ -308,11 +335,16 @@ export default function BobbinPurchasePage() {
         );
     const group = grouped.length > 0 ? grouped : [p];
     const first = group[0] as PurchaseRow;
+    // The invoice round-off is the sum of every line's stored round_off
+    // (in practice it sits on one line, but summing is safe either way).
+    const groupRoundOff = group.reduce((s, x) => s + (Number(x.round_off ?? 0) || 0), 0);
+    setRoundOffTouched(Math.abs(groupRoundOff) > 0.005);
     setForm({
       purchase_date: first.purchase_date ?? todayISO(),
       invoice_no: first.invoice_no ?? '',
       supplier_party_id: first.vendor_id == null ? '' : String(first.vendor_id),
       notes: stripGstSuffix(first.notes),
+      round_off: Math.abs(groupRoundOff) > 0.005 ? String(Math.round(groupRoundOff * 100) / 100) : '',
       items: group.map((x) => ({
         row_id: x.id,
         bobbin_id: String(x.bobbin_id),
@@ -398,13 +430,19 @@ export default function BobbinPurchasePage() {
         pieces_purchased: qtyPcs,
         bobbin_metre: metre,
         bobbin_price: price,
+        // The whole invoice round-off rides on the first line; the rest
+        // carry 0. total_amount = pcs*price + round_off, so the invoice's
+        // payable total lands on a whole rupee.
+        round_off: 0,
         notes: (form.notes.trim() || '') + noteSuffix || null,
       };
     };
 
     if (editInvoiceIds === null) {
-      // New purchase — plain multi-line insert.
+      // New purchase — plain multi-line insert. Round-off sits on line 1.
       const payloads = validItems.map(toPayload);
+      const firstPayload = payloads[0];
+      if (firstPayload) firstPayload.round_off = effectiveRoundOff;
       const { error: err } = await sb.from('bobbin_purchase').insert(payloads);
       setBusy(false);
       if (err) { setError(err.message); return; }
@@ -417,8 +455,10 @@ export default function BobbinPurchasePage() {
       );
       const removedIds = editInvoiceIds.filter((id) => !keptIds.has(id));
 
-      for (const it of validItems) {
+      for (const [i, it] of validItems.entries()) {
         const payload = toPayload(it);
+        // Whole invoice round-off rides on the first line; rest carry 0.
+        payload.round_off = i === 0 ? effectiveRoundOff : 0;
         const { error: err } = it.row_id === undefined
           ? await sb.from('bobbin_purchase').insert(payload)
           : await sb.from('bobbin_purchase').update(payload).eq('id', it.row_id);
@@ -819,6 +859,38 @@ export default function BobbinPurchasePage() {
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          {/* Invoice round-off — snaps the payable total (Σ pcs × price)
+              to a whole rupee. Auto by default, editable. */}
+          <div className="flex justify-end">
+            <div className="w-full sm:w-80 space-y-1.5 text-sm">
+              <div className="flex items-center justify-between text-ink-soft">
+                <span>Subtotal (pcs × price)</span>
+                <span className="num">₹ {fmtMoney(invoiceBilling.base)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5">
+                  <span>Round Off</span>
+                  {roundOffTouched && (
+                    <button type="button"
+                      onClick={() => { setRoundOffTouched(false); setForm((f) => ({ ...f, round_off: '' })); }}
+                      className="text-[11px] text-indigo-700 inline-flex items-center gap-0.5"
+                      title="Reset to the auto nearest-rupee value">
+                      <RotateCcw className="w-3 h-3" /> auto
+                    </button>
+                  )}
+                </label>
+                <input type="number" step="0.01"
+                  className="input num h-8 text-sm w-28 text-right"
+                  value={roundOffTouched ? form.round_off : (invoiceBilling.autoRoundOff !== 0 ? String(invoiceBilling.autoRoundOff) : '0.00')}
+                  onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
+              </div>
+              <div className="flex items-center justify-between font-semibold border-t border-line/40 pt-1.5">
+                <span>Invoice total</span>
+                <span className="num">₹ {fmtMoney(invoiceGrandTotal)}</span>
+              </div>
+            </div>
           </div>
 
           <p className="text-[10px] text-ink-mute">

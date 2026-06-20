@@ -23,7 +23,7 @@ export default async function EditGeneralPurchasePage({ params }: PageProps) {
 
   const [{ data: bill }, { data: partyData }] = await Promise.all([
     sb.from('general_purchase')
-      .select('id, bill_no, bill_date, supplier_party_id, description, taxable, gst_pct, status')
+      .select('id, bill_no, bill_date, supplier_party_id, description, taxable, gst_pct, round_off, status')
       .eq('id', Number(id))
       .maybeSingle(),
     sb.from('party')
