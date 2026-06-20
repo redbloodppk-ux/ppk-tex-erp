@@ -342,7 +342,9 @@ export default async function WarehousePage({
       </div>
 
       {/* ── Low-stock alerts panel ─────────────────────────────────────── */}
-      {(lowStock.yarn.length > 0 || lowStock.bobbin.length > 0) && (
+      {/* Hidden on the in-house Warp Metre tab — that view tracks woven
+          metres, where a "low stock" yarn/bobbin alert isn't relevant. */}
+      {tab !== 'warp_metre' && (lowStock.yarn.length > 0 || lowStock.bobbin.length > 0) && (
         <section className="card border-rose-200 bg-rose-50/30 p-4 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-4 h-4 text-rose-600" />

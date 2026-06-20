@@ -37,6 +37,7 @@ type SourceFilter =
   | 'bobbin'
   | 'sizing'
   | 'fabric'
+  | 'general'
   | 'outsource_weaving';
 
 type GstFilter = 'all' | 'with' | 'without';
@@ -129,6 +130,7 @@ function sourceLabel(s: string | null): string {
     case 'bobbin':            return 'Bobbin';
     case 'sizing':            return 'Sizing';
     case 'fabric':            return 'Fabric';
+    case 'general':           return 'General';
     case 'outsource_weaving': return 'Outsource';
     default:                  return s ?? '—';
   }
@@ -140,6 +142,7 @@ function sourceTone(s: string | null): string {
     case 'bobbin':            return 'bg-violet-50 text-violet-700 border-violet-200';
     case 'sizing':            return 'bg-sky-50 text-sky-700 border-sky-200';
     case 'fabric':            return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'general':           return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     case 'outsource_weaving': return 'bg-rose-50 text-rose-700 border-rose-200';
     default:                  return 'bg-slate-50 text-slate-700 border-slate-200';
   }
@@ -171,6 +174,7 @@ const SOURCE_OPTIONS: SourceFilter[] = [
   'bobbin',
   'sizing',
   'fabric',
+  'general',
   'outsource_weaving',
 ];
 
@@ -374,6 +378,7 @@ export default async function PurchaseRegisterReport({
             <option value="bobbin">Bobbin</option>
             <option value="sizing">Sizing</option>
             <option value="fabric">Fabric</option>
+            <option value="general">General</option>
             <option value="outsource_weaving">Outsource Weaving</option>
           </select>
         </label>

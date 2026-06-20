@@ -89,6 +89,7 @@ export default async function DashboardPage() {
   const [
     { data: outstanding },
     { data: jobworkInvoices },
+    { data: weavingBillInvoices },
     { data: customerInvoices },
     { data: partyMaster },
     { data: sizingBills },
@@ -99,15 +100,22 @@ export default async function DashboardPage() {
     { data: agentComm },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
-    // Every unpaid / part-paid outsource-weaving bill, oldest first.
-    // The doc_type covers both jobwork_invoice (older label) and
-    // weaving_bill (the newer dedicated outsource-weaving doc type)
-    // — both represent bills WE owe an outside weaver for work
-    // done on our cloth.
+    // Every unpaid / part-paid JOB WORK bill, oldest first. These are
+    // the older jobwork_invoice doc type — bills WE owe an outside
+    // jobworker for work done on our cloth. Shown in its own card.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('invoice')
       .select(BILL_COLS)
-      .in('doc_type', ['jobwork_invoice', 'weaving_bill'])
+      .eq('doc_type', 'jobwork_invoice')
+      .gt('balance', 0)
+      .order('invoice_date', { ascending: true }),
+    // Every unpaid / part-paid OUTSOURCE WEAVING bill, oldest first.
+    // The newer dedicated weaving_bill doc type — kept in a separate
+    // card from job work so each vendor stream is visible on its own.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('invoice')
+      .select(BILL_COLS)
+      .eq('doc_type', 'weaving_bill')
       .gt('balance', 0)
       .order('invoice_date', { ascending: true }),
     // Every unpaid / part-paid customer sale invoice.
@@ -171,8 +179,9 @@ export default async function DashboardPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const totalOutstanding = (outstanding ?? []).reduce((s: number, r: any) => s + Number(r.outstanding ?? 0), 0);
 
-  const openWeavingBills:  OpenBillRow[] = (jobworkInvoices ?? [])  as OpenBillRow[];
-  const openCustomerBills: OpenBillRow[] = (customerInvoices ?? []) as OpenBillRow[];
+  const openJobworkBills:  OpenBillRow[] = (jobworkInvoices ?? [])     as OpenBillRow[];
+  const openWeavingBills:  OpenBillRow[] = (weavingBillInvoices ?? []) as OpenBillRow[];
+  const openCustomerBills: OpenBillRow[] = (customerInvoices ?? [])    as OpenBillRow[];
   const parties: PartyMasterRow[] = (partyMaster ?? []) as unknown as PartyMasterRow[];
 
   const now = Date.now();
@@ -182,6 +191,14 @@ export default async function DashboardPage() {
     openCustomerBills,
     parties,
     (b) => ({ id: null, label: b.party_name ?? '' }),
+    now,
+  );
+  // Job work side: identity is jobwork_party_id (FK). The label comes
+  // from party_name on the invoice. Bills raised against jobworkers.
+  const jobworkGroups = groupByParty(
+    openJobworkBills,
+    parties,
+    (b) => ({ id: b.jobwork_party_id ?? null, label: b.party_name ?? '' }),
     now,
   );
   // Outsource-weaving side: identity is jobwork_party_id (FK). The
@@ -316,7 +333,8 @@ export default async function DashboardPage() {
   // payables). Drives the new Outstanding Payable KPI card replacing
   // the Active-Customers count the operator wasn't using day to day.
   const totalPayable =
-      weavingGroups .reduce((s, g) => s + g.total, 0)
+      jobworkGroups .reduce((s, g) => s + g.total, 0)
+    + weavingGroups .reduce((s, g) => s + g.total, 0)
     + supplierGroups.reduce((s, g) => s + g.total, 0);
 
   const cards = [
@@ -431,12 +449,31 @@ export default async function DashboardPage() {
         />
       </section>
 
-      {/* Outstanding Outsourcing Weaving Bills — grouped by the
-          outsource weaver / jobwork party. */}
+      {/* Outstanding Job Work Bills — grouped by the jobwork party.
+          These are the older jobwork_invoice doc type. */}
       <section className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Hammer className="w-4 h-4 text-amber-700" />
+            <h2 className="font-display font-bold text-base">Outstanding Job Work Bills</h2>
+          </div>
+          <Link href="/app/payments" className="text-xs text-indigo font-semibold">All payments &rarr;</Link>
+        </div>
+        <OutstandingByParty
+          groups={jobworkGroups}
+          direction="out"
+          actionLabel="Pay"
+          emptyText="No outstanding job work bills — every jobworker is paid up."
+          footnote={'Job work parties with one or more open bills against work they did on our cloth. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
+        />
+      </section>
+
+      {/* Outstanding Outsourcing Weaving Bills — grouped by the
+          outsource weaver. These are the newer weaving_bill doc type. */}
+      <section className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Truck className="w-4 h-4 text-rose-700" />
             <h2 className="font-display font-bold text-base">Outstanding Outsourcing Weaving Bills</h2>
           </div>
           <Link href="/app/payments" className="text-xs text-indigo font-semibold">All payments &rarr;</Link>

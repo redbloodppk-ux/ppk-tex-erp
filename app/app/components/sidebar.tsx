@@ -9,17 +9,18 @@ import {
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
   Factory, X, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  ChevronRight,
+  ChevronRight, FileText,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
-type GroupKey = 'home' | 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin';
+type GroupKey = 'home' | 'sales' | 'inventory' | 'production' | 'people' | 'finance' | 'insights' | 'admin' | 'bottom';
 /** Groups that actually render as a labelled, collapsible section.
- *  The 'home' group is rendered flat at the top of the sidebar with
- *  no header / chevron and is intentionally excluded from this set. */
-type LabelledGroupKey = Exclude<GroupKey, 'home'>;
+ *  The 'home' group is rendered flat at the top of the sidebar and the
+ *  'bottom' group is pinned flat at the very bottom (Settings) — both
+ *  have no header / chevron and are intentionally excluded from this set. */
+type LabelledGroupKey = Exclude<GroupKey, 'home' | 'bottom'>;
 
 interface NavItem {
   href: string;
@@ -53,6 +54,9 @@ const NAV: NavItem[] = [
   { href: '/app/orders',            label: 'Sales Orders',     icon: ShoppingCart,    group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/delivery-challan',  label: 'Delivery Challan', icon: Truck,           group: 'sales',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/invoices',          label: 'Invoices',         icon: Receipt,         group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
+  // General Purchase GST bills — catch-all supplier bills (packing,
+  // spares, consumables, services) that feed the Purchase Register.
+  { href: '/app/general-purchases', label: 'General Purchases',icon: FileText,        group: 'sales',      roles: ['owner','sales_manager','accounts','auditor'] },
   // Unified Payments — records receipts and payments for every party
   // type (customer, supplier, sizing vendor, weaving vendor, etc.)
   // and ships with a Status tab that shows a chronological ledger of
@@ -119,8 +123,12 @@ const NAV: NavItem[] = [
   // Admin
   { href: '/app/parties',       label: 'Parties',            icon: Users,           group: 'admin',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
   { href: '/app/ledgers',       label: 'Ledgers',            icon: BookCheck,       group: 'admin',      roles: ['owner','accounts','auditor'] },
-  { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'admin',      roles: ['owner','auditor'] },
   { href: '/app/audit',         label: 'Audit Log',          icon: BookCheck,       group: 'admin',      roles: ['owner','auditor'] },
+
+  // Bottom — pinned flat at the very bottom of the sidebar (no group
+  // header), separated from the scrollable groups above. Settings sits
+  // here so it's always reachable without hunting through Admin.
+  { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'bottom',     roles: ['owner','auditor'] },
 ];
 
 const GROUP_ORDER: readonly LabelledGroupKey[] = [
@@ -185,6 +193,8 @@ function NavBody({
   // 'home' is special: items with this group key render as flat links
   // at the very top of the sidebar without a group header (Dashboard).
   const flatItems = visible.filter(i => i.group === 'home');
+  // Pinned flat at the very bottom of the sidebar (Settings).
+  const bottomItems = visible.filter(i => i.group === 'bottom');
   const grouped = GROUP_ORDER.map(g => ({
     group: g,
     items: visible.filter(i => i.group === g),
@@ -264,7 +274,7 @@ function NavBody({
   }
 
   return (
-    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1 flex flex-col">
       {/* Flat top items (Dashboard) — no group header above them. */}
       {flatItems.length > 0 && (
         <ul className="space-y-0.5 mb-2">
@@ -355,6 +365,34 @@ function NavBody({
           </div>
         );
       })}
+
+      {/* Bottom pinned items (Settings) — pushed to the very bottom of
+          the sidebar, below all the groups, with a divider above. */}
+      {bottomItems.length > 0 && (
+        <ul className="space-y-0.5 pt-3 mt-auto border-t border-line/60">
+          {bottomItems.map(item => {
+            const active = pathname === item.href || pathname.startsWith(item.href + '/');
+            const Icon = item.icon;
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onItemClick}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-indigo/10 text-indigo'
+                      : 'text-ink-soft hover:bg-cloud hover:text-ink'
+                  )}
+                >
+                  <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-ink-mute')} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </nav>
   );
 }
