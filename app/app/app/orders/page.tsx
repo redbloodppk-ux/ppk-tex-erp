@@ -102,12 +102,17 @@ export default async function OrdersPage({
     if (linkedDcIds.length > 0) {
       const dcIdSet = linkedDcIds.map((d) => d.id);
       const { data: items } = await sb.from('delivery_challan_item')
-        .select('dc_id, metres').in('dc_id', dcIdSet);
+        .select('dc_id, metres, fabric_quality:fabric_quality_id ( meter_per_pc )').in('dc_id', dcIdSet);
       const soByDc = new Map(linkedDcIds.map((d) => [d.id, d.sales_order_id]));
-      for (const it of (items ?? []) as Array<{ dc_id: number; metres: number | string | null }>) {
+      for (const it of (items ?? []) as Array<{ dc_id: number; metres: number | string | null; fabric_quality: { meter_per_pc: number | string | null } | null }>) {
         const soId = soByDc.get(it.dc_id);
         if (soId == null) continue;
-        deliveredById.set(soId, (deliveredById.get(soId) ?? 0) + Number(it.metres ?? 0));
+        // Towels (meter_per_pc > 0) store the towel COUNT in `metres`, not real
+        // metres. Convert to real metres (count × meter_per_pc) so the pcs↔m
+        // ratio below reconverts it correctly. Plain fabric uses metres as-is.
+        const mpp = Number(it.fabric_quality?.meter_per_pc ?? 0);
+        const realM = mpp > 0 ? Number(it.metres ?? 0) * mpp : Number(it.metres ?? 0);
+        deliveredById.set(soId, (deliveredById.get(soId) ?? 0) + realM);
       }
     }
   }
