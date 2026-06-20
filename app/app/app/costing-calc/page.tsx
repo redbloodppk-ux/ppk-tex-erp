@@ -1,20 +1,38 @@
-// Quick Costing Calculator — pure calculator, no save. Matches
-// "Dobby towel cost calculation.xlsx" formulas. Use /app/costing/new
-// to save a costing master row.
+// Quick Costing Calculator — pure calculator, no save. Mirrors the
+// New Costing form field-for-field (mode toggle, multi-row bobbin,
+// porvai) so the two pages feel identical; the only difference is
+// this page never persists anything. Use /app/costing/new to save a
+// costing master row.
 
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Calculator, Info, Plus } from 'lucide-react';
 
-// Default mill overhead rates (Rs/m).
-const DEFAULT_BAGS_PER_M = 0.50;
-const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
-const DEFAULT_SIZED_PAAVU_BEAM_PER_M = 1.50;
+interface BobbinOption { id: number; code: string; description: string; }
+
+interface BobbinRow {
+  key: string;       // local React key only - random uuid
+  bobbinId: string;  // bobbin master id (as string for select compat)
+  price: number;
+  metres: number;
+  waste: number;
+}
+
+const newBobbinRow = (): BobbinRow => ({
+  key: Math.random().toString(36).slice(2),
+  bobbinId: '',
+  price: 4704,
+  metres: 2000,
+  waste: 0.10,
+});
 
 export default function CostingCalcPage() {
+  const supabase = createClient();
+
   // Cloth construction
   const [warpCount, setWarpCount] = useState(40);
   const [weftCount, setWeftCount] = useState(39);
@@ -32,13 +50,16 @@ export default function CostingCalcPage() {
 
   const [weftRate, setWeftRate] = useState(285);
   const [autoWeft, setAutoWeft] = useState(2);
-
   const [weavingPaise, setWeavingPaise] = useState(16);
 
+  // Costing mode: 'inhouse' uses picks-per-inch × paise/100 for the
+  // pick cost contribution. 'outsource' uses a single Rs/m rate the
+  // outsource weaver charges.
+  const [productionMode, setProductionMode] = useState<'inhouse' | 'outsource'>('inhouse');
+  const [pickCostPerM, setPickCostPerM] = useState(7.36);
+
   const [useBobbin, setUseBobbin] = useState(true);
-  const [bobbinPrice, setBobbinPrice] = useState(4704);
-  const [bobbinMetres, setBobbinMetres] = useState(2000);
-  const [bobbinWaste, setBobbinWaste] = useState(0.10);
+  const [bobbinRows, setBobbinRows] = useState<BobbinRow[]>([]);
 
   const [usePorvai, setUsePorvai] = useState(true);
   const [porvaiByDenier, setPorvaiByDenier] = useState(true);
@@ -48,13 +69,15 @@ export default function CostingCalcPage() {
   const [selvedgeLengthIn, setSelvedgeLengthIn] = useState(2.5);
   const [porvaiYarnCost, setPorvaiYarnCost] = useState(195);
 
-  const [bagsPerM, setBagsPerM] = useState(DEFAULT_BAGS_PER_M);
-  const [emptyBeamPerM, setEmptyBeamPerM] = useState(DEFAULT_EMPTY_BEAM_PER_M);
-  const [sizedPaavuPerM, setSizedPaavuPerM] = useState(DEFAULT_SIZED_PAAVU_BEAM_PER_M);
-  const [otherChargesPerM, setOtherChargesPerM] = useState(0);
-
-  const [profitPct, setProfitPct] = useState(0.10);
-  const [marketRate, setMarketRate] = useState(0);
+  // Mill overheads + Profit & market were removed from the form (to
+  // match New Costing). Kept as 0 constants so the calc still compiles
+  // without those terms — they no longer contribute to cost.
+  const bagsPerM = 0;
+  const emptyBeamPerM = 0;
+  const sizedPaavuPerM = 0;
+  const otherChargesPerM = 0;
+  const profitPct = 0;
+  const marketRate = 0;
 
   const [isTowel, setIsTowel] = useState(true);
   const [towelLength, setTowelLength] = useState(1.7);
@@ -62,6 +85,24 @@ export default function CostingCalcPage() {
   const [showProd, setShowProd] = useState(true);
   const [loomRpm, setLoomRpm] = useState(110);
   const [efficiency, setEfficiency] = useState(0.85);
+
+  // Bobbin master list for the per-row picker (same source as New
+  // Costing). Selection does not affect the math here — it only keeps
+  // the field set identical to the savable page.
+  const [bobbins, setBobbins] = useState<BobbinOption[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const bb = await sb
+        .from('bobbin')
+        .select('id, code, description')
+        .neq('status', 'archived')
+        .order('code');
+      setBobbins((bb.data ?? []) as unknown as BobbinOption[]);
+    })();
+  }, [supabase]);
 
   // Compute everything
   const r = useMemo(() => {
@@ -82,10 +123,17 @@ export default function CostingCalcPage() {
       ? (warpRate + sizingRate + autoWarp) / warpMPerKg + salesCommM
       : 0;
     const weftCost = weftMPerKg > 0 ? (weftRate + autoWeft) / weftMPerKg : 0;
-    const pickCost = (picksPerInch * weavingPaise) / 100;
+    // Pick cost contribution. Inhouse computes from picks-per-inch x
+    // paise; outsource uses a direct Rs/m rate.
+    const pickCost = productionMode === 'inhouse'
+      ? (picksPerInch * weavingPaise) / 100
+      : pickCostPerM;
 
-    const bobbinCost = useBobbin && bobbinMetres > 0
-      ? bobbinPrice / bobbinMetres + bobbinWaste
+    const bobbinCost = useBobbin
+      ? bobbinRows.reduce((sum, row) => {
+          if (row.metres > 0) return sum + row.price / row.metres + row.waste;
+          return sum;
+        }, 0)
       : 0;
 
     const porvaiCount = porvaiByDenier
@@ -126,7 +174,8 @@ export default function CostingCalcPage() {
     warpCount, weftCount, totalEnds, picksPerInch, loomWidthIn, finishedWidthIn,
     reedCount, tapeLengthIn,
     warpRate, sizingRate, autoWarp, salesCommM, weftRate, autoWeft, weavingPaise,
-    useBobbin, bobbinPrice, bobbinMetres, bobbinWaste,
+    productionMode, pickCostPerM,
+    useBobbin, bobbinRows,
     usePorvai, porvaiByDenier, porvaiDenier, porvaiCountManual, porvaiPick, selvedgeLengthIn, porvaiYarnCost,
     bagsPerM, emptyBeamPerM, sizedPaavuPerM, otherChargesPerM,
     profitPct, marketRate, isTowel, towelLength,
@@ -147,6 +196,40 @@ export default function CostingCalcPage() {
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         <div className="card p-5 space-y-4">
+          {/* Mode toggle — picks whether the pick cost comes from
+              picks-per-inch x paise (inhouse) or a direct Rs/m rate
+              the outsource weaver charges (outsource). */}
+          <div className="flex items-center gap-2 -mt-1 pb-2 border-b border-line/60">
+            <span className="text-xs uppercase tracking-wide text-ink-mute">Mode:</span>
+            <button
+              type="button"
+              onClick={() => setProductionMode('inhouse')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'inhouse'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              }`}
+            >
+              In-house
+            </button>
+            <button
+              type="button"
+              onClick={() => setProductionMode('outsource')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border ${
+                productionMode === 'outsource'
+                  ? 'bg-indigo text-white border-indigo'
+                  : 'bg-white text-ink-soft border-line hover:bg-cloud/60'
+              }`}
+            >
+              Outsource
+            </button>
+            <span className="ml-2 text-[11px] text-ink-mute">
+              {productionMode === 'inhouse'
+                ? 'Mill weaves — picks × paise drives the pick cost.'
+                : 'Outsource weaver — enter the Rs/m rate they charge.'}
+            </span>
+          </div>
+
           <h2 className="font-display font-bold text-base flex items-center gap-2">
             <Calculator className="w-4 h-4 text-indigo" /> Cloth construction
           </h2>
@@ -182,17 +265,86 @@ export default function CostingCalcPage() {
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               <Row><L>Yarn (Rs/kg)</L><Num value={weftRate} set={setWeftRate} step={5} /></Row>
               <Row><L>Auto / cone (Rs/kg)</L><Num value={autoWeft} set={setAutoWeft} step={0.5} /></Row>
-              <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
+              {productionMode === 'inhouse' ? (
+                <Row><L>Weaving (paise / pick)</L><Num value={weavingPaise} set={setWeavingPaise} step={0.5} /></Row>
+              ) : (
+                <Row><L title="Outsource weaver's rate per metre. Replaces picks-per-inch x paise for the cost calc.">Pick cost (Rs/m)</L><Num value={pickCostPerM} set={setPickCostPerM} step={0.5} /></Row>
+              )}
             </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
             <Toggle label="Include bobbin / cone cost" checked={useBobbin} set={setUseBobbin} />
             {useBobbin && (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                <Row><L>Bobbin price (Rs)</L><Num value={bobbinPrice} set={setBobbinPrice} step={50} /></Row>
-                <Row><L>Bobbin metres</L><Num value={bobbinMetres} set={setBobbinMetres} step={50} /></Row>
-                <Row><L>Waste add (Rs/m)</L><Num value={bobbinWaste} set={setBobbinWaste} step={0.05} /></Row>
+              <div className="mt-2 space-y-3">
+                {bobbinRows.length === 0 && (
+                  <p className="text-xs text-ink-mute italic">
+                    No bobbins added yet. Click below to add the first one.
+                  </p>
+                )}
+                {bobbinRows.map((row, idx) => (
+                  <div key={row.key} className="rounded-lg border border-line/60 p-3 bg-white/40">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-ink-soft">
+                        Bobbin #{idx + 1}
+                      </span>
+                      <button type="button"
+                        onClick={() => setBobbinRows((prev) => prev.filter((_, i) => i !== idx))}
+                        className="text-xs text-rose-700 hover:text-rose-900 font-semibold">
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                      <Row>
+                        <L>Bobbin</L>
+                        <select className="input h-8 text-sm w-56"
+                          value={row.bobbinId}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBobbinRows((prev) => prev.map((rw, i) =>
+                              i === idx ? { ...rw, bobbinId: v } : rw,
+                            ));
+                          }}>
+                          <option value="">--- pick ---</option>
+                          {bobbins.map((b) => (
+                            <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
+                          ))}
+                        </select>
+                      </Row>
+                      <Row>
+                        <L>Bobbin price (Rs)</L>
+                        <Num value={row.price} step={50}
+                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                            i === idx ? { ...rw, price: n } : rw,
+                          ))} />
+                      </Row>
+                      <Row>
+                        <L>Bobbin metres</L>
+                        <Num value={row.metres} step={50}
+                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                            i === idx ? { ...rw, metres: n } : rw,
+                          ))} />
+                      </Row>
+                      <Row>
+                        <L>Waste add (Rs/m)</L>
+                        <Num value={row.waste} step={0.05}
+                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                            i === idx ? { ...rw, waste: n } : rw,
+                          ))} />
+                      </Row>
+                    </div>
+                  </div>
+                ))}
+                <button type="button"
+                  onClick={() => setBobbinRows((prev) => [...prev, newBobbinRow()])}
+                  className={
+                    'inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg border px-3 py-1.5 ' +
+                    (bobbinRows.length === 0
+                      ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                      : 'bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50')
+                  }>
+                  + Add bobbin
+                </button>
               </div>
             )}
           </div>
@@ -231,26 +383,6 @@ export default function CostingCalcPage() {
                 )}
               </>
             )}
-          </div>
-
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">
-              Mill overheads <span className="text-xs font-normal text-ink-mute">(auto-filled, editable)</span>
-            </h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Bags (Rs/m)</L><Num value={bagsPerM} set={setBagsPerM} step={0.05} /></Row>
-              <Row><L>Empty beams (Rs/m)</L><Num value={emptyBeamPerM} set={setEmptyBeamPerM} step={0.05} /></Row>
-              <Row><L>Sized paavu beam (Rs/m)</L><Num value={sizedPaavuPerM} set={setSizedPaavuPerM} step={0.05} /></Row>
-              <Row><L>Other charges (Rs/m)</L><Num value={otherChargesPerM} set={setOtherChargesPerM} step={0.10} /></Row>
-            </div>
-          </div>
-
-          <div className="border-t border-line/60 pt-3">
-            <h3 className="font-display font-bold text-sm mb-2">Profit & market</h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-              <Row><L>Profit %</L><Pct value={profitPct} set={setProfitPct} /></Row>
-              <Row><L title="Optional. If set, profit/loss = market - cost.">Market rate (Rs/m)</L><Num value={marketRate} set={setMarketRate} step={1} /></Row>
-            </div>
           </div>
 
           <div className="border-t border-line/60 pt-3">
@@ -296,24 +428,11 @@ export default function CostingCalcPage() {
           <ResultRow label="Weaving (pick)" value={formatRupee(r.pickCost, { decimals: 3 })} small />
           {useBobbin && (<ResultRow label="Bobbin & weft" value={formatRupee(r.bobbinCost, { decimals: 3 })} small />)}
           {usePorvai && (<ResultRow label="Porvai" value={formatRupee(r.porvaiCost, { decimals: 3 })} small />)}
-          <ResultRow label="Bags" value={formatRupee(r.bagsPerM, { decimals: 3 })} small />
-          <ResultRow label="Empty beams" value={formatRupee(r.emptyBeamPerM, { decimals: 3 })} small />
-          <ResultRow label="Sized paavu beam" value={formatRupee(r.sizedPaavuPerM, { decimals: 3 })} small />
-          {r.otherChargesPerM > 0 && (<ResultRow label="Other charges" value={formatRupee(r.otherChargesPerM, { decimals: 3 })} small />)}
 
           <Divider />
           <ResultRow label="Subtotal" value={formatRupee(r.subtotal, { decimals: 2 })} />
-          <ResultRow label={"Profit (" + (profitPct * 100).toFixed(1) + "%)"} value={formatRupee(r.profitAmount, { decimals: 2 })} small />
           <Divider />
           <ResultRow label="Cost / metre" value={formatRupee(r.costPerM, { decimals: 2 })} highlight="indigo" big />
-
-          {r.profitLoss !== null && (
-            <ResultRow
-              label={"P/L vs market Rs" + marketRate + "/m"}
-              value={formatRupee(r.profitLoss, { decimals: 2 })}
-              highlight={r.profitLoss >= 0 ? 'emerald' : 'amber'}
-              small />
-          )}
 
           {isTowel && r.costPerTowel !== null && (
             <>

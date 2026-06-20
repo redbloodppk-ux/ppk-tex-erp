@@ -186,9 +186,12 @@ export default function ShiftLogPage(): React.ReactElement {
   const [shift, setShift] = useState<'day' | 'night'>('day');
   const [nightEnabled, setNightEnabled] = useState<boolean>(false);
   const [activeShed, setActiveShed] = useState<number>(1);
-  // Adjustment column is optional — hidden by default, the operator opts in
-  // when a manual +/- correction is needed (cut metres, fix, etc.).
-  const [showAdjustment, setShowAdjustment] = useState<boolean>(false);
+  // Adjustment column is optional and per-shed — hidden by default, the
+  // operator opts in for a given shed when a manual +/- correction is
+  // needed (cut metres, fix, etc.). Stored as the set of shed numbers
+  // that currently show the column.
+  const [adjustmentSheds, setAdjustmentSheds] = useState<Set<number>>(new Set());
+  const showAdjustment = adjustmentSheds.has(activeShed);
 
   const [looms, setLooms] = useState<Loom[]>([]);
   const [weaverOptions, setWeaverOptions] = useState<WeaverOption[]>([]);
@@ -704,9 +707,16 @@ export default function ShiftLogPage(): React.ReactElement {
             <input
               type="checkbox"
               checked={showAdjustment}
-              onChange={(e) => setShowAdjustment(e.target.checked)}
+              onChange={(e) =>
+                setAdjustmentSheds((prev) => {
+                  const next = new Set(prev);
+                  if (e.target.checked) next.add(activeShed);
+                  else next.delete(activeShed);
+                  return next;
+                })
+              }
             />
-            Include adjustment column
+            Include adjustment column (Shed {activeShed})
           </label>
         </div>
 
