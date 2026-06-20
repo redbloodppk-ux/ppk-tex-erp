@@ -240,7 +240,7 @@ export function GlobalSearch(): React.ReactElement {
       <input
         type="search"
         placeholder="Search invoice, DC, party, sizing bill…"
-        className="input pl-9 h-9 text-sm w-full"
+        className="input pl-9 h-9 text-sm w-full rounded-full"
         autoComplete="off"
         spellCheck={false}
         value={query}

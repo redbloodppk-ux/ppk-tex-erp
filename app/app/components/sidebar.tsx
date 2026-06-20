@@ -450,7 +450,7 @@ export function Sidebar({
   return (
     <>
       {/* Desktop sidebar (md and up) */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col bg-paper border-r border-line/60 sticky top-0 h-screen">
+      <aside className="hidden md:flex w-64 shrink-0 flex-col bg-paper border-r border-line/60 sticky top-0 h-screen rounded-r-2xl overflow-hidden">
         <Brand />
         <NavBody role={role} />
         <Footer />

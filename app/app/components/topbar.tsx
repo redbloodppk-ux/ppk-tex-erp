@@ -75,11 +75,12 @@ export function Topbar({
       )}
 
       {/* ── Desktop search bar — wired to GlobalSearch component ─────── */}
-      <div className="hidden sm:flex items-center gap-2 flex-1 max-w-md">
+      <div className="hidden sm:flex items-center gap-2 w-full max-w-md">
         <GlobalSearch />
       </div>
 
-      <div className="flex-1 sm:hidden" />
+      {/* Spacer pushes the bell + user menu to the far right corner. */}
+      <div className="flex-1" />
 
       <div className="flex items-center gap-1 sm:gap-2">
         {/* Live bell — replaces the static red dot. Polls every 60s
