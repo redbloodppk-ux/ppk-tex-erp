@@ -53,7 +53,7 @@ export function Topbar({
     .join('') || 'U';
 
   return (
-    <header className="h-14 bg-paper border-b border-line/60 sticky top-0 z-30 flex items-center px-3 sm:px-6 gap-2 sm:gap-4">
+    <header className="h-14 bg-paper border-b border-line/60 sticky top-0 z-30 flex items-center px-3 sm:px-6 gap-2 sm:gap-4 rounded-b-2xl">
       {/* ── Mobile-only: hamburger opens the sidebar drawer ────────────── */}
       <button
         onClick={onMenuClick}

@@ -9,7 +9,7 @@ import {
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  ChevronRight, FileText,
+  ChevronRight, FileText, Info,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -129,6 +129,7 @@ const NAV: NavItem[] = [
   // header), separated from the scrollable groups above. Settings sits
   // here so it's always reachable without hunting through Admin.
   { href: '/app/settings',      label: 'Settings',           icon: Settings,        group: 'bottom',     roles: ['owner','auditor'] },
+  { href: '/app/about',         label: 'About',              icon: Info,            group: 'bottom',     roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
 ];
 
 const GROUP_ORDER: readonly LabelledGroupKey[] = [
