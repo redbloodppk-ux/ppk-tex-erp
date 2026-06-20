@@ -85,6 +85,23 @@ export default async function DeliveryChallanListPage({
 
   const rows = (data ?? []) as DcRow[];
 
+  // Which DCs were cut from a production batch? Those carry already-
+  // finished fabric going OUT to a customer — they must NOT be receipted
+  // again (that would re-add the same batch's fabric to stock). We fade
+  // the "Receive fabric" icon for them. One query: every dc_item with a
+  // production_batch_id, scoped to the DCs on screen.
+  const batchDcIds = new Set<number>();
+  if (rows.length > 0) {
+    const { data: batchItems } = await sb
+      .from('delivery_challan_item')
+      .select('dc_id')
+      .not('production_batch_id', 'is', null)
+      .in('dc_id', rows.map((r) => r.id));
+    for (const it of (batchItems ?? []) as Array<{ dc_id: number | null }>) {
+      if (it.dc_id != null) batchDcIds.add(Number(it.dc_id));
+    }
+  }
+
   // Preserve the mode filter in any links built off this page.
   const qsMode = mode !== null ? `?mode=${mode}` : '';
   const newDcHref = `/app/delivery-challan/new${qsMode}`;
@@ -206,15 +223,28 @@ export default async function DeliveryChallanListPage({
                     </Link>
                     {/* Receive fabric against this DC — opens the fabric
                         receipt form (works for in-house, jobwork and
-                        outsource DCs alike). */}
+                        outsource DCs alike). DCs cut from a production
+                        batch carry finished goods going OUT to a customer;
+                        receipting them would duplicate the batch's stock,
+                        so the icon is faded + disabled for those. */}
                     {r.status !== 'cancelled' && (
-                      <Link
-                        href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
-                        className="p-1 rounded hover:bg-amber-50 text-amber-700 inline-flex ml-1"
-                        title="Create fabric receipt from this DC"
-                      >
-                        <PackageCheck className="w-4 h-4" />
-                      </Link>
+                      batchDcIds.has(r.id) ? (
+                        <span
+                          className="p-1 rounded inline-flex ml-1 text-slate-300 cursor-not-allowed"
+                          title="Made from a production batch — no fabric receipt needed (avoids duplicating batch stock)"
+                          aria-disabled="true"
+                        >
+                          <PackageCheck className="w-4 h-4" />
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
+                          className="p-1 rounded hover:bg-amber-50 text-amber-700 inline-flex ml-1"
+                          title="Create fabric receipt from this DC"
+                        >
+                          <PackageCheck className="w-4 h-4" />
+                        </Link>
+                      )
                     )}
                   </td>
                 </tr>

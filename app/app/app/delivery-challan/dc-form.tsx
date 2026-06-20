@@ -50,6 +50,9 @@ export interface QualityOpt {
   production_mode: string | null;
   is_merged: boolean | null;
   merged_name: string | null;
+  /** Towel length (metres per piece) from the fabric_quality master.
+   *  When > 0 the quality is a towel and its DC total reads in pcs. */
+  meter_per_pc: number | null;
 }
 
 /** Each piece is just a metres value (as a string for controlled input). */
@@ -282,14 +285,15 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const [ptRes, partyRes, fqRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
-        sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name').eq('active', true).order('name'),
+        sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name, meter_per_pc').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
       setJobworkTypeId(types.find((t) => t.name === 'Jobwork Party')?.id ?? null);
       setOutsourceTypeId(types.find((t) => t.name === 'Outsource Weaver')?.id ?? null);
       setAllParties((partyRes.data ?? []) as PartyOpt[]);
-      setQualities((fqRes.data ?? []) as QualityOpt[]);
+      setQualities(((fqRes.data ?? []) as Array<Omit<QualityOpt, 'meter_per_pc'> & { meter_per_pc: number | string | null }>)
+        .map((q) => ({ ...q, meter_per_pc: q.meter_per_pc != null && q.meter_per_pc !== '' ? Number(q.meter_per_pc) : null })));
 
       // Pull recent vehicle numbers for the autocomplete datalist.
       // We grab the last 200 DC vehicle entries (newest first), dedupe
@@ -933,6 +937,33 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     }
     return { metres, pieces, bundles };
   }, [form.items, form.entry_mode]);
+
+  // A fabric quality is a towel when its master carries a towel length
+  // (meter_per_pc > 0). Towel items are counted in PIECES, so their
+  // "total" reads in pcs instead of metres on the form and the print.
+  const towelQualityIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const q of qualities) {
+      if (q.meter_per_pc != null && q.meter_per_pc > 0) s.add(q.id);
+    }
+    return s;
+  }, [qualities]);
+  const isTowelItem = (it: DcItem): boolean =>
+    it.fabric_quality_id !== '' && towelQualityIds.has(Number(it.fabric_quality_id));
+
+  // DC-level display split: towel pieces are reported separately from
+  // woven metres so a towel DC never shows its piece count under "metres".
+  // (headerTotals stays the source of truth for the saved row.)
+  const headerDisplay = useMemo(() => {
+    let metres = 0, towelPcs = 0;
+    for (const it of form.items) {
+      const t = itemTotals(it, form.entry_mode);
+      if (isTowelItem(it)) towelPcs += Math.round(t.metres);
+      else metres += t.metres;
+    }
+    return { metres, towelPcs };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.items, form.entry_mode, towelQualityIds]);
 
   // ---- Save ----
   async function handleSave(): Promise<void> {
@@ -1732,10 +1763,17 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                 </>
                 )}
 
-                {/* Item totals (auto-snapshot) */}
+                {/* Item totals (auto-snapshot). Towel qualities are
+                    counted in pieces, so their headline total reads pcs. */}
                 <div className="flex flex-wrap justify-end gap-4 border-t border-line/40 pt-2 text-xs">
-                  <div>Total Metres: <span className="num font-bold text-indigo-700">{tot.metres.toFixed(2)} m</span></div>
-                  <div>No. of Pcs: <span className="num font-bold">{tot.pieces}</span></div>
+                  {isTowelItem(it) ? (
+                    <div>Total Pcs: <span className="num font-bold text-indigo-700">{Math.round(tot.metres)} pcs</span></div>
+                  ) : (
+                    <>
+                      <div>Total Metres: <span className="num font-bold text-indigo-700">{tot.metres.toFixed(2)} m</span></div>
+                      <div>No. of Pcs: <span className="num font-bold">{tot.pieces}</span></div>
+                    </>
+                  )}
                   <div>No. of Bundles: <span className="num font-bold">{tot.bundles}</span></div>
                 </div>
               </div>
@@ -1743,9 +1781,15 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           })}
         </div>
 
-        {/* DC-level totals */}
+        {/* DC-level totals. Towel pieces are surfaced on their own line
+            and excluded from the metres figure. */}
         <div className="border-t-2 border-line bg-cloud/40 px-3 py-3 flex flex-wrap justify-end gap-6 text-sm font-semibold">
-          <div>DC Total Metres: <span className="num text-indigo-700">{headerTotals.metres.toFixed(2)} m</span></div>
+          {headerDisplay.towelPcs > 0 && (
+            <div>DC Total Towels: <span className="num text-indigo-700">{headerDisplay.towelPcs} pcs</span></div>
+          )}
+          {headerDisplay.metres > 0 && (
+            <div>DC Total Metres: <span className="num text-indigo-700">{headerDisplay.metres.toFixed(2)} m</span></div>
+          )}
           <div>DC Total Pcs: <span className="num">{headerTotals.pieces}</span></div>
           <div>DC Total Bundles: <span className="num">{headerTotals.bundles}</span></div>
         </div>
