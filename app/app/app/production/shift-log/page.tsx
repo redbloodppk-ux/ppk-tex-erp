@@ -700,6 +700,14 @@ export default function ShiftLogPage(): React.ReactElement {
               </div>
             </div>
           )}
+          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-ink-soft cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAdjustment}
+              onChange={(e) => setShowAdjustment(e.target.checked)}
+            />
+            Include adjustment column
+          </label>
         </div>
 
         <div className="flex flex-wrap gap-1 border-b border-line/60">
@@ -772,14 +780,6 @@ export default function ShiftLogPage(): React.ReactElement {
             )}
             Save shift log
           </button>
-          <label className="inline-flex items-center gap-1.5 text-xs text-ink-soft cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showAdjustment}
-              onChange={(e) => setShowAdjustment(e.target.checked)}
-            />
-            Include adjustment column
-          </label>
           {showAdjustment && (
             <span className="text-xs text-ink-mute">
               Adjustment = +/- correction. Loom Total = sum(weavers) + adjustment.

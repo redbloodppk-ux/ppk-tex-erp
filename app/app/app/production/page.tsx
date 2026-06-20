@@ -1,15 +1,8 @@
 /**
- * Production — production_batch listing PLUS an in-house "Pending
- * Fabric Receipts" panel.
+ * Production — production_batch cost-snapshot listing.
  *
- * The Pending panel mirrors the jobwork DC tab: it lists every active
- * delivery_challan where production_mode = 'inhouse' that hasn't been
- * received yet, with a Receive Fabric icon on each row. Clicking the
- * icon opens the same fabric receipt form used for jobwork / outsource
- * DCs, so the in-house workflow looks and feels identical.
- *
- * The existing production_batch table below is the cost-snapshot ledger
- * (triggers 005 / 006 / 007). It's left untouched.
+ * The production_batch table is the cost-snapshot ledger
+ * (triggers 005 / 006 / 007).
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
@@ -19,8 +12,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Factory,
-  PackageCheck,
-  Printer,
   Pencil,
 } from 'lucide-react';
 import { ProductionBatchDeleteButton } from '@/app/components/production-batch-delete-button';
@@ -48,50 +39,10 @@ interface VarianceRow {
   actual_sizing_cost_per_m: number | null;
 }
 
-interface PendingDcRow {
-  id: number;
-  code: string;
-  dc_date: string;
-  status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
-  bill_to_name: string | null;
-  total_metres: number | string | null;
-  total_pieces: number | null;
-  total_bundles: number | null;
-  fabric_receipt_id: number | null;
-  // Items are fetched only to detect batch-sourced DCs: those already
-  // depleted production_fabric stock at DC-save and are billed directly
-  // off the DC (no fabric receipt), so they must NOT appear here.
-  dc_items?: Array<{ production_batch_id: number | null }> | null;
-}
-
-function fmtDate(s: string | null): string {
-  if (!s) return '-';
-  const d = new Date(s + 'T00:00:00');
-  if (Number.isNaN(d.getTime())) return s;
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
-}
-
-function fmtMetres(v: unknown): string {
-  return Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-}
-
-function statusPill(s: PendingDcRow['status']): { label: string; cls: string } {
-  switch (s) {
-    case 'draft':     return { label: 'Draft',     cls: 'bg-slate-100 text-slate-600' };
-    case 'confirmed': return { label: 'Confirmed', cls: 'bg-amber-50 text-amber-700' };
-    case 'invoiced':  return { label: 'Invoiced',  cls: 'bg-emerald-50 text-emerald-700' };
-    case 'cancelled': return { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700' };
-    default:          return { label: s,           cls: 'bg-slate-100 text-slate-600' };
-  }
-}
-
 export default async function ProductionPage() {
   const supabase = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any;
 
-  const [batchesRes, varianceRes, pendingDcRes] = await Promise.all([
+  const [batchesRes, varianceRes] = await Promise.all([
     supabase
       .from('production_batch')
       .select(`
@@ -105,27 +56,10 @@ export default async function ProductionPage() {
     supabase
       .from('v_batch_sizing_variance')
       .select('batch_id, variance_per_m, variance_total, actual_sizing_cost_per_m'),
-    // Pending fabric receipts = in-house DCs that haven't been received
-    // yet and aren't cancelled / invoiced.
-    sb
-      .from('delivery_challan')
-      .select(
-        'id, code, dc_date, status, bill_to_name, total_metres, total_pieces, total_bundles, fabric_receipt_id, dc_items:delivery_challan_item ( production_batch_id )'
-      )
-      .eq('production_mode', 'inhouse')
-      .is('fabric_receipt_id', null)
-      .in('status', ['draft', 'confirmed'])
-      .order('dc_date', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(100),
   ]);
 
   const batches = (batchesRes.data as unknown as BatchRow[]) ?? [];
   const variances = (varianceRes.data as unknown as VarianceRow[]) ?? [];
-  const pendingDcs = ((pendingDcRes.data as unknown as PendingDcRow[]) ?? [])
-    // Drop batch-sourced DCs — they bill directly off the DC and never
-    // need a fabric receipt (a receipt would double-deduct raw stock).
-    .filter((d) => !(d.dc_items ?? []).some((it) => it.production_batch_id != null));
   const varianceByBatch = new Map<number, VarianceRow>();
   for (const v of variances) {
     if (v.batch_id != null) varianceByBatch.set(v.batch_id, v);
@@ -135,7 +69,7 @@ export default async function ProductionPage() {
     <div>
       <PageHeader
         title="Production"
-        subtitle="In-house production batches and pending fabric receipts. Costing is snapshotted at insert so stock valuation never drifts."
+        subtitle="In-house production batches. Costing is snapshotted at insert so stock valuation never drifts."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -152,97 +86,7 @@ export default async function ProductionPage() {
       />
 
       {/* ──────────────────────────────────────────────────────────────── */}
-      {/* Pending Fabric Receipts — in-house DCs awaiting receipt          */}
-      {/* ──────────────────────────────────────────────────────────────── */}
-      <section className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="font-display font-bold text-sm">
-            Pending Fabric Receipts <span className="text-ink-mute">· in-house DCs</span>
-          </h2>
-          <span className="text-xs text-ink-mute">
-            {pendingDcs.length} DC{pendingDcs.length === 1 ? '' : 's'} awaiting receipt
-          </span>
-        </div>
-
-        {pendingDcRes.error && (
-          <div className="card p-3 mb-3 text-err text-xs">
-            Could not load in-house DCs: {pendingDcRes.error.message}
-          </div>
-        )}
-
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
-              <tr>
-                <th className="text-left  px-3 py-3">DC No</th>
-                <th className="text-left  px-3 py-3">Date</th>
-                <th className="text-left  px-3 py-3">Party (Bill-To)</th>
-                <th className="text-right px-3 py-3">Metres</th>
-                <th className="text-right px-3 py-3">Pcs</th>
-                <th className="text-right px-3 py-3">Bundles</th>
-                <th className="text-left  px-3 py-3">Status</th>
-                <th className="text-right px-3 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {pendingDcs.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-ink-soft text-sm">
-                    No in-house DCs are pending fabric receipt. <Link
-                      href="/app/delivery-challan/new"
-                      className="text-indigo font-semibold"
-                    >Create a new DC &rarr;</Link>
-                  </td>
-                </tr>
-              ) : (
-                pendingDcs.map((r) => {
-                  const pill = statusPill(r.status);
-                  return (
-                    <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <Link
-                          href={`/app/delivery-challan/${r.id}`}
-                          className="text-indigo hover:underline"
-                        >
-                          {r.code}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
-                      <td className="px-3 py-2 font-medium">{r.bill_to_name ?? '-'}</td>
-                      <td className="px-3 py-2 text-right num">{fmtMetres(r.total_metres)}</td>
-                      <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
-                      <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
-                      <td className="px-3 py-2">
-                        <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <Link
-                          href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
-                          className="p-1 rounded hover:bg-teal-50 text-teal-700 inline-flex mr-1"
-                          title="Receive fabric from this DC"
-                        >
-                          <PackageCheck className="w-4 h-4" />
-                        </Link>
-                        <Link
-                          href={`/app/delivery-challan/${r.id}/print`}
-                          target="_blank"
-                          className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex"
-                          title="View / Print DC"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ──────────────────────────────────────────────────────────────── */}
-      {/* Production batches (existing cost-snapshot listing)              */}
+      {/* Production batches (cost-snapshot listing)                       */}
       {/* ──────────────────────────────────────────────────────────────── */}
       <section>
         <h2 className="font-display font-bold text-sm mb-2">
