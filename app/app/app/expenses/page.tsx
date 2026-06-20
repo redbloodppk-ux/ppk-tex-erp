@@ -27,15 +27,44 @@ interface ExpenseRow {
   notes: string | null;
 }
 
-export default async function ExpensesPage(): Promise<React.ReactElement> {
+interface CategoryRow {
+  name: string;
+}
+
+export default async function ExpensesPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ category?: string; from?: string; to?: string }>;
+}): Promise<React.ReactElement> {
   const supabase = await createClient();
+
+  const sp = (await searchParams) ?? {};
+  const category = sp.category?.trim() ?? '';
+  const from = sp.from?.trim() ?? '';
+  const to = sp.to?.trim() ?? '';
+  const hasFilter = category !== '' || from !== '' || to !== '';
+
+  // Category list for the filter dropdown (active categories).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: catData } = await (supabase as any)
+    .from('expense_category')
+    .select('name')
+    .eq('is_active', true)
+    .order('name');
+  const categories = ((catData as unknown as CategoryRow[]) ?? []).map((c) => c.name);
+
   // expense_entry from migrations 035/036 — types not regenerated.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  let query = (supabase as any)
     .from('expense_entry')
     .select('id, category, pay_date, amount, notes')
     .order('pay_date', { ascending: false })
     .limit(200);
+  if (category !== '') query = query.eq('category', category);
+  if (from !== '') query = query.gte('pay_date', from);
+  if (to !== '') query = query.lte('pay_date', to);
+
+  const { data, error } = await query;
 
   const rows = (data as unknown as ExpenseRow[]) ?? [];
   const total = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -65,6 +94,34 @@ export default async function ExpensesPage(): Promise<React.ReactElement> {
           Could not load expenses: {error.message}
         </div>
       )}
+
+      <form method="get" className="card p-4 mb-4 flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-ink-mute">Category</label>
+          <select
+            name="category"
+            defaultValue={category}
+            className="input min-w-[180px]"
+          >
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-ink-mute">From date</label>
+          <input type="date" name="from" defaultValue={from} className="input" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] uppercase tracking-wide text-ink-mute">To date</label>
+          <input type="date" name="to" defaultValue={to} className="input" />
+        </div>
+        <button type="submit" className="btn-primary">Apply</button>
+        {hasFilter && (
+          <Link href="/app/expenses" className="btn-secondary">Clear</Link>
+        )}
+      </form>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">
