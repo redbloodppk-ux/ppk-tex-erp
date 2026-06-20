@@ -9,7 +9,10 @@
  *
  * After some goods have shipped (partial dispatch / dispatched / invoiced)
  * the operator can manually Close the order to mark it finished even though
- * the full quantity was never delivered. A Closed order is frozen — the
+ * the full quantity was never delivered. Close first checks whether the
+ * order has actually been invoiced: if so it is set to 'invoiced' (catching
+ * bills raised straight from stock that the auto-status trigger missed),
+ * otherwise it is frozen as 'closed'. A Closed order is frozen — the
  * auto-status trigger leaves it alone — and the only forward action is to
  * Cancel it.
  */
@@ -35,7 +38,7 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
   const canClose = CLOSABLE_STATUSES.has(status);
   const isClosed = status === 'closed';
 
-  async function updateStatus(next: 'closed' | 'cancelled', confirmMsg: string): Promise<void> {
+  async function updateStatus(next: 'cancelled', confirmMsg: string): Promise<void> {
     if (!window.confirm(confirmMsg)) {
       return;
     }
@@ -46,6 +49,44 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
     setBusy(false);
     if (error) {
       window.alert(`Could not update ${soNumber}: ${error.message}`);
+      return;
+    }
+    router.refresh();
+  }
+
+  // Closing an order first checks whether it has actually been invoiced.
+  // An invoice may be missed by the auto-status trigger when it is raised
+  // straight from stock (not from the DC), so the order can sit in
+  // partial_dispatch / dispatched even though it is billed. In that case we
+  // move it to 'invoiced' rather than 'closed'. Only a genuinely un-invoiced
+  // order is frozen as 'closed'.
+  async function handleClose(): Promise<void> {
+    if (!window.confirm(
+      `Close order ${soNumber}? If it has already been invoiced it will be marked Invoiced; otherwise it is marked Closed and stops tracking deliveries.`,
+    )) {
+      return;
+    }
+    setBusy(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createClient() as any;
+
+    // Invoiced if any invoice points at this SO directly, or any DC linked
+    // to the SO carries an invoice_id.
+    const { data: directInv } = await sb
+      .from('invoice').select('id').eq('so_id', soId).limit(1);
+    let invoiced = (directInv?.length ?? 0) > 0;
+    if (!invoiced) {
+      const { data: dcInv } = await sb
+        .from('delivery_challan').select('id')
+        .eq('sales_order_id', soId).not('invoice_id', 'is', null).limit(1);
+      invoiced = (dcInv?.length ?? 0) > 0;
+    }
+
+    const next: 'invoiced' | 'closed' = invoiced ? 'invoiced' : 'closed';
+    const { error } = await sb.from('sales_order').update({ status: next }).eq('id', soId);
+    setBusy(false);
+    if (error) {
+      window.alert(`Could not close ${soNumber}: ${error.message}`);
       return;
     }
     router.refresh();
@@ -95,12 +136,7 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
       <div className="flex items-center justify-end gap-1">
         <button
           type="button"
-          onClick={() =>
-            void updateStatus(
-              'closed',
-              `Close order ${soNumber}? Use this when no more goods will be delivered against it. The order will be marked Closed and stop tracking deliveries.`,
-            )
-          }
+          onClick={() => void handleClose()}
           disabled={busy}
           className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium hover:bg-slate-100 text-slate-700 disabled:opacity-40"
           title={`Close ${soNumber}`}
