@@ -415,7 +415,7 @@ export default async function DcPrintPage({
           // stored in item.metres (overloaded), so itemMetres holds it.
           // (fabric / woven / dhoties also carry meter_per_pc, so we must key
           // off fabric_type, not meter_per_pc > 0.)
-          const isTowel = fq?.fabric_type === 'towel';
+          const isTowelQuality = fq?.fabric_type === 'towel';
 
           const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
           const bundleRows = chunk(bundles, BUNDLES_PER_ROW);
@@ -423,10 +423,17 @@ export default async function DcPrintPage({
 
           let itemMetres = 0;
           let itemPieces = 0;
+          // Whether any value entered is a decimal length (e.g. 96.7). A towel
+          // line with decimal values is really a metre delivery, so we report
+          // it under metres rather than as a piece count.
+          let hasDecimalValue = false;
           for (const b of bundles) {
             for (const p of (b.pieces ?? [])) {
               const v = num(p);
-              if (v > 0) { itemMetres += v; itemPieces += 1; }
+              if (v > 0) {
+                itemMetres += v; itemPieces += 1;
+                if (!Number.isInteger(v)) hasDecimalValue = true;
+              }
             }
           }
           let itemBundles = bundles.length;
@@ -437,7 +444,10 @@ export default async function DcPrintPage({
             itemMetres  = num(item.metres);
             itemPieces  = item.pieces  ?? 0;
             itemBundles = item.bundles ?? 0;
+            hasDecimalValue = !Number.isInteger(itemMetres);
           }
+
+          const isTowel = isTowelQuality && !hasDecimalValue;
 
           return (
             <div className="dc-item" key={item.id}>

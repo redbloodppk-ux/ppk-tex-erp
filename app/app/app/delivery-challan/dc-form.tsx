@@ -1015,8 +1015,26 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     }
     return s;
   }, [qualities]);
+  // A towel line is counted in PIECES only when its values are whole
+  // numbers (towel counts). If the operator entered decimal lengths
+  // (e.g. 96.7) then — even on a towel quality — this is really a metre
+  // delivery, so we fall back to reporting it under metres.
+  const itemHasDecimalValue = (it: DcItem): boolean => {
+    if (form.entry_mode === 'summary') {
+      return !Number.isInteger(num(it.summary_metres));
+    }
+    for (const b of it.bundles) {
+      for (const p of b.pieces) {
+        const v = num(p);
+        if (v > 0 && !Number.isInteger(v)) return true;
+      }
+    }
+    return !Number.isInteger(itemTotals(it, form.entry_mode).metres);
+  };
   const isTowelItem = (it: DcItem): boolean =>
-    it.fabric_quality_id !== '' && towelQualityIds.has(Number(it.fabric_quality_id));
+    it.fabric_quality_id !== '' &&
+    towelQualityIds.has(Number(it.fabric_quality_id)) &&
+    !itemHasDecimalValue(it);
 
   // DC-level display split: towel pieces are reported separately from
   // woven metres so a towel DC never shows its piece count under "metres".
