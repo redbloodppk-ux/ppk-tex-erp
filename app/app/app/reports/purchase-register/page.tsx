@@ -1,16 +1,15 @@
 /**
  * Purchase Register
  *
- * Owner / accountant view of every supplier goods bill we received —
- * unions yarn lots, bobbin purchases, fabric purchases, and
+ * Owner / accountant view of every supplier bill we received — unions
+ * yarn lots, bobbin purchases, sizing jobs, fabric purchases, and
  * outsource-weaving / jobwork bills (invoice table). Source:
- * `public.v_purchase_register` from migration 175. Sizing jobs are a
- * processing service, not a goods purchase, so they are excluded here.
+ * `public.v_purchase_register` from migration 175.
  *
  * Filters via querystring:
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD       (defaults: 1st of this month → today)
  *   ?party_id=123                         (optional, single supplier)
- *   ?source=yarn|bobbin|fabric|outsource_weaving|jobwork|all
+ *   ?source=yarn|bobbin|sizing|fabric|outsource_weaving|jobwork|all
  *   ?gst=with|without|all                 (filter rows where GST > 0 vs = 0)
  *
  * KPI strip + CGST/SGST/IGST split + line table + totals footer. GST
@@ -36,6 +35,7 @@ type SourceFilter =
   | 'all'
   | 'yarn'
   | 'bobbin'
+  | 'sizing'
   | 'fabric'
   | 'outsource_weaving';
 
@@ -169,6 +169,7 @@ const SOURCE_OPTIONS: SourceFilter[] = [
   'all',
   'yarn',
   'bobbin',
+  'sizing',
   'fabric',
   'outsource_weaving',
 ];
@@ -197,14 +198,10 @@ export default async function PurchaseRegisterReport({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Main query.
-  // Sizing is a processing service (job-work on warp yarn), not a goods
-  // purchase, so it's excluded from the Purchase Register. Sizing bills
-  // live in their own report.
+  // Main query
   let query = sb
     .from('v_purchase_register')
     .select('*')
-    .neq('source', 'sizing')
     .gte('bill_date', from)
     .lte('bill_date', to)
     .order('bill_date', { ascending: false })
@@ -324,7 +321,7 @@ export default async function PurchaseRegisterReport({
           { label: 'Reports', href: '/app/reports' },
           { label: 'Purchase Register' },
         ]}
-        subtitle={`Every supplier bill between ${from} and ${to}. Unions yarn, bobbin, fabric, and outsource-weaving bills. GST split is auto-derived from supplier state.`}
+        subtitle={`Every supplier bill between ${from} and ${to}. Unions yarn, bobbin, sizing, fabric, and outsource-weaving bills. GST split is auto-derived from supplier state.`}
         actions={
           <ExcelExportButton
             filename="purchase-register"
@@ -375,6 +372,7 @@ export default async function PurchaseRegisterReport({
             <option value="all">All</option>
             <option value="yarn">Yarn</option>
             <option value="bobbin">Bobbin</option>
+            <option value="sizing">Sizing</option>
             <option value="fabric">Fabric</option>
             <option value="outsource_weaving">Outsource Weaving</option>
           </select>
