@@ -36,6 +36,7 @@ interface DcRow {
   total_bundles: number | null;
   sales_order_id: number | null;
   invoice_id: number | null;
+  fabric_receipt_id: number | null;
 }
 
 function fmtDate(s: string | null): string {
@@ -77,7 +78,7 @@ export default async function DeliveryChallanListPage({
   const sb = supabase as any;
   let q = sb
     .from('delivery_challan')
-    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id')
+    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id, fabric_receipt_id')
     .order(sort, { ascending: dir === 'asc' })
     .order('id', { ascending: false });
   if (mode !== null) q = q.eq('production_mode', mode);
@@ -227,7 +228,12 @@ export default async function DeliveryChallanListPage({
                         batch carry finished goods going OUT to a customer;
                         receipting them would duplicate the batch's stock,
                         so the icon is faded + disabled for those. */}
-                    {r.status !== 'cancelled' && (
+                    {/* Once a fabric receipt has been cut from this DC,
+                        delivery_challan.fabric_receipt_id is set — hide the
+                        "Receive fabric" button entirely so a second receipt
+                        can never be created against the same DC. (Deleting
+                        the receipt clears the link and the button returns.) */}
+                    {r.status !== 'cancelled' && r.fabric_receipt_id == null && (
                       batchDcIds.has(r.id) ? (
                         <span
                           className="p-1 rounded inline-flex ml-1 text-slate-300 cursor-not-allowed"
