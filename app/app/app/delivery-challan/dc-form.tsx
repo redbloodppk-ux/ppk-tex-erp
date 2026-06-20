@@ -504,6 +504,58 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         }
         perBatch.set(id, slot);
       }
+
+      // 1b. Subtract DC deliveries. Outflows are logged under
+      // source_kind='delivery_challan_item' (source_id = the DC line id),
+      // with the batch link living on delivery_challan_item.production_batch_id.
+      // Without this a fully-delivered batch keeps its full original stock and
+      // wrongly stays in the picker. We net each outflow back onto its batch
+      // (and add back any reversal 'in' rows from a cancelled DC).
+      const { data: dcLedger } = await sb
+        .from('stock_ledger')
+        .select('source_id, direction, quantity')
+        .eq('bucket', 'production_fabric')
+        .eq('source_kind', 'delivery_challan_item');
+      const dciIds = Array.from(new Set(
+        ((dcLedger ?? []) as Array<{ source_id: number | null }>)
+          .map((r) => r.source_id)
+          .filter((v): v is number => v != null),
+      ));
+      // Map DC line id -> batch id, and collect which bundle snos have
+      // already left the building so we can show only leftover bundles.
+      const dciToBatch = new Map<number, number>();
+      const deliveredSnosByBatch = new Map<number, Set<number>>();
+      if (dciIds.length > 0) {
+        const { data: dciRows } = await sb
+          .from('delivery_challan_item')
+          .select('id, production_batch_id, bundles_detail')
+          .in('id', dciIds);
+        for (const d of (dciRows ?? []) as Array<{
+          id: number;
+          production_batch_id: number | null;
+          bundles_detail: Array<{ sno: number; pieces: number[] }> | null;
+        }>) {
+          if (d.production_batch_id == null) continue;
+          dciToBatch.set(d.id, d.production_batch_id);
+          const set = deliveredSnosByBatch.get(d.production_batch_id) ?? new Set<number>();
+          for (const bd of (d.bundles_detail ?? [])) set.add(bd.sno);
+          deliveredSnosByBatch.set(d.production_batch_id, set);
+        }
+      }
+      for (const r of (dcLedger ?? []) as Array<{
+        source_id: number | null; direction: string; quantity: number | string | null;
+      }>) {
+        if (r.source_id == null) continue;
+        const batchId = dciToBatch.get(Number(r.source_id));
+        if (batchId == null) continue;
+        const slot = perBatch.get(batchId);
+        if (!slot) continue;
+        const qty = Number(r.quantity ?? 0);
+        if (r.direction === 'out') slot.net -= qty;
+        else if (r.direction === 'in') slot.net += qty;
+        perBatch.set(batchId, slot);
+      }
+
       const liveIds: number[] = [];
       for (const [id, slot] of perBatch) {
         if (slot.net > 0.0001) liveIds.push(id);
@@ -571,6 +623,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         const cm = cmById.get(b.costing_id);
         const fq = fqByCostingId.get(b.costing_id);
         const slot = perBatch.get(b.id) ?? { net: 0, unit: 'm' as 'm' | 'pcs' };
+        const allBundles = (b.bundles_detail ?? []) as Array<{ sno: number; pieces: number[] }>;
+        // Show only the leftover bundles — drop any sno already delivered on
+        // an earlier DC. Skip trimming for batches already picked on THIS DC
+        // (their own delivery is in the ledger) so the selection stays intact.
+        const deliveredSnos = pickedBatchIds.has(b.id)
+          ? new Set<number>()
+          : (deliveredSnosByBatch.get(b.id) ?? new Set<number>());
+        const leftoverBundles = allBundles.filter((bd) => !deliveredSnos.has(bd.sno));
+        const trimmed = deliveredSnos.size > 0;
+        const leftoverPieces = leftoverBundles.reduce((n, bd) => n + bd.pieces.length, 0);
         return {
           id: b.id,
           batch_code: b.batch_code,
@@ -581,9 +643,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           fabric_quality_hsn: fq?.hsn ?? null,
           entry_mode: (b.entry_mode === 'detailed' ? 'detailed' : 'summary'),
           produced_m: Number(b.produced_m ?? 0),
-          total_pieces: b.total_pieces,
-          total_bundles: b.total_bundles,
-          bundles_detail: (b.bundles_detail ?? []) as Array<{ sno: number; pieces: number[] }>,
+          total_pieces: trimmed ? leftoverPieces : b.total_pieces,
+          total_bundles: trimmed ? leftoverBundles.length : b.total_bundles,
+          bundles_detail: leftoverBundles,
           available: slot.net,
           unit: slot.unit,
         };
