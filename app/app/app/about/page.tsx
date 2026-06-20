@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import {
   Layers, Palette, Database, ClipboardCheck, FileText,
-  Smartphone, FlaskConical, Wrench, Info,
+  FlaskConical, Wrench, Info, Plug, BadgeCheck, Truck, MessageCircle,
 } from 'lucide-react';
 import { PageHeader } from '@/app/components/page-header';
 
@@ -20,6 +20,44 @@ interface StackGroup {
   icon: React.ComponentType<{ className?: string }>;
   tools: Tool[];
 }
+
+interface Integration {
+  name: string;
+  icon: React.ComponentType<{ className?: string }>;
+  provider: string;
+  purpose: string;
+}
+
+/**
+ * External APIs and third-party services the ERP talks to. Providers are
+ * configured via environment variables; see the relevant route/lib files.
+ */
+const INTEGRATIONS: Integration[] = [
+  {
+    name: 'GST Number Verification',
+    icon: BadgeCheck,
+    provider: 'Sandbox / AppyFlow',
+    purpose: 'Looks up a GSTIN and auto-fills the party\u2019s legal name and address, so customer and supplier records stay accurate.',
+  },
+  {
+    name: 'E-Way Bill Generation',
+    icon: Truck,
+    provider: 'MasterGST (GSP) — NIC EWB v1.03',
+    purpose: 'Generates government e-way bills for invoices directly from the app, required for moving goods above the value threshold.',
+  },
+  {
+    name: 'WhatsApp Sharing',
+    icon: MessageCircle,
+    provider: 'wa.me click-to-chat',
+    purpose: 'Sends invoices and delivery challans to customers on WhatsApp with one tap — no number saving needed.',
+  },
+  {
+    name: 'Supabase Cloud',
+    icon: Database,
+    provider: 'Postgres + Auth + Realtime',
+    purpose: 'The cloud database, secure staff login and live data sync that the whole application runs on.',
+  },
+];
 
 /**
  * Versions are taken from app/package.json (the "^" prefix is dropped for
@@ -152,6 +190,39 @@ export default function AboutPage(): React.ReactElement {
           );
         })}
       </div>
+
+      {/* External APIs & Integrations */}
+      <section className="card p-6 mt-6">
+        <h3 className="flex items-center gap-2 text-sm font-bold text-ink mb-1">
+          <Plug className="w-4 h-4 text-indigo" />
+          External APIs &amp; Integrations
+        </h3>
+        <p className="text-xs text-ink-soft mb-4 leading-relaxed">
+          Services the ERP connects to. All keys are stored securely as
+          environment variables, never in the code.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {INTEGRATIONS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.name} className="flex items-start gap-3 rounded-xl border border-line/60 bg-cloud/30 p-4">
+                <span className="shrink-0 w-9 h-9 rounded-lg bg-indigo/10 text-indigo flex items-center justify-center">
+                  <Icon className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="text-sm font-semibold text-ink">{item.name}</span>
+                    <span className="text-[11px] font-mono text-ink-mute bg-cloud/60 rounded px-1.5 py-0.5">
+                      {item.provider}
+                    </span>
+                  </div>
+                  <p className="text-xs text-ink-soft leading-snug mt-1">{item.purpose}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Footer meta */}
       <div className="card p-5 mt-6 text-sm text-ink-soft">
