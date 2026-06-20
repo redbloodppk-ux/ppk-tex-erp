@@ -15,7 +15,7 @@ const SORTABLE_COLUMNS = new Set(['so_number', 'order_date']);
 
 type SoStatus =
   | 'draft' | 'pending_approval' | 'approved' | 'in_production'
-  | 'partial_dispatch' | 'dispatched' | 'invoiced' | 'paid' | 'cancelled';
+  | 'partial_dispatch' | 'dispatched' | 'invoiced' | 'paid' | 'closed' | 'cancelled';
 
 interface SoRow {
   id: number;
@@ -40,6 +40,7 @@ const STATUS_META: Record<SoStatus, { label: string; cls: string }> = {
   dispatched:        { label: 'Dispatched',       cls: 'bg-emerald-50 text-emerald-700' },
   invoiced:          { label: 'Invoiced',         cls: 'bg-emerald-50 text-emerald-700' },
   paid:              { label: 'Paid',             cls: 'bg-emerald-100 text-emerald-800' },
+  closed:            { label: 'Closed',           cls: 'bg-slate-200 text-slate-700' },
   cancelled:         { label: 'Cancelled',        cls: 'bg-rose-50 text-rose-700' },
 };
 
