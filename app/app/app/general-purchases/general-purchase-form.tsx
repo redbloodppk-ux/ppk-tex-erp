@@ -60,6 +60,31 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
+  // Party type-ahead: a searchable combobox over the full party list.
+  // partyQuery holds the visible text; the chosen id lives in form.supplier_party_id.
+  const [partyQuery, setPartyQuery] = useState<string>(() => {
+    if (initial?.supplier_party_id != null) {
+      const p = parties.find((x) => x.id === initial.supplier_party_id);
+      return p ? `${p.name}${p.code ? ` · ${p.code}` : ''}` : '';
+    }
+    return '';
+  });
+  const [partyOpen, setPartyOpen] = useState(false);
+
+  const filteredParties = useMemo(() => {
+    const q = partyQuery.trim().toLowerCase();
+    const base = q
+      ? parties.filter((p) => p.name.toLowerCase().includes(q) || (p.code ?? '').toLowerCase().includes(q))
+      : parties;
+    return base.slice(0, 50);
+  }, [partyQuery, parties]);
+
+  function pickParty(p: PartyOpt): void {
+    setForm((f) => ({ ...f, supplier_party_id: String(p.id) }));
+    setPartyQuery(`${p.name}${p.code ? ` · ${p.code}` : ''}`);
+    setPartyOpen(false);
+  }
+
   // Live total preview: taxable * (1 + gst/100), rounded to whole rupee
   // for display (the DB stores 2-decimal precision via a generated col).
   const total = useMemo(() => {
@@ -75,7 +100,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
 
     if (!form.bill_no.trim())          { setError('Bill / invoice number is required.'); return; }
     if (!form.bill_date)               { setError('Bill / invoice date is required.'); return; }
-    if (form.supplier_party_id === '') { setError('Pick the supplier.'); return; }
+    if (form.supplier_party_id === '') { setError('Pick the party.'); return; }
     const taxable = Number(form.taxable);
     if (!Number.isFinite(taxable) || taxable < 0) { setError('Taxable amount must be zero or more.'); return; }
     const gst = Number(form.gst_pct);
@@ -140,15 +165,31 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
         </div>
       </div>
 
-      <div>
-        <label className="label">Supplier *</label>
-        <select className="input" required value={form.supplier_party_id}
-          onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
-          <option value="">--- pick a supplier ---</option>
-          {parties.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ''}</option>
-          ))}
-        </select>
+      <div className="relative">
+        <label className="label">Party *</label>
+        <input type="text" autoComplete="off" value={partyQuery}
+          onChange={(e) => { setPartyQuery(e.target.value); setPartyOpen(true); setForm((f) => ({ ...f, supplier_party_id: '' })); }}
+          onFocus={() => setPartyOpen(true)}
+          onBlur={() => setTimeout(() => setPartyOpen(false), 150)}
+          className="input" placeholder="Type to search party…" />
+        {partyOpen && filteredParties.length > 0 && (
+          <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-line bg-white shadow-lg">
+            {filteredParties.map((p) => (
+              <li key={p.id}>
+                <button type="button"
+                  onMouseDown={(e) => { e.preventDefault(); pickParty(p); }}
+                  className="block w-full text-left px-3 py-2 text-sm hover:bg-indigo/5">
+                  {p.name}{p.code ? <span className="text-ink-mute"> · {p.code}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {partyOpen && partyQuery.trim() !== '' && filteredParties.length === 0 && (
+          <div className="absolute z-20 mt-1 w-full rounded-lg border border-line bg-white shadow-lg px-3 py-2 text-sm text-ink-mute">
+            No matching party.
+          </div>
+        )}
       </div>
 
       <div>
