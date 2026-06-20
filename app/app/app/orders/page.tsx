@@ -86,18 +86,28 @@ export default async function OrdersPage({
   const orderedPcsById = new Map<number, number>();      // ordered pieces
   const nonPcsLineById = new Map<number, boolean>();      // has any metres line?
   const deliveredById = new Map<number, number>();        // delivered metres
+  // Per-SO line rates so the list can show a Rate column. Each entry
+  // pairs the rate with its UoM (Rs/m vs Rs/pc) so a single SO with a
+  // single quality reads cleanly; mixed-rate orders show a range.
+  const ratesById = new Map<number, Array<{ rate: number; uom: string | null }>>();
   if (soIds.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const [{ data: linesData }, { data: dcLinks }] = await Promise.all([
-      sb.from('sales_order_line').select('so_id, quantity_m, pieces, uom').in('so_id', soIds),
+      sb.from('sales_order_line').select('so_id, quantity_m, pieces, uom, rate_per_m').in('so_id', soIds),
       sb.from('delivery_challan').select('id, sales_order_id, status')
         .in('sales_order_id', soIds).not('status', 'eq', 'cancelled'),
     ]);
-    for (const l of (linesData ?? []) as Array<{ so_id: number; quantity_m: number | string | null; pieces: number | string | null; uom: string | null }>) {
+    for (const l of (linesData ?? []) as Array<{ so_id: number; quantity_m: number | string | null; pieces: number | string | null; uom: string | null; rate_per_m: number | string | null }>) {
       orderedById.set(l.so_id, (orderedById.get(l.so_id) ?? 0) + Number(l.quantity_m ?? 0));
       orderedPcsById.set(l.so_id, (orderedPcsById.get(l.so_id) ?? 0) + Number(l.pieces ?? 0));
       if (l.uom !== 'pcs') nonPcsLineById.set(l.so_id, true);
+      const rate = Number(l.rate_per_m ?? 0);
+      if (rate > 0) {
+        const arr = ratesById.get(l.so_id) ?? [];
+        arr.push({ rate, uom: l.uom });
+        ratesById.set(l.so_id, arr);
+      }
     }
     const linkedDcIds = ((dcLinks ?? []) as Array<{ id: number; sales_order_id: number }>);
     if (linkedDcIds.length > 0) {
@@ -152,6 +162,7 @@ export default async function OrdersPage({
                 <SortableTh column="order_date" label="Order Date" sort={sort} dir={dir} basePath="/app/orders" className="text-left px-4 py-3" />
                 <th className="text-left px-4 py-3 hidden md:table-cell">Delivery</th>
                 <th className="text-right px-4 py-3 hidden sm:table-cell">Ordered</th>
+                <th className="text-right px-4 py-3 hidden lg:table-cell">Rate</th>
                 <th className="text-right px-4 py-3 hidden sm:table-cell">Delivered</th>
                 <th className="text-right px-4 py-3">Balance</th>
                 <th className="text-right px-4 py-3">Total</th>
@@ -177,6 +188,18 @@ export default async function OrdersPage({
                 const balance = Math.max(ordered - delivered, 0);
                 const fmtQty = (n: number) =>
                   n > 0 ? `${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${unit}` : '-';
+                // Rate column: a single distinct rate shows as "₹X/m"
+                // (or /pc); multiple distinct rates show as a range so a
+                // mixed-quality order is still readable at a glance.
+                const lineRates = ratesById.get(o.id) ?? [];
+                const rateUnit = lineRates.some((r) => r.uom !== 'pcs') ? 'm' : 'pc';
+                const distinctRates = Array.from(new Set(lineRates.map((r) => r.rate))).sort((a, b) => a - b);
+                const fmtRate = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                const rateLabel = distinctRates.length === 0
+                  ? '-'
+                  : distinctRates.length === 1
+                    ? `${fmtRate(distinctRates[0] as number)}/${rateUnit}`
+                    : `${fmtRate(distinctRates[0] as number)}–${fmtRate(distinctRates[distinctRates.length - 1] as number)}/${rateUnit}`;
                 return (
                   <tr key={o.id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-4 py-3 font-mono text-xs">{o.so_number}</td>
@@ -186,6 +209,7 @@ export default async function OrdersPage({
                     <td className="px-4 py-3 text-xs text-ink-soft">{formatDate(o.order_date)}</td>
                     <td className="px-4 py-3 text-xs text-ink-soft hidden md:table-cell">{formatDate(o.delivery_date)}</td>
                     <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell">{fmtQty(ordered)}</td>
+                    <td className="px-4 py-3 text-right num text-xs hidden lg:table-cell text-ink-soft">{rateLabel}</td>
                     <td className="px-4 py-3 text-right num text-xs hidden sm:table-cell text-emerald-700">{fmtQty(delivered)}</td>
                     <td className={`px-4 py-3 text-right num text-xs font-semibold ${balance > 0 ? 'text-rose-700' : 'text-ink-mute'}`}>{fmtQty(balance)}</td>
                     <td className="px-4 py-3 text-right num font-semibold">{formatRupee(o.total ?? 0, { compact: true })}</td>

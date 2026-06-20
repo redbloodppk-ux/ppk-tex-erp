@@ -186,6 +186,9 @@ export default function ShiftLogPage(): React.ReactElement {
   const [shift, setShift] = useState<'day' | 'night'>('day');
   const [nightEnabled, setNightEnabled] = useState<boolean>(false);
   const [activeShed, setActiveShed] = useState<number>(1);
+  // Adjustment column is optional — hidden by default, the operator opts in
+  // when a manual +/- correction is needed (cut metres, fix, etc.).
+  const [showAdjustment, setShowAdjustment] = useState<boolean>(false);
 
   const [looms, setLooms] = useState<Loom[]>([]);
   const [weaverOptions, setWeaverOptions] = useState<WeaverOption[]>([]);
@@ -742,6 +745,7 @@ export default function ShiftLogPage(): React.ReactElement {
             shed={activeShedState}
             weaverOptions={weaverOptions}
             logDate={logDate}
+            showAdjustment={showAdjustment}
             onWeaverChange={(slot, v) => updateShedWeaver(activeShed, slot, v)}
             onMetresChange={(loomId, slot, v) =>
               updateLoomMetres(activeShed, loomId, slot, v)
@@ -768,9 +772,19 @@ export default function ShiftLogPage(): React.ReactElement {
             )}
             Save shift log
           </button>
-          <span className="text-xs text-ink-mute">
-            Adjustment = +/- correction. Loom Total = sum(weavers) + adjustment.
-          </span>
+          <label className="inline-flex items-center gap-1.5 text-xs text-ink-soft cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAdjustment}
+              onChange={(e) => setShowAdjustment(e.target.checked)}
+            />
+            Include adjustment column
+          </label>
+          {showAdjustment && (
+            <span className="text-xs text-ink-mute">
+              Adjustment = +/- correction. Loom Total = sum(weavers) + adjustment.
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -783,6 +797,8 @@ interface ShedCardProps {
   /** Current shift log date (YYYY-MM-DD); used to decide if each loom row
    *  is editable given its idle_since cutover. */
   logDate: string;
+  /** Whether the optional Adjustment column is shown. */
+  showAdjustment: boolean;
   onWeaverChange: (slotIdx: number, employee_id: string) => void;
   onMetresChange: (loomId: number, slotIdx: number, value: string) => void;
   onAdjustmentChange: (loomId: number, value: string) => void;
@@ -794,6 +810,7 @@ function ShedCard({
   shed,
   weaverOptions,
   logDate,
+  showAdjustment,
   onWeaverChange,
   onMetresChange,
   onAdjustmentChange,
@@ -872,7 +889,7 @@ function ShedCard({
                   </th>
                 );
               })}
-              <th className="py-2 pr-3 text-right">Adjustment</th>
+              {showAdjustment && <th className="py-2 pr-3 text-right">Adjustment</th>}
               <th className="py-2 pr-3 text-right">Total</th>
             </tr>
           </thead>
@@ -883,7 +900,7 @@ function ShedCard({
               const running = isLoomEditableOn(r, logDate);
               const total = running ? loomTotal(r) : 0;
               const pill = statusPill(r.status);
-              const lockedColspan = shed.weavers.length + 1; // weaver slots + adjustment
+              const lockedColspan = shed.weavers.length + (showAdjustment ? 1 : 0); // weaver slots + optional adjustment
               return (
                 <tr key={r.loom_id} className="border-b border-line/60 align-middle">
                   <td className="py-2 pr-3">
@@ -908,17 +925,19 @@ function ShedCard({
                           />
                         </td>
                       ))}
-                      <td className="py-2 pr-3 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="input num w-24 text-right"
-                          placeholder="0"
-                          value={r.adjustment}
-                          onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
-                          onKeyDown={focusNextOnEnter}
-                        />
-                      </td>
+                      {showAdjustment && (
+                        <td className="py-2 pr-3 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="input num w-24 text-right"
+                            placeholder="0"
+                            value={r.adjustment}
+                            onChange={(e) => onAdjustmentChange(r.loom_id, e.target.value)}
+                            onKeyDown={focusNextOnEnter}
+                          />
+                        </td>
+                      )}
                     </>
                   ) : (
                     <td
@@ -955,9 +974,11 @@ function ShedCard({
                   {t > 0 ? `${t.toLocaleString('en-IN')} m` : '-'}
                 </td>
               ))}
-              <td className="py-2 pr-3 text-right font-medium">
-                {adjTotal !== 0 ? `${adjTotal.toLocaleString('en-IN')} m` : '-'}
-              </td>
+              {showAdjustment && (
+                <td className="py-2 pr-3 text-right font-medium">
+                  {adjTotal !== 0 ? `${adjTotal.toLocaleString('en-IN')} m` : '-'}
+                </td>
+              )}
               <td className="py-2 pr-3 text-right font-medium">
                 {total.toLocaleString('en-IN')} m
               </td>

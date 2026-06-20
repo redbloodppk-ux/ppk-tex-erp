@@ -274,10 +274,15 @@ function NavBody({
   }
 
   return (
-    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1 flex flex-col">
-      {/* Flat top items (Dashboard) — no group header above them. */}
+    // Three-part column: a pinned top (Dashboard), a scrollable middle
+    // (the labelled groups) and a pinned bottom (Settings). Only the
+    // middle scrolls, so Dashboard and Settings stay put no matter how
+    // many groups are expanded. min-h-0 lets the middle actually shrink
+    // and scroll inside the flex column.
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Pinned flat top items (Dashboard) — never scroll away. */}
       {flatItems.length > 0 && (
-        <ul className="space-y-0.5 mb-2">
+        <ul className="space-y-0.5 px-3 pt-4 pb-2 shrink-0">
           {flatItems.map(item => {
             const active = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
@@ -306,6 +311,8 @@ function NavBody({
           })}
         </ul>
       )}
+      {/* Scrollable middle — only the groups scroll. */}
+      <nav className="flex-1 overflow-y-auto px-3 space-y-1 min-h-0">
       {grouped.map(({ group, items }) => {
         // Before hydration: only the active group is open (avoids
         // flash of all groups closed). After hydration: openGroups
@@ -365,11 +372,14 @@ function NavBody({
           </div>
         );
       })}
+      </nav>
 
-      {/* Bottom pinned items (Settings) — pushed to the very bottom of
-          the sidebar, below all the groups, with a divider above. */}
+      {/* Bottom pinned items (Settings) — always visible at the very
+          bottom of the sidebar, below the scrollable groups, with a
+          divider above. Sits outside the scroll area so it never
+          scrolls away. */}
       {bottomItems.length > 0 && (
-        <ul className="space-y-0.5 pt-3 mt-auto border-t border-line/60">
+        <ul className="space-y-0.5 px-3 pt-3 pb-4 shrink-0 border-t border-line/60">
           {bottomItems.map(item => {
             const active = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
@@ -393,7 +403,7 @@ function NavBody({
           })}
         </ul>
       )}
-    </nav>
+    </div>
   );
 }
 

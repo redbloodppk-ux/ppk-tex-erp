@@ -15,6 +15,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { DeleteWageButton } from './delete-wage-button';
+import { WageFilters } from './wage-filters';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
@@ -39,14 +40,25 @@ const KIND_PILL: Record<Kind, string> = {
   adjustment: 'bg-slate-100 text-slate-600',
 };
 
-export default async function WagesPage(): Promise<React.ReactElement> {
+export default async function WagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ emp?: string; from?: string; to?: string }>;
+}): Promise<React.ReactElement> {
+  const sp = await searchParams;
+  const empId = sp.emp != null && /^\d+$/.test(sp.emp) ? Number(sp.emp) : null;
+  // Basic ISO-date guard so a malformed param can't break the query.
+  const isDate = (s: string | undefined): s is string => s != null && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const from = isDate(sp.from) ? sp.from : null;
+  const to = isDate(sp.to) ? sp.to : null;
+
   const supabase = await createClient();
   // wage_entry was added in migration 031 — database.types.ts hasn't been
   // regenerated yet, so the supabase-js generic blows up. Cast through any
   // to dodge the "type instantiation is excessively deep" error; the runtime
   // shape is asserted via WageRow below.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  let query = (supabase as any)
     .from('wage_entry')
     .select(`
       id, pay_date, period_start, period_end, kind, amount, notes,
@@ -54,6 +66,24 @@ export default async function WagesPage(): Promise<React.ReactElement> {
     `)
     .order('pay_date', { ascending: false })
     .limit(200);
+
+  // Employee filter.
+  if (empId != null) query = query.eq('employee_id', empId);
+  // Period overlap: keep entries whose work period [period_start,
+  // period_end] intersects the chosen [from, to] window. period_start
+  // <= to AND period_end >= from.
+  if (to != null)   query = query.lte('period_start', to);
+  if (from != null) query = query.gte('period_end', from);
+
+  const { data, error } = await query;
+
+  // Employee dropdown options — active employees, name-sorted.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: empData } = await (supabase as any)
+    .from('employee')
+    .select('id, code, full_name')
+    .order('full_name', { ascending: true });
+  const employees = ((empData ?? []) as Array<{ id: number; code: string; full_name: string }>);
 
   const rows = (data as unknown as WageRow[]) ?? [];
   const total = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -75,6 +105,8 @@ export default async function WagesPage(): Promise<React.ReactElement> {
           Could not load wages: {error.message}
         </div>
       )}
+
+      <WageFilters employees={employees} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">

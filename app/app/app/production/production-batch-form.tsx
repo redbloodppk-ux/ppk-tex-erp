@@ -528,10 +528,6 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       setError('Enter the Batch DC bundle/piece data first.');
       return;
     }
-    if (convertToTowel && !(Number(towelLength) > 0)) {
-      setError('Length per towel must be > 0 when towel conversion is on.');
-      return;
-    }
 
     setBusy(true);
 
@@ -955,25 +951,29 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
             <span className="font-semibold">Quantity entered in metres</span>
             <span className="text-ink-mute text-xs">— when off, the produced value is treated as towel pieces.</span>
           </label>
-          <div className="max-w-xs">
-            <label className="label">Length per towel (m)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={towelLength}
-              onChange={e => setTowelLength(e.target.value)}
-              className="input num"
-              placeholder="leave blank for non-towel"
-            />
-            <div className="text-[10px] text-ink-mute mt-0.5">
-              {convertToTowel
-                ? 'Metres ÷ length → pieces for fabric stock.'
-                : Number(towelLength) > 0
+          {/* Length per towel only matters when the produced value is in
+              PIECES (toggle OFF) — it expands pcs × length → metres for raw
+              materials. When entering in metres the value is stored as-is,
+              so the field is hidden. */}
+          {!convertToTowel && (
+            <div className="max-w-xs">
+              <label className="label">Length per towel (m)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={towelLength}
+                onChange={e => setTowelLength(e.target.value)}
+                className="input num"
+                placeholder="leave blank for non-towel"
+              />
+              <div className="text-[10px] text-ink-mute mt-0.5">
+                {Number(towelLength) > 0
                   ? 'Pieces × length → metres for raw materials (warp / weft / bobbin).'
                   : 'No length set — produced value will be saved as metres on fabric stock.'}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div>

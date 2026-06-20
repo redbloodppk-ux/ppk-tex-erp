@@ -113,6 +113,10 @@ type SP = {
   location?: string;
   party?: string;
   quality?: string;
+  // Warp-metre tab: filter the pivot by warp ends count. Pairs with
+  // `count` (warp/yarn count) so the operator can drill the warp-metre
+  // stock to a single (ends + count) group.
+  wends?: string;
 };
 
 /** Build URL with one param replaced — used by tab links and filter form. */
@@ -275,7 +279,12 @@ export default async function WarehousePage({
   // In-house pivot loaders take the same sp object so they can apply
   // the Fabric Quality / Yarn Count filters at the column level. With
   // no filter set they return the full pivot exactly as before.
-  const inWarpRows     = mode === 'inhouse' && tab === 'warp_metre'     ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
+  // Warp-metre pivot: load the FULL pivot first so we can derive the
+  // available warp-ends options from its columns, then apply the
+  // (ends + count) filter for the rendered table.
+  const inWarpFull     = mode === 'inhouse' && tab === 'warp_metre'     ? await loadInhouseOpeningStock(supabase, 'warp_beam',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
+  const inWarpRows     = inWarpFull ? applyWarpMetreFilter(inWarpFull, sp) : null;
+  const warpEndsOpts   = warpEndsOptions(inWarpFull);
   const inWeftRows     = mode === 'inhouse' && tab === 'weft_yarn'      ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'weft_yarn',   fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
   const inPorvaiRows   = mode === 'inhouse' && tab === 'porvai_yarn'    ? applyInhouseColumnFilter(await loadInhouseOpeningStock(supabase, 'porvai_yarn', fabricQualities ?? [], counts ?? [], bobbinMasters ?? []), sp) : null;
   const inBobbinRows   = mode === 'inhouse' && tab === 'bobbin'         ? await loadInhouseOpeningStock(supabase, 'bobbin',      fabricQualities ?? [], counts ?? [], bobbinMasters ?? []) : null;
@@ -449,6 +458,26 @@ export default async function WarehousePage({
           />
         )}
 
+        {/* In-house Warp Metre tab: filter the pivot by warp ends and/or
+            warp count. The columns are keyed (ends + count), so picking
+            either drills the table to the matching warp-spec group(s). */}
+        {mode === 'inhouse' && tab === 'warp_metre' && (
+          <>
+            <FilterSelect
+              name="wends"
+              label="Warp Ends"
+              value={sp.wends}
+              options={warpEndsOpts}
+            />
+            <FilterSelect
+              name="count"
+              label="Warp Count"
+              value={sp.count}
+              options={(counts ?? []).map(c => ({ value: String(c.id), label: c.code }))}
+            />
+          </>
+        )}
+
         {/* Sizing warehouse — single yarn-count filter so the operator
             can drill into a specific count column. */}
         {mode === 'sizing' && tab === 'yarn' && (
@@ -493,7 +522,7 @@ export default async function WarehousePage({
         <button type="submit" className="btn-sm bg-indigo text-white hover:bg-indigo/90">
           Apply
         </button>
-        {(sp.mill || sp.customer || sp.count || sp.location || sp.party || sp.quality) && (
+        {(sp.mill || sp.customer || sp.count || sp.location || sp.party || sp.quality || sp.wends) && (
           <Link href={`/app/warehouse?mode=${mode}&tab=${tab}`} className="btn-sm bg-cloud text-ink-soft hover:bg-cloud/80">
             Clear
           </Link>
@@ -610,6 +639,45 @@ export default async function WarehousePage({
  * PivotData (rather than the full unfiltered one) so the operator's
  * intent is preserved.
  */
+/**
+ * Distinct "warp ends" options for the warp_metre pivot. Columns there are
+ * keyed `ends:N` or composite `ends:N|yc:M`; we pull the leading N off each.
+ */
+function warpEndsOptions(data: PivotData | null): { value: string; label: string }[] {
+  if (!data) return [];
+  const ends = new Set<number>();
+  for (const c of data.columns) {
+    const m = /^ends:(\d+)/.exec(c.id);
+    if (m && m[1] != null) ends.add(Number(m[1]));
+  }
+  return Array.from(ends)
+    .sort((a, b) => a - b)
+    .map((e) => ({ value: String(e), label: `${e} ends` }));
+}
+
+/**
+ * Warp-metre grouped filter: warp ends (`ends:N`) and/or warp count
+ * (`...|yc:M`). Columns there are keyed `ends:N` or `ends:N|yc:M`, so we
+ * match the leading ends segment and the trailing yc segment independently.
+ */
+function applyWarpMetreFilter(data: PivotData, sp: SP): PivotData {
+  const wends = sp.wends && /^\d+$/.test(sp.wends) ? sp.wends : null;
+  const count = sp.count && /^\d+$/.test(sp.count) ? sp.count : null;
+  if (!wends && !count) return data;
+  const matches = (id: string): boolean => {
+    const endsM = /^ends:(\d+)/.exec(id);
+    const countM = /\|yc:(\d+)$/.exec(id);
+    if (wends && (!endsM || endsM[1] !== wends)) return false;
+    if (count && (!countM || countM[1] !== count)) return false;
+    return true;
+  };
+  return {
+    unit: data.unit,
+    columns: data.columns.filter((c) => matches(c.id)),
+    events: data.events.filter((e) => matches(e.column_id)),
+  };
+}
+
 function applyInhouseColumnFilter(data: PivotData, sp: SP): PivotData {
   if (!sp.quality && !sp.count) return data;
   // Only apply a filter that actually matches a column id in this
