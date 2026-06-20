@@ -379,6 +379,18 @@ export default function ShiftLogPage(): React.ReactElement {
     });
 
     setSheds(next);
+
+    // Reflect saved adjustments in the per-shed toggle: a shed that has
+    // any non-zero saved adjustment opens its column automatically so the
+    // operator sees it; sheds without one start collapsed.
+    const shedsWithAdj = new Set<number>();
+    for (const s of next) {
+      if (s.loomRows.some((r) => r.adjustment.trim() !== '')) {
+        shedsWithAdj.add(s.shed_no);
+      }
+    }
+    setAdjustmentSheds(shedsWithAdj);
+
     setLoading(false);
   }, [supabase, looms, logDate, shift, loomsByShed]);
 
