@@ -50,9 +50,11 @@ export interface QualityOpt {
   production_mode: string | null;
   is_merged: boolean | null;
   merged_name: string | null;
-  /** Towel length (metres per piece) from the fabric_quality master.
-   *  When > 0 the quality is a towel and its DC total reads in pcs. */
+  /** Towel length (metres per piece) from the fabric_quality master. */
   meter_per_pc: number | null;
+  /** Product type from the master. Only 'towel' is counted in pieces;
+   *  fabric / woven / dhoties are metre deliveries. */
+  fabric_type: string | null;
 }
 
 /** Each piece is just a metres value (as a string for controlled input). */
@@ -285,7 +287,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const [ptRes, partyRes, fqRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
         sb.from('party').select('id, code, name, gstin, billing_address, city, state, state_code, pincode, party_type_ids').eq('status', 'active').order('name'),
-        sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name, meter_per_pc').eq('active', true).order('name'),
+        sb.from('fabric_quality').select('id, code, name, hsn, production_mode, is_merged, merged_name, meter_per_pc, fabric_type').eq('active', true).order('name'),
       ]);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setCustomerTypeId(types.find((t) => t.name === 'Customer')?.id ?? null);
@@ -938,13 +940,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     return { metres, pieces, bundles };
   }, [form.items, form.entry_mode]);
 
-  // A fabric quality is a towel when its master carries a towel length
-  // (meter_per_pc > 0). Towel items are counted in PIECES, so their
-  // "total" reads in pcs instead of metres on the form and the print.
+  // A fabric quality is a towel ONLY when its master's product type is
+  // 'towel'. Towel items are counted in PIECES, so their "total" reads in
+  // pcs instead of metres on the form and the print. We must NOT key off
+  // meter_per_pc > 0 here: fabric / woven / dhoties qualities also carry a
+  // meter_per_pc (used as a count<->metre factor), so that old heuristic
+  // wrongly flagged metre deliveries as towels.
   const towelQualityIds = useMemo(() => {
     const s = new Set<number>();
     for (const q of qualities) {
-      if (q.meter_per_pc != null && q.meter_per_pc > 0) s.add(q.id);
+      if (q.fabric_type === 'towel') s.add(q.id);
     }
     return s;
   }, [qualities]);

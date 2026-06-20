@@ -85,6 +85,7 @@ interface FabricQualityMeta {
   width_in: number | string | null;
   weight_gsm: number | string | null;
   meter_per_pc: number | string | null;
+  fabric_type: string | null;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ export default async function DcPrintPage({
   if (qualityIds.length > 0) {
     const qRes = await sb
       .from('fabric_quality')
-      .select('id, code, name, hsn, reed, pick_per_inch, width_in, weight_gsm, meter_per_pc')
+      .select('id, code, name, hsn, reed, pick_per_inch, width_in, weight_gsm, meter_per_pc, fabric_type')
       .in('id', qualityIds);
     qualityById = new Map<number, FabricQualityMeta>(
       ((qRes.data ?? []) as FabricQualityMeta[]).map((q) => [q.id, q]),
@@ -409,10 +410,12 @@ export default async function DcPrintPage({
             : '-';
           const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
           const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
-          // Towel qualities carry metres-per-piece > 0; for these the DC is
+          // Towel qualities have fabric_type = 'towel'; for these the DC is
           // counted in PIECES, not metres. In summary mode the piece count is
           // stored in item.metres (overloaded), so itemMetres holds it.
-          const isTowel = fq?.meter_per_pc != null && Number(fq.meter_per_pc) > 0;
+          // (fabric / woven / dhoties also carry meter_per_pc, so we must key
+          // off fabric_type, not meter_per_pc > 0.)
+          const isTowel = fq?.fabric_type === 'towel';
 
           const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
           const bundleRows = chunk(bundles, BUNDLES_PER_ROW);

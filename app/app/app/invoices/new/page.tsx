@@ -86,7 +86,7 @@ interface InhouseDcItem {
   description: string | null;
   production_batch_id: number | null;
   fabric_quality_id: number | null;
-  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null; meter_per_pc: number | string | null } | null;
+  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null; meter_per_pc: number | string | null; fabric_type: string | null } | null;
 }
 interface InhouseReceiptDc {
   id: number;
@@ -386,7 +386,7 @@ export default function NewInvoicePage() {
             id, code, dc_date, bill_to_name, total_metres, total_pieces,
             dcItems:delivery_challan_item (
               id, metres, pieces, description, production_batch_id, fabric_quality_id,
-              quality:fabric_quality_id ( code, name, rate_per_m, gst_pct, costing_id, meter_per_pc )
+              quality:fabric_quality_id ( code, name, rate_per_m, gst_pct, costing_id, meter_per_pc, fabric_type )
             )
           `)
           .eq('production_mode', 'inhouse')
@@ -554,7 +554,7 @@ export default function NewInvoicePage() {
     // DC-save time.
     if (dc.is_batch && (dc.dcItems?.length ?? 0) > 0) {
       const seededBatch: Row[] = (dc.dcItems ?? []).map((it) => {
-        const isTowel = it.quality?.meter_per_pc != null && Number(it.quality.meter_per_pc) > 0;
+        const isTowel = it.quality?.fabric_type === 'towel';
         const qty = Number(it.metres ?? 0);
         return {
           ...newRow(),
