@@ -371,9 +371,19 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         total_metres:     tot.get(s.id)?.total_metres     ?? 0,
         delivered_metres: tot.get(s.id)?.delivered_metres ?? 0,
       })));
+      // Auto-link when the customer has exactly one open SO and the
+      // operator hasn't picked one yet (new DCs only). This stops
+      // batch-picker DCs from silently saving with no SO link, which
+      // leaves the order stuck at 'confirmed'. They can still switch it
+      // back to "none" in the dropdown.
+      const onlySo = sos.length === 1 ? sos[0] : undefined;
+      if (!isEdit && onlySo) {
+        const onlyId = String(onlySo.id);
+        setForm((f) => (f.sales_order_id === '' ? { ...f, sales_order_id: onlyId } : f));
+      }
     })();
     return () => { cancelled = true; };
-  }, [form.party_id, form.production_mode, supabase]);
+  }, [form.party_id, form.production_mode, supabase, isEdit]);
 
   // ---- Party dropdown filtered by mode ----
   // Each production mode targets a specific party type:
@@ -1059,6 +1069,22 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     }
     if (form.vehicle_no.trim() === '') { setError('Vehicle number is required.'); return; }
     if (form.items.length === 0)       { setError('Add at least one item.'); return; }
+
+    // Nudge the operator if this in-house DC could fulfil an open sales
+    // order but none is linked — an unlinked DC never advances the SO
+    // status (it stays 'confirmed'). They can still proceed deliberately.
+    if (
+      form.production_mode === 'inhouse' &&
+      openSos.length > 0 &&
+      form.sales_order_id === '' &&
+      !window.confirm(
+        `This customer has ${openSos.length} open sales order(s) but this DC is not linked to any. ` +
+        `If it should fulfil one, pick it under "Against Sales Order" so the order status updates. ` +
+        `Save without linking?`,
+      )
+    ) {
+      return;
+    }
 
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
