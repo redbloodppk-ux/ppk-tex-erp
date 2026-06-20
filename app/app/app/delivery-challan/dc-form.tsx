@@ -1767,7 +1767,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     counted in pieces, so their headline total reads pcs. */}
                 <div className="flex flex-wrap justify-end gap-4 border-t border-line/40 pt-2 text-xs">
                   {isTowelItem(it) ? (
-                    <div>Total Pcs: <span className="num font-bold text-indigo-700">{Math.round(tot.metres)} pcs</span></div>
+                    <>
+                      <div>Total Towel Pcs: <span className="num font-bold text-indigo-700">{Math.round(tot.metres)} pcs</span></div>
+                      <div>No. of Pcs: <span className="num font-bold">{tot.pieces}</span></div>
+                    </>
                   ) : (
                     <>
                       <div>Total Metres: <span className="num font-bold text-indigo-700">{tot.metres.toFixed(2)} m</span></div>

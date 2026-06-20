@@ -509,7 +509,13 @@ export default async function DcPrintPage({
                   <table>
                     <tbody>
                       {isTowel ? (
-                        <tr><td className="l">TOTAL PCS</td><td className="v">{Math.round(itemMetres)}</td></tr>
+                        <>
+                          {/* Towel: itemMetres holds the towel-piece count
+                              (sum of bundle cells); itemPieces is the number
+                              of physical pieces/cuts across the bundles. */}
+                          <tr><td className="l">TOTAL TOWEL PCS</td><td className="v">{Math.round(itemMetres)}</td></tr>
+                          <tr><td className="l">TOTAL PCS</td><td className="v">{itemPieces}</td></tr>
+                        </>
                       ) : (
                         <>
                           <tr><td className="l">TOTAL METRES</td><td className="v">{fmtMetres(itemMetres)}</td></tr>

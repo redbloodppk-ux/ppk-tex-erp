@@ -77,6 +77,17 @@ interface InhouseReceiptItem {
   entry_mode: string | null;
   quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null } | null;
 }
+/** A delivery_challan_item carried for a batch-sourced DC, used to seed
+ *  invoice lines directly off the DC (these DCs have no fabric receipt). */
+interface InhouseDcItem {
+  id: number;
+  metres: number | string | null;
+  pieces: number | null;
+  description: string | null;
+  production_batch_id: number | null;
+  fabric_quality_id: number | null;
+  quality?: { code: string | null; name: string; rate_per_m: number | string | null; gst_pct: number | string | null; costing_id: number | null; meter_per_pc: number | string | null } | null;
+}
 interface InhouseReceiptDc {
   id: number;
   code: string;
@@ -90,6 +101,12 @@ interface InhouseReceiptDc {
     receipt_date: string;
     items: InhouseReceiptItem[];
   } | null;
+  /** Batch-sourced DCs have no fabric receipt — they carry finished
+   *  fabric cut from a production batch (stock already moved out when
+   *  the DC was saved). We seed invoice lines from the DC's own items
+   *  here so they can still be billed. */
+  is_batch?: boolean;
+  dcItems?: InhouseDcItem[];
 }
 
 interface Row {
@@ -258,7 +275,7 @@ export default function NewInvoicePage() {
   // ── load masters ───────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm, slRaw, atm] = await Promise.all([
+      const [cp, cu, ve, so, fs, yl, oi, ihr, seqs, pm, slRaw, atm, bdc] = await Promise.all([
         supabase.from('company_profile').select('state').single(),
         // All active customers. The customer master is the source of
         // truth; every customer also has a linked CUSTOMER ledger that
@@ -356,6 +373,28 @@ export default function NewInvoicePage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase as any).from('party_type_master')
           .select('id, name').or('name.ilike.%broker%,name.ilike.%agent%'),
+        // Batch-sourced in-house DCs (no fabric receipt). These carry
+        // finished fabric cut from a production batch and never pass
+        // through the fabric-receipt step, so they can't be billed via
+        // the receipt path. We pull their own items here and seed
+        // invoice lines directly off the DC. Filtered to those that
+        // actually have a batch item in JS below. Both draft and
+        // confirmed are eligible (batch DCs have no confirm step).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from('delivery_challan')
+          .select(`
+            id, code, dc_date, bill_to_name, total_metres, total_pieces,
+            dcItems:delivery_challan_item (
+              id, metres, pieces, description, production_batch_id, fabric_quality_id,
+              quality:fabric_quality_id ( code, name, rate_per_m, gst_pct, costing_id, meter_per_pc )
+            )
+          `)
+          .eq('production_mode', 'inhouse')
+          .in('status', ['draft', 'confirmed'])
+          .is('invoice_id', null)
+          .is('fabric_receipt_id', null)
+          .order('dc_date', { ascending: true })
+          .order('id', { ascending: true }),
       ]);
       setCompanyState(cp.data?.state ?? 'Tamil Nadu');
       // Flatten the nested ledger.ledger_type.name onto each customer so
@@ -377,7 +416,16 @@ export default function NewInvoicePage() {
       setFabricStock((fs.data ?? []) as any);
       setYarnLots((yl.data ?? []) as any);
       setOriginalInvoices((oi.data ?? []) as any);
-      setInhouseDcs(((ihr as any).data ?? []) as InhouseReceiptDc[]);
+      // Receipt-path DCs (have a fabric receipt) + batch-sourced DCs
+      // (no receipt). Batch candidates are filtered to those that
+      // actually carry a production-batch item — a non-batch in-house
+      // DC without a receipt is not billable here and is dropped.
+      const receiptDcs = (((ihr as any).data ?? []) as InhouseReceiptDc[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const batchDcs = (((bdc as any).data ?? []) as Array<InhouseReceiptDc & { dcItems?: InhouseDcItem[] }>)
+        .filter((d) => (d.dcItems ?? []).some((it) => it.production_batch_id != null))
+        .map((d) => ({ ...d, receipt: null, is_batch: true }));
+      setInhouseDcs([...receiptDcs, ...batchDcs]);
       const seqMap: Record<string, { prefix: string; fy_code: string; format: string; next_value: number }> = {};
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const s of (((seqs as any).data ?? []) as Array<{ doc_type: string; prefix: string; fy_code: string; format: string; next_value: number }>)) {
@@ -496,6 +544,38 @@ export default function NewInvoicePage() {
     }
     next.add(dc.id);
     setPickedDcIds(next);
+
+    // Batch-sourced in-house DC: no fabric receipt exists, so seed one
+    // invoice line per DC item directly from the DC. For towels the
+    // item.metres column holds the towel-piece COUNT (uom 'pcs'); for
+    // plain fabric it holds metres (uom 'mtr'). No production outflow is
+    // written on save for these rows because they carry only dc_id (not
+    // production_fabric_quality_id) — the stock was already depleted at
+    // DC-save time.
+    if (dc.is_batch && (dc.dcItems?.length ?? 0) > 0) {
+      const seededBatch: Row[] = (dc.dcItems ?? []).map((it) => {
+        const isTowel = it.quality?.meter_per_pc != null && Number(it.quality.meter_per_pc) > 0;
+        const qty = Number(it.metres ?? 0);
+        return {
+          ...newRow(),
+          description: `${it.quality?.name ?? it.description ?? 'Fabric'} (${dc.code})`,
+          hsn_sac: FABRIC_HSN,
+          uom: isTowel ? 'pcs' : 'mtr',
+          quantity: qty > 0 ? String(qty) : '',
+          rate: it.quality?.rate_per_m != null ? String(it.quality.rate_per_m) : '',
+          gst_rate_pct: it.quality?.gst_pct != null ? String(it.quality.gst_pct) : GST_DEFAULT,
+          dc_id: String(dc.id),
+          costing_id: it.quality?.costing_id != null ? String(it.quality.costing_id) : '',
+        };
+      });
+      setRows((prev) => {
+        const isBlank = (r: Row): boolean =>
+          r.description.trim() === '' && r.quantity.trim() === '' && r.rate.trim() === '' && r.dc_id === '';
+        const kept = prev.filter((r) => !isBlank(r));
+        return [...kept, ...seededBatch];
+      });
+      return;
+    }
 
     const items = dc.receipt?.items ?? [];
     const seeded: Row[] = items.length > 0
@@ -1486,8 +1566,8 @@ export default function NewInvoicePage() {
                 {sourceKind === 'fabric_receipt' && (
                   inhouseDcs.length === 0 ? (
                     <p className="text-sm text-ink-soft">
-                      No un-invoiced in-house fabric receipts. A receipt appears here once its DC is
-                      confirmed (which happens automatically when the fabric receipt is saved).
+                      No un-invoiced in-house DCs. A DC appears here once it has a fabric receipt
+                      (saved automatically) or is sourced directly from a production batch.
                     </p>
                   ) : (
                     <div className="border border-line/40 rounded-md overflow-hidden">
@@ -1510,7 +1590,12 @@ export default function NewInvoicePage() {
                               <td className="px-2 py-1.5">
                                 <input type="checkbox" readOnly checked={pickedDcIds.has(d.id)} className="w-4 h-4 accent-indigo-600" />
                               </td>
-                              <td className="px-2 py-1.5 font-mono">{d.receipt?.code ?? '—'}</td>
+                              <td className="px-2 py-1.5 font-mono">
+                                {d.receipt?.code
+                                  ?? (d.is_batch
+                                    ? <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-semibold">Batch</span>
+                                    : '—')}
+                              </td>
                               <td className="px-2 py-1.5 font-mono">{d.code}</td>
                               <td className="px-2 py-1.5 text-ink-soft">{d.receipt?.receipt_date ?? d.dc_date}</td>
                               <td className="px-2 py-1.5 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
