@@ -344,36 +344,16 @@ export default async function WarehousePage({
       {/* ── Low-stock alerts panel ─────────────────────────────────────── */}
       {/* Hidden on the in-house Warp Metre tab — that view tracks woven
           metres, where a "low stock" yarn/bobbin alert isn't relevant. */}
-      {tab !== 'warp_metre' && (lowStock.yarn.length > 0 || lowStock.bobbin.length > 0) && (
+      {/* Yarn low-stock alerts removed per request — only bobbin alerts remain. */}
+      {tab !== 'warp_metre' && lowStock.bobbin.length > 0 && (
         <section className="card border-rose-200 bg-rose-50/30 p-4 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-4 h-4 text-rose-600" />
             <div className="font-semibold text-sm text-rose-700">
-              Low Stock Alerts ({lowStock.yarn.length + lowStock.bobbin.length})
+              Low Stock Alerts ({lowStock.bobbin.length})
             </div>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            {lowStock.yarn.length > 0 && (
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-ink-mute mb-1.5">
-                  Yarn counts below reorder level
-                </div>
-                <ul className="space-y-1 text-sm">
-                  {lowStock.yarn.map(item => (
-                    <li key={item.id} className="flex justify-between gap-3 px-2 py-1 rounded hover:bg-paper/60">
-                      <span className="truncate">
-                        <span className="font-semibold">{item.code}</span>
-                        <span className="text-ink-soft text-xs ml-2">{item.display_name}</span>
-                      </span>
-                      <span className="num text-rose-600 font-semibold whitespace-nowrap">
-                        {formatKg(item.on_hand_kg, 1)}
-                        <span className="text-ink-mute font-normal"> / {formatKg(item.reorder_kg, 0)}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             {lowStock.bobbin.length > 0 && (
               <div>
                 <div className="text-[11px] uppercase tracking-wider text-ink-mute mb-1.5">

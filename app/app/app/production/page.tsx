@@ -58,6 +58,10 @@ interface PendingDcRow {
   total_pieces: number | null;
   total_bundles: number | null;
   fabric_receipt_id: number | null;
+  // Items are fetched only to detect batch-sourced DCs: those already
+  // depleted production_fabric stock at DC-save and are billed directly
+  // off the DC (no fabric receipt), so they must NOT appear here.
+  dc_items?: Array<{ production_batch_id: number | null }> | null;
 }
 
 function fmtDate(s: string | null): string {
@@ -106,7 +110,7 @@ export default async function ProductionPage() {
     sb
       .from('delivery_challan')
       .select(
-        'id, code, dc_date, status, bill_to_name, total_metres, total_pieces, total_bundles, fabric_receipt_id'
+        'id, code, dc_date, status, bill_to_name, total_metres, total_pieces, total_bundles, fabric_receipt_id, dc_items:delivery_challan_item ( production_batch_id )'
       )
       .eq('production_mode', 'inhouse')
       .is('fabric_receipt_id', null)
@@ -118,7 +122,10 @@ export default async function ProductionPage() {
 
   const batches = (batchesRes.data as unknown as BatchRow[]) ?? [];
   const variances = (varianceRes.data as unknown as VarianceRow[]) ?? [];
-  const pendingDcs = (pendingDcRes.data as unknown as PendingDcRow[]) ?? [];
+  const pendingDcs = ((pendingDcRes.data as unknown as PendingDcRow[]) ?? [])
+    // Drop batch-sourced DCs — they bill directly off the DC and never
+    // need a fabric receipt (a receipt would double-deduct raw stock).
+    .filter((d) => !(d.dc_items ?? []).some((it) => it.production_batch_id != null));
   const varianceByBatch = new Map<number, VarianceRow>();
   for (const v of variances) {
     if (v.batch_id != null) varianceByBatch.set(v.batch_id, v);

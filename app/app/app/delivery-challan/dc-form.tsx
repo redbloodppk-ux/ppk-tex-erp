@@ -1134,9 +1134,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         // just look mismatched in the warehouse pivot.
         const unit: 'm' | 'pcs' = lookup?.unit ?? 'm';
         const fqId = lookup?.fabric_quality_id ?? it.fabric_quality_id;
-        const qty = unit === 'pcs'
-          ? Number(it.pieces ?? 0)
-          : Number(it.metres ?? 0);
+        // For towels the batch inflow is recorded in pcs as the TOWEL
+        // COUNT, and the DC item stores that same count in `metres`
+        // (the column is overloaded; `pieces` holds the number of
+        // physical bundles/cuts, not towels). So the outflow quantity
+        // is always `metres` — using `pieces` here under-deducted the
+        // towel stock (e.g. 15 shipped instead of 800).
+        const qty = Number(it.metres ?? 0);
         if (!(qty > 0)) continue;
         outflowRows.push({
           bucket: 'production_fabric',

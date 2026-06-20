@@ -1170,6 +1170,10 @@ export default function NewInvoicePage() {
     for (let i = 0; i < computedRows.length; i++) {
       const r = computedRows[i];
       if (!r || !r.production_fabric_quality_id) continue;
+      // Never deduct production stock for a row that came from a DC —
+      // the DC already depleted production_fabric at save time, so a
+      // second outflow here would double-count the same shipment.
+      if (r.dc_id) continue;
       const lineId = indexMatched ? insertedLineIds[i] : null;
       productionOutflows.push({
         bucket: 'production_fabric',
