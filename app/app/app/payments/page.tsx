@@ -26,7 +26,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
-import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink, IndianRupee } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -235,17 +235,30 @@ function NewPaymentTab(): React.ReactElement {
   // party pre-selected so its unpaid bills show up immediately.
   const initialParty: string = searchParams.get('party') ?? '';
 
+  // Re-record deep link: when the Status tab deletes a payment to let the
+  // operator change its amount, it bounces here with the old payment's
+  // details pre-filled (amount / date / ledger / reference / notes) plus a
+  // `redo` marker carrying the old payment number for the banner. The
+  // operator just corrects the amount, re-ticks the bills, and saves —
+  // the proven bill-allocation engine does the rest.
+  const redoLabel: string = searchParams.get('redo') ?? '';
+  const initialAmount: string = searchParams.get('amount') ?? '';
+  const initialDate: string = searchParams.get('pdate') ?? todayISO();
+  const initialLedger: string = searchParams.get('ledger') ?? '';
+  const initialRef: string = searchParams.get('ref') ?? '';
+  const initialNotes: string = searchParams.get('pnotes') ?? '';
+
   const [direction,    setDirection]   = useState<Direction>(initialDirection);
   const [partyTypeId,  setPartyTypeId] = useState<string>('');
   const [partyId,      setPartyId]     = useState<string>(initialParty);
-  const [date,         setDate]        = useState<string>(todayISO());
-  const [amount,       setAmount]      = useState<string>('');
+  const [date,         setDate]        = useState<string>(initialDate);
+  const [amount,       setAmount]      = useState<string>(initialAmount);
   // Replaces the old free-text Mode enum. The picked ledger is what
   // gets saved; the legacy `mode` text column is auto-derived by a DB
   // trigger from the ledger's type ('cash' / 'bank_transfer').
-  const [modeLedgerId, setModeLedgerId] = useState<string>('');
-  const [reference,    setReference]   = useState<string>('');
-  const [notes,        setNotes]       = useState<string>('');
+  const [modeLedgerId, setModeLedgerId] = useState<string>(initialLedger);
+  const [reference,    setReference]   = useState<string>(initialRef);
+  const [notes,        setNotes]       = useState<string>(initialNotes);
 
   const [partyTypes,   setPartyTypes]   = useState<PartyTypeOpt[]>([]);
   const [parties,      setParties]      = useState<PartyOpt[]>([]);
@@ -851,6 +864,14 @@ function NewPaymentTab(): React.ReactElement {
 
   return (
     <form onSubmit={handleSave} className="card p-6 space-y-4 max-w-4xl">
+      {redoLabel && !savedMsg && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span className="font-semibold">Re-recording {redoLabel}.</span>{' '}
+          The old payment was removed and its bill adjustments reversed.
+          Correct the amount, re-tick the bill(s) it settles, then Save to
+          record it afresh.
+        </div>
+      )}
       {/* Direction toggle */}
       <div className="grid grid-cols-2 gap-2">
         <DirectionPill
@@ -1172,6 +1193,8 @@ function DirectionPill({ active, onClick, icon, label, tone }: {
 
 function StatusTab(): React.ReactElement {
   const supabase = createClient();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [partyTypes,  setPartyTypes]  = useState<PartyTypeOpt[]>([]);
   const [parties,     setParties]     = useState<PartyOpt[]>([]);
@@ -1595,6 +1618,43 @@ function StatusTab(): React.ReactElement {
     setRefreshTick((t) => t + 1);
   }
 
+  // Change a payment's amount (or its bill allocations). Amount is NOT
+  // editable in place because it drives every linked bill's balance via
+  // DB triggers; a half-applied amount edit would silently corrupt the
+  // reconciliation. Instead we delete the payment — which cleanly reverses
+  // all its bill adjustments and restores those balances — then bounce to
+  // the New Payment tab pre-filled with the old details so the operator
+  // re-records it with the corrected amount, re-ticking the now-restored
+  // bills against the same proven allocation engine.
+  async function reRecord(p: PaymentRow): Promise<void> {
+    const msg =
+      `Change the amount of ${p.payment_no}?\n\n` +
+      `The amount can't be edited on the spot because it's tied to the ` +
+      `bill balances it settled. We'll remove this payment (restoring those ` +
+      `bills) and reopen it in the New Payment form, pre-filled, so you can ` +
+      `enter the correct amount and re-tick the bills.\n\n` +
+      `Current: ₹${fmtINR(p.amount)} (${p.direction === 'in' ? 'inflow' : 'outflow'}), ${fmtDate(p.payment_date)}\n\n` +
+      `Continue?`;
+    if (!window.confirm(msg)) return;
+    setBusyRowId(p.id);
+    setError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error: err } = await sb.from('payment').delete().eq('id', p.id);
+    if (err) { setBusyRowId(null); setError(err.message); return; }
+    const params = new URLSearchParams();
+    params.set('tab', 'new');
+    params.set('redo', p.payment_no);
+    params.set('direction', p.direction);
+    if (p.party_id != null)      params.set('party',  String(p.party_id));
+    params.set('amount', String(p.amount));
+    params.set('pdate', p.payment_date);
+    if (p.mode_ledger_id != null) params.set('ledger', String(p.mode_ledger_id));
+    if (p.reference)             params.set('ref',    p.reference);
+    if (p.notes)                 params.set('pnotes', p.notes);
+    router.push(`${pathname}?${params.toString()}`);
+  }
+
   // When a single party is picked, compose the unified statement-of-
   // account: every sales / purchase / sizing / bobbin / yarn bill +
   // every payment, sorted oldest -> newest, with a running balance.
@@ -1834,9 +1894,17 @@ function StatusTab(): React.ReactElement {
                                 type="button"
                                 onClick={() => startEdit(r.payment as PaymentRow)}
                                 className="p-1 rounded text-indigo-600 hover:bg-indigo-50"
-                                title="Edit payment"
+                                title="Edit date / ledger / reference / notes"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void reRecord(r.payment as PaymentRow)}
+                                className="p-1 rounded text-amber-600 hover:bg-amber-50 ml-1"
+                                title="Change amount / re-allocate (reopens in New Payment)"
+                              >
+                                <IndianRupee className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
@@ -2011,9 +2079,17 @@ function StatusTab(): React.ReactElement {
                                 type="button"
                                 onClick={() => startEdit(r.payment as PaymentRow)}
                                 className="p-1 rounded text-indigo-600 hover:bg-indigo-50"
-                                title="Edit payment"
+                                title="Edit date / ledger / reference / notes"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void reRecord(r.payment as PaymentRow)}
+                                className="p-1 rounded text-amber-600 hover:bg-amber-50 ml-1"
+                                title="Change amount / re-allocate (reopens in New Payment)"
+                              >
+                                <IndianRupee className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
