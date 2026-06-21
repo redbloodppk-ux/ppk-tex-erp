@@ -352,7 +352,7 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-6 dash-stagger">
+    <div className="space-y-4 dash-stagger">
       <style>{`
         .dash-stagger > * { animation: dashRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         .dash-stagger > *:nth-child(1) { animation-delay: 40ms; }
@@ -373,8 +373,8 @@ export default async function DashboardPage() {
       `}</style>
       <header className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-display font-extrabold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-ink-soft mt-0.5">Today&rsquo;s snapshot of PPK Tex operations.</p>
+          <h1 className="text-xl font-display font-extrabold tracking-tight">Dashboard</h1>
+          <p className="text-xs text-ink-soft mt-0.5">Today&rsquo;s snapshot of PPK Tex operations.</p>
         </div>
         <div className="flex gap-2">
           <Link href="/app/costing" className="btn-ghost">New Costing</Link>
@@ -384,21 +384,23 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-4">
+      <section className="grid grid-cols-2 gap-3">
         {cards.map(c => (
           <Link
             key={c.label}
             href={c.href}
-            className="card p-4 group hover:shadow-emboss transition-shadow"
+            className="card p-3 group hover:shadow-emboss transition-shadow"
           >
-            <div className="flex items-start justify-between">
-              <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${c.tone} text-white grid place-items-center`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${c.tone} text-white grid place-items-center shrink-0`}>
                 <c.icon className="w-5 h-5" />
               </div>
-              <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="min-w-0">
+                <div className="num text-xl font-bold text-ink leading-tight">{c.value}</div>
+                <div className="text-[11px] text-ink-soft uppercase tracking-wide">{c.label}</div>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity ml-auto self-start" />
             </div>
-            <div className="mt-3 num text-xl font-bold text-ink">{c.value}</div>
-            <div className="text-xs text-ink-soft uppercase tracking-wide mt-0.5">{c.label}</div>
           </Link>
         ))}
       </section>
@@ -406,22 +408,21 @@ export default async function DashboardPage() {
       {/* Quick Entry — shortcuts to the screens the operator hits every
           day. */}
       <section>
-        <h2 className="font-display font-bold text-base mb-3">Quick Entry</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <h2 className="font-display font-bold text-sm mb-2">Quick Entry</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {quickEntries.map((q) => (
             <Link
               key={q.href}
               href={q.href}
-              className="card p-4 group hover:shadow-emboss transition-shadow"
+              className="card p-3 group hover:shadow-emboss transition-shadow flex items-center gap-3"
             >
-              <div className="flex items-start justify-between">
-                <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${q.tone} text-white grid place-items-center`}>
-                  <q.icon className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${q.tone} text-white grid place-items-center shrink-0`}>
+                <q.icon className="w-5 h-5" />
               </div>
-              <div className="mt-3 font-semibold text-ink">{q.label}</div>
-              <div className="text-[11px] text-ink-soft mt-0.5">{q.sub}</div>
+              <div className="min-w-0">
+                <div className="font-semibold text-ink text-sm leading-tight">{q.label}</div>
+                <div className="text-[11px] text-ink-soft">{q.sub}</div>
+              </div>
             </Link>
           ))}
         </div>
@@ -432,8 +433,8 @@ export default async function DashboardPage() {
       {/* Outstanding Customer Payments — grouped by party with
           expand-to-detail. Top row = party name + total outstanding;
           click to see the actual unpaid invoices. */}
-      <section className="card p-5">
-        <div className="flex items-center justify-between mb-4">
+      <section className="card p-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-rose-600" />
             <h2 className="font-display font-bold text-base">Outstanding Customer Payments</h2>
@@ -451,8 +452,8 @@ export default async function DashboardPage() {
 
       {/* Outstanding Job Work Bills — grouped by the jobwork party.
           These are the older jobwork_invoice doc type. */}
-      <section className="card p-5">
-        <div className="flex items-center justify-between mb-4">
+      <section className="card p-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Hammer className="w-4 h-4 text-amber-700" />
             <h2 className="font-display font-bold text-base">Outstanding Job Work Bills</h2>
@@ -470,8 +471,8 @@ export default async function DashboardPage() {
 
       {/* Outstanding Outsourcing Weaving Bills — grouped by the
           outsource weaver. These are the newer weaving_bill doc type. */}
-      <section className="card p-5">
-        <div className="flex items-center justify-between mb-4">
+      <section className="card p-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Truck className="w-4 h-4 text-rose-700" />
             <h2 className="font-display font-bold text-base">Outstanding Outsourcing Weaving Bills</h2>
@@ -491,8 +492,8 @@ export default async function DashboardPage() {
           sizing mills, bobbin / yarn / fabric suppliers, and any
           pre-ERP opening payable. Grouped by supplier so the
           operator sees totals per party first; click to drill in. */}
-      <section className="card p-5">
-        <div className="flex items-center justify-between mb-4">
+      <section className="card p-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Truck className="w-4 h-4 text-violet-700" />
             <h2 className="font-display font-bold text-base">Outstanding Supplier Payables</h2>
