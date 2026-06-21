@@ -93,15 +93,15 @@ export function Topbar({
         </button>
       )}
 
-      {/* ── Desktop search bar — wired to GlobalSearch component ─────── */}
-      <div className="hidden sm:flex items-center gap-2 w-full max-w-md ml-2">
-        <GlobalSearch />
-      </div>
-
-      {/* Spacer pushes the settings + bell + user menu to the far right. */}
+      {/* Spacer pushes search + settings + bell + user menu to the far right. */}
       <div className="flex-1" />
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {/* ── Compact desktop search bar, right-aligned ─────────────── */}
+        <div className="hidden sm:flex items-center w-44 lg:w-56">
+          <GlobalSearch />
+        </div>
+
         {/* Settings — top-right corner (moved out of the sidebar). */}
         {canSettings && (
           <Link
