@@ -9,7 +9,7 @@ import {
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  ChevronRight, FileText, Info,
+  ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -414,20 +414,103 @@ function NavBody({
   );
 }
 
-function Brand({ onClick }: { onClick?: () => void }) {
+/**
+ * Collapsed "mini" rail — every menu item rendered as an icon with a
+ * native tooltip (title). Shown on the desktop sidebar when collapsed and
+ * not being hovered. Flattens the home item, all labelled groups and the
+ * pinned bottom items into a single vertical strip of icons.
+ */
+function IconRail({ role }: { role: Role }) {
+  const pathname = usePathname();
+  const visible = NAV.filter(n => n.roles.includes(role));
+  const flatItems = visible.filter(i => i.group === 'home');
+  const bottomItems = visible.filter(i => i.group === 'bottom');
+  const middleItems = GROUP_ORDER.flatMap(g => visible.filter(i => i.group === g));
+
+  const renderItem = (item: NavItem) => {
+    const active = pathname === item.href || pathname.startsWith(item.href + '/');
+    const Icon = item.icon;
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href}
+          title={item.label}
+          aria-label={item.label}
+          className={cn(
+            'flex items-center justify-center h-10 w-10 mx-auto rounded-lg transition-colors',
+            active ? 'bg-indigo/10 text-indigo' : 'text-ink-mute hover:bg-cloud hover:text-ink',
+          )}
+        >
+          <Icon className="w-5 h-5 shrink-0" />
+        </Link>
+      </li>
+    );
+  };
+
   return (
-    <Link
-      href="/app/dashboard"
-      onClick={onClick}
-      className="px-5 py-5 border-b border-line/60 flex items-center gap-3 hover:bg-cloud/40 transition-colors"
-      title="Go to dashboard"
-    >
-      <BrandLogo variant="mark" height={48} />
-      <div>
-        <div className="font-display font-extrabold text-ink leading-tight text-xl tracking-wider">PPK TEX</div>
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+    <div className="flex-1 flex flex-col min-h-0">
+      {flatItems.length > 0 && (
+        <ul className="space-y-1 px-2 pt-4 pb-2 shrink-0">{flatItems.map(renderItem)}</ul>
+      )}
+      <nav className="flex-1 overflow-y-auto px-2 space-y-1 min-h-0">{middleItems.map(renderItem)}</nav>
+      {bottomItems.length > 0 && (
+        <ul className="space-y-1 px-2 pt-3 pb-4 shrink-0 border-t border-line/60">{bottomItems.map(renderItem)}</ul>
+      )}
+    </div>
+  );
+}
+
+function Brand({
+  expanded,
+  collapsed,
+  onToggle,
+}: {
+  /** Whether the full label layout is currently shown (pinned open OR hover-expanded). */
+  expanded: boolean;
+  /** The persisted collapsed state — drives the toggle button's icon/intent. */
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  if (!expanded) {
+    // Mini header: just the logo mark, centered. The collapse toggle is
+    // hidden here — hovering expands the rail and reveals it.
+    return (
+      <div className="h-[89px] flex items-center justify-center border-b border-line/60 shrink-0">
+        <Link
+          href="/app/dashboard"
+          title="PPK TEX — Dashboard"
+          aria-label="Go to dashboard"
+          className="flex items-center justify-center rounded-xl p-1.5 hover:bg-cloud/40 transition-colors"
+        >
+          <BrandLogo variant="mark" height={36} />
+        </Link>
       </div>
-    </Link>
+    );
+  }
+  const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  return (
+    <div className="px-5 py-5 border-b border-line/60 flex items-center gap-3 shrink-0">
+      <Link
+        href="/app/dashboard"
+        className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-90 transition-opacity"
+        title="Go to dashboard"
+      >
+        <BrandLogo variant="mark" height={48} />
+        <div className="min-w-0">
+          <div className="font-display font-extrabold text-ink leading-tight text-xl tracking-wider">PPK TEX</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+        </div>
+      </Link>
+      <button
+        type="button"
+        onClick={onToggle}
+        title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
+        aria-label={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
+        className="shrink-0 p-1.5 rounded-lg text-ink-mute hover:bg-cloud hover:text-ink transition-colors"
+      >
+        <ToggleIcon className="w-5 h-5" />
+      </button>
+    </div>
   );
 }
 
@@ -439,6 +522,9 @@ function Footer() {
   );
 }
 
+/** localStorage key for the desktop collapsed/expanded preference. */
+const SIDEBAR_COLLAPSED_KEY = 'ppk_sidebar_collapsed_v1';
+
 export function Sidebar({
   role,
   mobileOpen = false,
@@ -448,13 +534,65 @@ export function Sidebar({
   mobileOpen?: boolean;
   onClose?: () => void;
 }) {
+  // Persisted collapse preference (desktop only). Default expanded so the
+  // first server render and first paint match.
+  const [collapsed, setCollapsed] = useState(false);
+  // Transient: is the mouse currently over the collapsed rail? Drives the
+  // hover-expand overlay. Never persisted.
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+    } catch {
+      // ignore disabled-storage errors
+    }
+  }, []);
+
+  function toggleCollapsed(): void {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // ignore quota / disabled-storage errors
+      }
+      // Pinning open should also clear any lingering hover state.
+      if (!next) setHovered(false);
+      return next;
+    });
+  }
+
+  // Full-label layout shows when pinned open OR when hovering the rail.
+  const expanded = !collapsed || hovered;
+
   return (
     <>
-      {/* Desktop sidebar (md and up) */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col bg-paper border-r border-line/60 sticky top-0 h-screen rounded-r-2xl overflow-hidden">
-        <Brand />
-        <NavBody role={role} />
-        <Footer />
+      {/* Desktop sidebar (md and up). The <aside> reserves the layout
+          footprint (narrow when collapsed); the inner panel is what the
+          user sees and is the sticky, scrolling element. When collapsed
+          AND hovered the panel grows to full width and overlays the page
+          (z-40 + shadow) instead of pushing content around. */}
+      <aside
+        className={cn(
+          'hidden md:block relative shrink-0 transition-[width] duration-200 ease-out',
+          collapsed ? 'w-16' : 'w-64',
+        )}
+      >
+        <div
+          onMouseEnter={() => { if (collapsed) setHovered(true); }}
+          onMouseLeave={() => setHovered(false)}
+          className={cn(
+            'sticky top-0 h-screen flex flex-col bg-paper border-r border-line/60',
+            'rounded-r-2xl overflow-hidden transition-[width] duration-200 ease-out',
+            expanded ? 'w-64' : 'w-16',
+            collapsed && hovered ? 'z-40 shadow-2xl' : 'z-10',
+          )}
+        >
+          <Brand expanded={expanded} collapsed={collapsed} onToggle={toggleCollapsed} />
+          {expanded ? <NavBody role={role} /> : <IconRail role={role} />}
+          {expanded && <Footer />}
+        </div>
       </aside>
 
       {/* Mobile push-menu (below md). Fixed to the left edge and pinned
