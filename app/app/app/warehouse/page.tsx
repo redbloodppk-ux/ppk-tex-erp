@@ -117,6 +117,12 @@ type SP = {
   // `count` (warp/yarn count) so the operator can drill the warp-metre
   // stock to a single (ends + count) group.
   wends?: string;
+  // Production-fabric tab: filter both pcs + metres pivots to a single
+  // quality column. Holds the pivot column id (`fq:<id>` or `m:<name>`)
+  // so it works for merged-quality groups too. Kept separate from
+  // `quality` (numeric id, used by jobwork tabs) to avoid cross-tab
+  // contamination of a stale param.
+  pfq?: string;
 };
 
 /** Build URL with one param replaced — used by tab links and filter form. */
@@ -478,6 +484,19 @@ export default async function WarehousePage({
           </>
         )}
 
+        {/* In-house Production Fabric tab: filter both the pcs + metres
+            pivots to a single fabric quality. Options are pulled from the
+            pivot columns themselves, so only qualities with production
+            stock show and merged-quality groups work too. */}
+        {mode === 'inhouse' && tab === 'production_fabric' && (
+          <FilterSelect
+            name="pfq"
+            label="Fabric Quality"
+            value={sp.pfq}
+            options={prodFabricQualityOptions(inProdFabricRows)}
+          />
+        )}
+
         {/* Sizing warehouse — single yarn-count filter so the operator
             can drill into a specific count column. */}
         {mode === 'sizing' && tab === 'yarn' && (
@@ -522,7 +541,7 @@ export default async function WarehousePage({
         <button type="submit" className="btn-sm bg-indigo text-white hover:bg-indigo/90">
           Apply
         </button>
-        {(sp.mill || sp.customer || sp.count || sp.location || sp.party || sp.quality || sp.wends) && (
+        {(sp.mill || sp.customer || sp.count || sp.location || sp.party || sp.quality || sp.wends || sp.pfq) && (
           <Link href={`/app/warehouse?mode=${mode}&tab=${tab}`} className="btn-sm bg-cloud text-ink-soft hover:bg-cloud/80">
             Clear
           </Link>
@@ -596,7 +615,7 @@ export default async function WarehousePage({
               In pieces
             </div>
             <PivotView
-              data={inProdFabricRows!.pcs}
+              data={applyProdFabricFilter(inProdFabricRows!.pcs, sp.pfq)}
               emptyMessage="No production fabric stocked in pieces yet. Save a batch from Production → New Batch with the metres toggle off to see pcs inflows here."
             />
           </div>
@@ -605,7 +624,7 @@ export default async function WarehousePage({
               In metres
             </div>
             <PivotView
-              data={inProdFabricRows!.metres}
+              data={applyProdFabricFilter(inProdFabricRows!.metres, sp.pfq)}
               emptyMessage="No production fabric stocked in metres yet. Save a batch from Production → New Batch with the metres toggle on to see metre inflows here."
             />
           </div>
@@ -695,6 +714,36 @@ function applyInhouseColumnFilter(data: PivotData, sp: SP): PivotData {
     unit: data.unit,
     columns: data.columns.filter((c) => keep.has(c.id)),
     events:  data.events.filter((e) => keep.has(e.column_id)),
+  };
+}
+
+/** Distinct quality options for the production-fabric tab — union of the
+ *  pcs + metres pivot columns. The value is the pivot column id
+ *  (`fq:<id>` or `m:<merged_name>`) so picking one keeps exactly that
+ *  column, merged groups included. Only qualities that actually carry
+ *  production stock appear. */
+function prodFabricQualityOptions(
+  data: { pcs: PivotData; metres: PivotData } | null,
+): { value: string; label: string }[] {
+  if (!data) return [];
+  const seen = new Map<string, string>();
+  for (const c of [...data.pcs.columns, ...data.metres.columns]) {
+    if (!seen.has(c.id)) {
+      seen.set(c.id, c.sublabel ? `${c.label} - ${c.sublabel}` : c.label);
+    }
+  }
+  return Array.from(seen.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Collapse a production-fabric pivot to a single quality column. */
+function applyProdFabricFilter(data: PivotData, pfq?: string): PivotData {
+  if (!pfq) return data;
+  return {
+    unit: data.unit,
+    columns: data.columns.filter((c) => c.id === pfq),
+    events: data.events.filter((e) => e.column_id === pfq),
   };
 }
 
