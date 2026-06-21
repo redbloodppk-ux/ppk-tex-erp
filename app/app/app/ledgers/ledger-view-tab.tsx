@@ -776,8 +776,8 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                   <th className="text-left  px-3 py-3 hidden md:table-cell">Counterparty</th>
                   <th className="text-left  px-3 py-3 hidden md:table-cell">Bank / Cash</th>
                   <th className="text-left  px-3 py-3 hidden lg:table-cell">Reference</th>
-                  <th className="text-right px-3 py-3">Inflow (₹)</th>
-                  <th className="text-right px-3 py-3">Outflow (₹)</th>
+                  <th className="text-right px-3 py-3">Debit (₹)</th>
+                  <th className="text-right px-3 py-3">Credit (₹)</th>
                   <th className="text-right px-3 py-3">Running balance (₹)</th>
                 </tr>
               </thead>
@@ -838,7 +838,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
-            Sorted oldest → newest. Inflows are payments received; outflows are payments paid out (including wages, expenses, and bank entries tagged to this ledger).
+            Sorted oldest → newest. Debit raises the running balance (Dr); Credit lowers it (Cr). A positive running balance means the party owes you (Dr); negative means you owe the party (Cr).
           </div>
         </div>
       )}
