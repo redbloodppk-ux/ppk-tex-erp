@@ -214,8 +214,9 @@ function NavBody({
   // 'home' is special: items with this group key render as flat links
   // at the very top of the sidebar without a group header (Dashboard).
   const flatItems = visible.filter(i => i.group === 'home');
-  // Pinned flat at the very bottom of the sidebar (Settings).
-  const bottomItems = visible.filter(i => i.group === 'bottom');
+  // Pinned flat at the very bottom of the sidebar (About). Settings now
+  // lives in the topbar's right corner, so it's excluded here.
+  const bottomItems = visible.filter(i => i.group === 'bottom' && i.href !== '/app/settings');
   const grouped = GROUP_ORDER.map(g => ({
     group: g,
     items: visible.filter(i => i.group === g),
@@ -227,6 +228,10 @@ function NavBody({
   // state on first paint.
   const [openGroups, setOpenGroups] = useState<Set<GroupKey>>(new Set());
   const [hydrated, setHydrated] = useState(false);
+  // Transient: the group the mouse is currently over. Hovering a group
+  // header auto-expands its sub-items; moving away auto-collapses it.
+  // Never persisted.
+  const [hoveredGroup, setHoveredGroup] = useState<LabelledGroupKey | null>(null);
   useEffect(() => {
     setOpenGroups(loadStoredOpen());
     setHydrated(true);
@@ -334,11 +339,15 @@ function NavBody({
         // flash of all groups closed). After hydration: openGroups
         // from localStorage + the active-group override.
         const isOpen = hydrated
-          ? (openGroups.has(group) || activeGroup === group)
-          : (activeGroup === group);
+          ? (openGroups.has(group) || activeGroup === group || hoveredGroup === group)
+          : (activeGroup === group || hoveredGroup === group);
         const GroupIcon = GROUP_ICON[group];
         return (
-          <div key={group}>
+          <div
+            key={group}
+            onMouseEnter={() => setHoveredGroup(group)}
+            onMouseLeave={() => setHoveredGroup((g) => (g === group ? null : g))}
+          >
             <button
               type="button"
               onClick={() => toggleGroup(group)}
@@ -420,12 +429,18 @@ function NavBody({
  * not being hovered. Flattens the home item, all labelled groups and the
  * pinned bottom items into a single vertical strip of icons.
  */
-function IconRail({ role }: { role: Role }) {
+function IconRail({ role, onIndigo = false }: { role: Role; onIndigo?: boolean }) {
   const pathname = usePathname();
   const visible = NAV.filter(n => n.roles.includes(role));
   const flatItems = visible.filter(i => i.group === 'home');
-  const bottomItems = visible.filter(i => i.group === 'bottom');
+  const bottomItems = visible.filter(i => i.group === 'bottom' && i.href !== '/app/settings');
   const middleItems = GROUP_ORDER.flatMap(g => visible.filter(i => i.group === g));
+
+  const activeCls = onIndigo ? 'bg-white/20 text-white' : 'bg-indigo/10 text-indigo';
+  const idleCls = onIndigo
+    ? 'text-white/70 hover:bg-white/10 hover:text-white'
+    : 'text-ink-mute hover:bg-cloud hover:text-ink';
+  const borderCls = onIndigo ? 'border-white/20' : 'border-line/60';
 
   const renderItem = (item: NavItem) => {
     const active = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -438,7 +453,7 @@ function IconRail({ role }: { role: Role }) {
           aria-label={item.label}
           className={cn(
             'flex items-center justify-center h-10 w-10 mx-auto rounded-lg transition-colors',
-            active ? 'bg-indigo/10 text-indigo' : 'text-ink-mute hover:bg-cloud hover:text-ink',
+            active ? activeCls : idleCls,
           )}
         >
           <Icon className="w-5 h-5 shrink-0" />
@@ -454,59 +469,46 @@ function IconRail({ role }: { role: Role }) {
       )}
       <nav className="flex-1 overflow-y-auto px-2 space-y-1 min-h-0">{middleItems.map(renderItem)}</nav>
       {bottomItems.length > 0 && (
-        <ul className="space-y-1 px-2 pt-3 pb-4 shrink-0 border-t border-line/60">{bottomItems.map(renderItem)}</ul>
+        <ul className={cn('space-y-1 px-2 pt-3 pb-4 shrink-0 border-t', borderCls)}>{bottomItems.map(renderItem)}</ul>
       )}
     </div>
   );
 }
 
-function Brand({
+/** Slim header row holding only the collapse / expand toggle. The brand
+ *  logo + title now live in the top bar (always visible, never collapses),
+ *  so the sidebar header is just this control. */
+function CollapseToggle({
   expanded,
   collapsed,
   onToggle,
 }: {
-  /** Whether the full label layout is currently shown (pinned open OR hover-expanded). */
+  /** Whether the full-width layout is currently shown (pinned open OR hover-expanded). */
   expanded: boolean;
-  /** The persisted collapsed state — drives the toggle button's icon/intent. */
+  /** The persisted collapsed state — drives the toggle icon + colour. */
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  if (!expanded) {
-    // Mini header: just the logo mark, centered. The collapse toggle is
-    // hidden here — hovering expands the rail and reveals it.
-    return (
-      <div className="h-[89px] flex items-center justify-center border-b border-line/60 shrink-0">
-        <Link
-          href="/app/dashboard"
-          title="PPK TEX — Dashboard"
-          aria-label="Go to dashboard"
-          className="flex items-center justify-center rounded-xl p-1.5 hover:bg-cloud/40 transition-colors"
-        >
-          <BrandLogo variant="mark" height={36} />
-        </Link>
-      </div>
-    );
-  }
   const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
   return (
-    <div className="px-5 py-5 border-b border-line/60 flex items-center gap-3 shrink-0">
-      <Link
-        href="/app/dashboard"
-        className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-90 transition-opacity"
-        title="Go to dashboard"
-      >
-        <BrandLogo variant="mark" height={48} />
-        <div className="min-w-0">
-          <div className="font-display font-extrabold text-ink leading-tight text-xl tracking-wider">PPK TEX</div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
-        </div>
-      </Link>
+    <div
+      className={cn(
+        'h-12 flex items-center shrink-0 border-b',
+        expanded ? 'justify-end px-3' : 'justify-center',
+        collapsed ? 'border-white/20' : 'border-line/60',
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
         title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
         aria-label={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
-        className="shrink-0 p-1.5 rounded-lg text-ink-mute hover:bg-cloud hover:text-ink transition-colors"
+        className={cn(
+          'p-1.5 rounded-lg transition-colors',
+          collapsed
+            ? 'text-white/80 hover:bg-white/10 hover:text-white'
+            : 'text-ink-mute hover:bg-cloud hover:text-ink',
+        )}
       >
         <ToggleIcon className="w-5 h-5" />
       </button>
@@ -525,17 +527,17 @@ function Footer() {
 /** localStorage key for the desktop collapsed/expanded preference. */
 const SIDEBAR_COLLAPSED_KEY = 'ppk_sidebar_collapsed_v1';
 
-export function Sidebar({
-  role,
-  mobileOpen = false,
-  onClose,
-}: {
-  role: Role;
-  mobileOpen?: boolean;
-  onClose?: () => void;
-}) {
-  // Persisted collapse preference (desktop only). Default expanded so the
-  // first server render and first paint match.
+/**
+ * Desktop sidebar (md and up). Sits BELOW the full-width top bar, so its
+ * sticky panel starts at top-14 (the top bar height). The <aside> reserves
+ * the layout footprint (narrow when collapsed); the inner panel is the
+ * sticky, scrolling element. When collapsed the panel turns indigo with
+ * light icons; hovering it (collapsed) grows it to full width and overlays
+ * the page (z-40 + shadow) instead of pushing content around.
+ */
+export function SidebarDesktop({ role }: { role: Role }) {
+  // Persisted collapse preference. Default expanded so the first server
+  // render and first paint match.
   const [collapsed, setCollapsed] = useState(false);
   // Transient: is the mouse currently over the collapsed rail? Drives the
   // hover-expand overlay. Never persisted.
@@ -567,65 +569,73 @@ export function Sidebar({
   const expanded = !collapsed || hovered;
 
   return (
-    <>
-      {/* Desktop sidebar (md and up). The <aside> reserves the layout
-          footprint (narrow when collapsed); the inner panel is what the
-          user sees and is the sticky, scrolling element. When collapsed
-          AND hovered the panel grows to full width and overlays the page
-          (z-40 + shadow) instead of pushing content around. */}
-      <aside
+    <aside
+      className={cn(
+        'hidden md:block relative shrink-0 transition-[width] duration-200 ease-out',
+        collapsed ? 'w-16' : 'w-64',
+      )}
+    >
+      <div
+        onMouseEnter={() => { if (collapsed) setHovered(true); }}
+        onMouseLeave={() => setHovered(false)}
         className={cn(
-          'hidden md:block relative shrink-0 transition-[width] duration-200 ease-out',
-          collapsed ? 'w-16' : 'w-64',
+          'sticky top-14 h-[calc(100vh-3.5rem)] flex flex-col border-r',
+          'rounded-r-2xl overflow-hidden transition-[width,background-color] duration-200 ease-out',
+          collapsed ? 'bg-indigo text-white border-white/10' : 'bg-paper border-line/60',
+          expanded ? 'w-64' : 'w-16',
+          collapsed && hovered ? 'z-40 shadow-2xl' : 'z-10',
         )}
       >
-        <div
-          onMouseEnter={() => { if (collapsed) setHovered(true); }}
-          onMouseLeave={() => setHovered(false)}
-          className={cn(
-            'sticky top-0 h-screen flex flex-col bg-paper border-r border-line/60',
-            'rounded-r-2xl overflow-hidden transition-[width] duration-200 ease-out',
-            expanded ? 'w-64' : 'w-16',
-            collapsed && hovered ? 'z-40 shadow-2xl' : 'z-10',
-          )}
-        >
-          <Brand expanded={expanded} collapsed={collapsed} onToggle={toggleCollapsed} />
-          {expanded ? <NavBody role={role} /> : <IconRail role={role} />}
-          {expanded && <Footer />}
-        </div>
-      </aside>
+        <CollapseToggle expanded={expanded} collapsed={collapsed} onToggle={toggleCollapsed} />
+        {expanded ? <NavBody role={role} onIndigo={collapsed} /> : <IconRail role={role} onIndigo={collapsed} />}
+        {expanded && !collapsed && <Footer />}
+      </div>
+    </aside>
+  );
+}
 
-      {/* Mobile push-menu (below md). Fixed to the left edge and pinned
-          BEHIND the page surface (z-0). AppShell scales + slides the page
-          aside to reveal this indigo menu — the iOS "slide menu" effect.
-          It only becomes interactive once the page has slid open. */}
-      <aside
-        className={cn(
-          'md:hidden fixed inset-y-0 left-0 z-0 w-[72%] max-w-xs',
-          'flex flex-col bg-indigo text-white',
-          mobileOpen ? 'pointer-events-auto' : 'pointer-events-none',
-        )}
-        aria-hidden={!mobileOpen}
+/**
+ * Mobile push-menu (below md). Fixed to the left edge and pinned BEHIND the
+ * page surface (z-0). AppShell scales + slides the page aside to reveal this
+ * indigo menu — the iOS "slide menu" effect. It only becomes interactive
+ * once the page has slid open.
+ */
+export function SidebarMobile({
+  role,
+  mobileOpen = false,
+  onClose,
+}: {
+  role: Role;
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}) {
+  return (
+    <aside
+      className={cn(
+        'md:hidden fixed inset-y-0 left-0 z-0 w-[72%] max-w-xs',
+        'flex flex-col bg-indigo text-white',
+        mobileOpen ? 'pointer-events-auto' : 'pointer-events-none',
+      )}
+      aria-hidden={!mobileOpen}
+    >
+      <Link
+        href="/app/dashboard"
+        onClick={onClose}
+        className="px-5 py-5 flex items-center gap-3 border-b border-white/15 hover:bg-white/5 transition-colors"
+        title="Go to dashboard"
       >
-        <Link
-          href="/app/dashboard"
-          onClick={onClose}
-          className="px-5 py-5 flex items-center gap-3 border-b border-white/15 hover:bg-white/5 transition-colors"
-          title="Go to dashboard"
-        >
-          <span className="bg-white/95 rounded-xl p-1.5 flex items-center justify-center">
-            <BrandLogo variant="mark" height={40} />
-          </span>
-          <div className="flex-1">
-            <div className="font-display font-extrabold leading-tight text-base tracking-wider">PPK TEX</div>
-            <div className="text-[10px] uppercase tracking-wider text-white/70">Cloud ERP</div>
-          </div>
-        </Link>
-        <NavBody role={role} onItemClick={onClose} onIndigo />
-        <div className="px-4 py-3 border-t border-white/15 text-[10px] text-white/60">
-          v0.1 - {new Date().getFullYear()} PPK Tex Industries
+        <span className="bg-white/95 rounded-xl p-1.5 flex items-center justify-center">
+          <BrandLogo variant="mark" height={40} />
+        </span>
+        <div className="flex-1">
+          <div className="font-display font-extrabold leading-tight text-base tracking-wider">PPK TEX</div>
+          <div className="text-[10px] uppercase tracking-wider text-white/70">Cloud ERP</div>
         </div>
-      </aside>
-    </>
+      </Link>
+      <NavBody role={role} onItemClick={onClose} onIndigo />
+      <div className="px-4 py-3 border-t border-white/15 text-[10px] text-white/60">
+        v0.1 - {new Date().getFullYear()} PPK Tex Industries
+      </div>
+    </aside>
   );
 }

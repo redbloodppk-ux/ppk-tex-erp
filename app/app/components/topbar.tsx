@@ -4,11 +4,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  LogOut, ChevronDown, Menu, ArrowLeft,
+  LogOut, ChevronDown, Menu, ArrowLeft, Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NotificationBell } from './notification-bell';
 import { GlobalSearch } from './global-search';
+import { BrandLogo } from './brand-logo';
 
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Owner',
@@ -35,6 +36,10 @@ export function Topbar({
 
   // Hide the back button when we're already on the home/dashboard.
   const isHome = pathname === '/app/dashboard' || pathname === '/app';
+  // Settings lives in the top bar's right corner (moved out of the
+  // sidebar). Only owner / auditor can reach it — same as before.
+  const canSettings = role === 'owner' || role === 'auditor';
+  const settingsActive = pathname === '/app/settings' || pathname.startsWith('/app/settings/');
 
   async function signOut() {
     const supabase = createClient();
@@ -53,7 +58,7 @@ export function Topbar({
     .join('') || 'U';
 
   return (
-    <header className="h-14 bg-paper border-b border-line/60 sticky top-0 z-30 flex items-center px-3 sm:px-6 gap-2 sm:gap-4 rounded-b-2xl">
+    <header className="h-14 bg-paper border-b border-line/60 sticky top-0 z-40 flex items-center px-3 sm:px-6 gap-2 sm:gap-4">
       {/* ── Mobile-only: hamburger opens the sidebar drawer ────────────── */}
       <button
         onClick={onMenuClick}
@@ -62,6 +67,20 @@ export function Topbar({
       >
         <Menu className="w-5 h-5 text-ink-soft" />
       </button>
+
+      {/* ── Brand: logo + title at the far-left corner. Always visible —
+          it lives here (not the sidebar) so it never collapses. ───────── */}
+      <Link
+        href="/app/dashboard"
+        title="Go to dashboard"
+        className="flex items-center gap-2.5 shrink-0 hover:opacity-90 transition-opacity"
+      >
+        <BrandLogo variant="mark" height={34} />
+        <div className="hidden sm:block leading-tight">
+          <div className="font-display font-extrabold text-ink text-base tracking-wider">PPK TEX</div>
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+        </div>
+      </Link>
 
       {/* ── Mobile-only: back button (history) ─────────────────────────── */}
       {!isHome && (
@@ -75,14 +94,29 @@ export function Topbar({
       )}
 
       {/* ── Desktop search bar — wired to GlobalSearch component ─────── */}
-      <div className="hidden sm:flex items-center gap-2 w-full max-w-md">
+      <div className="hidden sm:flex items-center gap-2 w-full max-w-md ml-2">
         <GlobalSearch />
       </div>
 
-      {/* Spacer pushes the bell + user menu to the far right corner. */}
+      {/* Spacer pushes the settings + bell + user menu to the far right. */}
       <div className="flex-1" />
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {/* Settings — top-right corner (moved out of the sidebar). */}
+        {canSettings && (
+          <Link
+            href="/app/settings"
+            title="Settings"
+            aria-label="Settings"
+            className={cn(
+              'p-2 rounded-lg transition-colors',
+              settingsActive ? 'bg-indigo/10 text-indigo' : 'text-ink-soft hover:bg-cloud',
+            )}
+          >
+            <Settings className="w-5 h-5" />
+          </Link>
+        )}
+
         {/* Live bell — replaces the static red dot. Polls every 60s
             and opens a dropdown with the top 10 pending items. See
             NotificationBell + lib/notifications/source.ts. */}
