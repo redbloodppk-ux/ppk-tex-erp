@@ -239,6 +239,16 @@ export function EditInvoiceForm({
     setTotal(String(rounded));
   }
 
+  // Other Charges flow straight into the grand total — recompute live as
+  // the operator types so they never have to remember to hit "Recompute".
+  function handleExtraChange(v: string): void {
+    setExtraCharge(v);
+    const raw     = round2(num(taxable) + num(cgst) + num(sgst) + num(igst) + num(v));
+    const rounded = Math.round(raw);
+    setRoundOff(String(round2(rounded - raw)));
+    setTotal(String(rounded));
+  }
+
   async function handleSave(): Promise<void> {
     setError(null);
     const trimmedNo = invoiceNo.trim();
@@ -477,7 +487,7 @@ export function EditInvoiceForm({
             )}
             <div>
               <label className="label">Other charges</label>
-              <input type="number" step="0.01" value={extraCharge} onChange={(e) => setExtraCharge(e.target.value)} className="input num" title="Flat charge added after tax (no GST). Click Recompute total to fold it in." />
+              <input type="number" step="0.01" value={extraCharge} onChange={(e) => handleExtraChange(e.target.value)} className="input num" title="Flat charge added after tax (no GST). Automatically added to the total." />
             </div>
             <div>
               <label className="label">Round-off</label>
