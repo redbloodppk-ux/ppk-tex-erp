@@ -28,6 +28,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/gstr1',
+    title: 'GSTR-1 Export',
+    description:
+      'Pick a month and download a GST-portal-ready GSTR-1 JSON — B2B, B2CL, B2CS, credit notes, HSN summary and doc-issue, all in the upload format.',
+    ready: true,
+  },
+  {
     href: '/app/reports/agent-commission',
     title: 'Agent Commission',
     description:
