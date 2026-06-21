@@ -311,7 +311,7 @@ export default async function InvoicePrintPage({
            hidden so the live preview stays clean. */
         @page {
           size: A4;
-          margin: 28mm 10mm 26mm 10mm;
+          margin: 28mm 14mm 26mm 14mm;
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
             font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
@@ -336,7 +336,7 @@ export default async function InvoicePrintPage({
           .inv-print-header {
             display: flex !important;
             position: fixed;
-            top: 0; left: 10mm; right: 10mm;
+            top: 0; left: 14mm; right: 14mm;
             height: 20mm;
             align-items: center;
             justify-content: space-between;
@@ -354,7 +354,7 @@ export default async function InvoicePrintPage({
           .inv-print-footer {
             display: block !important;
             position: fixed;
-            bottom: 0; left: 10mm; right: 10mm;
+            bottom: 0; left: 14mm; right: 14mm;
             padding: 3mm 0 2mm 0;
             border-top: 1px solid #000;
             text-align: center;
