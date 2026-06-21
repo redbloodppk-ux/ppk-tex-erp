@@ -182,7 +182,7 @@ export default function NewInvoicePage() {
 
   // ── doc type selection ─────────────────────────────────────────────────────
   const [docType, setDocType] = useState<DocType>(initialType);
-  const [sourceKind, setSourceKind] = useState<SourceKind>('sales_order');
+  const [sourceKind, setSourceKind] = useState<SourceKind>('fabric_stock');
 
   // ── party (customer for sales, vendor for debit_note) ──────────────────────
   const [companyState, setCompanyState] = useState<string>('Tamil Nadu');
@@ -593,7 +593,7 @@ export default function NewInvoicePage() {
   // ── reset source when doc type changes ─────────────────────────────────────
   useEffect(() => {
     setRows([newRow()]);
-    if (docType === 'tax_invoice')   setSourceKind('sales_order');
+    if (docType === 'tax_invoice')   setSourceKind('fabric_stock');
     if (docType === 'yarn_sale')     setSourceKind('yarn_lot');
     if (docType === 'general_sale')  setSourceKind('free');
     if (docType === 'credit_note')   setSourceKind('return');
@@ -1630,10 +1630,6 @@ export default function NewInvoicePage() {
               <div className="border-t pt-4">
                 <label className="label">Where is the fabric coming from? *</label>
                 <div className="flex gap-2 mb-3">
-                  <button type="button" onClick={() => { setSourceKind('sales_order'); setRows([newRow()]); }}
-                    className={`btn-sm ${sourceKind === 'sales_order' ? 'btn-primary' : 'btn-ghost'}`}>
-                    From Sales Order
-                  </button>
                   <button type="button" onClick={() => { setSourceKind('fabric_stock'); setRows([newRow()]); setPickedSoId(''); setPickedDcIds(new Set()); }}
                     className={`btn-sm ${sourceKind === 'fabric_stock' ? 'btn-primary' : 'btn-ghost'}`}>
                     Direct from Stock
@@ -1643,22 +1639,6 @@ export default function NewInvoicePage() {
                     From Fabric Receipts (in-house)
                   </button>
                 </div>
-                {sourceKind === 'sales_order' && (
-                  <>
-                    <label className="label">Pick the Sales Order</label>
-                    <select value={pickedSoId} onChange={e => setPickedSoId(e.target.value)} className="input">
-                      <option value="">— select an SO —</option>
-                      {salesOrders.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.so_number} · ₹{Number(s.total).toFixed(2)} · {s.status}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-ink-mute mt-1">
-                      Selecting an SO will copy its delivered line items into the rows below.
-                    </p>
-                  </>
-                )}
                 {sourceKind === 'fabric_receipt' && (
                   inhouseDcs.length === 0 ? (
                     <p className="text-sm text-ink-soft">
