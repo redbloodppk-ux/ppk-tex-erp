@@ -90,6 +90,7 @@ interface InvoiceRow {
   sgst_amount: number | string;
   igst_amount: number | string;
   round_off: number | string;
+  extra_charge: number | string;
   is_interstate: boolean;
   party_name: string | null;
   party_gstin: string | null;
@@ -197,7 +198,7 @@ export default async function InvoicePrintPage({
       .select(`
         id, invoice_no, doc_type, invoice_date, due_date, status, notes,
         ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
-        subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off,
+        subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, extra_charge,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, vehicle_no,
         original_invoice_id, supplier_bill_no, supplier_bill_date,
@@ -714,6 +715,9 @@ export default async function InvoicePrintPage({
                     <tr><td>CGST</td><td className="v">{fmtMoney(inv.cgst_amount)}</td></tr>
                     <tr><td>SGST</td><td className="v">{fmtMoney(inv.sgst_amount)}</td></tr>
                   </>
+                )}
+                {num(inv.extra_charge) !== 0 && (
+                  <tr><td>Other charges</td><td className="v">{fmtMoney(inv.extra_charge)}</td></tr>
                 )}
                 {num(inv.round_off) !== 0 && (
                   <tr><td>Round off</td><td className="v">{fmtMoney(inv.round_off)}</td></tr>

@@ -44,6 +44,7 @@ export interface EditInvoiceInitial {
   sgst_amount: number;
   igst_amount: number;
   round_off: number;
+  extra_charge: number;
   total: number;
   is_interstate: boolean;
   ship_to_party_id: number | null;
@@ -143,6 +144,8 @@ export function EditInvoiceForm({
   const [sgst, setSgst]               = useState<string>(String(initial.sgst_amount ?? 0));
   const [igst, setIgst]               = useState<string>(String(initial.igst_amount ?? 0));
   const [roundOff, setRoundOff]       = useState<string>(String(initial.round_off ?? 0));
+  // Optional flat "Other Charges" added to the total after tax (no GST).
+  const [extraCharge, setExtraCharge] = useState<string>(String(initial.extra_charge ?? 0));
   const [total, setTotal]             = useState<string>(String(initial.total ?? 0));
   const [isInterstate, setIsInterstate] = useState<boolean>(initial.is_interstate);
 
@@ -217,6 +220,7 @@ export function EditInvoiceForm({
     || num(sgst)    !== initial.sgst_amount
     || num(igst)    !== initial.igst_amount
     || num(roundOff) !== initial.round_off
+    || num(extraCharge) !== initial.extra_charge
     || num(total)   !== initial.total
     || isInterstate !== initial.is_interstate
     || (shipTo.enabled ? shipTo.name : '') !== (initial.ship_to_name ?? '')
@@ -227,7 +231,8 @@ export function EditInvoiceForm({
     // round_off absorb the paise swing. The operator can still
     // overwrite either field manually after this if a specific bill
     // really needs a non-rounded figure.
-    const raw      = round2(num(taxable) + num(cgst) + num(sgst) + num(igst));
+    // Other Charges are flat and added AFTER tax — fold them into the total.
+    const raw      = round2(num(taxable) + num(cgst) + num(sgst) + num(igst) + num(extraCharge));
     const rounded  = Math.round(raw);
     const newRound = round2(rounded - raw);
     setRoundOff(String(newRound));
@@ -257,6 +262,7 @@ export function EditInvoiceForm({
     const sgstN    = round2(num(sgst));
     const igstN    = round2(num(igst));
     const roundN   = round2(num(roundOff));
+    const extraN   = round2(num(extraCharge));
     const totalN   = round2(num(total));
     const gstSum   = round2(cgstN + sgstN + igstN);
 
@@ -275,6 +281,7 @@ export function EditInvoiceForm({
       sgst_amount: sgstN,
       igst_amount: igstN,
       round_off: roundN,
+      extra_charge: extraN,
       total: totalN,
       // Legacy columns we keep aligned so old views / xlsx exports still match
       subtotal: taxableN,
@@ -443,7 +450,7 @@ export function EditInvoiceForm({
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             <div>
               <label className="label">Taxable</label>
               <input type="number" step="0.01" value={taxable} onChange={(e) => setTaxable(e.target.value)} className="input num" />
@@ -468,6 +475,10 @@ export function EditInvoiceForm({
                 </div>
               </>
             )}
+            <div>
+              <label className="label">Other charges</label>
+              <input type="number" step="0.01" value={extraCharge} onChange={(e) => setExtraCharge(e.target.value)} className="input num" title="Flat charge added after tax (no GST). Click Recompute total to fold it in." />
+            </div>
             <div>
               <label className="label">Round-off</label>
               <input type="number" step="0.01" value={roundOff} onChange={(e) => setRoundOff(e.target.value)} className="input num" />

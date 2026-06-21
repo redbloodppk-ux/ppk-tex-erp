@@ -175,6 +175,8 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   const [partyId, setPartyId]   = useState<string>('');
   const [billDate, setBillDate] = useState<string>(todayISO());
   const [gstPct, setGstPct]     = useState<string>('5');
+  // Optional flat "Other Charges" added to the grand total after tax (no GST).
+  const [extraCharge, setExtraCharge] = useState<string>('');
   const [notes, setNotes]       = useState<string>('');
   // Vehicle number — mandatory on every new invoice (migration 160).
   const [vehicleNo, setVehicleNo] = useState<string>('');
@@ -477,13 +479,15 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   // surfaced as `roundOff` so the auditor can trace where the
   // 50-paise / 1-rupee swing came from.
   const gst = num(gstPct);
+  const extra = round2(Math.max(0, num(extraCharge)));
   const isInterstate = (party?.state_code ?? '') !== '' && party?.state_code !== PPKTEX_STATE_CODE;
   const totals = useMemo(() => {
     const taxable = lines.reduce<number>((s, l) => s + l.taxable, 0);
     const cgst = isInterstate ? 0 : round2(taxable * gst / 200);
     const sgst = isInterstate ? 0 : round2(taxable * gst / 200);
     const igst = isInterstate ? round2(taxable * gst / 100) : 0;
-    const grandRaw = round2(taxable + cgst + sgst + igst);
+    // Other Charges are flat and added AFTER tax — they carry no GST.
+    const grandRaw = round2(taxable + cgst + sgst + igst + extra);
     const grand    = Math.round(grandRaw);
     const roundOff = round2(grand - grandRaw);
     const metres = lines.reduce<number>((s, l) => s + l.metres, 0);
@@ -492,11 +496,12 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
     return {
       taxable: round2(taxable),
       cgst, sgst, igst,
+      extra,
       grand,
       roundOff,
       metres, pieces, bundles,
     };
-  }, [lines, gst, isInterstate]);
+  }, [lines, gst, isInterstate, extra]);
 
   // ── Pick / unpick handlers ──
   function toggleDc(dcId: number): void {
@@ -562,6 +567,8 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
        // (taxable + GST) and the whole-rupee grand total displayed on
        // the bill. Audit trail intact, auditor-friendly.
       round_off: totals.roundOff,
+      // Optional flat "Other Charges" — already folded into total above.
+      extra_charge: totals.extra,
       // Jobwork bills are saved already-issued - you only create one when
       // you mean to hand it to the customer. Status can still be edited
       // later (cancelled, paid, etc.) from the invoice detail page.
@@ -853,7 +860,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       {/* ───── Tax summary ───── */}
       {lines.length > 0 && (
         <div className="card p-4">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-3 text-sm">
             <div>
               <div className="text-[11px] uppercase tracking-wide text-ink-mute">Taxable</div>
               <div className="num font-bold">Rs {fmtMoney(totals.taxable)}</div>
@@ -869,6 +876,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
             <div>
               <div className="text-[11px] uppercase tracking-wide text-ink-mute">IGST ({gst}%)</div>
               <div className="num font-bold">Rs {fmtMoney(totals.igst)}</div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-ink-mute">Other charges</div>
+              <div className="num font-bold text-ink-soft">Rs {fmtMoney(totals.extra)}</div>
             </div>
             <div>
               <div className="text-[11px] uppercase tracking-wide text-ink-mute">Round off</div>
@@ -905,6 +916,21 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           </datalist>
           <p className="text-[10px] text-ink-mute mt-1">
             Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+          </p>
+        </div>
+        <div>
+          <label className="label">Other charges (optional)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={extraCharge}
+            onChange={(e) => setExtraCharge(e.target.value)}
+            className="input num"
+            placeholder="0.00"
+          />
+          <p className="text-[10px] text-ink-mute mt-1">
+            Flat amount added to the grand total after tax (no GST applied).
           </p>
         </div>
         <div className="flex items-baseline justify-between mb-1">

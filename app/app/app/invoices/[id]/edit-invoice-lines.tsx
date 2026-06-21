@@ -49,6 +49,10 @@ interface EditInvoiceLinesProps {
   invoiceNo: string;
   isInterstate: boolean;
   initialLines: InvoiceLineRow[];
+  /** Flat "Other Charges" on the header, added to the grand total after
+   *  tax. Preserved here so re-rolling the header from line totals
+   *  doesn't drop it. */
+  extraCharge?: number;
 }
 
 const UOM_OPTIONS: ReadonlyArray<string> = ['mtr', 'pcs', 'kg', 'set', 'bundle', 'roll', 'box'];
@@ -110,6 +114,7 @@ export function EditInvoiceLines({
   invoiceNo,
   isInterstate,
   initialLines,
+  extraCharge = 0,
 }: EditInvoiceLinesProps): React.ReactElement {
   const router   = useRouter();
   const supabase = createClient();
@@ -170,7 +175,9 @@ export function EditInvoiceLines({
       igst    += num(l.igst_amount);
       total   += num(l.total_amount);
     }
-    const rawTotal = round2(taxable + cgst + sgst + igst);
+    // Other Charges are flat and added AFTER tax — fold them into the
+    // grand total so re-rolling the header from lines keeps them.
+    const rawTotal = round2(taxable + cgst + sgst + igst + round2(extraCharge));
     const rounded  = Math.round(rawTotal);
     const roundOff = round2(rounded - rawTotal);
     return {
@@ -184,7 +191,7 @@ export function EditInvoiceLines({
       rounded,
       roundOff,
     };
-  }, [lines]);
+  }, [lines, extraCharge]);
 
   // ── Dirty diff: anything to INSERT / UPDATE / DELETE? ────────────
   const dirty = useMemo(() => {

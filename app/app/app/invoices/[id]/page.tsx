@@ -102,7 +102,7 @@ export default async function InvoiceDetailPage({
       .select(`
         id, invoice_no, doc_type, source_kind, invoice_date, due_date, notes, status, vehicle_no,
         subtotal, gst_amount, total, amount_paid, balance,
-        taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, is_interstate,
+        taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, extra_charge, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
         ship_to_party_id, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
         ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
@@ -252,7 +252,7 @@ export default async function InvoiceDetailPage({
           after the line-item editor below rewrites taxable / cgst /
           sgst / igst / total in the DB. */}
       <EditInvoiceForm
-        key={`hdr-${inv.taxable_value}-${inv.cgst_amount}-${inv.sgst_amount}-${inv.igst_amount}-${inv.round_off}-${inv.total}`}
+        key={`hdr-${inv.taxable_value}-${inv.cgst_amount}-${inv.sgst_amount}-${inv.igst_amount}-${inv.round_off}-${inv.extra_charge}-${inv.total}`}
         invoiceId={inv.id}
         invoiceNo={inv.invoice_no}
         docType={inv.doc_type}
@@ -268,6 +268,7 @@ export default async function InvoiceDetailPage({
           sgst_amount:   Number(inv.sgst_amount ?? 0),
           igst_amount:   Number(inv.igst_amount ?? 0),
           round_off:     Number(inv.round_off ?? 0),
+          extra_charge:  Number(inv.extra_charge ?? 0),
           total:         Number(inv.total ?? 0),
           is_interstate: Boolean(inv.is_interstate),
           ship_to_party_id: inv.ship_to_party_id ?? null,
@@ -312,6 +313,7 @@ export default async function InvoiceDetailPage({
         invoiceId={inv.id}
         invoiceNo={inv.invoice_no}
         isInterstate={Boolean(inv.is_interstate)}
+        extraCharge={Number(inv.extra_charge ?? 0)}
         initialLines={lines.map((l): InvoiceLineRow => ({
           id:             l.id,
           description:    l.description,
