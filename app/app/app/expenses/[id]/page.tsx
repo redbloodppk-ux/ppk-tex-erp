@@ -28,7 +28,7 @@ export default async function EditExpensePage({ params }: PageProps): Promise<Re
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (supabase as any)
     .from('expense_entry')
-    .select('id, category, amount, pay_date, notes')
+    .select('id, category, amount, pay_date, notes, source_ledger_id')
     .eq('id', id)
     .maybeSingle();
 

@@ -58,6 +58,14 @@ export interface InitialEntry {
   kind: Kind;
   amount: number;
   notes: string | null;
+  source_ledger_id?: number | null;
+}
+
+// Cash / bank account the wage was paid from.
+interface SourceLedgerOption {
+  id: number;
+  name: string;
+  type_name: string;
 }
 
 interface WageEntryFormProps {
@@ -129,8 +137,42 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
   const [notes, setNotes] = useState<string>(initial?.notes ?? '');
 
+  // "Paid from" cash/bank account. Defaults to CASH once the list loads.
+  const [sourceLedgers, setSourceLedgers] = useState<SourceLedgerOption[]>([]);
+  const [sourceLedgerId, setSourceLedgerId] = useState<string>(
+    initial?.source_ledger_id != null ? String(initial.source_ledger_id) : '',
+  );
+
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load active cash + bank ledgers for the "Paid from" picker.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLedgers(): Promise<void> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from('ledger')
+        .select('id, name, active, ledger_type:type_id ( name )')
+        .eq('active', true)
+        .order('name');
+      if (cancelled) return;
+      const list = ((data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
+        .filter((r) => r.ledger_type?.name === 'CASH' || r.ledger_type?.name === 'BANK')
+        .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
+        // CASH first, then banks alphabetically.
+        .sort((a, b) => (a.type_name === b.type_name ? a.name.localeCompare(b.name) : a.type_name === 'CASH' ? -1 : 1));
+      setSourceLedgers(list);
+      // Default selection: keep the edit value if present, else first CASH.
+      if (!sourceLedgerId) {
+        const cash = list.find((l) => l.type_name === 'CASH') ?? list[0];
+        if (cash) setSourceLedgerId(String(cash.id));
+      }
+    }
+    void loadLedgers();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase]);
 
   const [ctx, setCtx] = useState<WorkContext>({
     shifts: { morning: 0, night: 0 },
@@ -466,6 +508,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       kind,
       amount: amt,
       notes: notes.trim() || null,
+      source_ledger_id: sourceLedgerId ? Number(sourceLedgerId) : null,
       updated_by: user?.id ?? null,
     };
 
@@ -560,6 +603,27 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             required
           />
         </div>
+      </div>
+
+      <div>
+        <label className="label" htmlFor="sourceLedger">Paid from</label>
+        <select
+          id="sourceLedger"
+          className="input"
+          value={sourceLedgerId}
+          onChange={(e) => setSourceLedgerId(e.target.value)}
+        >
+          {sourceLedgers.length === 0 && <option value="">Loading…</option>}
+          {sourceLedgers.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}{l.type_name === 'CASH' ? '' : ' (Bank)'}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-ink-mute mt-1">
+          Which account this wage was paid from. It records a matching Credit on
+          that cash/bank ledger so its balance reflects money going out.
+        </p>
       </div>
 
       {kind === 'settlement' && (
