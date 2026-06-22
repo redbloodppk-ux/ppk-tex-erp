@@ -535,6 +535,31 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       return;
     }
 
+    // Date-order guard: the bill number is handed out sequentially at save
+    // (its own running series per doc_type, reset each financial year), so
+    // the bill date must be on/after the latest already-issued bill in the
+    // same series. ISO date strings (YYYY-MM-DD) compare as plain strings.
+    {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: lastBill } = await (supabase as any)
+        .from('invoice')
+        .select('invoice_no, invoice_date')
+        .eq('doc_type', docType)
+        .not('invoice_date', 'is', null)
+        .order('invoice_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastBill?.invoice_date && billDate < lastBill.invoice_date) {
+        setError(
+          `This date (${billDate}) is before your last bill ` +
+          `${lastBill.invoice_no} dated ${lastBill.invoice_date}. ` +
+          `Bill numbers are issued in date order — pick a date on or ` +
+          `after ${lastBill.invoice_date}.`,
+        );
+        return;
+      }
+    }
+
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

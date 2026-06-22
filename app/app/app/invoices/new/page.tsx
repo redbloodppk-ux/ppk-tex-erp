@@ -1062,6 +1062,32 @@ export default function NewInvoicePage() {
       return setError('Vehicle number is required.');
     }
 
+    // Date-order guard: invoice numbers are handed out sequentially at
+    // save (one running series per doc_type, reset each financial year).
+    // A new invoice's date must therefore be on/after the latest already-
+    // issued invoice in the same series, or the number sequence would run
+    // out of chronological order. ISO date strings (YYYY-MM-DD) compare
+    // correctly with a plain string comparison.
+    {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: lastInv } = await (supabase as any)
+        .from('invoice')
+        .select('invoice_no, invoice_date')
+        .eq('doc_type', docType)
+        .not('invoice_date', 'is', null)
+        .order('invoice_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastInv?.invoice_date && invoiceDate < lastInv.invoice_date) {
+        return setError(
+          `This date (${invoiceDate}) is before your last invoice ` +
+          `${lastInv.invoice_no} dated ${lastInv.invoice_date}. ` +
+          `Invoice numbers are issued in date order — pick a date on or ` +
+          `after ${lastInv.invoice_date}.`,
+        );
+      }
+    }
+
     setBusy(true);
 
     // Party snapshot
