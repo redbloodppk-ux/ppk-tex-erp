@@ -1762,14 +1762,15 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
         <Kpi label="Columns × events" value={`${data.columns.length} × ${sorted.length}`} icon={Package} />
       </div>
 
-      <div className="card overflow-x-auto">
+      <div className="card overflow-auto max-h-[75vh]">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-3 py-2 sticky left-0 bg-cloud z-20">Date</th>
-              <th className="text-left px-3 py-2">Reference</th>
+              {/* Frozen top-left corner: sticky both top and left. */}
+              <th className="text-left px-3 py-2 sticky left-0 top-0 bg-cloud z-40">Date</th>
+              <th className="text-left px-3 py-2 sticky top-0 bg-cloud z-30">Reference</th>
               {data.columns.map(c => (
-                <th key={c.id} className="text-right px-3 py-2 min-w-[110px]">
+                <th key={c.id} className="text-right px-3 py-2 min-w-[110px] sticky top-0 bg-cloud z-30">
                   <div className="font-bold text-ink">{c.label}</div>
                   {c.sublabel && <div className="text-[10px] font-normal text-ink-mute normal-case">{c.sublabel}</div>}
                 </th>
@@ -1807,35 +1808,39 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               </tr>
             ))}
           </tbody>
+          {/* Totals stick to the bottom of the scroll area so they stay
+              visible while scrolling through the rows. The three rows are
+              stacked with bottom offsets (~2.25rem per row) so they pin
+              above one another instead of overlapping. */}
           <tfoot className="border-t-2 border-line bg-cloud font-semibold">
             <tr>
-              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Total In</td>
+              <td className="px-3 py-2 sticky left-0 bottom-[4.5rem] bg-cloud z-30" colSpan={2}>Total In</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.in ?? 0;
                 return (
-                  <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs">
+                  <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs sticky bottom-[4.5rem] bg-cloud z-20">
                     {'+ ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
             </tr>
             <tr>
-              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Total Out</td>
+              <td className="px-3 py-2 sticky left-0 bottom-[2.25rem] bg-cloud z-30" colSpan={2}>Total Out</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.out ?? 0;
                 return (
-                  <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs">
+                  <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs sticky bottom-[2.25rem] bg-cloud z-20">
                     {'\u2212 ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
             </tr>
             <tr className="border-t-2 border-line">
-              <td className="px-3 py-2 sticky left-0 bg-cloud z-10" colSpan={2}>Closing balance</td>
+              <td className="px-3 py-2 sticky left-0 bottom-0 bg-cloud z-30" colSpan={2}>Closing balance</td>
               {data.columns.map(c => {
                 const closing = (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0);
                 return (
-                  <td key={c.id} className={`px-3 py-2 text-right num text-sm font-bold ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  <td key={c.id} className={`px-3 py-2 text-right num text-sm font-bold sticky bottom-0 bg-cloud z-20 ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                     {fmtUnit(closing, data.unit)}
                   </td>
                 );
