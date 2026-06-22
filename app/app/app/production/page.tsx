@@ -64,6 +64,14 @@ export default async function ProductionPage() {
     if (v.batch_id != null) varianceByBatch.set(v.batch_id, v);
   }
 
+  // Hide cost columns that have no data yet (true cost is only snapshotted
+  // for fully-wired costings; sizing variance only exists for batches linked
+  // to a pavu assign). Show each column once at least one batch populates it.
+  const showTrueCost = batches.some((b) => b.actual_true_cost_per_m != null);
+  const showVariance = batches.some(
+    (b) => varianceByBatch.get(b.id)?.variance_per_m != null,
+  );
+
   return (
     <div>
       <PageHeader
@@ -113,8 +121,12 @@ export default async function ProductionPage() {
                   <th className="text-left px-3 py-2">Loom</th>
                   <th className="text-left px-3 py-2">Dates</th>
                   <th className="text-right px-3 py-2">Produced m</th>
-                  <th className="text-right px-3 py-2">True rupees/m</th>
-                  <th className="text-right px-3 py-2">Sizing variance</th>
+                  {showTrueCost && (
+                    <th className="text-right px-3 py-2">True rupees/m</th>
+                  )}
+                  {showVariance && (
+                    <th className="text-right px-3 py-2">Sizing variance</th>
+                  )}
                   <th className="text-right px-3 py-2" />
                 </tr>
               </thead>
@@ -145,28 +157,32 @@ export default async function ProductionPage() {
                         {b.start_date ?? '—'} → {b.end_date ?? 'open'}
                       </td>
                       <td className="px-3 py-2 text-right num">{Number(b.produced_m).toFixed(0)}</td>
-                      <td className="px-3 py-2 text-right num">
-                        {b.actual_true_cost_per_m != null
-                          ? `₹${Number(b.actual_true_cost_per_m).toFixed(2)}`
-                          : <span className="text-ink-mute">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right text-xs">
-                        {!hasVariance ? (
-                          <span className="text-ink-mute">N/A</span>
-                        ) : isOverrun ? (
-                          <span className="inline-flex items-center gap-1 text-amber-700">
-                            <AlertTriangle className="w-3 h-3" />
-                            +₹{Number(variancePerM).toFixed(2)}/m
-                          </span>
-                        ) : isSaving ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700">
-                            <CheckCircle2 className="w-3 h-3" />
-                            ₹{Number(variancePerM).toFixed(2)}/m
-                          </span>
-                        ) : (
-                          <span className="text-ink-soft">on plan</span>
-                        )}
-                      </td>
+                      {showTrueCost && (
+                        <td className="px-3 py-2 text-right num">
+                          {b.actual_true_cost_per_m != null
+                            ? `₹${Number(b.actual_true_cost_per_m).toFixed(2)}`
+                            : <span className="text-ink-mute">—</span>}
+                        </td>
+                      )}
+                      {showVariance && (
+                        <td className="px-3 py-2 text-right text-xs">
+                          {!hasVariance ? (
+                            <span className="text-ink-mute">N/A</span>
+                          ) : isOverrun ? (
+                            <span className="inline-flex items-center gap-1 text-amber-700">
+                              <AlertTriangle className="w-3 h-3" />
+                              +₹{Number(variancePerM).toFixed(2)}/m
+                            </span>
+                          ) : isSaving ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              ₹{Number(variancePerM).toFixed(2)}/m
+                            </span>
+                          ) : (
+                            <span className="text-ink-soft">on plan</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <Link
                           href={`/app/production/${b.id}/edit`}

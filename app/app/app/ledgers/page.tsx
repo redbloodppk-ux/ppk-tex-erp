@@ -29,8 +29,8 @@ interface LedgerListRow {
   ledger_group: { name: string } | null;
 }
 
-interface TypeOpt  { id: number; name: string; }
-interface GroupOpt { id: number; name: string; }
+interface TypeOpt { id: number; name: string; }
+interface NameOpt { name: string; }
 
 // Row shape passed into <LedgerViewTab>. type_id drives the cascading
 // Type → Ledger dropdown; type_name is for display.
@@ -45,12 +45,12 @@ interface LedgerOpt {
 export default async function LedgersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; type?: string; group?: string; ledger?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<{ tab?: string; type?: string; name?: string; ledger?: string; sort?: string; dir?: string }>;
 }) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'view' ? 'view' : 'master';
-  const typeFilter  = sp.type  ?? '';
-  const groupFilter = sp.group ?? '';
+  const typeFilter = sp.type ?? '';
+  const nameFilter = sp.name ?? '';
   const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
   const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
 
@@ -58,13 +58,15 @@ export default async function LedgersPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Always load types / groups for the filter strip on Master tab.
-  const [typesRes, groupsRes] = await Promise.all([
+  // Filter strip on the Master tab: Type dropdown + a ledger-name
+  // auto-suggest. We load every active ledger name to feed the
+  // <datalist> so the browser suggests matches as the operator types.
+  const [typesRes, namesRes] = await Promise.all([
     sb.from('ledger_type').select('id, name').eq('active', true).order('name'),
-    sb.from('ledger_group').select('id, name').eq('active', true).order('name'),
+    sb.from('ledger').select('name').eq('active', true).order('name'),
   ]);
-  const types  = (typesRes.data  ?? []) as TypeOpt[];
-  const groups = (groupsRes.data ?? []) as GroupOpt[];
+  const types = (typesRes.data ?? []) as TypeOpt[];
+  const nameOptions = (namesRes.data ?? []) as NameOpt[];
 
   // On Master tab we render the filtered table. On View tab we just
   // need the full ledger list (flattened with type name) to populate
@@ -78,8 +80,8 @@ export default async function LedgersPage({
       .from('ledger')
       .select('id, code, name, gstin, gstin_verified_at, phone, area, active, type_id, group_id, ledger_type:type_id(name), ledger_group:group_id(name)')
       .order(sort, { ascending: dir === 'asc' });
-    if (typeFilter)  q = q.eq('type_id',  Number(typeFilter));
-    if (groupFilter) q = q.eq('group_id', Number(groupFilter));
+    if (typeFilter) q = q.eq('type_id', Number(typeFilter));
+    if (nameFilter) q = q.ilike('name', `%${nameFilter}%`);
     const res = await q;
     rows = (res.data ?? []) as unknown as LedgerListRow[];
     listError = res.error;
@@ -101,18 +103,18 @@ export default async function LedgersPage({
   }
 
   // Helper to build filter / tab links that preserve the other params.
-  function buildHref(next: Partial<{ tab: Tab; type: string | null; group: string | null }>): string {
+  function buildHref(next: Partial<{ tab: Tab; type: string | null; name: string | null }>): string {
     const params = new URLSearchParams();
     const t = next.tab ?? tab;
     if (t === 'view') params.set('tab', 'view');
     // Preserve ledger filter on the View tab.
     if (t === 'view' && sp.ledger) params.set('ledger', sp.ledger);
-    // Preserve type / group only on the Master tab.
+    // Preserve type / name only on the Master tab.
     if (t === 'master') {
-      const ty = next.type  !== undefined ? next.type  : typeFilter;
-      const gr = next.group !== undefined ? next.group : groupFilter;
-      if (ty) params.set('type',  ty);
-      if (gr) params.set('group', gr);
+      const ty = next.type !== undefined ? next.type : typeFilter;
+      const nm = next.name !== undefined ? next.name : nameFilter;
+      if (ty) params.set('type', ty);
+      if (nm) params.set('name', nm);
     }
     const qs = params.toString();
     return qs ? `/app/ledgers?${qs}` : '/app/ledgers';
@@ -152,10 +154,12 @@ export default async function LedgersPage({
         <LedgerViewTab ledgers={viewLedgers} />
       ) : (
         <>
-          {/* Filter strip — Type + Group dropdowns. Forms with method=GET
-              submit the new query string back to /app/ledgers, which
-              re-runs the server component with the picked filters.
-              No JS needed — works as a plain HTML form. */}
+          {/* Filter strip — Type dropdown + a ledger-name auto-suggest.
+              The text input is backed by a <datalist>, so the browser
+              suggests matching ledger names as the operator types. Forms
+              with method=GET submit the new query string back to
+              /app/ledgers, which re-runs the server component with the
+              picked filters. No JS needed — works as a plain HTML form. */}
           <form method="GET" action="/app/ledgers" className="card p-3 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="label">Type</label>
@@ -167,13 +171,21 @@ export default async function LedgersPage({
               </select>
             </div>
             <div>
-              <label className="label">Group</label>
-              <select name="group" defaultValue={groupFilter} className="input">
-                <option value="">All groups</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={String(g.id)}>{g.name}</option>
+              <label className="label">Ledger name</label>
+              <input
+                type="text"
+                name="name"
+                defaultValue={nameFilter}
+                list="ledger-name-options"
+                autoComplete="off"
+                placeholder="Start typing a ledger name…"
+                className="input"
+              />
+              <datalist id="ledger-name-options">
+                {nameOptions.map((n) => (
+                  <option key={n.name} value={n.name} />
                 ))}
-              </select>
+              </datalist>
             </div>
             <div className="flex items-end gap-2">
               <button type="submit" className="btn-primary">Apply</button>
@@ -191,8 +203,8 @@ export default async function LedgersPage({
             <table className="w-full text-sm min-w-[720px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, group: groupFilter }} className="text-left px-4 py-3" />
-                  <SortableTh column="name" label="Ledger Name" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, group: groupFilter }} className="text-left px-4 py-3" />
+                  <SortableTh column="code" label="Code" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, name: nameFilter }} className="text-left px-4 py-3" />
+                  <SortableTh column="name" label="Ledger Name" sort={sort} dir={dir} basePath="/app/ledgers" extraParams={{ type: typeFilter, name: nameFilter }} className="text-left px-4 py-3" />
                   <th className="text-left px-4 py-3 hidden md:table-cell">Type</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">Group</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">GSTIN</th>
