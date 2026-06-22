@@ -976,7 +976,10 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
 }
 
 function Row({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-[1fr_auto] items-center gap-2">{children}</div>;
+  // minmax(0,1fr) lets the label shrink/wrap instead of pushing the
+  // fixed-width input out of the card on narrow phones; the input track
+  // is capped at 5rem so the box always stays inside its column.
+  return <div className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-2 min-w-0">{children}</div>;
 }
 function L({ children, title }: { children: React.ReactNode; title?: string }) {
   return <span className="text-xs text-ink-soft" title={title}>{children}</span>;
@@ -988,7 +991,7 @@ function Num({ value, set, step = 1, lock = false }: {
     <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
       onChange={(e) => set(Number(e.target.value))} disabled={lock}
       className={
-        'input num text-right h-8 text-sm w-28 ' +
+        'input num text-right h-8 text-sm w-full min-w-0 ' +
         (lock ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
       } />
   );
@@ -997,7 +1000,7 @@ function Pct({ value, set, lock = false }: {
   value: number; set: (n: number) => void; lock?: boolean;
 }) {
   return (
-    <div className="relative w-28">
+    <div className="relative w-full min-w-0">
       <input type="number" value={(value * 100).toFixed(2)} step={0.5}
         onChange={(e) => set(Number(e.target.value) / 100)} disabled={lock}
         className={
