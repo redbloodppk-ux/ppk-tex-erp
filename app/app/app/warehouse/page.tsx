@@ -3172,6 +3172,8 @@ function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMess
       <div className="space-y-4">
         {totals.map(({ g, closing }) => {
           let running = 0;
+          const totalIn = g.events.reduce((s, e) => s + (e.direction === 'in' ? e.quantity : 0), 0);
+          const totalOut = g.events.reduce((s, e) => s + (e.direction === 'out' ? e.quantity : 0), 0);
           return (
             <div key={g.key} className="card overflow-hidden">
               <div className="px-4 py-3 border-b border-line/60 bg-cloud/40 flex flex-wrap items-baseline justify-between gap-2">
@@ -3186,7 +3188,23 @@ function LedgerView({ groups, emptyMessage }: { groups: LedgerGroup[]; emptyMess
                   </div>
                 </div>
               </div>
-              <table className="w-full text-sm">
+              {/* Mobile: collapse the per-event table into an In / Out /
+                  Balance summary, matching the pivot column cards. */}
+              <div className="md:hidden px-4 py-3 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">In</div>
+                  <div className="num text-sm text-emerald-700">{'+ ' + fmtUnit(totalIn, g.unit)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Out</div>
+                  <div className="num text-sm text-rose-700">{'\u2212 ' + fmtUnit(totalOut, g.unit)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                  <div className={`num text-sm font-bold ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmtUnit(closing, g.unit)}</div>
+                </div>
+              </div>
+              <table className="w-full text-sm hidden md:table">
                 <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
                   <tr>
                     <th className="text-left px-4 py-2">Date</th>
