@@ -25,7 +25,6 @@ interface BatchRow {
   start_date: string | null;
   end_date: string | null;
   produced_m: number;
-  rejected_m: number;
   actual_true_cost_per_m: number | null;
   actual_sizing_cost_per_m: number | null;
   loom: { loom_code: string } | null;
@@ -46,7 +45,7 @@ export default async function ProductionPage() {
     supabase
       .from('production_batch')
       .select(`
-        id, batch_code, start_date, end_date, produced_m, rejected_m,
+        id, batch_code, start_date, end_date, produced_m,
         actual_true_cost_per_m, actual_sizing_cost_per_m,
         loom:loom_id ( loom_code ),
         costing:costing_id ( quality_code, quality_name )
@@ -114,7 +113,6 @@ export default async function ProductionPage() {
                   <th className="text-left px-3 py-2">Loom</th>
                   <th className="text-left px-3 py-2">Dates</th>
                   <th className="text-right px-3 py-2">Produced m</th>
-                  <th className="text-right px-3 py-2">Rejected m</th>
                   <th className="text-right px-3 py-2">True rupees/m</th>
                   <th className="text-right px-3 py-2">Sizing variance</th>
                   <th className="text-right px-3 py-2" />
@@ -147,9 +145,6 @@ export default async function ProductionPage() {
                         {b.start_date ?? '—'} → {b.end_date ?? 'open'}
                       </td>
                       <td className="px-3 py-2 text-right num">{Number(b.produced_m).toFixed(0)}</td>
-                      <td className="px-3 py-2 text-right num text-ink-soft">
-                        {Number(b.rejected_m).toFixed(0)}
-                      </td>
                       <td className="px-3 py-2 text-right num">
                         {b.actual_true_cost_per_m != null
                           ? `₹${Number(b.actual_true_cost_per_m).toFixed(2)}`
