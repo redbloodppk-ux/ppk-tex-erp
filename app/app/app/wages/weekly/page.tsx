@@ -656,7 +656,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-left px-4 py-3 sticky left-0 z-20 bg-cloud">Employee</th>
               <th className="text-left px-4 py-3">Role</th>
               <th className="text-right px-4 py-3">Full salary</th>
               <th className="text-left px-4 py-3">Coverage / Absences</th>
@@ -675,7 +675,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               const isWinder = role === 'winder';
               return (
                 <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 sticky left-0 z-10 bg-paper">
                     <div className="font-medium">{p.full_name}</div>
                     <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                   </td>
@@ -721,7 +721,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-left px-4 py-3 sticky left-0 z-20 bg-cloud">Employee</th>
               <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Wages paid<br /><span className="text-[10px] normal-case text-ink-mute">same-day only</span></th>
               <th className="text-right px-4 py-3">Advances</th>
@@ -732,7 +732,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <tbody>
             {loomShiftRows.length ? loomShiftRows.map((p) => (
               <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 sticky left-0 z-10 bg-paper">
                   <div className="font-medium">{p.full_name}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                 </td>
@@ -762,7 +762,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Employee</th>
+              <th className="text-left px-4 py-3 sticky left-0 z-20 bg-cloud">Employee</th>
               <th className="text-right px-4 py-3">Wages earned<br /><span className="text-[10px] normal-case text-ink-mute">metres × loom rate</span></th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
@@ -773,7 +773,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <tbody>
             {metreRows.length ? metreRows.map((p) => (
               <tr key={p.employee_id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 sticky left-0 z-10 bg-paper">
                   <div className="font-medium">{p.full_name}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{p.code}</div>
                 </td>

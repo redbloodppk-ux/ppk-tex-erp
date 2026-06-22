@@ -890,7 +890,7 @@ function ShedCard({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line/60 text-left text-ink-mute">
-              <th className="py-2 pr-3">Loom</th>
+              <th className="py-2 pr-3 sticky left-0 z-20 bg-paper">Loom</th>
               {shed.weavers.map((empId, slotIdx) => {
                 const name =
                   empId === ''
@@ -917,7 +917,7 @@ function ShedCard({
               const lockedColspan = shed.weavers.length + (showAdjustment ? 1 : 0); // weaver slots + optional adjustment
               return (
                 <tr key={r.loom_id} className="border-b border-line/60 align-middle">
-                  <td className="py-2 pr-3">
+                  <td className="py-2 pr-3 sticky left-0 z-10 bg-paper">
                     <div className="font-medium">{r.loom_code}</div>
                     <div className="text-xs text-ink-mute">{r.loom_type}</div>
                   </td>
@@ -982,7 +982,7 @@ function ShedCard({
           </tbody>
           <tfoot>
             <tr className="text-ink-soft">
-              <td className="py-2 pr-3 font-medium">Shed {shed.shed_no} total</td>
+              <td className="py-2 pr-3 font-medium sticky left-0 z-10 bg-paper">Shed {shed.shed_no} total</td>
               {slotTotals.map((t, slotIdx) => (
                 <td key={slotIdx} className="py-2 pr-3 text-right font-medium">
                   {t > 0 ? `${t.toLocaleString('en-IN')} m` : '-'}

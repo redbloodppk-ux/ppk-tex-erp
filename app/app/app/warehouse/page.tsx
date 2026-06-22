@@ -1575,7 +1575,7 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
         <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left  px-3 py-3">Date</th>
+              <th className="text-left  px-3 py-3 sticky left-0 z-20 bg-cloud">Date</th>
               <th className="text-left  px-3 py-3">Quality</th>
               <th className="text-left  px-3 py-3">Source</th>
               <th className="text-left  px-3 py-3">DC</th>
@@ -1601,7 +1601,7 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
               }
               return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap">
+                  <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap sticky left-0 z-10 bg-paper">
                     {r.event_date || '—'}
                   </td>
                   <td className="px-3 py-2">
