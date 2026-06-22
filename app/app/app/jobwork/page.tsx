@@ -2412,15 +2412,17 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           {filteredRows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
-                {/* Totals reflect the CURRENT filter, not the full table. */}
-                <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                {/* Totals reflect the CURRENT filter, not the full table.
+                    colSpan={6} covers ID..Ends so the beams total aligns
+                    under "Beams" (col 7) and metres under "Metres" (col 8). */}
+                <td colSpan={6} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {filteredRows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-indigo-700">
                   {filteredRows.reduce((s, r) => s + Number((r.original_metres ?? r.total_metres) ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
-                <td colSpan={3} />
+                <td colSpan={2} />
               </tr>
             </tfoot>
           )}
