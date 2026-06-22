@@ -1218,7 +1218,40 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
         <Kpi label="Stock Value" value={formatRupee(totalValue, { compact: true })} icon={Coins} />
         <Kpi label="Distinct (Quality × Source)" value={String(rows.length)} icon={TrendingDown} />
       </div>
-      <div className="card overflow-auto max-h-[75vh]">
+      {/* Mobile: one card per Quality × Source row. */}
+      <div className="md:hidden space-y-3">
+        {rows.map(r => (
+          <div key={`${r.costing_id}-${r.source_type}`} className="card p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                {r.fabric_quality_id != null ? (
+                  <Link href={`/app/warehouse/fabric/${r.fabric_quality_id}`} className="group inline-block" title="Open per-quality stock ledger">
+                    <div className="font-semibold text-indigo-700 group-hover:underline">{r.quality_code}</div>
+                    <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
+                  </Link>
+                ) : (
+                  <>
+                    <div className="font-semibold">{r.quality_code}</div>
+                    <div className="text-[11px] text-ink-soft">{r.quality_name}</div>
+                  </>
+                )}
+              </div>
+              <span className={`text-[11px] px-2 py-0.5 rounded ${SOURCE_PILL[r.source_type] ?? 'bg-cloud'}`}>
+                {SOURCE_LABEL[r.source_type] ?? r.source_type}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2 mt-3 text-sm">
+              <div className="flex justify-between"><span className="text-ink-mute text-xs">Available</span><span className={'num font-semibold ' + (r.metres_available < 0 ? 'text-rose-700' : '')}>{formatMetres(r.metres_available, 1)}</span></div>
+              <div className="flex justify-between"><span className="text-ink-mute text-xs">Receipts</span><span className="num">{r.receipts}</span></div>
+              <div className="flex justify-between"><span className="text-ink-mute text-xs">Avg ₹/m</span><span className="num">{formatRupee(r.avg_cost_per_m, { decimals: 2 })}</span></div>
+              <div className="flex justify-between"><span className="text-ink-mute text-xs">Value</span><span className="num">{formatRupee(r.metres_available * r.avg_cost_per_m, { compact: true })}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: full summary table. */}
+      <div className="card overflow-auto max-h-[75vh] hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
@@ -1571,7 +1604,70 @@ function FabricLineageView({ rows }: { rows: FabricLineageRow[] }): React.ReactE
         <Kpi label="Sold (out)"      value={formatMetres(invoicedOut, 0)} icon={Truck} />
         <Kpi label="Unpaid (₹)"      value={formatRupee(unpaidValue, { compact: true })} icon={Coins} />
       </div>
-      <div className="card overflow-x-auto">
+      {/* Mobile: one card per fabric event. */}
+      <div className="md:hidden space-y-3">
+        {rows.map((r) => {
+          let pill = LINEAGE_STATUS_PILL[r.status];
+          if (r.direction === 'out' && r.source_kind === 'jobwork') {
+            pill = { label: 'Jobwork Return', cls: 'bg-amber-50 text-amber-700' };
+          } else if (r.direction === 'out' && r.source_kind === 'outsource' && r.status === 'draft_dc') {
+            pill = { label: 'Outsource Send', cls: 'bg-indigo-50 text-indigo-700' };
+          }
+          return (
+            <div key={r.id} className="card p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  {r.quality_id != null ? (
+                    <Link href={`/app/warehouse/fabric/${r.quality_id}`} className="group inline-block" title="Open per-quality stock ledger">
+                      <div className="font-semibold text-indigo-700 group-hover:underline">{r.quality_code}</div>
+                      {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                    </Link>
+                  ) : (
+                    <>
+                      <div className="font-semibold">{r.quality_code}</div>
+                      {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                    </>
+                  )}
+                  <div className="text-[11px] text-ink-soft mt-1">{r.event_date || '—'}</div>
+                </div>
+                <div className="text-right">
+                  <div className={'num font-semibold ' + (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-600')}>
+                    {(r.direction === 'in' ? '+ ' : '\u2212 ') + formatMetres(r.metres, 1)}
+                  </div>
+                  <span className={`pill ${pill.cls} text-[10px] uppercase tracking-wide mt-1 inline-block`}>{pill.label}</span>
+                </div>
+              </div>
+              <div className="text-xs mt-2">
+                <span className="inline-flex items-center gap-1">
+                  <span className={'inline-block w-1.5 h-1.5 rounded-full ' + (r.direction === 'in' ? 'bg-emerald-500' : 'bg-rose-500')} />
+                  {SOURCE_KIND_LABEL[r.source_kind]} · {r.direction === 'in' ? 'IN' : 'OUT'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-xs">
+                <div className="flex justify-between gap-2">
+                  <span className="text-ink-mute">DC</span>
+                  {r.dc_id != null ? <Link href={`/app/delivery-challan/${r.dc_id}`} className="text-indigo-700 hover:underline font-mono">{r.dc_code ?? '—'}</Link> : <span className="text-ink-mute font-mono">—</span>}
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-ink-mute">Receipt</span>
+                  {r.receipt_id != null ? <Link href={`/app/jobwork/fabric-receipt/${r.receipt_id}`} className="text-indigo-700 hover:underline font-mono">{r.receipt_code ?? '—'}</Link> : <span className="text-ink-mute font-mono">—</span>}
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-ink-mute">Invoice</span>
+                  {r.invoice_id != null ? <Link href={`/app/invoices/${r.invoice_id}`} className="text-indigo-700 hover:underline font-mono">{r.invoice_no ?? `#${r.invoice_id}`}</Link> : <span className="text-ink-mute font-mono">—</span>}
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-ink-mute">Party</span>
+                  <span className="text-right">{r.party_name}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: full per-event table. */}
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
@@ -1762,7 +1858,42 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
         <Kpi label="Columns × events" value={`${data.columns.length} × ${sorted.length}`} icon={Package} />
       </div>
 
-      <div className="card overflow-auto max-h-[75vh]">
+      {/* Mobile: one summary card per column (beam / quality / spec).
+          Each card collapses that column's pivot maths into total in,
+          total out and closing balance so the operator never has to
+          scroll a wide matrix on a phone. */}
+      <div className="md:hidden space-y-3">
+        {data.columns.length === 0 ? (
+          <div className="card p-6 text-center text-ink-soft text-xs">No stock items yet.</div>
+        ) : data.columns.map(c => {
+          const tin = totals[c.id]?.in ?? 0;
+          const tout = totals[c.id]?.out ?? 0;
+          const closing = tin - tout;
+          return (
+            <div key={c.id} className="card p-4">
+              <div className="font-bold text-ink text-sm">{c.label}</div>
+              {c.sublabel && <div className="text-[11px] text-ink-mute">{c.sublabel}</div>}
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">In</div>
+                  <div className="num text-sm text-emerald-700">{'+ ' + fmtUnit(tin, data.unit)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Out</div>
+                  <div className="num text-sm text-rose-700">{'\u2212 ' + fmtUnit(tout, data.unit)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                  <div className={`num text-sm font-bold ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmtUnit(closing, data.unit)}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: full pivot matrix (one row per movement). */}
+      <div className="card overflow-auto max-h-[75vh] hidden md:block">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
