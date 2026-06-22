@@ -18,6 +18,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Disc, IndianRupee, AlertTriangle } from 'lucide-react';
@@ -212,7 +213,43 @@ export default async function BobbinConsumptionReport() {
           and they will appear here.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search bobbins…">
+          {rows.map((r, i) => {
+            const whole = r.whole_pieces_consumed ?? 0;
+            const frac = Number(r.partial_piece_fraction ?? 0);
+            return (
+              <div key={r.bobbin_id ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words flex items-center gap-2">
+                      {r.code ?? '—'}
+                      {r.is_lurex && (
+                        <span className="text-[10px] uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Lurex</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      {r.description ?? '—'}{r.vendor_name ? ` · ${r.vendor_name}` : ''}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="num font-semibold text-base">{fmtRupees(r.rupee_per_m, 2)}</span>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">cost / m</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Metres / pc: <span className="num">{fmtNum(r.bobbin_metre, 0)}</span></div>
+                  <div>Price / pc: <span className="num">{fmtRupees(r.bobbin_price, 0)}</span></div>
+                  <div>Stock pcs: <span className={`num ${r.below_reorder ? 'text-amber-700 font-semibold' : ''}`}>{fmtNum(r.stock_pcs, 0)}</span></div>
+                  <div>Produced m: <span className="num">{Number(r.produced_m_total ?? 0) > 0 ? fmtNum(r.produced_m_total, 0) : '—'}</span></div>
+                  <div>Pieces used: <span className="num">{Number(r.produced_m_total ?? 0) > 0 ? <>{fmtNum(whole, 0)}{frac > 0 && <span className="text-ink-mute"> + {(frac * 100).toFixed(0)}%</span>}</> : '—'}</span></div>
+                  <div>Bobbin spend: <span className="num">{Number(r.bobbin_spend ?? 0) > 0 ? fmtRupees(r.bobbin_spend, 0) : '—'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -296,6 +333,7 @@ export default async function BobbinConsumptionReport() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

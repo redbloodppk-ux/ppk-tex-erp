@@ -10,6 +10,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { Plus, Phone, Pencil } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Employees' };
 export const dynamic = 'force-dynamic';
@@ -109,7 +110,53 @@ export default async function EmployeesPage({
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The employees table is wide and forces
+          horizontal scrolling on a phone, so below md we render each
+          employee as a tap-friendly card. The table is hidden on mobile. */}
+      <CardFilter placeholder="Search employees…">
+        {rows.length ? rows.map(e => (
+          <div key={e.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link href={`/app/employees/${e.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                  {e.full_name}
+                </Link>
+                <div className="font-mono text-xs text-ink-soft mt-0.5">{e.code}</div>
+              </div>
+              <span className={`pill ${STATUS_PILL[e.status]} shrink-0`}>{e.status}</span>
+            </div>
+
+            <div className="text-xs text-ink-soft mt-2">
+              <span className="text-ink-mute">Role: </span><span className="capitalize">{e.role}</span>
+              {' · '}<span className="text-ink-mute">Shift: </span><span className="capitalize">{e.default_shift}</span>
+            </div>
+            {e.phone && (
+              <div className="text-xs text-ink-soft mt-1 flex items-center gap-1.5"><Phone className="w-3 h-3" /> {e.phone}</div>
+            )}
+            {e.date_of_joining && (
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Joined: </span>{e.date_of_joining}
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+              <Link
+                href={`/app/employees/${e.id}`}
+                className="text-indigo text-xs inline-flex items-center gap-1 hover:underline font-semibold"
+              >
+                <Pencil className="w-3 h-3" /> Edit
+              </Link>
+            </div>
+          </div>
+        )) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No employees match this filter.{' '}
+            <Link href="/app/employees/new" className="text-indigo font-semibold">Add one →</Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

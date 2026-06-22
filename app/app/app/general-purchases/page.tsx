@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil, FileText } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'General Purchases' };
 export const dynamic = 'force-dynamic';
@@ -82,7 +83,53 @@ export default async function GeneralPurchasesListPage() {
         </div>
       </div>
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide bill table forces horizontal
+          scrolling on a phone, so below md we render each bill as a
+          tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search bills…">
+        {rows.length ? rows.map((r) => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link href={`/app/general-purchases/${r.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                  {r.bill_no}
+                </Link>
+                <div className="text-sm font-medium mt-0.5 break-words">{r.party?.name ?? '—'}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                <div className="num font-semibold text-base">{formatRupee(Number(r.total))}</div>
+              </div>
+            </div>
+
+            <div className="text-xs text-ink-soft mt-1">
+              <span className="text-ink-mute">Date: </span>{fmtDate(r.bill_date)}
+            </div>
+            {r.description && (
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Description: </span>{r.description}
+              </div>
+            )}
+            <div className="text-xs text-ink-soft mt-1">
+              <span className="text-ink-mute">Taxable: </span><span className="num">{formatRupee(Number(r.taxable))}</span>
+              <span className="text-ink-mute"> · GST: </span><span className="num">{Number(r.gst_pct)}%</span>
+            </div>
+
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+              <Link href={`/app/general-purchases/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit bill">
+                <Pencil className="w-3.5 h-3.5" /> Edit
+              </Link>
+            </div>
+          </div>
+        )) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            No general purchase bills yet. Click <strong>New General Purchase</strong> to add one.
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-ink-mute border-b border-line/60">

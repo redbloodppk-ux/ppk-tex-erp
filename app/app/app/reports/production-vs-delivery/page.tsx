@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { Layers, TrendingUp, TrendingDown, Equal } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 
@@ -387,7 +388,70 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
           No production or delivery in this period. Try a wider window or a different mode.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search qualities…">
+          {sortedRows.map((r) => {
+            const v = num(r.variance_m);
+            const variancePct = r.variance_pct == null ? null : Number(r.variance_pct);
+            const modeLabel =
+              r.production_mode === 'inhouse'      ? 'In-house' :
+              r.production_mode === 'jobwork'      ? 'Job Work' :
+              r.production_mode === 'outsource'    ? 'Outsource' :
+              'Unattributed';
+            const modeClass =
+              r.production_mode === 'inhouse'      ? 'bg-emerald-50 text-emerald-700' :
+              r.production_mode === 'jobwork'      ? 'bg-amber-50 text-amber-700' :
+              r.production_mode === 'outsource'    ? 'bg-indigo-50 text-indigo-700' :
+                                                      'bg-rose-50 text-rose-700';
+            const varClass = v > 0 ? 'text-emerald-700' : v < 0 ? 'text-rose-700' : 'text-ink-soft';
+            const mpp = r.meter_per_pc == null ? null : Number(r.meter_per_pc);
+            const showPcs = mpp != null && mpp > 0;
+            const producedPcs  = showPcs && r.produced_pcs  != null ? Number(r.produced_pcs)  : null;
+            const deliveredPcs = showPcs && r.delivered_pcs != null ? Number(r.delivered_pcs) : null;
+            const variancePcs  = showPcs && r.variance_pcs  != null ? Number(r.variance_pcs)  : null;
+            return (
+              <div key={`${r.fabric_quality_id ?? 'na'}-${r.production_mode}`} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {r.fabric_quality_id != null && r.quality_code ? (
+                        <Link
+                          href={`/app/warehouse/fabric/${r.fabric_quality_id}`}
+                          className="text-indigo-700 hover:underline font-semibold break-words"
+                          title="Open per-quality stock ledger"
+                        >
+                          {r.quality_code}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-ink-mute break-words">{r.quality_name ?? '—'}</span>
+                      )}
+                      {r.is_merged && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 uppercase tracking-wide">merged</span>
+                      )}
+                    </div>
+                    {r.quality_name && r.quality_code && r.quality_name !== r.quality_code && (
+                      <div className="text-[10px] text-ink-mute">{r.quality_name}</div>
+                    )}
+                  </div>
+                  <span className={'inline-block px-2 py-0.5 rounded text-[11px] shrink-0 ' + modeClass}>
+                    {modeLabel}
+                  </span>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Produced (m): <span className="num text-ink">{fmtMetres(num(r.produced_m))}</span></div>
+                  <div>Produced (pcs): <span className="num">{producedPcs != null ? fmtPcs(producedPcs) : '—'}</span></div>
+                  <div>Delivered (m): <span className="num text-ink">{fmtMetres(num(r.delivered_m))}</span></div>
+                  <div>Delivered (pcs): <span className="num">{deliveredPcs != null ? fmtPcs(deliveredPcs) : '—'}</span></div>
+                  <div>Variance (m): <span className={'num font-semibold ' + varClass}>{v >= 0 ? '+' : ''}{fmtMetres(v)}</span></div>
+                  <div>Variance (pcs): <span className={'num ' + varClass}>{variancePcs != null ? `${variancePcs >= 0 ? '+' : ''}${fmtPcs(variancePcs)}` : '—'}</span></div>
+                  <div>Var %: <span className={'num ' + varClass}>{variancePct == null ? '—' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}</span></div>
+                  <div>Last activity: <span className="num">{r.last_activity ?? '—'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -489,6 +553,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-[11px] text-ink-mute mt-4">

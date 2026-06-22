@@ -21,6 +21,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Truck, PackageCheck, AlertTriangle, Clock } from 'lucide-react';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 
 export const metadata = { title: 'Invoice Delivery Status' };
@@ -276,7 +277,48 @@ export default async function InvoiceDeliveryReport() {
           here with their delivery status.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. Below md each invoice becomes a
+            tap-friendly card. */}
+        <CardFilter placeholder="Search invoices…">
+          {rows.map((r, i) => (
+            <div
+              key={r.invoice_id ?? i}
+              className="card p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">
+                    {r.invoice_no ?? '—'}
+                  </div>
+                  <div className="text-xs text-ink-mute mt-0.5">
+                    {fmtDate(r.invoice_date)}
+                    {' · '}
+                    {DOC_TYPE_LABEL[r.doc_type ?? ''] ?? r.doc_type ?? '—'}
+                  </div>
+                  <div className="text-xs text-ink-soft mt-0.5">
+                    {r.customer_name ?? '—'}
+                    {r.customer_code ? (
+                      <span className="ml-1 text-ink-mute">({r.customer_code})</span>
+                    ) : null}
+                  </div>
+                </div>
+                <DeliveryBadge status={r.delivery_status ?? 'missing'} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-ink-soft mt-2 pt-2 border-t border-line/40">
+                <div>Invoiced: <span className="num">{Number(r.invoiced_m ?? 0) > 0 ? fmtNum(r.invoiced_m, 1) : '—'}</span> m</div>
+                <div>Delivered: <span className="num">{Number(r.delivered_m ?? 0) > 0 ? fmtNum(r.delivered_m, 1) : '—'}</span> m</div>
+                <div className={Number(r.undelivered_m ?? 0) > 0 ? 'text-amber-700 font-semibold' : ''}>
+                  Pending: <span className="num">{Number(r.undelivered_m ?? 0) > 0 ? fmtNum(r.undelivered_m, 1) : '—'}</span> m
+                </div>
+                <div>DCs: <span className="num">{fmtNum(r.dc_count, 0)}</span></div>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -345,6 +387,7 @@ export default async function InvoiceDeliveryReport() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

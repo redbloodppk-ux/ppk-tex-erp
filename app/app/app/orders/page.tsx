@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { formatRupee, formatDate } from '@/lib/utils';
 import { SoRowActions } from './so-row-actions';
+import { CardFilter } from '@/app/components/card-filter';
 // DcConfirmButton import removed — the DC inbox was lifted off this page.
 
 export const metadata = { title: 'Sales Orders' };
@@ -153,7 +154,75 @@ export default async function OrdersPage({
           No sales orders yet. Click <span className="font-semibold">New Sales Order</span> to capture your first one — it will appear here with its delivery date, status, and total.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The orders table is wide and forces
+            horizontal scrolling on a phone, so below md we render each
+            order as a tap-friendly card. The table is hidden on mobile. */}
+        <CardFilter placeholder="Search orders…">
+          {orders.map((o) => {
+            const meta = STATUS_META[o.status] ?? { label: o.status, cls: 'bg-slate-100 text-slate-600' };
+            const orderedM = orderedById.get(o.id) ?? 0;
+            const orderedPcs = orderedPcsById.get(o.id) ?? 0;
+            const deliveredM = deliveredById.get(o.id) ?? 0;
+            const isPcs = orderedPcs > 0 && !nonPcsLineById.get(o.id);
+            const unit = isPcs ? 'pcs' : 'm';
+            const ordered = isPcs ? orderedPcs : orderedM;
+            const delivered = isPcs
+              ? (orderedM > 0 ? deliveredM * (orderedPcs / orderedM) : 0)
+              : deliveredM;
+            const balance = Math.max(ordered - delivered, 0);
+            const fmtQty = (n: number) =>
+              n > 0 ? `${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${unit}` : '-';
+            const lineRates = ratesById.get(o.id) ?? [];
+            const rateUnit = lineRates.some((r) => r.uom !== 'pcs') ? 'm' : 'pc';
+            const distinctRates = Array.from(new Set(lineRates.map((r) => r.rate))).sort((a, b) => a - b);
+            const fmtRate = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+            const rateLabel = distinctRates.length === 0
+              ? '-'
+              : distinctRates.length === 1
+                ? `${fmtRate(distinctRates[0] as number)}/${rateUnit}`
+                : `${fmtRate(distinctRates[0] as number)}–${fmtRate(distinctRates[distinctRates.length - 1] as number)}/${rateUnit}`;
+            return (
+              <div key={o.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs font-semibold text-ink break-words">{o.so_number}</div>
+                    <div className="font-semibold text-ink mt-0.5 break-words">
+                      {o.customer_id != null ? (customerNameById.get(o.customer_id) ?? '-') : '-'}
+                    </div>
+                  </div>
+                  <span className={`pill ${meta.cls} text-xs uppercase tracking-wide shrink-0`}>{meta.label}</span>
+                </div>
+
+                <div className="text-xs text-ink-soft mt-2">
+                  <span className="text-ink-mute">Order: </span>{formatDate(o.order_date)}
+                  {o.delivery_date && (
+                    <span> · <span className="text-ink-mute">Delivery: </span>{formatDate(o.delivery_date)}</span>
+                  )}
+                </div>
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">Ordered: </span><span className="num">{fmtQty(ordered)}</span>
+                  {' · '}<span className="text-ink-mute">Rate: </span><span className="num text-ink-soft">{rateLabel}</span>
+                </div>
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">Delivered: </span><span className="num text-emerald-700">{fmtQty(delivered)}</span>
+                  {' · '}<span className="text-ink-mute">Balance: </span>
+                  <span className={`num font-semibold ${balance > 0 ? 'text-rose-700' : 'text-ink-mute'}`}>{fmtQty(balance)}</span>
+                </div>
+
+                <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                  <SoRowActions soId={o.id} soNumber={o.so_number} status={o.status} />
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                    <div className="num font-semibold text-base">{formatRupee(o.total ?? 0, { compact: true })}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -225,6 +294,7 @@ export default async function OrdersPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   Users,
@@ -405,9 +406,54 @@ export default async function AgentCommissionReport({
         </div>
       ) : null}
 
-      {/* ─────────────── Per-agent summary ─────────────── */}
+      {/* ─────────────── Per-agent summary (mobile cards) ─────────────── */}
       {agents.length > 0 && (
-        <div className="card p-0 overflow-x-auto mb-6">
+        <CardFilter placeholder="Search agents…" className="mb-6">
+          {agents.map((a) => {
+            const isSel = a.agent_party_id === agentIdNum;
+            return (
+              <div
+                key={a.agent_party_id}
+                className={`card p-3 ${isSel ? 'bg-sky-50/40' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/app/reports/agent-commission?${dateQs}&agent_id=${a.agent_party_id}`}
+                      className="font-semibold text-sky-700 hover:underline break-words"
+                    >
+                      {a.agent_name ?? '—'}
+                    </Link>
+                    {a.agent_code ? (
+                      <span className="ml-1 text-xs text-ink-mute">({a.agent_code})</span>
+                    ) : null}
+                    <div className="text-[11px] text-ink-mute mt-0.5">
+                      {a.docs} doc{a.docs === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total comm</div>
+                    <div className="num font-semibold text-base">{fmtRupees(a.comm, 2)}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-ink-soft mt-2 pt-2 border-t border-line/40">
+                  <div>Sales val: <span className="num">{fmtRupees(a.salesBiz)}</span></div>
+                  <div>Sales comm: <span className="num">{fmtRupees(a.salesComm, 2)}</span></div>
+                  <div>Purch val: <span className="num">{fmtRupees(a.purchaseBiz)}</span></div>
+                  <div>Purch comm: <span className="num">{fmtRupees(a.purchaseComm, 2)}</span></div>
+                  <div className="text-emerald-700">Paid: <span className="num">{fmtRupees(a.paid, 2)}</span></div>
+                  <div className="text-rose-700 font-medium">Outstanding: <span className="num">{fmtRupees(a.balance, 2)}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+      )}
+
+      {/* ─────────────── Per-agent summary (desktop table) ─────────────── */}
+      {agents.length > 0 && (
+        <div className="card p-0 overflow-x-auto mb-6 hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -512,7 +558,57 @@ export default async function AgentCommissionReport({
               No documents for this agent in the window.
             </div>
           ) : (
-            <div className="card p-0 overflow-x-auto">
+            <>
+            {/* Mobile / PWA: card view for the drill-down. */}
+            <CardFilter placeholder="Search documents…">
+              {detailRows.map((r) => {
+                const href = docHref(r);
+                return (
+                  <div key={r.commission_id} className="card p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm font-semibold text-ink break-words">
+                          {href ? (
+                            <Link href={href} className="text-sky-700 hover:underline">
+                              {r.doc_no ?? '—'}
+                            </Link>
+                          ) : (
+                            r.doc_no ?? '—'
+                          )}
+                        </div>
+                        <div className="text-xs text-ink-soft mt-0.5">
+                          {r.counterparty_name ?? '—'}
+                        </div>
+                      </div>
+                      <span
+                        className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border shrink-0 ${sourceTone(r.source)}`}
+                      >
+                        {sourceLabel(r.source)}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-ink-soft mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>{fmtDate(r.doc_date)}</span>
+                      <span>{rateQtyLabel(r)}</span>
+                    </div>
+
+                    <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                      <div className="text-xs text-ink-soft">
+                        <div>Business: <span className="num">{fmtRupees(r.business_value)}</span></div>
+                        <div className="text-emerald-700">Paid: <span className="num">{fmtRupees(r.commission_paid, 2)}</span></div>
+                        <div className="text-rose-700">Outstanding: <span className="num">{fmtRupees(r.commission_balance, 2)}</span></div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-wide text-ink-mute">Comm</div>
+                        <div className="num font-semibold text-base">{fmtRupees(r.commission_amount, 2)}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardFilter>
+
+            <div className="card p-0 overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
                   <tr>
@@ -607,6 +703,7 @@ export default async function AgentCommissionReport({
                 </tfoot>
               </table>
             </div>
+            </>
           )}
         </div>
       )}

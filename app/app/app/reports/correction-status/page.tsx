@@ -18,6 +18,7 @@
  * card array so it can't drift.
  */
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import {
   CheckCircle2,
   Circle,
@@ -288,7 +289,20 @@ export default function CorrectionStatusReport() {
             <Sparkles className="w-4 h-4 inline mr-1" /> All 42 cards done. Time to retire this dashboard.
           </div>
         ) : (
-          <div className="card p-0 overflow-x-auto">
+          <>
+          <CardFilter placeholder="Search pending cards…">
+            {pending.map((c) => (
+              <div key={c.code} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-mono font-semibold text-ink text-xs break-words">{c.code}</div>
+                  <span className="shrink-0"><StatusBadge status={c.status} /></span>
+                </div>
+                <div className="font-medium text-sm mt-1">{c.title}</div>
+                <div className="text-xs text-ink-soft mt-0.5">{c.blurb}</div>
+              </div>
+            ))}
+          </CardFilter>
+          <div className="card p-0 overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
                 <tr>
@@ -311,6 +325,7 @@ export default function CorrectionStatusReport() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -332,7 +347,22 @@ function GroupSection({ group }: { group: CorrGroup }) {
         <span className="text-xs text-ink-mute">{group.intent}</span>
         <span className="ml-auto text-xs text-ink-soft">{c.done}/{group.cards.length} done</span>
       </div>
-      <div className="card p-0 overflow-x-auto">
+      <CardFilter placeholder="Search cards…">
+        {group.cards.map((card) => (
+          <div key={card.code} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-mono font-semibold text-ink text-xs break-words">{card.code}</div>
+              <span className="shrink-0"><StatusBadge status={card.status} /></span>
+            </div>
+            <div className="font-medium text-sm mt-1">{card.title}</div>
+            <div className="text-xs text-ink-soft mt-0.5">{card.blurb}</div>
+            {card.evidence && (
+              <div className="text-[11px] text-ink-mute font-mono mt-0.5 break-words">{card.evidence}</div>
+            )}
+          </div>
+        ))}
+      </CardFilter>
+      <div className="card p-0 overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
             <tr>

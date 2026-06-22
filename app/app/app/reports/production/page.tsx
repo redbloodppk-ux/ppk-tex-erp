@@ -21,6 +21,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -614,7 +615,24 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
       ) : (
         <>
           {/* ───── Breakdown table ───── */}
-          <div className="card overflow-x-auto mb-4">
+          <CardFilter placeholder={kind === 'fy' ? 'Search months…' : 'Search dates…'}>
+            {breakdown.map((r) => (
+              <div key={r.bucket} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-ink break-words">{r.bucketLabel}</div>
+                  <div className="text-right shrink-0">
+                    <span className="num font-semibold text-base">{fmtNum(r.metres)}</span>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">metres</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Shift logs: <span className="num">{fmtInt(r.shiftLogs)}</span></div>
+                  <div>Avg / log: <span className="num">{r.shiftLogs > 0 ? fmtNum(r.metres / r.shiftLogs) : '-'}</span></div>
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+          <div className="card overflow-x-auto mb-4 hidden md:block">
             <div className="flex items-center justify-between px-4 py-3 border-b border-line/60 bg-cloud/40">
               <h2 className="font-display font-bold text-sm">
                 {kind === 'fy' ? 'Monthly breakdown' : 'Daily breakdown'}
@@ -656,7 +674,53 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
           </div>
 
           {/* ───── Per-shed + per-quality cards side-by-side ───── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="md:hidden mb-4">
+            <h2 className="font-display font-bold text-sm mb-2">By shed</h2>
+            <div className="space-y-2">
+              {SHEDS.map((s) => {
+                const row = byShed.get(s);
+                const m = row?.metres ?? 0;
+                const logs = row?.shiftLogIds.size ?? 0;
+                const share = totals.metres > 0 ? (m / totals.metres) * 100 : 0;
+                return (
+                  <div key={s} className="card p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-ink">Shed {s}</div>
+                      <div className="num font-semibold text-base shrink-0">{fmtNum(m)}</div>
+                    </div>
+                    <div className="text-xs text-ink-soft mt-1">
+                      Shift logs: <span className="num">{fmtInt(logs)}</span> · Share: <span className="num">{fmtNum(share, 1)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <h2 className="font-display font-bold text-sm mb-2 mt-4">By quality</h2>
+            <div className="space-y-2">
+              {Array.from(byQuality.entries())
+                .sort((a, b) => b[1].metres - a[1].metres)
+                .map(([qId, v]) => {
+                  const q = qId > 0 ? qualityById.get(qId) : null;
+                  const share = totals.metres > 0 ? (v.metres / totals.metres) * 100 : 0;
+                  return (
+                    <div key={qId} className="card p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-ink break-words">{q ? q.code : 'No quality'}</div>
+                          {q && <div className="text-xs text-ink-soft mt-0.5">{q.name}</div>}
+                        </div>
+                        <div className="num font-semibold text-base shrink-0">{fmtNum(v.metres)}</div>
+                      </div>
+                      <div className="text-xs text-ink-soft mt-1">
+                        Shift logs: <span className="num">{fmtInt(v.shiftLogIds.size)}</span> · Share: <span className="num">{fmtNum(share, 1)}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+          <div className="hidden md:grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             {/* By shed */}
             <div className="card overflow-hidden">
               <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
@@ -728,7 +792,28 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
           </div>
 
           {/* ───── Top weavers ───── */}
-          <div className="card overflow-x-auto">
+          <CardFilter placeholder="Search weavers…">
+            {topWeavers.map((w, idx) => {
+              const share = totals.metres > 0 ? (w.metres / totals.metres) * 100 : 0;
+              return (
+                <div key={w.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-ink break-words">
+                        <span className="text-ink-mute text-xs mr-1">{idx + 1}.</span>{w.name}
+                      </div>
+                      <div className="text-xs text-ink-soft mt-0.5">{w.code}</div>
+                    </div>
+                    <div className="num font-semibold text-base shrink-0">{fmtNum(w.metres)}</div>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    Shift logs: <span className="num">{fmtInt(w.shiftLogs)}</span> · Share: <span className="num">{fmtNum(share, 1)}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+          <div className="card overflow-x-auto hidden md:block">
             <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
               <h2 className="font-display font-bold text-sm">By weaver</h2>
             </div>

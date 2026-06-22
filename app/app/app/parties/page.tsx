@@ -5,6 +5,7 @@ import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Plus, Phone, MapPin, Pencil, CheckCircle2 } from 'lucide-react';
 import { DeletePartyButton } from './delete-party-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Parties' };
 export const dynamic = 'force-dynamic';
@@ -93,7 +94,80 @@ export default async function PartiesPage({
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The parties table is wide and forces
+          horizontal scrolling on a phone, so below md we render each
+          party as a tap-friendly card. The table is hidden on mobile. */}
+      <CardFilter placeholder="Search parties…">
+        {parties.length ? parties.map((p) => {
+          const ids = Array.isArray(p.party_type_ids) && p.party_type_ids.length > 0
+            ? p.party_type_ids
+            : (p.party_type_id ? [p.party_type_id] : []);
+          const typeLabel = ids
+            .map((id) => typeNameById.get(id))
+            .filter((s): s is string => Boolean(s))
+            .join(', ') || '-';
+          return (
+            <div key={p.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Link href={`/app/parties/${p.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                      {p.name}
+                    </Link>
+                    {p.gstin_verified_at && (
+                      <span className="inline-flex shrink-0" title="GSTIN verified">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
+                      </span>
+                    )}
+                  </span>
+                  <div className="font-mono text-xs text-ink-soft mt-0.5">{p.code}</div>
+                </div>
+                {p.status !== 'active' && (
+                  <span className="pill bg-slate-100 text-slate-500 shrink-0">{p.status}</span>
+                )}
+              </div>
+
+              <div className="text-xs text-ink-soft mt-2">
+                <span className="text-ink-mute">Type: </span>{typeLabel}
+              </div>
+              {p.gstin && (
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">GSTIN: </span><span className="font-mono">{p.gstin}</span>
+                </div>
+              )}
+              {p.phone && (
+                <div className="text-xs text-ink-soft mt-1 flex items-center gap-1.5"><Phone className="w-3 h-3" /> {p.phone}</div>
+              )}
+              {p.city && (
+                <div className="text-xs text-ink-soft mt-1 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> {p.city}</div>
+              )}
+
+              <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                <div className="flex items-center gap-1">
+                  <Link
+                    href={`/app/parties/${p.id}`}
+                    className="p-1 rounded hover:bg-indigo-50 text-indigo-700"
+                    title={`Edit ${p.name}`}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Link>
+                  <DeletePartyButton partyId={p.id} partyName={p.name} />
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Credit · {p.payment_terms_days ?? 0}d</div>
+                  <div className="num font-semibold">{formatRupee(p.credit_limit, { compact: true })}</div>
+                </div>
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No parties yet. <Link href="/app/parties/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

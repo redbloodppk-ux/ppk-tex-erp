@@ -24,6 +24,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
@@ -273,7 +274,34 @@ export default async function VarianceDashboard() {
           populate.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto mb-6">
+        <>
+        <CardFilter placeholder="Search qualities…">
+          {qualityRows.map((r, i) => {
+            const tone = varianceTone(r.variance_per_m);
+            return (
+              <div key={r.quality_code ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{r.quality_name ?? '—'}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{r.quality_code ?? '—'}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <Toned tone={tone}><span className="num font-semibold text-base">{fmtSignedRupees(r.total_variance_inr)}</span></Toned>
+                    <div className="text-xs mt-0.5"><PctBadge pct={r.variance_pct} /></div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Batches: <span className="num">{fmtNum(r.batch_count)}</span></div>
+                  <div>Produced m: <span className="num">{fmtNum(r.produced_m, 1)}</span></div>
+                  <div>Planned ₹/m: <span className="num">{fmtRupees(r.planned_true_per_m, 2)}</span></div>
+                  <div>Actual ₹/m: <span className="num">{fmtRupees(r.actual_true_per_m, 2)}</span></div>
+                  <div>Variance ₹/m: <Toned tone={tone}><span className="num">{fmtSignedRupees(r.variance_per_m, 2)}</span></Toned></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto mb-6 hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -334,6 +362,7 @@ export default async function VarianceDashboard() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ─────────────── By batch ─────────────── */}
@@ -348,7 +377,36 @@ export default async function VarianceDashboard() {
           No finished batches to show yet.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search batches…">
+          {batchRows.map((r, i) => {
+            const tone = varianceTone(r.variance_per_m);
+            return (
+              <div key={r.batch_id ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-ink break-words">{r.batch_code ?? `#${r.batch_id ?? '—'}`}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      <span className="font-mono">{r.quality_code ?? '—'}</span> · {r.quality_name ?? '—'}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <Toned tone={tone}><span className="num font-semibold text-base">{fmtSignedRupees(r.total_variance_inr)}</span></Toned>
+                    <div className="text-xs mt-0.5"><PctBadge pct={r.variance_pct} /></div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Produced m: <span className="num">{fmtNum(r.produced_m, 1)}</span></div>
+                  <div>Finished: {fmtDate(r.end_date)}</div>
+                  <div>Planned ₹/m: <span className="num">{fmtRupees(r.planned_true_per_m, 2)}</span></div>
+                  <div>Actual ₹/m: <span className="num">{fmtRupees(r.actual_true_per_m, 2)}</span></div>
+                  <div>Variance ₹/m: <Toned tone={tone}><span className="num">{fmtSignedRupees(r.variance_per_m, 2)}</span></Toned></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -411,6 +469,7 @@ export default async function VarianceDashboard() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

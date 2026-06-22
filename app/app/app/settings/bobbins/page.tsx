@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
@@ -344,7 +345,85 @@ export default function BobbinMasterPage() {
           No bobbin masters yet. Add your first one above.
         </div>
       ) : (
-        <div className="card p-5 space-y-3">
+        <>
+        {/* Mobile / PWA: card view. Below md each bobbin renders as a card
+            with the same inline metre / lurex editors + archive toggle. The
+            table is hidden on mobile and shown from md upward. */}
+        <CardFilter placeholder="Search bobbins…">
+          {rows.map((r) => {
+            const isArchived = r.status === 'archived';
+            return (
+              <div
+                key={r.id}
+                className={'card p-3 space-y-2 ' + (isArchived ? 'opacity-50 bg-cloud/30' : '')}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs font-semibold">
+                      {r.code}
+                      {isArchived && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-mute">archived</span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className={
+                        'inline-block px-2 py-0.5 rounded text-[11px] ' +
+                        (r.production_mode === 'inhouse'   ? 'bg-emerald-50 text-emerald-700' :
+                         r.production_mode === 'jobwork'   ? 'bg-amber-50 text-amber-700' :
+                                                            'bg-indigo-50 text-indigo-700')
+                      }>
+                        {MODE_LABEL[r.production_mode]}
+                      </span>
+                      <span className="text-xs text-ink-soft num">{r.ends_per_bobbin} ends</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {busyId === r.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
+                    <button
+                      type="button"
+                      className={
+                        'p-1 rounded ' +
+                        (isArchived ? 'hover:bg-emerald-50 text-emerald-600' : 'hover:bg-red-50 text-red-600')
+                      }
+                      title={isArchived ? 'Restore this bobbin' : 'Archive this bobbin'}
+                      onClick={() => toggleArchive(r.id, r.code, r.status)}
+                      disabled={busyId === r.id}
+                    >
+                      {isArchived ? <RotateCcw className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <label className="label text-xs">M/pc</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className="input num w-24 text-xs h-8"
+                      value={r.bobbin_metre ?? ''}
+                      disabled={isArchived}
+                      onChange={(e) =>
+                        updateRow(r.id, { bobbin_metre: e.target.value === '' ? null : Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 pb-1">
+                    <input
+                      type="checkbox"
+                      checked={r.is_lurex}
+                      disabled={isArchived}
+                      onChange={(e) => updateRow(r.id, { is_lurex: e.target.checked })}
+                    />
+                    <span className="text-xs text-ink-soft">Lurex: {r.is_lurex ? 'Yes' : 'No'}</span>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card p-5 space-y-3 hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -439,6 +518,7 @@ export default function BobbinMasterPage() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

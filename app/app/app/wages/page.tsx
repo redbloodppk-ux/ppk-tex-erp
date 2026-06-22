@@ -16,6 +16,7 @@ import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { DeleteWageButton } from './delete-wage-button';
 import { WageFilters } from './wage-filters';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
@@ -119,7 +120,65 @@ export default async function WagesPage({
         </div>
       </div>
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wages table is wide; on a phone we
+          show each entry as a tap-friendly card. Hidden from md up, where
+          the full table below takes over. */}
+      <CardFilter placeholder="Search wages…">
+        {rows.length ? rows.map((r) => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link href={`/app/wages/${r.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                  {r.employee?.full_name ?? '—'}
+                </Link>
+                <div className="font-mono text-[11px] text-ink-mute mt-0.5">{r.employee?.code ?? ''}</div>
+              </div>
+              <span className={`pill shrink-0 ${KIND_PILL[r.kind]}`}>{r.kind}</span>
+            </div>
+
+            <div className="flex items-end justify-between mt-2">
+              <div className="text-xs text-ink-soft">
+                <div className="num">{r.pay_date}</div>
+                <div className="num mt-0.5">{r.period_start} → {r.period_end}</div>
+                <div className="mt-0.5 capitalize">
+                  Basis: {(r.employee?.wage_alloc_basis ?? 'metres').replace('_', '-')}
+                </div>
+              </div>
+              <div className="num font-semibold text-base text-right">
+                {formatRupee(Number(r.amount))}
+              </div>
+            </div>
+            {r.notes && (
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Notes: </span>{r.notes}
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+              <Link
+                href={`/app/wages/${r.id}`}
+                className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                title="Edit this wage entry"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Link>
+              <DeleteWageButton
+                id={r.id}
+                label={`${r.employee?.full_name ?? ''} ${formatRupee(Number(r.amount))}`.trim()}
+              />
+            </div>
+          </div>
+        )) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No wage entries yet.{' '}
+            <Link href="/app/wages/new" className="text-indigo font-semibold">
+              Add the first one →
+            </Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

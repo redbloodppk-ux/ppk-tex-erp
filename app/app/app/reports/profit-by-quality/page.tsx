@@ -22,6 +22,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   TrendingUp,
@@ -220,7 +221,60 @@ export default async function ProfitByQualityReport() {
           for it, this list will populate.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. Below md each quality becomes a
+            tap-friendly card. */}
+        <CardFilter placeholder="Search qualities…">
+          {rows.map((r, i) => {
+            const margin = Number(r.margin ?? 0);
+            const pct = r.margin_pct != null ? Number(r.margin_pct) : null;
+            const tone =
+              margin < 0
+                ? 'bad'
+                : pct != null && pct < 10
+                  ? 'warn'
+                  : 'good';
+            const invoiced = Number(r.invoiced_m ?? 0);
+            const produced = Number(r.produced_m ?? 0);
+            const asymmetric =
+              (invoiced > 0 && produced === 0) ||
+              (produced > 0 && invoiced === 0);
+            const lastDate = mostRecent(r.last_invoice_date, r.last_batch_date);
+            return (
+              <div key={r.costing_id ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">
+                      {r.quality_name ?? '—'}
+                    </div>
+                    <div className="font-mono text-xs text-ink-mute mt-0.5">
+                      {r.quality_code ?? '—'}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Margin</div>
+                    <div className="num font-semibold text-base">
+                      <MarginCell amount={r.margin} tone={tone} />
+                    </div>
+                    <div className="text-xs"><PctBadge pct={pct} asymmetric={asymmetric} /></div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-ink-soft mt-2 pt-2 border-t border-line/40">
+                  <div>Invoiced: <span className="num">{fmtNum(r.invoiced_m, 1)}</span> m</div>
+                  <div>Produced: <span className="num">{fmtNum(r.produced_m, 1)}</span> m</div>
+                  <div>Revenue: <span className="num">{fmtRupees(r.total_revenue)}</span></div>
+                  <div>Cost: <span className="num">{fmtRupees(r.total_cost)}</span></div>
+                  <div>Sell/m: <span className="num">{r.avg_sell_per_m != null ? fmtRupees(r.avg_sell_per_m, 2) : '—'}</span></div>
+                  <div>Cost/m: <span className="num">{r.avg_cost_per_m != null ? fmtRupees(r.avg_cost_per_m, 2) : '—'}</span></div>
+                  <div className="col-span-2">Last activity: {fmtDate(lastDate)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -303,6 +357,7 @@ export default async function ProfitByQualityReport() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

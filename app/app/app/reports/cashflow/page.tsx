@@ -20,6 +20,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   ArrowDownCircle,
@@ -304,7 +305,51 @@ export default async function CashflowPage({
             {dirFilter !== 'all' ? ` for "${dirFilter}"` : ''}.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <CardFilter placeholder="Search payments…" className="p-3">
+            {recentFiltered.map(r => (
+              <div
+                key={`${r.source_kind ?? 'x'}-${r.source_id ?? `${r.doc_no}-${r.event_date}`}`}
+                className="card p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">
+                      {r.party_name ?? '—'}
+                    </div>
+                    <div className="text-xs text-ink-soft">
+                      {[r.party_code, r.party_kind].filter(Boolean).join(' · ') || ''}
+                    </div>
+                  </div>
+                  <DirectionBadge dir={r.direction} />
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className={'inline-flex items-center px-1.5 py-0.5 rounded text-xs ' +
+                    (r.source_kind === 'bank_entry'
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'bg-indigo-50 text-indigo-700')}>
+                    {r.source_kind === 'bank_entry' ? 'Bank' : 'Pmt'}
+                  </span>
+                  <span className="font-mono font-semibold text-ink">
+                    {fmtRupees(r.amount)}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-ink-soft">
+                  <span>
+                    {fmtDate(r.event_date)}
+                    {r.days_ago != null ? ` · ${r.days_ago}d ago` : ''}
+                  </span>
+                  <span className="text-right">
+                    {r.category_name ?? (r.source_kind === 'payment' ? 'Party payment' : '—')}
+                  </span>
+                  <span>Mode: {r.mode ?? '—'}</span>
+                  <span className="text-right">Ref: {r.reference ?? '—'}</span>
+                  <span>Inv: {r.invoice_no ?? '—'}</span>
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/40 text-ink-soft">
                 <tr>
@@ -364,6 +409,7 @@ export default async function CashflowPage({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

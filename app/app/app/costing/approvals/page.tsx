@@ -7,6 +7,7 @@ import { DecideButtons } from './decide-buttons';
 import { ApprovalStatusSelect } from './approval-status-select';
 import { LinkFabricSelect, type FabricOption } from './link-fabric-select';
 import { CheckCircle2, XCircle, Clock, ArrowRight } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Costing Approvals' };
 
@@ -258,7 +259,68 @@ export default async function ApprovalsPage() {
         {recent.length === 0 ? (
           <div className="card p-4 text-sm text-ink-soft">No decisions yet.</div>
         ) : (
-          <div className="card overflow-x-auto">
+          <>
+          {/* Mobile / PWA: card view. The decisions table is wide; below md
+              we render each decision as a tap-friendly card. The table is
+              hidden on mobile. */}
+          <CardFilter placeholder="Search decisions…">
+            {recent.map((r) => (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{r.quality_name}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{r.quality_code}</div>
+                  </div>
+                  <div className="shrink-0">
+                    {isOwner ? (
+                      <ApprovalStatusSelect costingId={r.id} initial={r.approval_status} />
+                    ) : r.approval_status === 'approved' ? (
+                      <span className="inline-flex items-center gap-1 pill bg-emerald-50 text-emerald-700">
+                        <CheckCircle2 className="w-3 h-3" /> Approved
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 pill bg-red-50 text-red-700">
+                        <XCircle className="w-3 h-3" /> Rejected
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-xs mt-2">
+                  <span className="text-ink-mute">Linked Fabric: </span>
+                  {r.approval_status === 'approved' ? (
+                    isOwner ? (
+                      <div className="mt-1">
+                        <LinkFabricSelect
+                          costingId={r.id}
+                          fabrics={fabrics}
+                          linkedFabricId={linkedFabricByCosting.get(r.id) ?? null}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-ink-soft">
+                        {(() => {
+                          const fid = linkedFabricByCosting.get(r.id);
+                          if (fid == null) return '—';
+                          const f = fabrics.find((x) => x.id === fid);
+                          return f ? `${f.code ? f.code + ' - ' : ''}${f.name}` : '—';
+                        })()}
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-ink-mute">approved only</span>
+                  )}
+                </div>
+
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Decided by: </span>{r.approved_by ? (userById.get(r.approved_by) ?? '—') : '—'}
+                  {' · '}<span className="num">{r.approved_at ? formatDate(r.approved_at, 'short') : '—'}</span>
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+
+          <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
@@ -321,6 +383,7 @@ export default async function ApprovalsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

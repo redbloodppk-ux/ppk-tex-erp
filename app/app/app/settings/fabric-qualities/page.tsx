@@ -5,6 +5,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Link2 } from 'lucide-react';
 import { FabricActiveToggle } from '@/app/components/fabric-active-toggle';
 import { FabricDeleteButton } from '@/app/components/fabric-delete-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Fabric Qualities' };
 export const dynamic = 'force-dynamic';
@@ -104,7 +105,61 @@ export default async function FabricQualitiesPage({
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The fabric-quality table is wide; below md
+          each quality renders as a tap-friendly card. The table is hidden on
+          mobile and shown from md upward. */}
+      <CardFilter placeholder="Search fabric qualities…">
+        {rows.length ? rows.map((r) => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link href={`/app/settings/fabric-qualities/${r.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                  {r.name}
+                </Link>
+                <div className="font-mono text-xs text-ink-soft mt-0.5">{r.code}</div>
+              </div>
+              <span className="shrink-0">
+                <FabricActiveToggle id={r.id} initialActive={r.active} />
+              </span>
+            </div>
+
+            <div className="text-xs text-ink-soft mt-2 capitalize">
+              {r.fabric_type ?? '-'}
+              {' · '}
+              {r.production_mode ? (PRODUCTION_MODE_LABEL[r.production_mode] ?? r.production_mode) : '-'}
+            </div>
+            {r.is_merged && r.merged_name && (
+              <div className="text-xs mt-1 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">
+                  <Link2 className="w-3 h-3" /> {r.merged_name}
+                </span>
+                <span className="font-semibold text-emerald-700 num">{fmtM(mergedPoolByName.get(r.merged_name.trim()) ?? 0)} m</span>
+              </div>
+            )}
+            <div className="text-xs text-ink-soft mt-1">
+              <span className="text-ink-mute">Pick/inch:</span> <span className="num">{r.pick_per_inch ?? '-'}</span>
+              {' · '}<span className="text-ink-mute">Reed:</span> <span className="num">{r.reed ?? '-'}</span>
+              {' · '}<span className="text-ink-mute">Width:</span> <span className="num">{r.reed_space ?? '-'}</span>
+            </div>
+
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+              <Link
+                href={`/app/settings/fabric-qualities/${r.id}`}
+                className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+              >
+                <Pencil className="w-3 h-3" /> Edit
+              </Link>
+              <FabricDeleteButton id={r.id} label={r.name} />
+            </div>
+          </div>
+        )) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No fabric qualities yet. <Link href="/app/settings/fabric-qualities/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

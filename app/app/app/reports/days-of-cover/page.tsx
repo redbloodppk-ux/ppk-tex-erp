@@ -18,6 +18,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Layers, AlertTriangle, PackageX } from 'lucide-react';
@@ -259,7 +260,34 @@ export default async function DaysOfCoverReport() {
           and they will appear here.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search yarn counts…">
+          {rows.map((r, i) => {
+            const tone = coverTone(r.cover_status);
+            const out = r.cover_status === 'out';
+            return (
+              <div key={r.yarn_count_id ?? i} className={`card p-3 ${out ? 'opacity-70' : ''}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{r.code ?? '—'}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">{r.display_name ?? '—'}</div>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${badgeClass(tone)}`}>
+                    {statusLabel(r.cover_status)}
+                  </span>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Type: <span className="capitalize">{r.yarn_type ?? '—'}</span></div>
+                  <div>Reorder kg: <span className="num">{fmtNum(r.reorder_kg, 0)}</span></div>
+                  <div>Available kg: <span className={`num font-semibold ${r.below_reorder ? 'text-amber-700' : ''}`}>{fmtNum(r.available_kg, 0)}</span></div>
+                  <div>Used 30d kg: <span className="num">{Number(r.kg_30d ?? 0) > 0 ? fmtNum(r.kg_30d, 0) : '—'}</span></div>
+                  <div>Days of cover: {r.days_of_cover != null ? <span className={`num ${toneClass(tone)}`}>{fmtNum(r.days_of_cover, 0)}</span> : <span className="text-ink-mute">—</span>}</div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -331,6 +359,7 @@ export default async function DaysOfCoverReport() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 
 interface BobbinEndsRow {
@@ -224,7 +225,69 @@ export default function BobbinEndsMasterPage() {
           No bobbin ends specs yet. Add your first one above.
         </div>
       ) : (
-        <div className="card p-5 space-y-3">
+        <>
+        {/* Mobile / PWA: card view. Below md each ends spec renders as a
+            card with the same inline editors. The table is hidden on mobile
+            and shown from md upward. */}
+        <CardFilter placeholder="Search ends specs…">
+          {rows.map((r) => (
+            <div key={r.id} className="card p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <label className="label text-xs">Ends</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step="1"
+                    className="input num w-24"
+                    value={r.ends_count}
+                    onChange={(e) => updateRow(r.id, { ends_count: Number(e.target.value) || 1 })}
+                  />
+                </div>
+                <div className="flex items-center gap-2 shrink-0 pt-5">
+                  {busyId === r.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
+                  <button
+                    type="button"
+                    className="p-1 rounded hover:bg-red-50 text-red-600"
+                    title="Delete this ends spec"
+                    onClick={() => deleteRow(r.id, r.ends_count)}
+                    disabled={busyId === r.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="label text-xs">Label</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  value={r.label}
+                  onChange={(e) => updateRow(r.id, { label: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label text-xs">Notes</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  value={r.notes ?? ''}
+                  onChange={(e) => updateRow(r.id, { notes: e.target.value === '' ? null : e.target.value })}
+                />
+              </div>
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={r.active}
+                  onChange={(e) => updateRow(r.id, { active: e.target.checked })}
+                />
+                <span className="text-xs text-ink-soft">{r.active ? 'Active' : 'Inactive'}</span>
+              </label>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card p-5 space-y-3 hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -305,6 +368,7 @@ export default function BobbinEndsMasterPage() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ArrowLeft, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 
@@ -123,7 +124,73 @@ export default async function LoomsHistoryPage() {
           LOOMS overhead, every change appears here.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The wide before/after grid is hard to
+            read on a phone; below md each change renders as a card. The
+            table is hidden on mobile and shown from md upward. */}
+        <CardFilter placeholder="Search history…">
+          {audits.map((r) => {
+            const before = pickBreakdown(r.old_data);
+            const after  = pickBreakdown(r.new_data);
+            const totalBefore = totalOf(before);
+            const totalAfter  = totalOf(after);
+            const totalDelta  = totalAfter - totalBefore;
+            const user = r.changed_by ? userById.get(r.changed_by) : null;
+            return (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-ink">{fmtTs(r.changed_at)}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      {user
+                        ? <>{user.full_name} <span className="text-ink-mute">· {user.email}</span></>
+                        : <span className="text-ink-mute italic">{r.changed_by ?? 'system'}</span>}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total / m</div>
+                    <div className="num font-bold text-indigo-900">{formatRupee(totalAfter, { decimals: 2 })}</div>
+                    {totalDelta !== 0 && (
+                      <div className={'text-[10px] ' + (totalDelta > 0 ? 'text-rose-700' : 'text-emerald-700')}>
+                        {totalDelta > 0 ? '+' : ''}{formatRupee(totalDelta, { decimals: 2 })} / m
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 pt-2 border-t border-line/40">
+                  {FIELDS.map((f) => {
+                    const b = before[f.id];
+                    const a = after[f.id];
+                    const delta = (a ?? 0) - (b ?? 0);
+                    return (
+                      <div key={f.id} className="text-xs flex items-baseline justify-between gap-2">
+                        <span className="text-ink-mute">{f.label}</span>
+                        <span className="text-right">
+                          <span className="num font-semibold">{a != null ? formatRupee(a, { decimals: 2 }) : '—'}</span>
+                          {b != null && delta !== 0 && (
+                            <span className={'block text-[10px] inline-flex items-center gap-0.5 justify-end ' +
+                              (delta > 0 ? 'text-rose-700' : 'text-emerald-700')}>
+                              {delta > 0 ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />}
+                              {formatRupee(Math.abs(delta), { decimals: 2 })}
+                            </span>
+                          )}
+                          {b != null && delta === 0 && (
+                            <span className="block text-[10px] text-ink-mute inline-flex items-center gap-0.5 justify-end">
+                              <Minus className="w-2.5 h-2.5" /> unchanged
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -190,6 +257,7 @@ export default async function LoomsHistoryPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-[11px] text-ink-mute mt-4">

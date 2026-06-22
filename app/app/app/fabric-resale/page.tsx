@@ -19,6 +19,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
 import { Loader2, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { CardFilter } from '@/app/components/card-filter';
 
 interface FabricRow {
   id: number;
@@ -233,7 +234,54 @@ export default function FabricResalePage(): React.ReactElement {
           <Link href="/app/fabric-stock" className="text-indigo-600 hover:underline">Fabric Stock</Link> page.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The resale table is wide; below md we
+            render each quality group as a tap-friendly card. The table is
+            hidden on mobile. */}
+        <CardFilter placeholder="Search resale stock…">
+          {groups.map((g) => (
+            <div key={g.key} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">{g.label}</div>
+                  <div className="text-xs text-ink-soft mt-0.5">
+                    {g.suppliers.length === 0
+                      ? '—'
+                      : g.suppliers.length <= 2
+                        ? g.suppliers.join(', ')
+                        : `${g.suppliers.slice(0, 2).join(', ')} +${g.suppliers.length - 2}`}
+                  </div>
+                </div>
+                <Link
+                  href="/app/fabric-stock"
+                  className="text-indigo-600 hover:underline text-xs inline-flex items-center gap-1 shrink-0"
+                  title="Open Fabric Stock page"
+                >
+                  {g.rows.length} <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
+
+              <div className="text-xs mt-2">
+                <span className="text-ink-mute">Bought: </span>
+                <span className="num">{fmtMetres(g.bought_metres)} {g.unit === 'pcs' ? 'pcs' : g.unit === 'mixed' ? '(mixed)' : 'm'}</span>
+                {' · '}<span className="text-ink-mute">Sold: </span><span className="num text-rose-700">{fmtMetres(g.sold_metres)}</span>
+              </div>
+              <div className="text-xs mt-1">
+                <span className="text-ink-mute">In stock: </span><span className="num text-emerald-700">{fmtMetres(g.current_metres)}</span>
+                {' · '}<span className="text-ink-mute">Avg rate: </span><span className="num">{g.avg_rate > 0 ? `₹${fmtMoney(g.avg_rate)}/m` : '-'}</span>
+              </div>
+
+              <div className="flex items-end justify-end mt-2 pt-2 border-t border-line/40">
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total value</div>
+                  <div className="num font-semibold">₹{fmtMoney(g.total_value)}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[900px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -290,6 +338,7 @@ export default function FabricResalePage(): React.ReactElement {
             </tfoot>
           </table>
         </div>
+        </>
       )}
     </>
   );

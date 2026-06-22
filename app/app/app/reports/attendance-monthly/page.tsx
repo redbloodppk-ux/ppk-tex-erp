@@ -9,6 +9,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarRange } from 'lucide-react';
@@ -193,7 +194,30 @@ export default async function MonthlyAttendanceReport({
           {role ? ` for role "${role}"` : ''}.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search employees…">
+          {rows.map(r => (
+            <div key={r.employee_id ?? r.employee_code ?? r.employee_name} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">{r.employee_name ?? '—'}</div>
+                  <div className="text-xs text-ink-mute">{r.employee_code ?? '—'}</div>
+                </div>
+                <span className="text-xs tabular-nums font-semibold shrink-0">{r.attendance_days ?? 0} days</span>
+              </div>
+              <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <div>Role: <span className="capitalize text-ink">{r.employee_role ?? '—'}</span></div>
+                <div>Shifts: <span className="tabular-nums">{r.shifts_marked ?? 0}</span></div>
+                <div>Present: <span className="tabular-nums text-emerald-700">{r.present_count ?? 0}</span></div>
+                <div>Absent: <span className="tabular-nums text-rose-700">{r.absent_count ?? 0}</span></div>
+                <div>Half day: <span className="tabular-nums text-amber-700">{r.half_day_count ?? 0}</span></div>
+                <div>Late: <span className="tabular-nums text-orange-700">{r.late_count ?? 0}</span></div>
+                <div>Early leave: <span className="tabular-nums text-sky-700">{r.early_leave_count ?? 0}</span></div>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -265,6 +289,7 @@ export default async function MonthlyAttendanceReport({
             </tfoot>
           </table>
         </div>
+        </>
       )}
     </div>
   );

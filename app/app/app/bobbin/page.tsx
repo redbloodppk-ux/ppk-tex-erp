@@ -29,6 +29,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
 import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check, ArrowLeft, RotateCcw } from 'lucide-react';
 import React from 'react';
+import { CardFilter } from '@/app/components/card-filter';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -931,7 +932,106 @@ export default function BobbinPurchasePage() {
           No bobbin purchases yet. Click <strong>Add Purchase</strong> above to log your first one.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The purchase log is wide; below md we
+            render each purchase as a tap-friendly card. Inline edit / return
+            forms live in the desktop table, which is hidden on mobile. */}
+        <CardFilter placeholder="Search purchases…">
+          {purchases.map((p) => {
+            const bm = p.bobbin;
+            const sup = p.vendor_id != null ? supplierById.get(p.vendor_id) : null;
+            const label = bm
+              ? `${bm.code} (${bm.ends_per_bobbin} ends)`
+              : `Bobbin #${p.bobbin_id}`;
+            const q = Number(p.pieces_purchased ?? 0);
+            const m = Number(p.bobbin_metre ?? 0);
+            const totalM = q > 0 && m > 0 ? q * m : 0;
+            return (
+              <div key={p.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs font-semibold text-ink break-words">{label}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">{p.purchase_date ?? '—'}</div>
+                  </div>
+                  {bm && (
+                    <span className={
+                      'pill shrink-0 ' +
+                      (bm.production_mode === 'inhouse'   ? 'bg-emerald-50 text-emerald-700' :
+                       bm.production_mode === 'jobwork'   ? 'bg-amber-50 text-amber-700' :
+                                                            'bg-indigo-50 text-indigo-700')
+                    }>{MODE_LABEL[bm.production_mode]}</span>
+                  )}
+                </div>
+
+                <div className="text-xs text-ink-soft mt-2">
+                  <span className="text-ink-mute">Supplier: </span>{sup?.name ?? '—'}
+                </div>
+                {p.invoice_no && (
+                  <div className="text-xs mt-1">
+                    <span className="text-ink-mute">Invoice: </span>
+                    <button
+                      type="button"
+                      onClick={() => openInvoiceEdit(p)}
+                      disabled={editingId !== null}
+                      title="Edit all lines of this invoice"
+                      className="font-mono text-indigo-700 hover:underline disabled:opacity-50 disabled:no-underline"
+                    >
+                      {p.invoice_no}
+                    </button>
+                  </div>
+                )}
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">Qty: </span><span className="num">{fmtNumber(p.pieces_purchased, 2)} pcs</span>
+                  {' · '}<span className="text-ink-mute">M/pc: </span><span className="num">{fmtNumber(p.bobbin_metre, 0)}</span>
+                  {totalM > 0 && (
+                    <span> · <span className="text-ink-mute">Total: </span><span className="num text-indigo-700 font-semibold">{totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m</span></span>
+                  )}
+                </div>
+                {p.notes && (
+                  <div className="text-xs text-ink-soft mt-1 break-words">{p.notes}</div>
+                )}
+
+                <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openReturnFor(p)}
+                      disabled={editingId !== null || deletingId === p.id}
+                      title="Return to supplier"
+                      className="p-1 rounded text-amber-700 hover:bg-amber-50 disabled:opacity-30"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(p)}
+                      disabled={editingId !== null || deletingId === p.id}
+                      title="Edit this purchase"
+                      className="p-1 rounded text-indigo-700 hover:bg-indigo-50 disabled:opacity-30"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteRow(p.id, label)}
+                      disabled={deletingId === p.id || editingId !== null}
+                      title="Delete this purchase"
+                      className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                    >
+                      {deletingId === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total ₹</div>
+                    <div className="num font-semibold">{fmtMoney(p.total_amount)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -1184,13 +1284,65 @@ export default function BobbinPurchasePage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Returns history — in-house bobbin returns to supplier. Shows
           past bobbin_return rows (jobwork_party_id IS NULL) with a
           delete button so mistakes can be rolled back. */}
       {returns.length > 0 && (
-        <div className="card mt-4 overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view for returns. */}
+        <div className="md:hidden mt-4">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+            <ArrowLeft className="h-4 w-4 text-amber-700" />
+            Returns to Supplier
+          </h3>
+          <CardFilter placeholder="Search returns…">
+            {returns.map((r) => {
+              const bm = bobbinById.get(r.bobbin_id) ?? null;
+              const sup = r.supplier_party_id != null ? supplierById.get(r.supplier_party_id) : null;
+              const lbl = bm ? `${bm.code} (${bm.ends_per_bobbin} ends)` : `Bobbin #${r.bobbin_id}`;
+              return (
+                <div key={r.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-ink break-words">{lbl}</div>
+                      <div className="text-xs text-ink-soft mt-0.5">{r.return_date}</div>
+                    </div>
+                    <div className="num font-semibold text-amber-700 shrink-0">
+                      {Number(r.quantity_pcs ?? 0).toLocaleString('en-IN')} pcs
+                    </div>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-2">
+                    <span className="text-ink-mute">Supplier: </span>{sup?.name ?? '—'}
+                  </div>
+                  {r.reference_no && (
+                    <div className="text-xs mt-1">
+                      <span className="text-ink-mute">Reference: </span><span className="font-mono">{r.reference_no}</span>
+                    </div>
+                  )}
+                  {r.notes && (
+                    <div className="text-xs text-ink-soft mt-1 break-words">{r.notes}</div>
+                  )}
+                  <div className="flex items-center gap-4 mt-2 pt-2 border-t border-line/40">
+                    <button
+                      type="button"
+                      onClick={() => deleteReturn(r.id)}
+                      disabled={deletingReturnId === r.id}
+                      title="Delete this return"
+                      className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 inline-flex items-center gap-1 text-xs"
+                    >
+                      {deletingReturnId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+        </div>
+
+        <div className="card mt-4 overflow-x-auto hidden md:block">
           <div className="px-3 py-2 border-b border-line/40 flex items-center justify-between">
             <h3 className="text-sm font-semibold flex items-center gap-1.5">
               <ArrowLeft className="h-4 w-4 text-amber-700" />
@@ -1245,6 +1397,7 @@ export default function BobbinPurchasePage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -20,6 +20,7 @@ import { EditReceiptButton } from './[id]/edit-button';
 import { DeleteReceiptButton } from './[id]/delete-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
 import { RebuildLedgerButton } from './rebuild-ledger-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -322,7 +323,72 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         <div className="card p-3 mb-4 text-err text-sm">Could not load receipts: {error.message}</div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The receipts table is wide; on a phone we
+          show each receipt as a tap-friendly card. Hidden from md up, where
+          the full table below takes over. */}
+      <CardFilter placeholder="Search receipts…">
+        {rows.length === 0 ? (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No {tab.label.toLowerCase()} fabric receipts yet.{' '}
+            <Link href={tab.pickDcHref} className="text-indigo font-semibold">{tab.pickDcLabel} &rarr;</Link>
+          </div>
+        ) : rows.map((r) => {
+          const snap = r.stock_snapshot;
+          const warpΔ   = snap?.warp_beam?.consumed_m    ?? 0;
+          const weftΔ   = snap?.weft_yarn?.consumed_kg   ?? 0;
+          const porvaiΔ = snap?.porvai_yarn?.consumed_kg ?? 0;
+          const bobbinΔ = snap?.bobbin?.consumed_m       ?? 0;
+          const noSnapshot = snap == null;
+          return (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="font-mono font-semibold text-ink hover:text-indigo break-words">
+                    {r.code}
+                  </Link>
+                  <div className="text-sm font-medium mt-0.5">{r.party?.name ?? '-'}</div>
+                  <div className="text-xs text-ink-soft mt-0.5">{fmtDate(r.receipt_date)}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Received</div>
+                  <div className="num font-semibold text-base">
+                    {(r.total_pieces ?? 0) > 0
+                      ? <>{r.total_pieces} <span className="text-[10px] text-ink-mute">pcs</span></>
+                      : <>{fmtMetres(r.total_metres)} <span className="text-[10px] text-ink-mute">m</span></>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-2">
+                <span className="text-ink-mute">DC: </span>
+                {r.dc ? (
+                  <Link href={`/app/delivery-challan/${r.dc.id}`} className="font-mono text-indigo hover:underline">{r.dc.code}</Link>
+                ) : (
+                  <span className="font-mono">{r.party_dc_no ?? '-'}</span>
+                )}
+              </div>
+              {!noSnapshot && (warpΔ > 0 || weftΔ > 0 || porvaiΔ > 0 || bobbinΔ > 0) && (
+                <div className="text-[11px] text-rose-700 mt-1 num flex flex-wrap gap-x-3 gap-y-0.5">
+                  {warpΔ > 0   && <span>Warp &minus;{fmtMetres(warpΔ)} m</span>}
+                  {weftΔ > 0   && <span>Weft &minus;{fmtMetres(weftΔ)} kg</span>}
+                  {porvaiΔ > 0 && <span>Porvai &minus;{fmtMetres(porvaiΔ)} kg</span>}
+                  {bobbinΔ > 0 && <span>Bobbin &minus;{fmtMetres(bobbinΔ)} m</span>}
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 mt-3 pt-2 border-t border-line/40">
+                <Link href={`/app/jobwork/fabric-receipt/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="View receipt">
+                  <Eye className="w-4 h-4" />
+                </Link>
+                <EditReceiptButton receiptId={r.id} receiptCode={r.code} dcId={r.dc?.id ?? null} />
+                <DeleteReceiptButton receiptId={r.id} receiptCode={r.code} dcCode={r.dc?.code ?? null} />
+              </div>
+            </div>
+          );
+        })}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

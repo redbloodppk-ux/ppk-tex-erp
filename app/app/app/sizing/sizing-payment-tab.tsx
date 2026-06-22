@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Wallet, ArrowUpRight } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 interface BillRow {
   id: number;                 // sizing_job.id
@@ -188,7 +189,103 @@ export function SizingPaymentTab(): React.ReactElement {
 
       {error && <div className="card p-3 mb-3 text-err text-sm">{error}</div>}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide payment table forces
+          horizontal scrolling on a phone, so below md we render each
+          bill as a tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search sizing payments…">
+        {bills.length ? bills.map((b) => {
+          const total = Number(b.total_amount ?? 0);
+          const paid  = Number(b.amount_paid ?? 0);
+          const bal   = total - paid;
+          const st    = statusFor(total, paid);
+          const history = paymentsByBill.get(b.id) ?? [];
+          const payHref = b.party_id != null
+            ? `/app/payments?party=${b.party_id}&direction=out`
+            : null;
+          return (
+            <div key={b.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-mono text-xs font-semibold text-ink break-words">{b.bill_no}</span>
+                  <div className="text-sm font-medium mt-0.5 break-words">{b.sizing_vendor_name ?? '—'}</div>
+                </div>
+                <span className={'pill shrink-0 ' + STATUS_STYLE[st]}>{st}</span>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Bill Date: </span>{fmtDate(b.bill_date)}
+                <span className="text-ink-mute"> · Job: </span><span className="font-mono">{b.job_code}</span>
+              </div>
+
+              <div className="flex items-end justify-between mt-2">
+                <div className="text-xs text-ink-soft">
+                  <div>Total: <span className="num font-semibold">{fmtRs(total)}</span></div>
+                  <div>Paid: <span className="num text-emerald-700">{fmtRs(paid)}</span></div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                  <div className={'num font-semibold text-base ' + (bal > 0 ? 'text-rose-700' : 'text-emerald-700')}>{fmtRs(bal)}</div>
+                </div>
+              </div>
+
+              {history.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-line/40">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute mb-1">
+                    Payment history ({history.length})
+                  </div>
+                  <ul className="space-y-0.5 text-xs">
+                    {history.map((p) => (
+                      <li key={p.id} className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-ink-soft">{p.payment_no}</span>
+                        <span>{fmtDate(p.payment_date)}</span>
+                        <span className="capitalize">{p.mode}</span>
+                        {p.reference && <span className="text-ink-mute">· {p.reference}</span>}
+                        <span className="font-semibold num">{fmtRs(p.amount)}</span>
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(p.id)}
+                          className="text-rose-700 hover:text-rose-900 ml-auto text-[10px] underline"
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                {st === 'paid' ? (
+                  <span className="text-emerald-700 text-xs inline-flex items-center gap-1">
+                    <Wallet className="w-3 h-3" /> Settled
+                  </span>
+                ) : payHref ? (
+                  <Link
+                    href={payHref}
+                    className="btn-primary text-xs py-1 px-3 inline-flex items-center gap-1"
+                    title="Open the Payments page with this sizing mill pre-selected"
+                  >
+                    Record payment <ArrowUpRight className="w-3 h-3" />
+                  </Link>
+                ) : (
+                  <span
+                    className="text-amber-700 text-[11px]"
+                    title="This sizing job has no party_id — open it once and re-save to link the sizing mill to a party."
+                  >
+                    No party linked
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No sizing bills to pay yet. Bills appear here once a sizing job is saved with a bill no.
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

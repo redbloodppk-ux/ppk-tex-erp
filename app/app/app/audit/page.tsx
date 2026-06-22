@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader, ComingSoon } from '@/app/components/page-header';
 import { formatDate } from '@/lib/utils';
 import { Eye, AlertTriangle } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Audit Log' };
 export const dynamic = 'force-dynamic';
@@ -256,7 +257,50 @@ export default async function AuditPage({ searchParams }: PageProps) {
           : 'No audit entries yet. They appear here as soon as data starts changing.'} />
       ) : (
         <>
-          <div className="card overflow-x-auto">
+          {/* Mobile / PWA: card view. The wide audit table forces
+              horizontal scrolling on a phone, so below md we render each
+              entry as a tap-friendly card. The table is hidden on mobile. */}
+          <CardFilter placeholder="Search entries…">
+            {rows.map((r) => {
+              const pill = actionPill(r.action);
+              const u = r.changed_by != null ? userById.get(r.changed_by) : null;
+              return (
+                <div key={r.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-ink break-words">{r.table_name}</div>
+                      <div className="text-xs text-ink-soft mt-0.5">
+                        <span className="text-ink-mute">Row ID: </span><span className="font-mono">{r.row_pk}</span>
+                      </div>
+                    </div>
+                    <span className={`pill ${pill.cls} text-xs uppercase tracking-wide shrink-0`}>{pill.label}</span>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">When: </span>{formatDate(r.changed_at, 'long')}
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Who: </span>
+                    {u
+                      ? <span title={u.full_name}>{u.email}</span>
+                      : (r.changed_by
+                          ? <span className="font-mono text-[10px] text-ink-mute" title="User no longer in app_user">{r.changed_by.slice(0, 8)}…</span>
+                          : <span className="text-ink-mute italic">system</span>)}
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                    <Link
+                      href={`/app/audit/${r.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                      title="View before / after"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> View
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+
+          <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[860px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>

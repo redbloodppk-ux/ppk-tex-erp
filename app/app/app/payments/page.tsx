@@ -1825,7 +1825,82 @@ function StatusTab(): React.ReactElement {
             <div className="text-xs uppercase tracking-wider text-ink-mute">Ledger for</div>
             <div className="font-semibold text-ink">{partyName}</div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-2">
+            {ledger.map((r) => {
+              const isPayment = r.kind === 'payment_in' || r.kind === 'payment_out';
+              const isEditing = isPayment && editingId === r.source_id;
+              const isBusy    = isPayment && busyRowId === r.source_id;
+              return (
+                <div key={r.key} className={cn('card p-3', isEditing && 'ring-1 ring-indigo-200')}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-ink-soft">{r.voucher_no}</div>
+                      <div className={cn('text-sm break-words', isPayment ? 'text-ink' : 'text-ink-soft')}>
+                        {r.description}
+                        {r.payment?.reference && <span className="text-[10px] text-ink-mute"> · {r.payment.reference}</span>}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-ink-soft whitespace-nowrap shrink-0">{fmtDate(r.date)}</div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+                    <div className="flex gap-3">
+                      {r.debit > 0 && <span className="num text-emerald-700">Dr {fmtINR(r.debit)}</span>}
+                      {r.credit > 0 && <span className="num text-rose-700">Cr {fmtINR(r.credit)}</span>}
+                    </div>
+                    <span className={cn(
+                      'num font-semibold whitespace-nowrap',
+                      r.balance > 0 ? 'text-emerald-700' : r.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                    )}>
+                      {fmtINR(Math.abs(r.balance))}{' '}
+                      <span className="text-[10px] font-normal">
+                        {r.balance > 0.005 ? 'Dr' : r.balance < -0.005 ? 'Cr' : ''}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 mt-2">
+                    {isBusy ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-ink-mute" />
+                    ) : isEditing ? (
+                      <button type="button" onClick={cancelEdit} className="btn-ghost text-xs" title="Cancel">
+                        <X className="w-3.5 h-3.5" /> Cancel
+                      </button>
+                    ) : isPayment && r.payment ? (
+                      <>
+                        <button type="button" onClick={() => startEdit(r.payment as PaymentRow)} className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50" title="Edit date / ledger / reference / notes">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => void reRecord(r.payment as PaymentRow)} className="p-1.5 rounded text-amber-600 hover:bg-amber-50" title="Change amount / re-allocate (reopens in New Payment)">
+                          <IndianRupee className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => void deletePayment(r.payment as PaymentRow)} className="p-1.5 rounded text-rose-600 hover:bg-rose-50" title="Delete payment (will restore affected bill balances)">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : r.href ? (
+                      <Link href={r.href} className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 inline-flex items-center gap-1 text-xs" title="View source bill">
+                        <ExternalLink className="w-4 h-4" /> View bill
+                      </Link>
+                    ) : null}
+                  </div>
+                  {isEditing && r.payment && (
+                    <div className="mt-3 pt-3 border-t border-indigo-100">
+                      <PaymentEditFields
+                        date={editDate}        setDate={setEditDate}
+                        ledger={editLedger}    setLedger={setEditLedger}
+                        ref_={editRef}         setRef={setEditRef}
+                        notes={editNotes}      setNotes={setEditNotes}
+                        modeLedgers={modeLedgers}
+                        busy={isBusy}
+                        onSave={() => void saveEdit(r.source_id)}
+                        onCancel={cancelEdit}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
@@ -2013,7 +2088,80 @@ function StatusTab(): React.ReactElement {
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-2">
+            {ledger.map((r) => {
+              const isPayment = r.kind === 'payment_in' || r.kind === 'payment_out';
+              const isEditing = isPayment && editingId === r.source_id;
+              const isBusy    = isPayment && busyRowId === r.source_id;
+              return (
+                <div key={r.key} className={cn('card p-3', isEditing && 'ring-1 ring-indigo-200')}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-ink-soft">{r.voucher_no}</div>
+                      {r.party_link_id != null ? (
+                        <Link href={`/app/payments?party=${r.party_link_id}`} className="font-semibold text-ink hover:text-indigo hover:underline break-words">
+                          {r.party_label ?? '—'}
+                        </Link>
+                      ) : (
+                        <span className={cn('font-semibold break-words', r.party_label ? 'text-ink' : 'text-ink-mute italic')}>
+                          {r.party_label ?? '—'}
+                        </span>
+                      )}
+                      <div className="text-xs text-ink-soft break-words">
+                        {r.description}
+                        {r.payment?.reference && <span className="text-ink-mute"> · {r.payment.reference}</span>}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-ink-soft whitespace-nowrap shrink-0">{fmtDate(r.date)}</div>
+                  </div>
+                  <div className="flex gap-3 mt-2 text-xs">
+                    {r.debit > 0 && <span className="num text-emerald-700">Dr {fmtINR(r.debit)}</span>}
+                    {r.credit > 0 && <span className="num text-rose-700">Cr {fmtINR(r.credit)}</span>}
+                  </div>
+                  <div className="flex items-center gap-1 mt-2">
+                    {isBusy ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-ink-mute" />
+                    ) : isEditing ? (
+                      <button type="button" onClick={cancelEdit} className="btn-ghost text-xs" title="Cancel">
+                        <X className="w-3.5 h-3.5" /> Cancel
+                      </button>
+                    ) : isPayment && r.payment ? (
+                      <>
+                        <button type="button" onClick={() => startEdit(r.payment as PaymentRow)} className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50" title="Edit date / ledger / reference / notes">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => void reRecord(r.payment as PaymentRow)} className="p-1.5 rounded text-amber-600 hover:bg-amber-50" title="Change amount / re-allocate (reopens in New Payment)">
+                          <IndianRupee className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => void deletePayment(r.payment as PaymentRow)} className="p-1.5 rounded text-rose-600 hover:bg-rose-50" title="Delete payment (restores affected bill balances)">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : r.href ? (
+                      <Link href={r.href} className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 inline-flex items-center gap-1 text-xs" title="View source bill">
+                        <ExternalLink className="w-4 h-4" /> View bill
+                      </Link>
+                    ) : null}
+                  </div>
+                  {isEditing && r.payment && (
+                    <div className="mt-3 pt-3 border-t border-indigo-100">
+                      <PaymentEditFields
+                        date={editDate}        setDate={setEditDate}
+                        ledger={editLedger}    setLedger={setEditLedger}
+                        ref_={editRef}         setRef={setEditRef}
+                        notes={editNotes}      setNotes={setEditNotes}
+                        modeLedgers={modeLedgers}
+                        busy={isBusy}
+                        onSave={() => void saveEdit(r.source_id)}
+                        onCancel={cancelEdit}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>

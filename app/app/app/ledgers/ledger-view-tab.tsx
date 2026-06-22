@@ -51,6 +51,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Combobox, type ComboOption } from '@/app/components/combobox';
+import { CardFilter } from '@/app/components/card-filter';
 
 interface LedgerOpt {
   id: number;
@@ -767,7 +768,73 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
               )}
             </div>
           </div>
-          <div className="overflow-x-auto">
+          {/* Mobile / PWA: card view. The running-balance table is wide;
+              below md each transaction renders as a tap-friendly card. The
+              table is hidden on mobile and shown from md upward. */}
+          <div className="p-3 md:hidden">
+            <CardFilter placeholder="Search transactions…">
+              {ledger.map((r) => (
+                <div key={r.key} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-ink break-words">
+                        {r.voucher}
+                        {r.source !== 'payment' && (
+                          <span className={cn(
+                            'ml-1 pill text-[9px]',
+                            r.source === 'wage'    ? 'bg-amber-50 text-amber-700'
+                            : r.source === 'expense' ? 'bg-violet-50 text-violet-700'
+                            : r.source === 'bill'  ? 'bg-indigo-50 text-indigo-700'
+                            : r.source === 'bank'  ? 'bg-sky-50 text-sky-700'
+                                                   : 'bg-cloud text-ink-soft',
+                          )}>
+                            {r.source === 'bill'
+                              ? (r.bill_kind ?? 'bill')
+                              : r.source === 'bank'
+                                ? (r.bill_kind === 'bank_in' ? 'bank in' : 'bank out')
+                                : r.source}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-ink-soft mt-0.5">{fmtDate(r.date)}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                      <div className={cn(
+                        'num font-semibold',
+                        r.balance > 0 ? 'text-emerald-700' : r.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                      )}>
+                        {fmtINR(r.balance)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-ink-soft mt-2">
+                    {r.counterparty}
+                    {r.mode && r.mode !== '-' && <span className="text-ink-mute"> · {r.mode}</span>}
+                  </div>
+                  {r.reference && (
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      <span className="text-ink-mute">Ref: </span>{r.reference}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-4 mt-2 pt-2 border-t border-line/40 text-xs">
+                    <span>
+                      <span className="text-ink-mute">Debit: </span>
+                      <span className="num text-emerald-700">{r.inflow > 0 ? fmtINR(r.inflow) : '-'}</span>
+                    </span>
+                    <span>
+                      <span className="text-ink-mute">Credit: </span>
+                      <span className="num text-rose-700">{r.outflow > 0 ? fmtINR(r.outflow) : '-'}</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </CardFilter>
+          </div>
+
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>

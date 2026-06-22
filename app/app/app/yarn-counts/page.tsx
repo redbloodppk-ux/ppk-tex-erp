@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
 type RecordStatus = 'active' | 'inactive' | 'archived';
@@ -371,7 +372,127 @@ export default function YarnCountsPage() {
           No counts yet. Add your first one above.
         </div>
       ) : (
-        <div className="card p-5 space-y-3">
+        <>
+        {/* Mobile / PWA: card view. The counts grid is wide; below md we
+            render each count as a tap-friendly editable card. The table is
+            hidden on mobile. */}
+        <CardFilter placeholder="Search counts…">
+          {rows.map((c) => (
+            <div key={c.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-mono text-xs font-semibold text-ink break-words">{c.code}</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {busyId === c.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
+                  <button
+                    type="button"
+                    className="p-1 rounded hover:bg-red-50 text-red-600"
+                    title="Delete this count"
+                    onClick={() => deleteRow(c.id, c.code)}
+                    disabled={busyId === c.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-2">
+                <label className="label">Display name</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  value={c.display_name}
+                  onChange={(e) => updateRow(c.id, { display_name: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <label className="label">Type</label>
+                  <select
+                    className="input w-full"
+                    value={c.yarn_type}
+                    onChange={(e) => updateRow(c.id, { yarn_type: e.target.value as YarnType })}
+                  >
+                    <option value="cotton">Cotton</option>
+                    <option value="polyester">Polyester</option>
+                    <option value="blend">Blend</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Kind</label>
+                  <select
+                    className="input w-full"
+                    value={c.default_yarn_kind}
+                    onChange={(e) => updateRow(c.id, { default_yarn_kind: e.target.value as 'yarn' | 'porvai' })}
+                    title="Routes the count to either the Yarn Stock page or the Porvai Yarn Stock page."
+                  >
+                    <option value="yarn">Yarn</option>
+                    <option value="porvai">Porvai</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Ne</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className="input num w-full"
+                    value={c.ne ?? ''}
+                    disabled={c.yarn_type === 'polyester'}
+                    onChange={(e) => updateRow(c.id, { ne: e.target.value === '' ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Denier</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className="input num w-full"
+                    value={c.denier ?? ''}
+                    disabled={c.yarn_type === 'cotton'}
+                    onChange={(e) => updateRow(c.id, { denier: e.target.value === '' ? null : Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-2">
+                <span className="text-ink-mute">Nec: </span><span className="num">{c.nec_computed ?? '-'}</span>
+              </div>
+
+              <div className="flex items-center gap-4 mt-2 pt-2 border-t border-line/40 flex-wrap">
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={c.is_doubled}
+                    onChange={(e) => updateRow(c.id, { is_doubled: e.target.checked })}
+                  />
+                  <span className="text-xs text-ink-soft">2-ply</span>
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={c.is_slub}
+                    onChange={(e) => updateRow(c.id, { is_slub: e.target.checked })}
+                  />
+                  <span className="text-xs text-ink-soft">Slub</span>
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={c.status === 'active'}
+                    onChange={(e) => updateRow(c.id, { status: e.target.checked ? 'active' : 'inactive' })}
+                  />
+                  <span className="text-xs text-ink-soft">
+                    {c.status === 'active' ? 'Active' : 'Inactive'}
+                  </span>
+                </label>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card p-5 space-y-3 hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -512,6 +633,7 @@ export default function YarnCountsPage() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

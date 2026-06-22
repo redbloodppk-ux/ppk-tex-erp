@@ -15,6 +15,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { DeleteExpenseButton } from './delete-expense-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Expenses' };
 export const dynamic = 'force-dynamic';
@@ -134,7 +135,54 @@ export default async function ExpensesPage({
         </div>
       </div>
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide expense table forces
+          horizontal scrolling on a phone, so below md we render each
+          entry as a tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search expenses…">
+        {rows.length ? rows.map((r) => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <span className="pill bg-slate-100 text-slate-700">{r.category}</span>
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Pay date: </span><span className="num">{r.pay_date}</span>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] uppercase tracking-wide text-ink-mute">Amount</div>
+                <div className="num font-semibold text-base">{formatRupee(Number(r.amount))}</div>
+              </div>
+            </div>
+            {r.notes && (
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Notes: </span>{r.notes}
+              </div>
+            )}
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+              <Link
+                href={`/app/expenses/${r.id}`}
+                className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                title="Edit this expense"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Link>
+              <DeleteExpenseButton
+                id={r.id}
+                label={`${r.category} ${formatRupee(Number(r.amount))}`}
+              />
+            </div>
+          </div>
+        )) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No expense entries yet.{' '}
+            <Link href="/app/expenses/new" className="text-indigo font-semibold">
+              Add the first one →
+            </Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

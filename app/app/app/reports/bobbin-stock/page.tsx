@@ -13,6 +13,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Bobbin Stock Report' };
 export const dynamic = 'force-dynamic';
@@ -125,7 +126,31 @@ export default async function BobbinStockReportPage() {
       {rows.length === 0 ? (
         <div className="card p-6 text-sm text-ink-soft">No in-house bobbins in the master yet.</div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search bobbins…">
+          {rows.map((r) => (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-mono font-semibold text-ink break-words">{r.code}</div>
+                <div className="text-right shrink-0">
+                  <span className={'num font-bold text-base ' + (r.balance_m < 0 ? 'text-rose-700' : 'text-emerald-700')}>{fmt(r.balance_m)}</span>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">balance (m)</div>
+                </div>
+              </div>
+              <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <div>Ends: <span className="num">{r.ends}</span></div>
+                <div>m / pc: <span className="num">{fmt(r.per, 0)}</span></div>
+                <div>Opening (m): <span className="num">{fmt(r.opening_m)}</span></div>
+                <div>Purchased (pcs): <span className="num text-emerald-700">{fmt(r.purchased_pcs, 0)}</span></div>
+                <div>Purchased (m): <span className="num text-emerald-700">+ {fmt(r.purchased_m)}</span></div>
+                <div>Consumed (m): <span className="num text-rose-700">{'\u2212'} {fmt(r.consumed_m)}</span></div>
+                <div>Returned (pcs): <span className="num text-amber-700">{fmt(r.returned_pcs, 0)}</span></div>
+                <div>Spools on hand: <span className={'num font-semibold ' + (r.spools_on_hand < 0 ? 'text-rose-700' : '')}>{fmt(r.spools_on_hand, 1)}</span></div>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[980px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -179,6 +204,7 @@ export default async function BobbinStockReportPage() {
             </tfoot>
           </table>
         </div>
+        </>
       )}
     </div>
   );

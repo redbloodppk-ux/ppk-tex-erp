@@ -20,6 +20,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { AlertTriangle, BadgeCheck, Users, Clock } from 'lucide-react';
 
@@ -353,7 +354,63 @@ export default async function CustomerAgeingPage({
           Nothing to show with current filters.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The ageing table is wide; below md each
+            customer becomes a tap-friendly card. */}
+        <CardFilter placeholder="Search customers…">
+          {rows.map((r) => (
+            <div
+              key={r.customer_id ?? r.code ?? r.name ?? Math.random()}
+              className="card p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">
+                    {r.name ?? '—'}
+                  </div>
+                  <div className="text-xs text-ink-mute mt-0.5">
+                    {r.code ?? '—'}
+                    {r.city ? ` · ${r.city}` : ''}
+                    {r.payment_terms_days != null
+                      ? ` · ${r.payment_terms_days}d terms`
+                      : ''}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {r.is_vip && (
+                      <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                        VIP
+                      </span>
+                    )}
+                    {r.over_credit_limit && (
+                      <span className="text-[10px] uppercase tracking-wide bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                        Over limit
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                  <div className="num font-semibold text-base">{fmtRupees(r.total_outstanding)}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-ink-soft mt-2 pt-2 border-t border-line/40">
+                <div>0-30: <span className="num">{fmtRupees(r.bucket_0_30)}</span></div>
+                <div className={(r.bucket_31_60 ?? 0) > 0 ? 'text-amber-700' : ''}>31-60: <span className="num">{fmtRupees(r.bucket_31_60)}</span></div>
+                <div className={(r.bucket_61_90 ?? 0) > 0 ? 'text-amber-700' : ''}>61-90: <span className="num">{fmtRupees(r.bucket_61_90)}</span></div>
+                <div className={(r.bucket_90_plus ?? 0) > 0 ? 'text-red-600' : ''}>90+: <span className="num">{fmtRupees(r.bucket_90_plus)}</span></div>
+                <div className={(r.overdue_amount ?? 0) > 0 ? 'text-amber-700' : ''}>Overdue: <span className="num">{fmtRupees(r.overdue_amount)}</span></div>
+                <div>Open inv: <span className="num">{r.open_invoice_count ?? 0}</span></div>
+                <div>Oldest: <span className="num">{r.oldest_age_days != null ? `${r.oldest_age_days}d` : '—'}</span></div>
+                {r.last_payment_date ? (
+                  <div className="col-span-2">Last paid: {fmtDate(r.last_payment_date)} · {fmtDaysSince(r.last_payment_date)}</div>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase text-ink-mute border-b border-line">
               <tr>
@@ -451,6 +508,7 @@ export default async function CustomerAgeingPage({
             </tfoot>
           </table>
         </div>
+        </>
       )}
     </div>
   );

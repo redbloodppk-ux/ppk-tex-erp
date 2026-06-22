@@ -16,6 +16,7 @@ import { formatDate } from '@/lib/utils';
 import { AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { fetchNotifications, type NotificationItem } from '@/lib/notifications/source';
 import { ClearAllButton } from './clear-all-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Notifications' };
 export const dynamic = 'force-dynamic';
@@ -109,7 +110,39 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
           </div>
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The wide notification table forces
+            horizontal scrolling on a phone, so below md we render each
+            notification as a tap-friendly card. The table is hidden on mobile. */}
+        <CardFilter placeholder="Search notifications…">
+          {items.map((it) => (
+            <div key={it.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm text-ink break-words">{it.title}</div>
+                  {it.body && <div className="text-xs text-ink-mute mt-0.5 break-words">{it.body}</div>}
+                </div>
+                <div className="shrink-0">
+                  <SeverityPill severity={it.severity} />
+                </div>
+              </div>
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Source: </span>{KIND_LABEL[it.kind]}
+                <span className="text-ink-mute"> · When: </span>{formatDate(it.occurred_at, 'long')}
+              </div>
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                <Link
+                  href={it.link}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700"
+                >
+                  Act on it <ChevronRight className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -147,6 +180,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-[11px] text-ink-mute mt-4">

@@ -9,6 +9,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Users } from 'lucide-react';
@@ -160,7 +161,38 @@ export default async function AttendanceByRoleReport({
           No attendance has been marked in {fmtMonth(month)} yet.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search roles…">
+          {rows.map(r => {
+            const pct = r.present_pct ?? 0;
+            return (
+              <div key={r.employee_role ?? ''} className="card p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-ink capitalize break-words">{r.employee_role ?? '—'}</div>
+                  <span className="text-xs tabular-nums text-ink-soft shrink-0">{r.employee_count ?? 0} people</span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="flex-1 h-2 bg-cloud/60 rounded overflow-hidden">
+                    <div
+                      className={`h-full ${pctTone(pct)}`}
+                      style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                    />
+                  </div>
+                  <span className="text-xs tabular-nums w-12 text-right">{pct.toFixed(1)}%</span>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Present: <span className="tabular-nums text-emerald-700">{r.present_count ?? 0}</span></div>
+                  <div>Absent: <span className="tabular-nums text-rose-700">{r.absent_count ?? 0}</span></div>
+                  <div>Half day: <span className="tabular-nums text-amber-700">{r.half_day_count ?? 0}</span></div>
+                  <div>Late: <span className="tabular-nums text-orange-700">{r.late_count ?? 0}</span></div>
+                  <div>Early leave: <span className="tabular-nums text-sky-700">{r.early_leave_count ?? 0}</span></div>
+                  <div>Shifts: <span className="tabular-nums">{r.shifts_marked ?? 0}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -226,6 +258,7 @@ export default async function AttendanceByRoleReport({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

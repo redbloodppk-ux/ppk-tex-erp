@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 
@@ -341,7 +342,151 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
           No opening entries yet. Add your first one above.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. Below md each opening entry renders as a
+            card with the same Edit / Delete actions and inline edit form. The
+            table is hidden on mobile and shown from md upward. */}
+        <CardFilter placeholder="Search opening entries…">
+          {rows.map((r) => {
+            const p = partyById.get(r.party_id);
+            const partyLabel = p
+              ? `${p.code ? `${p.code} — ` : ''}${p.name}`
+              : `Party #${r.party_id}`;
+            if (editingId === r.id) {
+              const isSaving = busyEditId === r.id;
+              return (
+                <div key={r.id} className="card p-3 space-y-2 bg-amber-50/40">
+                  <div className="font-medium text-ink-soft text-sm">
+                    {partyLabel}
+                    <span className="text-[10px] text-ink-mute ml-1">party locked</span>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <div>
+                      <label className="label text-xs">Direction</label>
+                      <select
+                        className="input h-8 text-xs"
+                        value={editForm.direction}
+                        onChange={(e) => setEditForm({ ...editForm, direction: e.target.value as 'receivable' | 'payable' })}
+                      >
+                        <option value="receivable">Receivable</option>
+                        <option value="payable">Payable</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label text-xs">Invoice date</label>
+                      <input
+                        type="date"
+                        className="input h-8 text-xs"
+                        value={editForm.invoice_date}
+                        onChange={(e) => setEditForm({ ...editForm, invoice_date: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label text-xs">Invoice no</label>
+                    <input
+                      className="input h-8 text-xs font-mono"
+                      value={editForm.invoice_no}
+                      onChange={(e) => setEditForm({ ...editForm, invoice_no: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">Bill amount (₹)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className="input num h-8 text-xs text-right w-32"
+                      value={editForm.amount}
+                      onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">Notes</label>
+                    <input
+                      className="input h-8 text-xs"
+                      value={editForm.notes}
+                      onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    />
+                  </div>
+                  <div className="text-xs text-ink-mute num">
+                    Paid {fmtMoney(r.amount_paid)} (locked) · Balance {fmtMoney(r.balance)} (auto)
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 pt-2 border-t border-line/40">
+                    <button
+                      type="button"
+                      onClick={() => saveEdit(r.id)}
+                      disabled={isSaving}
+                      className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold disabled:opacity-50"
+                      title="Save"
+                    >
+                      {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      disabled={isSaving}
+                      className="inline-flex items-center gap-1 text-xs text-ink-soft disabled:opacity-50"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" /> Cancel
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            const dirCls = r.direction === 'receivable'
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-rose-50 text-rose-700';
+            return (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium break-words">{partyLabel}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{r.invoice_no}</div>
+                  </div>
+                  <span className={'inline-block px-2 py-0.5 rounded text-[10px] uppercase shrink-0 ' + dirCls}>
+                    {r.direction === 'receivable' ? 'Receivable' : 'Payable'}
+                  </span>
+                </div>
+                <div className="text-xs text-ink-soft mt-1">{r.invoice_date}</div>
+                <div className="flex items-end justify-between mt-2 text-xs">
+                  <div className="text-ink-soft">
+                    <div>Amount: <span className="num font-semibold text-ink">{fmtMoney(r.amount)}</span></div>
+                    <div>Paid: <span className="num">{fmtMoney(r.amount_paid)}</span></div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                    <div className="num font-semibold">{fmtMoney(r.balance)}</div>
+                  </div>
+                </div>
+                {r.notes && <div className="text-xs text-ink-soft mt-1">{r.notes}</div>}
+                <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(r)}
+                    disabled={editingId !== null || deletingId === r.id}
+                    className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold disabled:opacity-30"
+                    title="Edit"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteRow(r.id, `${r.invoice_no} for ${partyLabel}`)}
+                    disabled={deletingId === r.id || editingId !== null}
+                    className="inline-flex items-center gap-1 text-xs text-rose-600 font-semibold disabled:opacity-30"
+                    title="Delete (soft)"
+                  >
+                    {deletingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[10px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -489,6 +634,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
             Delete soft-deletes the row (status=&apos;cancelled&apos;) so the audit trail stays intact. Rows already partially settled by payments keep their amount_paid value untouched.
           </p>
         </div>
+        </>
       )}
     </div>
   );

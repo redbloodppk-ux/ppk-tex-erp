@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 
 interface ExpenseCategory {
@@ -143,7 +144,51 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
         {error && <p className="text-sm text-err mt-2">{error}</p>}
       </div>
 
-      <div className="card overflow-x-auto max-w-xl">
+      {/* Mobile / PWA: card view. Below md each category renders as a card
+          with the same inline rename + toggle + delete actions. The table is
+          hidden on mobile and shown from md upward. */}
+      <CardFilter placeholder="Search categories…" className="max-w-xl">
+        {loading ? (
+          <div className="card p-6 text-center text-sm text-ink-mute">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="card p-6 text-center text-sm text-ink-soft">No categories yet. Add one above.</div>
+        ) : rows.map((r) => (
+          <div key={r.id} className="card p-3">
+            <input
+              className="input"
+              defaultValue={r.name}
+              onBlur={(e) => {
+                if (e.target.value.trim() !== r.name) {
+                  void rename(r.id, e.target.value);
+                }
+              }}
+            />
+            <div className="flex items-center justify-between gap-4 mt-3 pt-2 border-t border-line/40">
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={r.is_active}
+                  onChange={(e) => void toggleActive(r.id, e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <span className="text-xs text-ink-soft">
+                  {r.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => void hardDelete(r.id, r.name)}
+                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                title="Permanently delete (only if never used)"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </CardFilter>
+
+      <div className="card overflow-x-auto max-w-xl hidden md:block">
         <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

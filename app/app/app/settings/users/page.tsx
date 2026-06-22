@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { requireOwner, NotOwnerError } from '@/lib/auth/require-owner';
 import { Pencil, Plus, ShieldAlert, UserCheck, UserX } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Settings → Users & Roles' };
 export const dynamic = 'force-dynamic';
@@ -145,7 +146,54 @@ export default async function UsersAndRolesPage() {
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The users table is wide; below md each
+          teammate renders as a tap-friendly card. The table is hidden on
+          mobile and shown from md upward. */}
+      <CardFilter placeholder="Search users…">
+        {rows.length ? rows.map((r) => {
+          const sp = statusPill(r.status);
+          return (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">{r.full_name}</div>
+                  <div className="text-xs text-ink-soft mt-0.5 break-words">{r.email}</div>
+                </div>
+                <span className={`pill ${sp.cls} text-xs uppercase tracking-wide shrink-0`}>{sp.label}</span>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={`inline-block px-2 py-0.5 rounded border ${rolePill(r.role)} text-[11px] font-semibold uppercase tracking-wide`}>
+                  {ROLE_LABEL[r.role] ?? r.role}
+                </span>
+                {r.phone && <span className="text-xs num text-ink-soft">{r.phone}</span>}
+              </div>
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Last login:</span> {fmtDate(r.last_login)}
+              </div>
+
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                <Link
+                  href={`/app/settings/users/${r.id}`}
+                  className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                  title="Edit user"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </Link>
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No teammates yet.{' '}
+            <Link href="/app/settings/users/new" className="text-indigo-700 font-semibold underline">
+              Invite the first user &rarr;
+            </Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[860px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

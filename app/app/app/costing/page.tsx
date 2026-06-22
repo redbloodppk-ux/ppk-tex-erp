@@ -6,6 +6,7 @@ import { formatRupee } from '@/lib/utils';
 import { Plus, Calculator, ClipboardCheck, Pencil } from 'lucide-react';
 import { CostingActiveToggle } from '@/app/components/costing-active-toggle';
 import { CostingDeleteButton } from '@/app/components/costing-delete-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Fabric Costing' };
 
@@ -123,7 +124,66 @@ export default async function CostingPage({
       {masterList.length === 0 ? (
         <ComingSoon note="No costing entries yet. Use the Quick Calc to play with numbers, or click New Costing to save one." />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The costing table is wide; below md we
+            render each costing as a tap-friendly card. The table is hidden
+            on mobile. */}
+        <CardFilter placeholder="Search costings…">
+          {masterList.map((r) => {
+            const c = costById.get(r.id);
+            return (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/app/costing/${r.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                      {r.quality_name ?? '-'}
+                    </Link>
+                    <Link href={`/app/costing/${r.id}`} className="block font-mono text-xs text-indigo-700 hover:text-indigo-900 underline decoration-dotted mt-0.5">
+                      {r.quality_code ?? '-'}
+                    </Link>
+                  </div>
+                  <span className={`pill shrink-0 ${r.approval_status === 'approved'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : r.approval_status === 'rejected'
+                      ? 'bg-rose-50 text-rose-700'
+                      : 'bg-amber-50 text-amber-700'}`}>
+                    {r.approval_status ?? '-'}
+                  </span>
+                </div>
+
+                <div className="text-xs text-ink-soft mt-2 uppercase">
+                  {r.fabric_type ?? '-'} · {r.production_mode ?? '-'}
+                </div>
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Width: </span><span className="num">{r.fabric_width_in ?? '-'}</span>
+                  {' · '}<span className="text-ink-mute">GSM: </span><span className="num">{r.gsm ?? '-'}</span>
+                </div>
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">Quoted: </span>
+                  <span className="num text-indigo-700 font-semibold">{c ? formatRupee(c.quoted_cost_per_m, { decimals: 2 }) : '-'}</span>
+                  {' · '}<span className="text-ink-mute">True: </span>
+                  <span className="num text-amber-700 font-semibold">{c ? formatRupee(c.true_cost_per_m, { decimals: 2 }) : '-'}</span>
+                </div>
+
+                <div className="flex items-center justify-between mt-3 pt-2 border-t border-line/40">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/app/costing/${r.id}?mode=construction`}
+                      className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900 font-semibold"
+                      title="Edit construction (rates locked)"
+                    >
+                      <Pencil className="w-3 h-3" /> Edit
+                    </Link>
+                    <CostingDeleteButton id={r.id} code={r.quality_code} />
+                  </div>
+                  <CostingActiveToggle id={r.id} initialActive={r.status === 'active'} />
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -191,6 +251,7 @@ export default async function CostingPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

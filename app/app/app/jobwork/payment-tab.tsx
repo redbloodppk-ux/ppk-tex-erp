@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Wallet } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 interface BillRow {
   id: number;
@@ -220,7 +221,76 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
           No {billLabel}s yet. Create one from <span className="font-mono">/app/invoices/new/jobwork-bill</span>.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The wide bill table forces horizontal
+            scrolling on a phone, so below md we render each bill as a
+            tap-friendly card. The table below is hidden on mobile. */}
+        <CardFilter placeholder="Search bills…">
+          {bills.map((b) => {
+            const paid = Number(b.amount_paid ?? 0);
+            const due  = Number(b.balance ?? (Number(b.total ?? 0) - paid));
+            const chip = statusChip(b.status, due);
+            const ps = historyByBill.get(b.id) ?? [];
+            return (
+              <div key={b.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-mono text-xs font-semibold text-ink break-words">{b.invoice_no}</span>
+                    <div className="text-sm font-medium mt-0.5 break-words">
+                      {b.jobwork_party_id != null ? (partiesMap.get(b.jobwork_party_id) ?? '-') : '-'}
+                    </div>
+                  </div>
+                  <span className={'inline-block px-2 py-0.5 rounded text-[11px] font-semibold shrink-0 ' + chip.cls}>
+                    {chip.label}
+                  </span>
+                </div>
+
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Date: </span>{fmtDate(b.invoice_date)}
+                </div>
+
+                <div className="flex items-end justify-between mt-2">
+                  <div className="text-xs text-ink-soft">
+                    <div>Bill total: <span className="num font-semibold">{fmtRs(b.total)}</span></div>
+                    <div>Paid: <span className="num text-emerald-700">{fmtRs(paid)}</span></div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                    <div className={'num font-semibold text-base ' + (due > 0 ? 'text-rose-700' : 'text-emerald-700')}>{fmtRs(due)}</div>
+                  </div>
+                </div>
+
+                {ps.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-line/40">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute mb-1">Payment history</div>
+                    <ul className="space-y-0.5 text-xs">
+                      {ps.map((p) => (
+                        <li key={p.key} className="flex flex-wrap items-center gap-2">
+                          <span>{fmtDate(p.payment_date)}</span>
+                          <span className="font-mono text-ink-soft">{p.payment_no}</span>
+                          <span className="capitalize">{(p.mode ?? '-').replace('_', ' ')}</span>
+                          {p.reference && <span className="text-ink-soft">· {p.reference}</span>}
+                          <span className="num font-semibold ml-auto">{fmtRs(p.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {due > 0 && (
+                  <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                    <button type="button" onClick={() => gotoPayments(b)} className="btn-primary text-xs"
+                      title="Opens the Payments page with this party pre-selected">
+                      <Wallet className="w-3.5 h-3.5" /> Record payment
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -304,6 +374,7 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -25,6 +25,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Cog, Activity, Pause } from 'lucide-react';
@@ -227,7 +228,44 @@ export default async function LoomUtilisationReport() {
           them.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search looms…">
+          {rows.map((r, i) => {
+            const idle = Number(r.batch_count ?? 0) === 0;
+            const rejTone = rejectionTone(r.rejection_pct);
+            return (
+              <div key={r.loom_id ?? i} className={`card p-3 ${idle ? 'opacity-60' : ''}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{r.loom_code ?? '—'}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      {r.loom_type ?? '—'}{r.width_in != null ? ` · ${fmtNum(r.width_in, 0)}" wide` : ''}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="num font-semibold text-base">{fmtNum(r.total_produced_m, 0)}</span>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">produced m</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>
+                    Batches: <span className="num font-semibold">{fmtNum(r.batch_count)}</span>
+                    {Number(r.running_batches ?? 0) > 0 && (
+                      <span className="text-emerald-700 ml-1">({fmtNum(r.running_batches)} running)</span>
+                    )}
+                  </div>
+                  <div>Rejected m: <span className="num">{fmtNum(r.total_rejected_m, 0)}</span></div>
+                  <div>Reject %: <span className={`num ${toneClass(rejTone)}`}>{fmtPct(r.rejection_pct)}</span></div>
+                  <div>Active days: <span className="num">{fmtNum(r.active_days)}</span></div>
+                  <div>m / day: <span className="num">{fmtNum(r.m_per_active_day, 0)}</span></div>
+                  <div>Avg m / batch: <span className="num">{fmtNum(r.avg_m_per_batch, 0)}</span></div>
+                  <div className="col-span-2">Last finished: {fmtDate(r.last_batch_end)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -306,6 +344,7 @@ export default async function LoomUtilisationReport() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-4">

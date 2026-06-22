@@ -10,6 +10,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarDays, CalendarOff } from 'lucide-react';
@@ -208,7 +209,30 @@ export default async function DailyAttendanceReport({
             : 'No attendance has been marked for this date yet.'}
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search employees…">
+          {rows.map((r, i) => (
+            <div key={`${r.employee_id}-${r.shift}-${i}`} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">{r.employee_name ?? '—'}</div>
+                  <div className="text-xs text-ink-mute">{r.employee_code ?? '—'}</div>
+                </div>
+                <span
+                  className={`text-xs font-semibold shrink-0 ${r.status ? STATUS_TONE[r.status] : ''}`}
+                >
+                  {r.status ? STATUS_LABEL[r.status] : '—'}
+                </span>
+              </div>
+              <div className="text-xs text-ink-soft mt-2 space-y-1">
+                <div>Shift: <span className="capitalize text-ink">{r.shift}</span></div>
+                <div>Role: <span className="capitalize text-ink">{r.employee_role ?? '—'}</span></div>
+                {r.entry_remark && <div>Remark: <span className="text-ink">{r.entry_remark}</span></div>}
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -252,6 +276,7 @@ export default async function DailyAttendanceReport({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

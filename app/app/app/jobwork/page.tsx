@@ -61,6 +61,7 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
 
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
+import { CardFilter } from '@/app/components/card-filter';
 
 type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'payment' | 'weavers';
 
@@ -488,7 +489,57 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
         </Link>
       </div>
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide weaver table forces
+          horizontal scrolling on a phone, so below md we render each
+          weaver as a tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search weavers…">
+        {parties.length ? parties.map((p) => {
+          const x = extra.get(p.id);
+          return (
+            <div key={p.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link href={`/app/jobwork-parties/${p.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                    {p.name}
+                  </Link>
+                  <div className="font-mono text-xs text-ink-soft mt-0.5">{p.code}</div>
+                </div>
+                <Link
+                  href={`/app/jobwork-parties/${p.id}`}
+                  className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold shrink-0"
+                  title="Edit weaver"
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Edit
+                </Link>
+              </div>
+              {x?.gstin && (
+                <div className="text-xs mt-1">
+                  <span className="text-ink-mute">GSTIN: </span><span className="font-mono">{x.gstin}</span>
+                </div>
+              )}
+              {x?.phone && (
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Phone: </span>{x.phone}
+                </div>
+              )}
+              {x?.city && (
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">City: </span>{x.city}
+                </div>
+              )}
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No Outsource Weaver parties yet.{' '}
+            <Link href="/app/jobwork-parties/new?kind=outsource" className="text-indigo font-semibold">
+              Add the first one &rarr;
+            </Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[800px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

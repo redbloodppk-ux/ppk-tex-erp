@@ -19,6 +19,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   FileText,
@@ -446,7 +447,78 @@ export default async function PurchaseRegisterReport({
           No supplier bills in this window with the current filters.
         </div>
       ) : rows.length > 0 ? (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The register table is very wide; below
+            md we render each bill as a tap-friendly card. */}
+        <CardFilter placeholder="Search bills…">
+          {rows.map((r, i) => {
+            const withoutGst = r.gst_flag === 'without_gst';
+            return (
+              <div
+                key={`${r.source}-${r.source_id ?? i}`}
+                className={`card p-3 ${withoutGst ? 'bg-slate-50/40' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words font-mono text-sm">
+                      {r.bill_no ?? '—'}
+                    </div>
+                    <div className="text-xs text-ink-soft mt-0.5">
+                      {r.party_name ?? '—'}
+                      {r.party_code ? (
+                        <span className="ml-1 text-ink-mute">({r.party_code})</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border shrink-0 ${sourceTone(r.source)}`}
+                  >
+                    {sourceLabel(r.source)}
+                  </span>
+                </div>
+
+                <div className="text-xs text-ink-soft mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span>{fmtDate(r.bill_date)}</span>
+                  <span className={statusTone(r.status)}>{r.status ?? '—'}</span>
+                  {r.party_state ? (
+                    <span>
+                      {r.party_state}
+                      {r.is_interstate ? (
+                        <span className="ml-1 text-amber-700">(IS)</span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </div>
+                {r.party_gstin ? (
+                  <div className="text-xs mt-1">
+                    <span className="text-ink-mute">GSTIN: </span>
+                    <span className="font-mono">{r.party_gstin}</span>
+                  </div>
+                ) : null}
+
+                <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                  <div className="text-xs text-ink-soft">
+                    <div>
+                      Qty: <span className="num">{fmtNum(r.quantity, 2)}</span>{' '}
+                      <span className="text-ink-mute">{r.qty_uom ?? ''}</span>
+                    </div>
+                    <div>Taxable: <span className="num">{fmtRupees(r.taxable, 2)}</span></div>
+                    <div>GST: <span className="num">{fmtRupees(Number(r.cgst_amount ?? 0) + Number(r.sgst_amount ?? 0) + Number(r.igst_amount ?? 0), 2)}</span></div>
+                    {Number(r.balance ?? 0) > 0 ? (
+                      <div className="text-rose-700">Balance: <span className="num">{fmtRupees(r.balance, 2)}</span></div>
+                    ) : null}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                    <div className="num font-semibold text-base">{fmtRupees(r.total, 0)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -592,6 +664,7 @@ export default async function PurchaseRegisterReport({
             </tfoot>
           </table>
         </div>
+        </>
       ) : null}
 
       <p className="text-xs text-ink-mute mt-4">

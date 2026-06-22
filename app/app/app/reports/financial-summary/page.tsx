@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Wallet, Boxes } from 'lucide-react';
 
 export const metadata = { title: 'Financial Summary' };
@@ -185,7 +186,40 @@ export default async function FinancialSummaryReport({ searchParams }: PageProps
         {partyRows.length === 0 ? (
           <p className="text-sm text-ink-soft">No open balances as of {asOf}.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile / PWA: card view. Below md each party becomes a
+              tap-friendly card. */}
+          <CardFilter placeholder="Search parties…">
+            {partyRows.map((r) => {
+              const recv = Number(r.receivable ?? 0);
+              const pay = Number(r.payable ?? 0);
+              const net = recv - pay;
+              return (
+                <div key={r.party_id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-ink break-words">{r.party_name}</div>
+                      {r.party_code ? (
+                        <div className="font-mono text-xs text-ink-mute mt-0.5">{r.party_code}</div>
+                      ) : null}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] uppercase tracking-wide text-ink-mute">Net</div>
+                      <div className={'num font-semibold text-base ' + (net >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
+                        {net >= 0 ? '+' : ''}{fmtINR(net)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 text-xs text-ink-soft mt-2 pt-2 border-t border-line/40">
+                    <div className="text-emerald-700">Receivable: <span className="num">{recv > 0 ? fmtINR(recv) : '—'}</span></div>
+                    <div className="text-rose-700">Payable: <span className="num">{pay > 0 ? fmtINR(pay) : '—'}</span></div>
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft border-b border-line/60">
                 <tr>
@@ -226,6 +260,7 @@ export default async function FinancialSummaryReport({ searchParams }: PageProps
               </tfoot>
             </table>
           </div>
+          </>
         )}
       </section>
 

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { DeleteInvoiceButton } from './delete-invoice-button';
 import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Invoices' };
 
@@ -162,7 +163,7 @@ export default async function InvoicesPage({
       {/* Mobile / PWA: card view. The invoice table is wide; on a phone we
           show each invoice as a tap-friendly card instead. Hidden from md up,
           where the full table below takes over. */}
-      <div className="md:hidden space-y-2">
+      <CardFilter placeholder="Search invoices…">
         {invoices?.length ? invoices.map((inv: any) => {
           const gst = Number(inv.cgst_amount) + Number(inv.sgst_amount) + Number(inv.igst_amount);
           const partyName = inv.customer?.name
@@ -263,7 +264,7 @@ export default async function InvoicesPage({
             </Link>
           </div>
         )}
-      </div>
+      </CardFilter>
 
       <div className="card overflow-hidden hidden md:block">
         <div className="overflow-x-auto">

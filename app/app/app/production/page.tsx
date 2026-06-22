@@ -15,6 +15,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { ProductionBatchDeleteButton } from '@/app/components/production-batch-delete-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Production' };
 export const dynamic = 'force-dynamic';
@@ -112,7 +113,91 @@ export default async function ProductionPage() {
             No production batches yet. Once a loom finishes a beam, record the batch here.
           </div>
         ) : (
-          <div className="card p-0 overflow-x-auto">
+          <>
+          {/* Mobile / PWA: card view. The batch table is wide; on a phone we
+              show each batch as a tap-friendly card. Hidden from md up, where
+              the full table below takes over. */}
+          <CardFilter placeholder="Search batches…">
+            {batches.map((b) => {
+              const v = varianceByBatch.get(b.id);
+              const variancePerM = v?.variance_per_m ?? null;
+              const hasVariance = variancePerM !== null;
+              const isOverrun = hasVariance && Number(variancePerM) > 0.01;
+              const isSaving = hasVariance && Number(variancePerM) < -0.01;
+              return (
+                <div key={b.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/app/production/${b.id}/edit`}
+                        className="font-mono font-semibold text-ink hover:text-indigo break-words"
+                      >
+                        {b.batch_code}
+                      </Link>
+                      <div className="text-xs text-ink-soft mt-0.5">
+                        {b.costing ? (
+                          <>
+                            <span className="font-semibold">{b.costing.quality_code}</span>
+                            <span className="text-ink-mute"> — {b.costing.quality_name}</span>
+                          </>
+                        ) : (
+                          <span className="text-ink-mute">—</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] uppercase tracking-wide text-ink-mute">Produced</div>
+                      <div className="num font-semibold text-base">{Number(b.produced_m).toFixed(0)} m</div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-ink-soft mt-2">
+                    <span className="text-ink-mute">Loom: </span>
+                    <span className="font-mono">{b.loom?.loom_code ?? '—'}</span>
+                    <span className="mx-1">·</span>
+                    {b.start_date ?? '—'} → {b.end_date ?? 'open'}
+                  </div>
+                  {showTrueCost && b.actual_true_cost_per_m != null && (
+                    <div className="text-xs mt-1">
+                      <span className="text-ink-mute">True rupees/m: </span>
+                      <span className="num">₹{Number(b.actual_true_cost_per_m).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {showVariance && hasVariance && (
+                    <div className="text-xs mt-1">
+                      <span className="text-ink-mute">Sizing variance: </span>
+                      {isOverrun ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700">
+                          <AlertTriangle className="w-3 h-3" />
+                          +₹{Number(variancePerM).toFixed(2)}/m
+                        </span>
+                      ) : isSaving ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <CheckCircle2 className="w-3 h-3" />
+                          ₹{Number(variancePerM).toFixed(2)}/m
+                        </span>
+                      ) : (
+                        <span className="text-ink-soft">on plan</span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                    <Link
+                      href={`/app/production/${b.id}/edit`}
+                      className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                      title="Edit this batch"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </Link>
+                    <ProductionBatchDeleteButton id={b.id} code={b.batch_code} />
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+
+          <div className="card p-0 overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
                 <tr>
@@ -199,6 +284,7 @@ export default async function ProductionPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

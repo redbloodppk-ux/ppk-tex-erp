@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import { Calendar, ArrowUpRight, Inbox } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Saved Weekly Snapshots' };
 export const dynamic = 'force-dynamic';
@@ -118,7 +119,58 @@ export default async function SnapshotsIndexPage(): Promise<React.ReactElement> 
           </Link>
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <>
+        {/* Mobile / PWA: card view. The snapshots table is wide; on a phone
+            we show each saved week as a tap-friendly card. Hidden from md up,
+            where the full table below takes over. */}
+        <CardFilter placeholder="Search snapshots…">
+          {rows.map((r) => (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link
+                    href={`/app/wages/weekly?week=${r.week_start}`}
+                    className="font-semibold text-ink hover:text-indigo break-words"
+                  >
+                    W{String(r.week_no).padStart(2, '0')} · {prettyRange(r.week_start, r.week_end)}
+                  </Link>
+                  <div className="font-mono text-[11px] text-ink-mute mt-0.5">{r.fy_label}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Net cash out</div>
+                  <div className="num font-semibold text-base">{formatRupee(r.totals.net_cash_out ?? 0)}</div>
+                </div>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-2 grid grid-cols-3 gap-2">
+                <div>
+                  <span className="text-ink-mute">Wages</span>
+                  <div className="num">{formatRupee(r.totals.wages ?? 0)}</div>
+                </div>
+                <div>
+                  <span className="text-ink-mute">Advances</span>
+                  <div className="num">{formatRupee(r.totals.advances ?? 0)}</div>
+                </div>
+                <div>
+                  <span className="text-ink-mute">Expenses</span>
+                  <div className="num">{formatRupee(r.totals.expenses ?? 0)}</div>
+                </div>
+              </div>
+              <div className="text-[11px] text-ink-soft mt-2">Saved {prettyDateTime(r.created_at)}</div>
+
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                <Link
+                  href={`/app/wages/weekly?week=${r.week_start}`}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand"
+                >
+                  Open <ArrowUpRight className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-hidden hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-haze/60 text-xs uppercase tracking-wide text-ink-soft">
@@ -172,6 +224,7 @@ export default async function SnapshotsIndexPage(): Promise<React.ReactElement> 
             Showing {rows.length} {rows.length === 1 ? 'snapshot' : 'snapshots'} (most recent 200).
           </div>
         </div>
+        </>
       )}
     </div>
   );

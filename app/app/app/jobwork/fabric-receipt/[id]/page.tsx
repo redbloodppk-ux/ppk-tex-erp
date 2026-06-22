@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { EditReceiptButton } from './edit-button';
 import { DeleteReceiptButton } from './delete-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -207,7 +208,52 @@ export default async function FabricReceiptDetailPage({
       <StockSnapshotCard snapshot={hdr.stock_snapshot} />
 
       {/* Items */}
-      <div className="card overflow-x-auto mb-4">
+      {/* Mobile / PWA: card view. The items table is wide; on a phone we
+          show each item as a tap-friendly card. Hidden from md up, where the
+          full table below takes over. */}
+      <div className="md:hidden mb-2">
+        <h2 className="font-display font-bold text-sm mb-2">Items</h2>
+      </div>
+      <CardFilter placeholder="Search items…" className="mb-4">
+        {items.length === 0 ? (
+          <div className="card p-6 text-center text-sm text-ink-soft">No items.</div>
+        ) : items.map((it) => (
+          <div key={it.id} className="card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-ink break-words">{it.quality?.code ?? '-'}</div>
+                {it.quality?.name && <div className="text-xs text-ink-soft mt-0.5">{it.quality.name}</div>}
+                <div className="text-[11px] text-ink-mute mt-0.5">SNo {it.sno}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] uppercase tracking-wide text-ink-mute">Received</div>
+                <div className="num font-semibold text-base text-indigo-700">{fmtNum(it.received_metres)} m</div>
+                {it.entry_mode === 'pcs' && it.length_per_pc != null && (
+                  <div className="text-[10px] text-ink-mute font-normal">
+                    = {it.no_of_pieces ?? 0} pcs &times; {fmtNum(it.length_per_pc)} m
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
+              <div><span className="text-ink-mute">Ends: </span><span className="num">{it.ends_count_snapshot ?? 'nil'}</span></div>
+              <div><span className="text-ink-mute">Pieces: </span><span className="num">{it.no_of_pieces ?? 0}</span></div>
+              {Number(it.weft_consumed_kg ?? 0) > 0 && (
+                <div className="text-rose-700"><span className="text-ink-mute">Weft: </span><span className="num">&minus;{fmtNum(it.weft_consumed_kg)} kg</span></div>
+              )}
+              {Number(it.porvai_consumed_kg ?? 0) > 0 && (
+                <div className="text-rose-700"><span className="text-ink-mute">Porvai: </span><span className="num">&minus;{fmtNum(it.porvai_consumed_kg)} kg</span></div>
+              )}
+              {Number(it.bobbin_consumed_pcs ?? 0) > 0 && (
+                <div className="text-rose-700"><span className="text-ink-mute">Bobbin: </span><span className="num">&minus;{fmtNum(it.bobbin_consumed_pcs)} m</span></div>
+              )}
+            </div>
+          </div>
+        ))}
+      </CardFilter>
+
+      <div className="card overflow-x-auto mb-4 hidden md:block">
         <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
           <h2 className="font-display font-bold text-sm">Items</h2>
         </div>

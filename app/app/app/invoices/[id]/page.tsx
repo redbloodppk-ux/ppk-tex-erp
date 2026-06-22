@@ -25,6 +25,7 @@ import { EditInvoiceLines, type InvoiceLineRow } from './edit-invoice-lines';
 import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 import { EwaybillCard } from './ewaybill-card';
 import { DeleteInvoiceButton } from '../delete-invoice-button';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -332,7 +333,41 @@ export default async function InvoiceDetailPage({
 
       {/* ───── Linked DCs (for jobwork bills) ───── */}
       {linkedDcs.length > 0 && (
-        <div className="card overflow-x-auto mb-4">
+        <>
+        {/* Mobile / PWA: card view. Below md each linked DC renders as a
+            tap-friendly card. The table is hidden on mobile and shown from
+            md upward. */}
+        <div className="mb-4">
+          <h2 className="font-display font-bold text-sm mb-2">Linked Delivery Challans</h2>
+          <CardFilter placeholder="Search challans…">
+            {linkedDcs.map((d) => (
+              <div key={d.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/app/delivery-challan/${d.id}`} className="font-mono text-xs font-semibold text-indigo hover:underline break-words">
+                      {d.code}
+                    </Link>
+                    <div className="text-xs text-ink-soft mt-0.5">{fmtDate(d.dc_date)}</div>
+                  </div>
+                  <Link
+                    href={`/app/delivery-challan/${d.id}/print`}
+                    target="_blank"
+                    className="text-xs text-indigo hover:underline shrink-0"
+                  >
+                    Print
+                  </Link>
+                </div>
+                <div className="text-xs text-ink-soft mt-2">
+                  <span className="text-ink-mute">Metres:</span> <span className="num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                  {' · '}<span className="text-ink-mute">Pcs:</span> <span className="num">{d.total_pieces ?? 0}</span>
+                  {' · '}<span className="text-ink-mute">Bundles:</span> <span className="num">{d.total_bundles ?? 0}</span>
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+        </div>
+
+        <div className="card overflow-x-auto mb-4 hidden md:block">
           <div className="px-4 py-3 border-b border-line/60 bg-cloud/40">
             <h2 className="font-display font-bold text-sm">Linked Delivery Challans</h2>
           </div>
@@ -371,6 +406,7 @@ export default async function InvoiceDetailPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ───── Money summary ───── */}

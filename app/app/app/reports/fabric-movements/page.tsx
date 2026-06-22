@@ -22,6 +22,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import { formatMetres, formatRupee } from '@/lib/utils';
 import type { ExcelColumn } from '@/lib/xlsx';
@@ -551,7 +552,83 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
           the party / quality filter.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search movements…">
+          {rows.map((r) => {
+            let pill = LINEAGE_STATUS_PILL[r.status];
+            if (r.direction === 'out' && r.source_kind === 'jobwork') {
+              pill = { label: 'Jobwork Return', cls: 'bg-amber-50 text-amber-700' };
+            } else if (
+              r.direction === 'out' &&
+              r.source_kind === 'outsource' &&
+              r.status === 'draft_dc'
+            ) {
+              pill = { label: 'Outsource Send', cls: 'bg-indigo-50 text-indigo-700' };
+            }
+            return (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    {r.quality_id != null ? (
+                      <Link
+                        href={`/app/warehouse/fabric/${r.quality_id}`}
+                        className="font-semibold text-indigo-700 hover:underline break-words"
+                        title="Open per-quality stock ledger"
+                      >
+                        {r.quality_code}
+                      </Link>
+                    ) : (
+                      <div className="font-semibold text-ink break-words">{r.quality_code}</div>
+                    )}
+                    {r.quality_name && (
+                      <div className="text-[10px] text-ink-mute">{r.quality_name}</div>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span
+                      className={
+                        'num font-semibold ' +
+                        (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-600')
+                      }
+                    >
+                      {(r.direction === 'in' ? '+ ' : '\u2212 ') + formatMetres(r.metres, 1)}
+                    </span>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">metres</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 space-y-1">
+                  <div>Date: <span className="num">{fmtDate(r.event_date)}</span></div>
+                  <div className="inline-flex items-center gap-1">
+                    Source:
+                    <span
+                      className={
+                        'inline-block w-1.5 h-1.5 rounded-full ' +
+                        (r.direction === 'in' ? 'bg-emerald-500' : 'bg-rose-500')
+                      }
+                    />
+                    {SOURCE_KIND_LABEL[r.source_kind]} · {r.direction === 'in' ? 'IN' : 'OUT'}
+                  </div>
+                  <div>Party: <span className="text-ink">{r.party_name}</span></div>
+                  {r.dc_id != null && (
+                    <div>DC: <Link href={`/app/delivery-challan/${r.dc_id}`} className="font-mono text-indigo-700 hover:underline">{r.dc_code ?? '—'}</Link></div>
+                  )}
+                  {r.receipt_id != null && (
+                    <div>Receipt: <Link href={`/app/jobwork/fabric-receipt/${r.receipt_id}`} className="font-mono text-indigo-700 hover:underline">{r.receipt_code ?? '—'}</Link></div>
+                  )}
+                  {r.invoice_id != null && (
+                    <div>Invoice: <Link href={`/app/invoices/${r.invoice_id}`} className="font-mono text-indigo-700 hover:underline">{r.invoice_no ?? `#${r.invoice_id}`}</Link></div>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <span className={`pill ${pill.cls} text-[11px] uppercase tracking-wide`}>
+                    {pill.label}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[960px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -680,6 +757,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-[11px] text-ink-mute mt-4">

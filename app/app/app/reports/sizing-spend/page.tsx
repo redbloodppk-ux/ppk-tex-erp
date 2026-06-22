@@ -21,6 +21,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
@@ -220,7 +221,30 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
       {months.length === 0 ? (
         <EmptyCard text="No sizing jobs billed in this window yet." />
       ) : (
-        <div className="card p-0 overflow-x-auto mb-8">
+        <>
+        <CardFilter placeholder="Search months…">
+          {months.map((m, i) => {
+            const prev = months[i + 1];
+            const trend = trendBetween(m.effective_rate_per_kg, prev?.effective_rate_per_kg ?? null);
+            return (
+              <div key={m.period_start ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-ink break-words">{fmtMonth(m.period_start)}</div>
+                  <div className="text-right shrink-0">
+                    <span className="num font-semibold text-base">{fmtRupees(m.total_spend)}</span>
+                    <div className="mt-0.5"><TrendBadge trend={trend} /></div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Jobs: <span className="num">{fmtNum(m.jobs_count)}</span></div>
+                  <div>Yarn kg: <span className="num">{fmtNum(m.total_yarn_kg, 1)}</span></div>
+                  <div>Effective ₹/kg: <span className="num">{m.effective_rate_per_kg != null ? fmtRupees(m.effective_rate_per_kg, 2) : '—'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto mb-8 hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -270,6 +294,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ─────────────── Vendor table ─────────────── */}
@@ -286,7 +311,36 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
       {vendors.length === 0 ? (
         <EmptyCard text="No vendor spend yet." />
       ) : (
-        <div className="card p-0 overflow-x-auto mb-8">
+        <>
+        <CardFilter placeholder="Search vendors…">
+          {vendors.map((v, i) => {
+            const isCheapest = v.effective_rate_per_kg != null && v.effective_rate_per_kg === cheapestRate(vendors);
+            return (
+              <div key={v.vendor_id ?? i} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{v.vendor_name}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{v.vendor_code}</div>
+                  </div>
+                  <div className="num font-semibold text-base shrink-0">{fmtRupees(v.total_spend)}</div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Jobs: <span className="num">{fmtNum(v.jobs_count)}</span></div>
+                  <div>Yarn kg: <span className="num">{fmtNum(v.total_yarn_kg, 1)}</span></div>
+                  <div className="col-span-2">
+                    Effective ₹/kg:{' '}
+                    <span className={isCheapest ? 'inline-flex items-center gap-1 text-emerald-700 font-semibold num' : 'num'}>
+                      {isCheapest && <CheckCircle2 className="w-3 h-3" />}
+                      {v.effective_rate_per_kg != null ? fmtRupees(v.effective_rate_per_kg, 2) : '—'}
+                    </span>
+                  </div>
+                  <div className="col-span-2">Window: {v.first_job_date ?? '—'} → {v.last_job_date ?? '—'}</div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto mb-8 hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -346,6 +400,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ─────────────── Variance table ─────────────── */}
@@ -362,7 +417,40 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
       {variances.length === 0 ? (
         <EmptyCard text="No batches with a measurable sizing variance yet. (Variance appears once a batch is linked to a pavu_assign and the sizing job has billing.)" />
       ) : (
-        <div className="card p-0 overflow-x-auto mb-8">
+        <>
+        <CardFilter placeholder="Search batches…">
+          {variances.map((v) => {
+            const per = v.variance_per_m;
+            const overrun = per != null && Number(per) > 0.01;
+            const saving = per != null && Number(per) < -0.01;
+            return (
+              <div key={v.batch_id ?? v.batch_code} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-ink break-words">{v.batch_code}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{v.sizing_job_code ?? '—'}</div>
+                  </div>
+                  <div className="text-right text-xs shrink-0">
+                    {overrun ? (
+                      <span className="inline-flex items-center gap-1 text-amber-700 font-semibold"><AlertTriangle className="w-3 h-3" />+{fmtRupees(per, 2)}</span>
+                    ) : saving ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold"><CheckCircle2 className="w-3 h-3" />{fmtRupees(per, 2)}</span>
+                    ) : (
+                      <span className="text-ink-soft">on plan</span>
+                    )}
+                    <div className="num mt-0.5">{v.variance_total != null ? fmtRupees(v.variance_total, 0) : '—'}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <div>Produced m: <span className="num">{fmtNum(v.produced_m)}</span></div>
+                  <div>Planned ₹/m: <span className="num">{v.planned_sizing_cost_per_m != null ? fmtRupees(v.planned_sizing_cost_per_m, 2) : '—'}</span></div>
+                  <div>Actual ₹/m: <span className="num">{v.actual_sizing_cost_per_m != null ? fmtRupees(v.actual_sizing_cost_per_m, 2) : '—'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto mb-8 hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -430,6 +518,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

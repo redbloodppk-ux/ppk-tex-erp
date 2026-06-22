@@ -5,6 +5,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { SizingJobDeleteButton } from './sizing-job-delete-button';
 import { SizingPaymentTab } from './sizing-payment-tab';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Sizing Jobs' };
 
@@ -184,7 +185,81 @@ export default async function SizingListPage({ searchParams }: PageProps) {
             </div>
           )}
 
-          <div className="card overflow-x-auto">
+          {/* Mobile / PWA: card view. The wide jobs table forces
+              horizontal scrolling on a phone, so below md we render each
+              job as a tap-friendly card. The table below is hidden on mobile. */}
+          <CardFilter placeholder="Search sizing jobs…">
+            {jobsRes.data?.length ? jobsRes.data.map((j: any) => {
+              const balance = Number(j.yarn_sent_kg) - Number(j.yarn_used_kg);
+              return (
+                <div key={j.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link href={`/app/sizing/${j.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                        {j.job_code}
+                      </Link>
+                      <div className="text-sm font-medium mt-0.5 break-words">{j.sizing_vendor?.name ?? '—'}</div>
+                    </div>
+                    <span className={`pill ${STATUS_STYLE[j.status] ?? 'bg-slate-100 text-slate-700'} shrink-0`}>
+                      {j.status.replace('_', ' ')}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Set No: </span><span className="font-mono">{j.set_no ?? '—'}</span>
+                    <span className="text-ink-mute"> · Count: </span><span className="font-mono">{j.warp_count?.code ?? '—'}</span>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Yarn Supplier: </span>{j.yarn_supplier?.name ?? '—'}
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Beams: </span><span className="num">{j.no_of_paavu}</span>
+                    <span className="text-ink-mute"> · Total Warp (m): </span>
+                    <span className="num">{(warpMetresByJob.get(j.id) ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Yarn (sent → bal): </span>
+                    <span className="num">{Number(j.yarn_sent_kg).toFixed(1)}</span>
+                    <span className="text-ink-mute"> → </span>
+                    <span className={'num ' + (balance < 0 ? 'text-rose-600 font-semibold' : 'text-emerald-700 font-semibold')}>
+                      {balance.toFixed(1)}
+                    </span>
+                  </div>
+                  {j.date_received && (
+                    <div className="text-xs text-ink-soft mt-1">
+                      <span className="text-ink-mute">Recv: </span>{j.date_received}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                    <Link
+                      href={`/app/sizing/${j.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                      title={`Edit ${j.job_code}`}
+                      aria-label={`Edit ${j.job_code}`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </Link>
+                    <SizingJobDeleteButton
+                      jobId={j.id}
+                      jobCode={j.job_code}
+                      yarnSentKg={Number(j.yarn_sent_kg ?? 0)}
+                      yarnLotId={j.yarn_lot_id ?? null}
+                    />
+                  </div>
+                </div>
+              );
+            }) : (
+              <div className="card p-6 text-center text-sm text-ink-soft">
+                No sizing jobs yet.{' '}
+                <Link href="/app/sizing/new" className="text-indigo font-semibold">
+                  Create the first one →
+                </Link>
+              </div>
+            )}
+          </CardFilter>
+
+          <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
@@ -282,7 +357,63 @@ export default async function SizingListPage({ searchParams }: PageProps) {
             </div>
           )}
 
-          <div className="card overflow-x-auto">
+          {/* Mobile / PWA: card view. The wide bills table forces
+              horizontal scrolling on a phone, so below md we render each
+              bill as a tap-friendly card. The table below is hidden on mobile. */}
+          <CardFilter placeholder="Search sizing bills…">
+            {billsRes.data?.length ? billsRes.data.map((b: any) => (
+              <div key={b.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/app/sizing/${b.id}/bill`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                      {b.bill_no}
+                    </Link>
+                    <div className="text-sm font-medium mt-0.5 break-words">{b.sizing_vendor?.name ?? '—'}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                    <div className="num font-semibold text-base">₹ {fmtMoney(b.total_amount)}</div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Bill Date: </span>{fmtDate(b.bill_date)}
+                  <span className="text-ink-mute"> · Job: </span>
+                  <Link href={`/app/sizing/${b.id}`} className="font-mono text-indigo hover:underline">{b.job_code}</Link>
+                </div>
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Count: </span><span className="font-mono">{b.warp_count?.code ?? '—'}</span>
+                  <span className="text-ink-mute"> · Yarn Used (kg): </span><span className="num">{Number(b.yarn_used_kg ?? 0).toFixed(2)}</span>
+                </div>
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Rate (₹/kg): </span><span className="num">₹ {fmtMoney(b.sizing_rate_per_kg)}</span>
+                  <span className="text-ink-mute"> · Charges: </span><span className="num">₹ {fmtMoney(b.charges_amount)}</span>
+                  <span className="text-ink-mute"> · GST %: </span><span className="num">{Number(b.gst_pct ?? 0).toFixed(2)}</span>
+                </div>
+
+                <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                  <Link
+                    href={`/app/sizing/${b.id}/bill`}
+                    className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold"
+                    title={`Edit bill ${b.bill_no}`}
+                    aria-label={`Edit bill ${b.bill_no}`}
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </Link>
+                </div>
+              </div>
+            )) : (
+              <div className="card p-6 text-center text-sm text-ink-soft">
+                No sizing bills yet. Bills are recorded when a job is
+                saved with an invoice number and date — <Link
+                  href="/app/sizing/new"
+                  className="text-indigo font-semibold"
+                >create a new job →</Link>
+              </div>
+            )}
+          </CardFilter>
+
+          <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>

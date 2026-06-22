@@ -9,6 +9,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarOff } from 'lucide-react';
@@ -185,7 +186,32 @@ export default async function AttendanceHolidaysReport({
           shift marked as working.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <>
+        <CardFilter placeholder="Search non-working days…">
+          {rows.map((r, i) => {
+            const key = r.reason ?? 'other';
+            return (
+              <div key={`${r.attendance_date}-${r.shift}-${i}`} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-ink break-words">
+                    {r.attendance_date ? fmtDate(r.attendance_date) : '—'}
+                  </div>
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded shrink-0 ${REASON_TONE[key] ?? 'bg-cloud/60 text-ink-soft'}`}
+                  >
+                    {REASON_LABEL[key] ?? key}
+                  </span>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 space-y-1">
+                  <div>Shift: <span className="capitalize text-ink">{r.shift ?? '—'}</span></div>
+                  {r.remark && <div>Remark: <span className="text-ink">{r.remark}</span></div>}
+                  <div>Marked by: <span className="text-ink">{r.marked_by_name ?? '—'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+        <div className="card p-0 overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
               <tr>
@@ -229,6 +255,7 @@ export default async function AttendanceHolidaysReport({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

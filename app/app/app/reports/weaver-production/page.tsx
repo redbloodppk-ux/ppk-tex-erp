@@ -11,6 +11,7 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -325,8 +326,40 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
             </div>
           </div>
 
-          {/* Pivot table */}
-          <div className="card overflow-x-auto mb-6">
+          {/* Mobile: one card per weaver with each quality as a label/value
+              line. The wide pivot matrix below would force horizontal
+              scrolling on a phone. */}
+          <CardFilter placeholder="Search weavers…" className="mb-6">
+            {weavers.map((w) => (
+              <div key={w.employee_id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">{w.full_name}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">{w.code}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="num font-semibold text-base">{fmtNum(w.total)}</span>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-mute">total m</div>
+                  </div>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {qualities.map((q) => {
+                    const m = w.byQuality.get(q.code) ?? 0;
+                    if (m <= 0) return null;
+                    return (
+                      <div key={q.code} title={q.name}>
+                        {q.code === 'NO_QUALITY' ? 'No Quality' : q.code}: <span className="num">{fmtNum(m)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+          {/* Pivot table — a true weaver × quality matrix; columns scale with
+              the number of qualities in the week, so it stays a horizontally
+              scrollable table rather than cards. */}
+          <div className="card overflow-x-auto mb-6 hidden md:block">
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>

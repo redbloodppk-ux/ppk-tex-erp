@@ -5,6 +5,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, CheckCircle2 } from 'lucide-react';
 import { LedgerDeleteButton } from './delete-button';
 import { LedgerViewTab } from './ledger-view-tab';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Ledgers' };
 export const dynamic = 'force-dynamic';
@@ -203,7 +204,7 @@ export default async function LedgersPage({
               forces horizontal scrolling on a phone, so below md we render
               each ledger as a tap-friendly card instead. The table below is
               hidden on mobile and shown from md upward. */}
-          <div className="md:hidden space-y-2">
+          <CardFilter placeholder="Search ledgers…">
             {rows.length ? rows.map((r) => (
               <div key={r.id} className="card p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -251,7 +252,7 @@ export default async function LedgersPage({
                 <Link href="/app/ledgers" className="text-indigo font-semibold">Clear filters →</Link>
               </div>
             )}
-          </div>
+          </CardFilter>
 
           <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[720px]">

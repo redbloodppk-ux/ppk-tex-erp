@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2 } from 'lucide-react';
 
 const SHEDS = [1, 2, 3, 4] as const;
@@ -413,7 +414,104 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
     return <p className="text-sm text-ink-soft py-2">No looms in this shed yet.</p>;
   }
   return (
-    <div className="overflow-x-auto">
+    <>
+    {/* Mobile / PWA: card view. Below md each loom renders as a card with
+        the same inline editors. The table is hidden on mobile and shown
+        from md upward. */}
+    <CardFilter placeholder="Search looms…">
+      {rows.map((l) => (
+        <div key={l.id} className="card p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-medium">{l.loom_code}</div>
+            {busyId === l.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute shrink-0" />}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-[8rem]">
+              <label className="label text-xs">Type</label>
+              <input
+                type="text"
+                className="input w-full"
+                value={l.loom_type}
+                onChange={(e) => onUpdate(l.id, { loom_type: e.target.value })}
+              />
+            </div>
+            <div className="flex-1 min-w-[12rem]">
+              <label className="label text-xs">Fabric quality</label>
+              <select
+                className="input w-full"
+                value={l.fabric_quality_id ?? ''}
+                onChange={(e) =>
+                  onUpdate(l.id, { fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })
+                }
+              >
+                <option value="">— none —</option>
+                {qualities.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.code} · {q.name}
+                    {q.width_in != null ? ` (${q.width_in}in)` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <div>
+              <label className="label text-xs">Status</label>
+              <select
+                className="input w-36"
+                value={l.status}
+                onChange={(e) => onUpdate(l.id, { status: e.target.value })}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Shed</label>
+              <select
+                className="input w-28"
+                value={l.shed_no ?? ''}
+                onChange={(e) => onUpdate(l.id, { shed_no: Number(e.target.value) })}
+              >
+                {SHEDS.map((s) => (
+                  <option key={s} value={s}>Shed {s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Default /m</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input num w-24"
+                value={l.default_rate_per_m ?? ''}
+                onChange={(e) =>
+                  onUpdate(l.id, { default_rate_per_m: e.target.value === '' ? null : Number(e.target.value) })
+                }
+              />
+            </div>
+          </div>
+          {l.status !== 'running' && (
+            <div>
+              <label className="label text-xs">Idle since</label>
+              <input
+                type="date"
+                className="input w-40 text-xs"
+                value={l.idle_since ?? ''}
+                onChange={(e) =>
+                  onUpdate(l.id, { idle_since: e.target.value === '' ? null : e.target.value })
+                }
+                title="Shift log entries dated on or after this are locked for this loom."
+              />
+            </div>
+          )}
+        </div>
+      ))}
+    </CardFilter>
+
+    <div className="overflow-x-auto hidden md:block">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-line/60 text-left text-ink-mute">
@@ -523,5 +621,6 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }

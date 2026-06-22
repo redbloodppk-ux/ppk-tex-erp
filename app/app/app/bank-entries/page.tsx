@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, ArrowDownCircle, ArrowUpCircle, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Bank Entries' };
 export const dynamic = 'force-dynamic';
@@ -193,7 +194,69 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
         <div className="card p-3 mb-4 text-err text-sm">Could not load bank entries: {error.message}</div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide bank-entry table forces
+          horizontal scrolling on a phone, so below md we render each
+          entry as a tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search bank entries…">
+        {rows.length ? rows.map((r) => {
+          const pl = PL_PILL[r.pl_treatment];
+          return (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link href={`/app/bank-entries/${r.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                    {r.entry_no}
+                  </Link>
+                  <div className="text-xs text-ink-soft mt-0.5">
+                    {r.direction === 'in'
+                      ? <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold"><ArrowDownCircle className="w-3 h-3" /> IN</span>
+                      : <span className="inline-flex items-center gap-1 text-rose-700 font-semibold"><ArrowUpCircle className="w-3 h-3" /> OUT</span>}
+                    <span className="text-ink-mute"> · {fmtDate(r.entry_date)}</span>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className={'num font-semibold text-base ' + (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-700')}>
+                    {formatRupee(r.amount, { decimals: 2 })}
+                  </div>
+                  <span className={`pill ${pl.cls} text-[11px] mt-1 inline-block`}>{pl.label}</span>
+                </div>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Category: </span>{r.category_name}
+                <span className="font-mono text-[10px] text-ink-mute"> ({r.category_code})</span>
+              </div>
+              {r.bank_name && (
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Bank: </span>{r.bank_name}
+                </div>
+              )}
+              {r.other_name && (
+                <div className="text-xs text-ink-soft mt-1">
+                  <span className="text-ink-mute">Other Ledger: </span>{r.other_name}
+                </div>
+              )}
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Mode: </span><span className="uppercase">{r.mode}</span>
+                {r.reference && <span className="font-mono text-[10px] text-ink-mute"> · {r.reference}</span>}
+              </div>
+
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                <Link href={`/app/bank-entries/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit">
+                  <Pencil className="w-3.5 h-3.5" /> Edit
+                </Link>
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No bank entries match these filters.{' '}
+            <Link href="/app/bank-entries/new" className="text-indigo-700 font-semibold underline">Record the first one &rarr;</Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>

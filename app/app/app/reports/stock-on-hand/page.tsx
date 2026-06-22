@@ -18,6 +18,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
+import { CardFilter } from '@/app/components/card-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   Package,
@@ -477,7 +478,55 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
           No yarn counts match the current filters.
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. Below md each yarn count becomes a
+            tap-friendly card. */}
+        <CardFilter placeholder="Search yarn counts…">
+          {rows.map((r) => (
+            <div key={r.yarn_count_id ?? Math.random()} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink break-words">
+                    {r.display_name ?? '—'}
+                  </div>
+                  <div className="font-mono text-xs text-ink-mute mt-0.5">
+                    {r.code ?? '—'}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                    <span className={`text-xs px-2 py-0.5 rounded ${typeTone(r.yarn_type)}`}>
+                      {r.yarn_type ?? '—'}
+                    </span>
+                    <span className="text-xs text-ink-soft">{sizeLabel(r)}</span>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  {r.below_reorder ? (
+                    <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">Reorder</span>
+                  ) : Number(r.available_kg ?? 0) === 0 ? (
+                    <span className="text-xs px-2 py-0.5 rounded bg-cloud/60 text-ink-mute">Empty</span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">OK</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-end justify-between mt-2 pt-2 border-t border-line/40">
+                <div className="text-xs text-ink-soft">
+                  <div>Available: <span className="num">{fmtKg(r.available_kg, 1)}</span></div>
+                  <div>Avg cost: <span className="num">{r.weighted_avg_cost == null ? '—' : fmtRupees(r.weighted_avg_cost, 2)}</span>/kg</div>
+                  <div>Lots: <span className="num">{r.lots_count ?? 0}</span> · Oldest {fmtDate(r.oldest_lot_date)}</div>
+                  <div>Cover: <span className={`num ${daysTone(r.days_of_cover)}`}>{fmtDays(r.days_of_cover)}</span></div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Stock value</div>
+                  <div className="num font-semibold text-base">{fmtRupees(r.stock_value)}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/40 text-xs uppercase text-ink-mute">
               <tr>
@@ -572,6 +621,7 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
             </tfoot>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink-mute mt-3">

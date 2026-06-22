@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader, ComingSoon } from '@/app/components/page-header';
 import { formatKg, formatRupee, formatDate } from '@/lib/utils';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Yarn & Suppliers' };
 
@@ -39,7 +40,34 @@ export default async function YarnPage() {
       {!lots?.length ? (
         <ComingSoon note="No yarn lots yet. Use the Yarn Purchase form to enter incoming bales." />
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Mobile / PWA: card view. The yarn lots table is wide; below md
+            we render each lot as a tap-friendly card. The table is hidden
+            on mobile. */}
+        <CardFilter placeholder="Search yarn lots…">
+          {lots.map((l: any) => (
+            <div key={l.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-xs font-semibold text-ink break-words">{l.lot_code}</div>
+                  <div className="font-semibold text-ink mt-0.5">{l.yarn_count?.code ?? '—'}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="num font-semibold">{formatKg(l.current_kg)}</div>
+                  <div className="num text-xs text-ink-soft">{formatRupee(l.cost_per_kg, { decimals: 2 })}/kg</div>
+                </div>
+              </div>
+              <div className="text-xs text-ink-soft mt-2">
+                <span className="text-ink-mute">Supplier: </span>{l.supplier?.name ?? '—'}
+              </div>
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Received: </span>{formatDate(l.received_date)}
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -65,6 +93,7 @@ export default async function YarnPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

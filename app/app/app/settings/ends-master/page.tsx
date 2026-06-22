@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
@@ -341,7 +342,83 @@ export default function EndsMasterPage() {
           No ends specs yet. Add your first one above.
         </div>
       ) : (
-        <div className="card p-5 space-y-3">
+        <>
+        {/* Mobile / PWA: card view. Below md each ends spec renders as a
+            card with the same inline editors. The table is hidden on mobile
+            and shown from md upward. */}
+        <CardFilter placeholder="Search ends specs…">
+          {rows.map((r) => (
+            <div key={r.id} className="card p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium font-mono text-xs">{r.code}</div>
+                  <div className="font-semibold text-ink text-sm mt-0.5 break-words">{r.name}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {busyId === r.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
+                  <button
+                    type="button"
+                    className="p-1 rounded hover:bg-red-50 text-red-600"
+                    title="Delete this ends spec"
+                    onClick={() => deleteRow(r.id, r.code)}
+                    disabled={busyId === r.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <div>
+                  <label className="label text-xs">Ends</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step="1"
+                    className="input num w-24"
+                    value={r.ends_count}
+                    onChange={(e) => updateRow(r.id, { ends_count: Number(e.target.value) || 1 })}
+                  />
+                </div>
+                <div className="flex-1 min-w-[12rem]">
+                  <label className="label text-xs">Yarn count</label>
+                  <select
+                    className="input w-full"
+                    value={r.count_id === null ? '' : String(r.count_id)}
+                    onChange={(e) =>
+                      updateRow(r.id, { count_id: e.target.value === '' ? null : Number(e.target.value) })
+                    }
+                  >
+                    <option value="">--- none ---</option>
+                    {counts.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.code} - {c.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label text-xs">Notes</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  value={r.notes ?? ''}
+                  onChange={(e) => updateRow(r.id, { notes: e.target.value === '' ? null : e.target.value })}
+                />
+              </div>
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={r.active}
+                  onChange={(e) => updateRow(r.id, { active: e.target.checked })}
+                />
+                <span className="text-xs text-ink-soft">{r.active ? 'Active' : 'Inactive'}</span>
+              </label>
+            </div>
+          ))}
+        </CardFilter>
+
+        <div className="card p-5 space-y-3 hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -436,6 +513,7 @@ export default function EndsMasterPage() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

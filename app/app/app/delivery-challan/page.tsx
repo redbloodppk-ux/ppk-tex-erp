@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Printer, PackageCheck } from 'lucide-react';
+import { CardFilter } from '@/app/components/card-filter';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -163,7 +164,79 @@ export default async function DeliveryChallanListPage({
         <div className="card p-3 mb-4 text-err text-sm">Could not load DCs: {error.message}</div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile / PWA: card view. The wide DC table forces horizontal
+          scrolling on a phone, so below md we render each DC as a
+          tap-friendly card. The table below is hidden on mobile. */}
+      <CardFilter placeholder="Search DCs…">
+        {rows.length ? rows.map((r) => {
+          const pill = statusPill(r.status);
+          return (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link href={`/app/delivery-challan/${r.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                    {r.code}
+                  </Link>
+                  <div className="text-sm font-medium mt-0.5 break-words">{r.bill_to_name ?? '-'}</div>
+                </div>
+                <span className={`pill ${pill.cls} text-xs uppercase tracking-wide shrink-0`}>{pill.label}</span>
+              </div>
+
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Date: </span>{fmtDate(r.dc_date)}
+                <span className="text-ink-mute"> · Mode: </span><span className="capitalize">{r.production_mode}</span>
+              </div>
+              <div className="text-xs text-ink-soft mt-1">
+                <span className="text-ink-mute">Metres: </span><span className="num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                <span className="text-ink-mute"> · Pcs: </span><span className="num">{r.total_pieces ?? 0}</span>
+                <span className="text-ink-mute"> · Bundles: </span><span className="num">{r.total_bundles ?? 0}</span>
+              </div>
+
+              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                <Link
+                  href={`/app/delivery-challan/${r.id}/print`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold"
+                  title="View / Print / PDF"
+                >
+                  <Printer className="w-3.5 h-3.5" /> Print
+                </Link>
+                <Link href={`/app/delivery-challan/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit DC">
+                  <Pencil className="w-3.5 h-3.5" /> Edit
+                </Link>
+                {r.status !== 'cancelled' && r.fabric_receipt_id == null && (
+                  batchDcIds.has(r.id) ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs text-slate-300 cursor-not-allowed"
+                      title="Made from a production batch — no fabric receipt needed (avoids duplicating batch stock)"
+                      aria-disabled="true"
+                    >
+                      <PackageCheck className="w-3.5 h-3.5" /> Receive
+                    </span>
+                  ) : (
+                    <Link
+                      href={`/app/jobwork/fabric-receipt/new?dc=${r.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-amber-700 font-semibold"
+                      title="Create fabric receipt from this DC"
+                    >
+                      <PackageCheck className="w-3.5 h-3.5" /> Receive
+                    </Link>
+                  )
+                )}
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            {mode !== null
+              ? <>No {MODE_LABEL[mode].toLowerCase()} delivery challans yet. </>
+              : <>No delivery challans yet. </>}
+            <Link href={newDcHref} className="text-indigo font-semibold">Create the first one &rarr;</Link>
+          </div>
+        )}
+      </CardFilter>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
