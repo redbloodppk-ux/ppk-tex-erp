@@ -1314,7 +1314,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           {rows.length > 0 && (
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
-                <td colSpan={5} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                <td colSpan={6} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0), 0).toLocaleString('en-IN')} pcs
                 </td>
@@ -1327,7 +1327,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                 <td className="px-3 py-3 text-right num font-bold">
                   {rows.reduce((s, r) => s + (Number((r.original_quantity ?? r.quantity) ?? 0) - (returnedByBobbinId.get(r.id) ?? 0)), 0).toLocaleString('en-IN')}
                 </td>
-                <td colSpan={2} />
+                <td />
               </tr>
             </tfoot>
           )}
