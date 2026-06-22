@@ -771,7 +771,31 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
           {/* Mobile / PWA: card view. The running-balance table is wide;
               below md each transaction renders as a tap-friendly card. The
               table is hidden on mobile and shown from md upward. */}
-          <div className="p-3 md:hidden">
+          <div className="p-3 md:hidden space-y-3">
+            {/* Totals summary card — Total In / Out / Balance, matching the
+                pivot column cards. The table's tfoot totals are hidden on
+                mobile, so this surfaces the same figures up top. */}
+            <div className="card p-4">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total In</div>
+                  <div className="num text-sm text-emerald-700">{fmtINR(totals.inflow)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total Out</div>
+                  <div className="num text-sm text-rose-700">{fmtINR(totals.outflow)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Balance</div>
+                  <div className={cn(
+                    'num text-sm font-bold',
+                    totals.balance > 0 ? 'text-emerald-700' : totals.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                  )}>
+                    {fmtINR(totals.balance)}
+                  </div>
+                </div>
+              </div>
+            </div>
             <CardFilter placeholder="Search transactions…">
               {ledger.map((r) => (
                 <div key={r.key} className="card p-3">
