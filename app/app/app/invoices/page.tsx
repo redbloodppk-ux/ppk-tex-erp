@@ -159,7 +159,113 @@ export default async function InvoicesPage({
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      {/* Mobile / PWA: card view. The invoice table is wide; on a phone we
+          show each invoice as a tap-friendly card instead. Hidden from md up,
+          where the full table below takes over. */}
+      <div className="md:hidden space-y-2">
+        {invoices?.length ? invoices.map((inv: any) => {
+          const gst = Number(inv.cgst_amount) + Number(inv.sgst_amount) + Number(inv.igst_amount);
+          const partyName = inv.customer?.name
+            ?? inv.vendor?.name
+            ?? inv.jobwork_party?.name
+            ?? inv.party_name
+            ?? '—';
+          const partyWhatsApp = inv.customer?.whatsapp ?? inv.customer?.phone
+            ?? inv.jobwork_party?.whatsapp ?? inv.jobwork_party?.phone
+            ?? inv.vendor?.phone
+            ?? null;
+          const isReturn = inv.doc_type === 'debit_note' || inv.doc_type === 'credit_note';
+          const waMessage = [
+            `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
+            `Party: ${partyName}`,
+            `Date: ${inv.invoice_date}`,
+            `Total: Rs ${Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+          ].join('\n');
+          return (
+            <div key={inv.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <Link href={`/app/invoices/${inv.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
+                    {inv.invoice_no}
+                  </Link>
+                  <div className="mt-1">
+                    <span className={`pill ${DOC_PILL[inv.doc_type] ?? ''}`}>
+                      {DOC_LABEL[inv.doc_type] ?? inv.doc_type}
+                    </span>
+                  </div>
+                </div>
+                <span className={`pill shrink-0 ${STATUS_STYLE[inv.status] ?? ''}`}>
+                  {inv.status.replace('_', ' ')}
+                </span>
+              </div>
+
+              <div className="mt-2 text-sm">
+                <span className="font-semibold">{partyName}</span>
+                <span className="text-ink-soft text-xs"> · {inv.invoice_date}</span>
+              </div>
+              {commByInvoice.get(inv.id) && (
+                <div className="text-[10px] text-amber-700 mt-0.5">
+                  Agent: {commByInvoice.get(inv.id)!.agent} · ₹{commByInvoice.get(inv.id)!.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              )}
+
+              <div className="flex items-end justify-between mt-2">
+                <div className="text-xs text-ink-soft">
+                  <div>Taxable: <span className="num">{Number(inv.taxable_value).toFixed(2)}</span></div>
+                  <div>GST: <span className="num">{gst.toFixed(2)}</span></div>
+                  {!isReturn && (
+                    <div>Balance: <span className="num">{Number(inv.balance ?? 0).toFixed(2)}</span></div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total</div>
+                  <div className="num font-semibold text-base">
+                    ₹{Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 mt-3 pt-2 border-t border-line/40">
+                <WhatsAppShareButton phone={partyWhatsApp} message={waMessage} variant="icon" />
+                <Link
+                  href={`/app/invoices/${inv.id}/print`}
+                  target="_blank"
+                  className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex"
+                  title="View / Print / PDF"
+                >
+                  <Printer className="w-4 h-4" />
+                </Link>
+                <Link
+                  href={`/app/invoices/${inv.id}`}
+                  className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
+                  title="Edit invoice"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Link>
+                <DeleteInvoiceButton
+                  invoiceId={inv.id}
+                  invoiceNo={inv.invoice_no}
+                  variant="icon"
+                />
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="card p-6 text-center text-sm text-ink-soft">
+            No invoices in this view yet.{' '}
+            <Link
+              href={activeTab === 'jobwork_invoice'
+                ? '/app/invoices/new/jobwork-bill'
+                : `/app/invoices/new${activeTab !== 'all' ? `?type=${activeTab}` : ''}`}
+              className="text-indigo font-semibold"
+            >
+              Create one →
+            </Link>
+          </div>
+        )}
+      </div>
+
+      <div className="card overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
