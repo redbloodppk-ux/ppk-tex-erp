@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect } from '@/app/components/search-select';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 interface BeamRow {
@@ -481,7 +482,42 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
           No warp beam purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
         </div>
       ) : (
-        <div className="card overflow-hidden">
+       <>
+        {/* Mobile card view (with search) */}
+        <CardFilter placeholder="Search purchases…">
+          {rows.map((r) => (
+            <div key={r.id} className="card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-xs text-ink-mute">{r.code ?? '-'}</div>
+                  <div className="font-semibold">{qualityLabel(r.fabric_quality_id)}</div>
+                  <div className="text-xs text-ink-mute">{fmtDate(r.purchase_date)}</div>
+                </div>
+                <div className="num font-semibold text-emerald-700 shrink-0">Rs {fmtMoney(Number(r.total_amount))}</div>
+              </div>
+              <div className="text-xs text-ink-soft mt-1">{supplierLabel(r.supplier_party_id)}</div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div><div className="text-ink-mute">Ends</div><div>{endsLabel(r.ends_id)}</div></div>
+                <div><div className="text-ink-mute">Yarn count</div><div>{countLabel(r.yarn_count_id)}</div></div>
+                <div><div className="text-ink-mute">GST %</div><div className="num">{Number(r.gst_pct)}</div></div>
+                <div><div className="text-ink-mute">Metre</div><div className="num">{fmtMoney(Number(r.metres))}</div></div>
+                <div><div className="text-ink-mute">Rate / m</div><div className="num">{fmtMoney(Number(r.rate_per_metre))}</div></div>
+              </div>
+              <div className="mt-3 flex items-center justify-end gap-2 border-t border-line/40 pt-2">
+                <button type="button" className="btn-secondary text-xs" onClick={() => openEditForm(r)}>
+                  <Pencil className="w-3.5 h-3.5" /> Edit
+                </button>
+                <button type="button" className="p-1.5 rounded hover:bg-rose-50 text-rose-600"
+                  title="Delete" onClick={() => deleteRow(r.id, r.code)}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </CardFilter>
+
+        {/* Desktop table view */}
+        <div className="card overflow-hidden hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -528,6 +564,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
             </tbody>
           </table>
         </div>
+       </>
       )}
     </div>
   );

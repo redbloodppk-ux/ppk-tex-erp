@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
+import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 
 type YarnKind = 'yarn' | 'porvai';
@@ -673,12 +674,59 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
           No purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
         </div>
       ) : (
-        // The history table has 15 columns; `overflow-hidden` was
-        // clipping the rightmost Actions cell so the Edit / Delete
-        // buttons appeared half-cut on narrow viewports. Switching
-        // to `overflow-x-auto` lets the user scroll horizontally
-        // while still keeping the card's rounded corners.
-        <div className="card overflow-x-auto">
+       <>
+        {/* Mobile card view (with search) */}
+        <CardFilter placeholder="Search purchases…">
+          {rows.map((l) => {
+            const comm = commByLot.get(l.id);
+            const overdue = l.due_date !== null && l.due_date < todayISO();
+            return (
+              <div key={l.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <button type="button" onClick={() => openEditForm(l)}
+                      className="font-semibold text-indigo-700 hover:underline text-left truncate">
+                      {l.invoice_no ?? '(no invoice)'}
+                    </button>
+                    <div className="text-xs text-ink-mute font-mono">{l.lot_code} · {fmtDate(l.received_date)}</div>
+                  </div>
+                  <div className="num font-semibold text-emerald-700 shrink-0">Rs {fmtMoney(l.total_amount)}</div>
+                </div>
+                <div className="mt-2 text-sm font-semibold">{countLabel(l.yarn_count_id)}</div>
+                <div className="text-xs text-ink-soft">{supplierLabel(l.supplier_party_id)}</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <div><div className="text-ink-mute">Qty (kg)</div><div className="num">{l.received_kg}</div></div>
+                  <div><div className="text-ink-mute">Rate</div><div className="num">{fmtMoney(l.cost_per_kg)}</div></div>
+                  <div><div className="text-ink-mute">GST %</div><div className="num">{l.gst_pct}</div></div>
+                  <div><div className="text-ink-mute">Bags</div><div className="num">{l.bag_count}</div></div>
+                  <div><div className="text-ink-mute">Delivery</div><div>{deliveryLabel(l.delivery_destination)}</div></div>
+                  <div><div className="text-ink-mute">Due date</div><div className={overdue ? 'text-rose-700 font-semibold' : ''}>{fmtDate(l.due_date)}</div></div>
+                </div>
+                {comm && (
+                  <div className="mt-2 text-xs text-amber-700">
+                    Agent: {agentLabel(comm.agent_party_id)} · Commission Rs {fmtMoney(comm.amount)}
+                  </div>
+                )}
+                <div className="mt-3 flex items-center justify-end gap-2 border-t border-line/40 pt-2">
+                  <button type="button" className="btn-secondary text-xs" onClick={() => openEditForm(l)}>
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button type="button" className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                    title="Delete this purchase" onClick={() => deleteRow(l.id, l.lot_code)}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </CardFilter>
+
+        {/* Desktop table view. The history table has 15 columns;
+        // `overflow-hidden` was clipping the rightmost Actions cell so the
+        // Edit / Delete buttons appeared half-cut on narrow viewports.
+        // Switching to `overflow-x-auto` lets the user scroll horizontally
+        // while still keeping the card's rounded corners. */}
+        <div className="card overflow-x-auto hidden md:block">
           <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -753,6 +801,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             </tbody>
           </table>
         </div>
+       </>
       )}
     </div>
   );
