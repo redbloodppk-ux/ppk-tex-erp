@@ -1078,7 +1078,86 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
         </div>
       )}
-      <div className="card overflow-x-auto">
+      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      <div className="md:hidden space-y-2 mb-3">
+        {rows.length === 0 ? (
+          <div className="card p-4 text-center text-ink-soft text-sm">No jobwork bobbin entries yet.</div>
+        ) : rows.map((r) => {
+          const isEditing = editingId === r.id;
+          const ef = isEditing && editForm ? editForm : r;
+          const partyOptions = Array.from(partyById.values());
+          const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
+          const perPcForRow = Number(r.bobbin_metre ?? 0);
+          const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
+          const returnedRow = returnedByBobbinId.get(r.id) ?? 0;
+          const balanceRow = qtyForRow - returnedRow;
+          return (
+            <div key={r.id} className="card p-3">
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-ink-mute">{r.code}</span>
+                    <span className="whitespace-nowrap">
+                      <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
+                      <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.purchase_date ?? ''} onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })} /></div>
+                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{partyOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div className="col-span-2"><label className="label text-[10px]">Description</label><input className="input h-8 text-xs" value={ef.description ?? ''} onChange={(e) => setEditForm({ ...ef, description: e.target.value })} /></div>
+                    <div><label className="label text-[10px]">Ends</label><input type="number" className="input num h-8 text-xs" value={ef.ends_per_bobbin ?? ''} onChange={(e) => setEditForm({ ...ef, ends_per_bobbin: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">M/pc</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.bobbin_metre ?? ''} onChange={(e) => setEditForm({ ...ef, bobbin_metre: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">Qty (pcs)</label><input type="number" className="input num h-8 text-xs" value={ef.original_quantity ?? ef.quantity ?? ''} onChange={(e) => setEditForm({ ...ef, original_quantity: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-mono text-xs font-semibold">{r.code}</div>
+                      <div className="text-xs text-ink-soft">{fmtDate(r.purchase_date)}</div>
+                    </div>
+                    <span className="whitespace-nowrap shrink-0">
+                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 mr-3" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
+                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm">{r.jobwork_party_id ? partyById.get(r.jobwork_party_id)?.name ?? '-' : '-'}</div>
+                  {r.description && <div className="text-xs text-ink-soft">{r.description}</div>}
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div><div className="text-ink-mute">Ends</div><div className="num">{r.ends_per_bobbin}</div></div>
+                    <div><div className="text-ink-mute">M/pc</div><div className="num">{r.bobbin_metre}</div></div>
+                    <div><div className="text-ink-mute">Qty</div><div className="num font-semibold">{qtyForRow}</div></div>
+                    <div><div className="text-ink-mute">Total m</div><div className="num text-indigo-700 font-semibold">{totalMRow > 0 ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-'}</div></div>
+                    <div><div className="text-ink-mute">Returned</div><div className="num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</div></div>
+                    <div><div className="text-ink-mute">Balance</div><div className={`num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</div></div>
+                  </div>
+                </>
+              )}
+              {restockId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <RestockForm parties={bobbinSuppliers}
+                    qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
+                    onCancel={() => setRestockId(null)}
+                    onSave={(data) => restock(r, data)} />
+                </div>
+              )}
+              {returnId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <RestockForm parties={bobbinSuppliers}
+                    qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
+                    onCancel={() => setReturnId(null)}
+                    onSave={(data) => logReturn(r, data)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
@@ -2163,7 +2242,77 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         </div>
       </div>
 
-      <div className="card overflow-x-auto">
+      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      <div className="md:hidden space-y-2 mb-3">
+        {filteredRows.length === 0 ? (
+          <div className="card p-4 text-center text-ink-soft text-sm">
+            {rows.length === 0 ? 'No warp beams issued yet.' : 'No warp beams match the current filters.'}
+          </div>
+        ) : filteredRows.map((r) => {
+          const isEditing = editingId === r.id;
+          const ef = editForm ?? r;
+          const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
+          return (
+            <div key={r.id} className="card p-3">
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</span>
+                    <span className="whitespace-nowrap">
+                      <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
+                      <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></div>
+                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div className="col-span-2"><label className="label text-[10px]">Quality</label><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
+                    <div><label className="label text-[10px]">Beams</label><input type="number" min={1} className="input num h-8 text-xs" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">Metres</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div className="col-span-2"><label className="label text-[10px]">Sizing party</label><select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
+                    <div className="col-span-2 text-[10px] text-ink-mute">Warp count {ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'} Â· Ends {ef.total_ends ?? '-'} (auto from quality)</div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</div>
+                      <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
+                    </div>
+                    <span className="whitespace-nowrap shrink-0">
+                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      {hasPavu && (
+                        <button onClick={() => void release(r)} className="text-amber-700 mr-3" title="Release pavus back to in-stock"><Unlock className="w-4 h-4 inline" /></button>
+                      )}
+                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</div>
+                  <div className="text-xs text-ink-soft">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div><div className="text-ink-mute">Warp count</div><div>{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+                    <div><div className="text-ink-mute">Ends</div><div className="num">{r.total_ends ?? '-'}</div></div>
+                    <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{r.beam_count}</div></div>
+                    <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{(r.original_metres ?? r.total_metres) ?? '-'}</div></div>
+                    <div className="col-span-2"><div className="text-ink-mute">Sizing party</div><div>{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</div></div>
+                  </div>
+                </>
+              )}
+              {restockId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <RestockForm parties={sizingParties}
+                    qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
+                    onCancel={() => setRestockId(null)}
+                    onSave={(data) => restock(r, data)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
@@ -2405,7 +2554,64 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
       </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      <div className="md:hidden space-y-2 mb-3">
+        {rows.length === 0 ? (
+          <div className="card p-4 text-center text-ink-soft text-sm">No weft bags issued yet.</div>
+        ) : rows.map((r) => {
+          const isEditing = editingId === r.id;
+          const ef = editForm ?? r;
+          return (
+            <div key={r.id} className="card p-3">
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-end whitespace-nowrap">
+                    <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></div>
+                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div className="col-span-2"><label className="label text-[10px]">Yarn count</label><select className="input h-8 text-xs" value={ef.yarn_count_id ?? ''} onChange={(e) => setEditForm({ ...ef, yarn_count_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></div>
+                    <div><label className="label text-[10px]">Bags</label><input type="number" className="input num h-8 text-xs" value={ef.bag_count ?? ''} onChange={(e) => setEditForm({ ...ef, bag_count: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">Total kg</label><input type="number" step={0.001} className="input num h-8 text-xs" value={ef.total_kg ?? ''} onChange={(e) => setEditForm({ ...ef, total_kg: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div className="col-span-2"><label className="label text-[10px]">DC #</label><input className="input h-8 text-xs" value={ef.reference_no ?? ''} onChange={(e) => setEditForm({ ...ef, reference_no: e.target.value || null })} /></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</div>
+                      <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
+                    </div>
+                    <span className="whitespace-nowrap shrink-0">
+                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div><div className="text-ink-mute">Yarn count</div><div>{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}</div></div>
+                    <div><div className="text-ink-mute">Bags</div><div className="num">{r.bag_count ?? '-'}</div></div>
+                    <div><div className="text-ink-mute">Total kg</div><div className="num font-semibold">{(r.original_kg ?? r.total_kg) ?? '-'}</div></div>
+                    <div className="col-span-3"><div className="text-ink-mute">DC #</div><div className="font-mono">{r.reference_no ?? '-'}</div></div>
+                  </div>
+                </>
+              )}
+              {restockId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <RestockForm parties={allParties}
+                    qtyFields={[{ key: 'bag_count', label: 'Bag count', step: 1 }, { key: 'total_kg', label: 'Total kg', step: 0.001 }]}
+                    onCancel={() => setRestockId(null)}
+                    onSave={(data) => restock(r, data)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
@@ -2632,7 +2838,68 @@ function WarpYarnTab({
       </div>
       )}
 
-      <div className="card overflow-x-auto">
+      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      <div className="md:hidden space-y-2 mb-3">
+        {rows.length === 0 ? (
+          <div className="card p-4 text-center text-ink-soft text-sm">No warp yarn issued yet.</div>
+        ) : rows.map((r) => {
+          const isEditing = editingId === r.id;
+          const ef = editForm ?? r;
+          return (
+            <div key={r.id} className="card p-3">
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-end whitespace-nowrap">
+                    <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></div>
+                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div className="col-span-2"><label className="label text-[10px]">Quality</label><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
+                    <div><label className="label text-[10px]">Ends</label><select className="input h-8 text-xs" value={ef.ends_id ?? ''} onChange={(e) => setEditForm({ ...ef, ends_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{endsOptions.map((eo) => <option key={eo.id} value={eo.id}>{eo.name}</option>)}</select></div>
+                    <div><label className="label text-[10px]">Count</label><select className="input h-8 text-xs" value={ef.warp_count_id ?? ''} onChange={(e) => setEditForm({ ...ef, warp_count_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></div>
+                    <div><label className="label text-[10px]">Kg</label><input type="number" step={0.001} className="input num h-8 text-xs" value={ef.total_kg ?? ''} onChange={(e) => setEditForm({ ...ef, total_kg: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">Rate</label><input type="number" step={0.5} className="input num h-8 text-xs" value={ef.sizing_rate_per_kg ?? ''} onChange={(e) => setEditForm({ ...ef, sizing_rate_per_kg: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div><label className="label text-[10px]">Cost</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.total_cost ?? ''} onChange={(e) => setEditForm({ ...ef, total_cost: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</div>
+                      <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
+                    </div>
+                    <span className="whitespace-nowrap shrink-0">
+                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                    </span>
+                  </div>
+                  <div className="text-xs text-ink-soft">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div><div className="text-ink-mute">Ends</div><div>{r.ends_id ? endsById.get(r.ends_id)?.name ?? '-' : '-'}</div></div>
+                    <div><div className="text-ink-mute">Count</div><div>{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+                    <div><div className="text-ink-mute">Kg</div><div className="num font-semibold">{r.total_kg ?? '-'}</div></div>
+                    <div><div className="text-ink-mute">Rate</div><div className="num">{r.sizing_rate_per_kg ?? '-'}</div></div>
+                    <div><div className="text-ink-mute">Cost</div><div className="num">{r.total_cost ?? '-'}</div></div>
+                  </div>
+                </>
+              )}
+              {restockId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <RestockForm parties={allParties}
+                    qtyFields={[{ key: 'total_kg', label: 'Total kg', step: 0.001 }]}
+                    onCancel={() => setRestockId(null)}
+                    onSave={(data) => restock(r, data)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
