@@ -453,24 +453,29 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       });
     }
 
-    // Bobbin outflow — 1 metre of bobbin tape per 1 metre of fabric
-    // (same ratio fabric_receipt uses, see the "1 m per fabric metre"
-    // notes on FR ledger rows). Each bobbin attached to the costing
-    // gets its own outflow row at the full actualMetres; bobbin spec
-    // `metres` (yield per bobbin spool) is only relevant to costing,
-    // not to stock consumption — the bobbin warehouse holds the tape
-    // in metres, not in spool count.
-    for (const b of bobbins) {
-      ledgerRows.push({
-        bucket: 'bobbin',
-        direction: 'out',
-        fabric_quality_id: linkedFqId,
-        bobbin_id: b.bobbin_id,
-        quantity: actualMetres,
-        unit: 'm',
-        ...src,
-        notes: 'In-house bobbin consumption (1 m per fabric metre)',
-      });
+    // Bobbin outflow — TOTAL bobbin tape consumed is 1 metre per 1 metre
+    // of fabric (same ratio fabric_receipt uses, see the "1 m per fabric
+    // metre" notes on FR ledger rows). When a costing lists several
+    // bobbins, that total is split evenly across them so each bobbin keeps
+    // its own attribution row WITHOUT double-counting the fabric metres.
+    // (Previously each bobbin was charged the full actualMetres, so a
+    // 2-bobbin quality deducted 2× the tape it actually used.) Bobbin spec
+    // `metres` (yield per spool) stays a costing-only figure — the bobbin
+    // warehouse holds tape in metres, not in spool count.
+    if (bobbins.length > 0) {
+      const perBobbinMetres = actualMetres / bobbins.length;
+      for (const b of bobbins) {
+        ledgerRows.push({
+          bucket: 'bobbin',
+          direction: 'out',
+          fabric_quality_id: linkedFqId,
+          bobbin_id: b.bobbin_id,
+          quantity: perBobbinMetres,
+          unit: 'm',
+          ...src,
+          notes: 'In-house bobbin consumption (1 m per fabric metre)',
+        });
+      }
     }
 
     // Production fabric INFLOW — store the operator's entered value
