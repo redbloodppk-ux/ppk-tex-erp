@@ -199,7 +199,61 @@ export default async function LedgersPage({
             </div>
           )}
 
-          <div className="card overflow-x-auto">
+          {/* Mobile / PWA: card view. A wide table is hard to read and
+              forces horizontal scrolling on a phone, so below md we render
+              each ledger as a tap-friendly card instead. The table below is
+              hidden on mobile and shown from md upward. */}
+          <div className="md:hidden space-y-2">
+            {rows.length ? rows.map((r) => (
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/app/ledgers/${r.id}`} className="font-semibold text-ink hover:text-indigo break-words">
+                      {r.name}
+                    </Link>
+                    {r.gstin_verified_at && (
+                      <span className="inline-flex align-text-bottom ml-1.5" title="GSTIN verified">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
+                      </span>
+                    )}
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{r.code}</div>
+                  </div>
+                  {r.active
+                    ? <span className="pill bg-emerald-50 text-emerald-700 shrink-0">active</span>
+                    : <span className="pill bg-slate-100 text-slate-500 shrink-0">inactive</span>}
+                </div>
+
+                <div className="text-xs text-ink-soft mt-2">
+                  {r.ledger_type?.name ?? '-'} · {r.ledger_group?.name ?? '-'}
+                </div>
+                {r.gstin && (
+                  <div className="text-xs mt-1">
+                    <span className="text-ink-mute">GSTIN: </span>
+                    <span className="font-mono">{r.gstin}</span>
+                  </div>
+                )}
+                {r.area && (
+                  <div className="text-xs mt-1">
+                    <span className="text-ink-mute">Area: </span>{r.area}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
+                  <Link href={`/app/ledgers/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit ledger">
+                    <Pencil className="w-3 h-3" /> Edit
+                  </Link>
+                  <LedgerDeleteButton id={r.id} name={r.name} />
+                </div>
+              </div>
+            )) : (
+              <div className="card p-6 text-center text-sm text-ink-soft">
+                No ledgers match the current filter.{' '}
+                <Link href="/app/ledgers" className="text-indigo font-semibold">Clear filters →</Link>
+              </div>
+            )}
+          </div>
+
+          <div className="card overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[720px]">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
