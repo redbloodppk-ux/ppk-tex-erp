@@ -2167,7 +2167,11 @@ async function loadInhouseOpeningStock(
         .select('yarn_count_id, quantity, event_date, reference_no, notes')
         .eq('bucket', bucket)
         .eq('direction', 'out')
-        .is('jobwork_party_id', null),
+        .is('jobwork_party_id', null)
+        // production_batch outflows are handled by the dedicated
+        // production-batch loop below — excluding them here prevents
+        // every batch consumption from being counted twice.
+        .neq('source_kind', 'production_batch'),
     );
     for (const o of yarnOuts) {
       if (o.yarn_count_id == null) continue;
@@ -2210,7 +2214,10 @@ async function loadInhouseOpeningStock(
           .select('quantity, event_date, reference_no, notes, bobbin:bobbin_id ( ends_per_bobbin )')
           .eq('bucket', 'bobbin')
           .eq('direction', 'out')
-          .is('jobwork_party_id', null),
+          .is('jobwork_party_id', null)
+          // production_batch outflows handled by the dedicated loop
+          // below — exclude here so each batch isn't counted twice.
+          .neq('source_kind', 'production_batch'),
       ),
     ]);
     for (const p of purRows) {
