@@ -1218,22 +1218,22 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
         <Kpi label="Stock Value" value={formatRupee(totalValue, { compact: true })} icon={Coins} />
         <Kpi label="Distinct (Quality × Source)" value={String(rows.length)} icon={TrendingDown} />
       </div>
-      <div className="card overflow-x-auto">
+      <div className="card overflow-auto max-h-[75vh]">
         <table className="w-full text-sm min-w-[720px]">
-          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+          <thead className="text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Quality</th>
-              <th className="text-left px-4 py-3">Source</th>
-              <th className="text-right px-4 py-3">Available</th>
-              <th className="text-right px-4 py-3 hidden md:table-cell">Avg ₹/m</th>
-              <th className="text-right px-4 py-3 hidden md:table-cell">Stock Value</th>
-              <th className="text-right px-4 py-3">Receipts</th>
+              <th className="text-left px-4 py-3 sticky left-0 top-0 bg-cloud z-40">Quality</th>
+              <th className="text-left px-4 py-3 sticky top-0 bg-cloud z-30">Source</th>
+              <th className="text-right px-4 py-3 sticky top-0 bg-cloud z-30">Available</th>
+              <th className="text-right px-4 py-3 hidden md:table-cell sticky top-0 bg-cloud z-30">Avg ₹/m</th>
+              <th className="text-right px-4 py-3 hidden md:table-cell sticky top-0 bg-cloud z-30">Stock Value</th>
+              <th className="text-right px-4 py-3 sticky top-0 bg-cloud z-30">Receipts</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={`${r.costing_id}-${r.source_type}`} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 sticky left-0 bg-paper z-10">
                   {r.fabric_quality_id != null ? (
                     <Link
                       href={`/app/warehouse/fabric/${r.fabric_quality_id}`}
