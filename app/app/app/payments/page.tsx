@@ -195,12 +195,12 @@ export default function PaymentsPage() {
     <div>
       <PageHeader
         title="Payments"
-        subtitle="Record every receipt and payment for any party type. The Status tab shows a ledger of inflow / outflow / running balance per party."
+        subtitle="Record every receipt and payment for any party type. The Payment Transaction tab shows a ledger of inflow / outflow / running balance per party."
       />
 
       <div className="border-b border-line mb-4 flex gap-1 flex-wrap">
         <TabButton active={tab === 'new'}    onClick={() => setTab('new')}>New Payment</TabButton>
-        <TabButton active={tab === 'status'} onClick={() => setTab('status')}>Status</TabButton>
+        <TabButton active={tab === 'status'} onClick={() => setTab('status')}>Payment Transaction</TabButton>
       </div>
 
       {tab === 'new' ? <NewPaymentTab /> : <StatusTab />}
@@ -1844,8 +1844,8 @@ function StatusTab(): React.ReactElement {
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-2 text-xs">
                     <div className="flex gap-3">
-                      {r.debit > 0 && <span className="num text-emerald-700">Dr {fmtINR(r.debit)}</span>}
-                      {r.credit > 0 && <span className="num text-rose-700">Cr {fmtINR(r.credit)}</span>}
+                      {r.debit > 0 && <span className="num text-rose-700">Dr {fmtINR(r.debit)}</span>}
+                      {r.credit > 0 && <span className="num text-emerald-700">Cr {fmtINR(r.credit)}</span>}
                     </div>
                     <span className={cn(
                       'num font-semibold whitespace-nowrap',
@@ -1935,10 +1935,10 @@ function StatusTab(): React.ReactElement {
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-right num text-emerald-700">
+                        <td className="px-3 py-3 text-right num text-rose-700">
                           {r.debit > 0 ? fmtINR(r.debit) : '-'}
                         </td>
-                        <td className="px-3 py-3 text-right num text-rose-700">
+                        <td className="px-3 py-3 text-right num text-emerald-700">
                           {r.credit > 0 ? fmtINR(r.credit) : '-'}
                         </td>
                         <td className={cn(
@@ -2026,8 +2026,8 @@ function StatusTab(): React.ReactElement {
               <tfoot>
                 <tr className="border-t border-line/60 bg-cloud/30 font-bold">
                   <td className="px-3 py-3" colSpan={3}>Totals</td>
-                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.debit)}</td>
-                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.credit)}</td>
+                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.debit)}</td>
+                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.credit)}</td>
                   <td className={cn(
                     'px-3 py-3 text-right num text-base whitespace-nowrap',
                     totals.ledgerBalance > 0 ? 'text-emerald-700' : totals.ledgerBalance < 0 ? 'text-rose-700' : 'text-ink-soft',
@@ -2068,11 +2068,11 @@ function StatusTab(): React.ReactElement {
             <div className="flex items-center gap-4 text-xs">
               <div>
                 <span className="text-ink-mute">Debit:</span>{' '}
-                <span className="font-semibold text-emerald-700 num">₹ {fmtINR(totals.debit)}</span>
+                <span className="font-semibold text-rose-700 num">₹ {fmtINR(totals.debit)}</span>
               </div>
               <div>
                 <span className="text-ink-mute">Credit:</span>{' '}
-                <span className="font-semibold text-rose-700 num">₹ {fmtINR(totals.credit)}</span>
+                <span className="font-semibold text-emerald-700 num">₹ {fmtINR(totals.credit)}</span>
               </div>
               <div>
                 <span className="text-ink-mute">Net:</span>{' '}
@@ -2115,8 +2115,8 @@ function StatusTab(): React.ReactElement {
                     <div className="text-[11px] text-ink-soft whitespace-nowrap shrink-0">{fmtDate(r.date)}</div>
                   </div>
                   <div className="flex gap-3 mt-2 text-xs">
-                    {r.debit > 0 && <span className="num text-emerald-700">Dr {fmtINR(r.debit)}</span>}
-                    {r.credit > 0 && <span className="num text-rose-700">Cr {fmtINR(r.credit)}</span>}
+                    {r.debit > 0 && <span className="num text-rose-700">Dr {fmtINR(r.debit)}</span>}
+                    {r.credit > 0 && <span className="num text-emerald-700">Cr {fmtINR(r.credit)}</span>}
                   </div>
                   <div className="flex items-center gap-1 mt-2">
                     {isBusy ? (
@@ -2203,10 +2203,10 @@ function StatusTab(): React.ReactElement {
                           {r.description}
                           {r.payment?.reference && <span className="ml-1 text-ink-mute">· {r.payment.reference}</span>}
                         </td>
-                        <td className="px-3 py-3 text-right num text-emerald-700">
+                        <td className="px-3 py-3 text-right num text-rose-700">
                           {r.debit > 0 ? fmtINR(r.debit) : '-'}
                         </td>
-                        <td className="px-3 py-3 text-right num text-rose-700">
+                        <td className="px-3 py-3 text-right num text-emerald-700">
                           {r.credit > 0 ? fmtINR(r.credit) : '-'}
                         </td>
                         <td className="px-3 py-3 text-right whitespace-nowrap">
@@ -2284,8 +2284,8 @@ function StatusTab(): React.ReactElement {
               <tfoot>
                 <tr className="border-t border-line/60 bg-cloud/30 font-bold">
                   <td className="px-3 py-3" colSpan={4}>Totals</td>
-                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.debit)}</td>
-                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.credit)}</td>
+                  <td className="px-3 py-3 text-right num text-rose-700">{fmtINR(totals.debit)}</td>
+                  <td className="px-3 py-3 text-right num text-emerald-700">{fmtINR(totals.credit)}</td>
                   <td />
                 </tr>
               </tfoot>
