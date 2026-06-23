@@ -141,6 +141,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   // clicking Show.
   const [shownLedger, setShownLedger] = useState<LedgerOpt | null>(null);
   const [hasShown, setHasShown] = useState<boolean>(false);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Distinct types present in the ledger list (drives the first
   // dropdown). Excluding NULL types so the operator only sees real
@@ -736,6 +737,13 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     return { inflow, outflow, balance: inflow - outflow };
   }, [ledger]);
 
+  // Display order: running balances are always computed oldest→newest,
+  // but the table can show newest→oldest without changing the math.
+  const displayLedger = useMemo(
+    () => (sortDir === 'desc' ? [...ledger].reverse() : ledger),
+    [ledger, sortDir],
+  );
+
   return (
     <div className="space-y-4">
       {/* ── Cascading filter form ─────────────────────────────────────── */}
@@ -846,8 +854,17 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                 </div>
               </div>
             </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                className="pill bg-cloud text-ink-soft text-[11px]"
+              >
+                Date {sortDir === 'asc' ? 'Oldest first ↑' : 'Newest first ↓'}
+              </button>
+            </div>
             <CardFilter placeholder="Search transactions…">
-              {ledger.map((r) => (
+              {displayLedger.map((r) => (
                 <div key={r.key} className="card p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -912,7 +929,16 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
             <table className="w-full text-sm">
               <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
                 <tr>
-                  <th className="text-left  px-3 py-3">Date</th>
+                  <th className="text-left  px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                      className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-ink"
+                      title="Click to toggle date sort order"
+                    >
+                      Date <span className="text-ink-mute">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                    </button>
+                  </th>
                   <th className="text-left  px-3 py-3">Voucher</th>
                   <th className="text-left  px-3 py-3 hidden md:table-cell">Counterparty</th>
                   <th className="text-left  px-3 py-3 hidden md:table-cell">Bank / Cash</th>
@@ -923,7 +949,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((r) => (
+                {displayLedger.map((r) => (
                   <tr key={r.key} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-3 py-3 text-ink-soft">{fmtDate(r.date)}</td>
                     <td className="px-3 py-3 font-mono text-xs">
@@ -979,7 +1005,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
-            Sorted oldest → newest. Debit raises the running balance (Dr); Credit lowers it (Cr). A positive running balance means the party owes you (Dr); negative means you owe the party (Cr).
+            Showing {sortDir === 'asc' ? 'oldest → newest' : 'newest → oldest'} (running balance is always built oldest → newest). Debit raises the running balance (Dr); Credit lowers it (Cr). A positive running balance means the party owes you (Dr); negative means you owe the party (Cr).
           </div>
         </div>
       )}
