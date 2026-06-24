@@ -364,32 +364,42 @@ function NavBody({
               </span>
               <ChevronRight
                 className={cn(
-                  'w-4 h-4 shrink-0 transition-transform duration-150',
+                  'w-4 h-4 shrink-0 transition-transform duration-300 ease-out',
                   chevronCls,
                   isOpen ? 'rotate-90' : 'rotate-0',
                 )}
               />
             </button>
-            {isOpen && (
-              <ul className={cn('mt-1 mb-2 space-y-0.5 pl-2 border-l ml-3', groupBorderCls)}>
-                {items.map(item => {
-                  const active = pathname === item.href || pathname.startsWith(item.href + '/');
-                  const Icon = item.icon;
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        onClick={onItemClick}
-                        className={cn(itemBase, active ? itemActive : itemIdle)}
-                      >
-                        <Icon className={cn('w-4 h-4 shrink-0', active ? iconActiveCls : iconIdleCls)} />
-                        <span className="truncate">{item.label}</span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            {/* Smooth slow expand/collapse: the grid wrapper animates its
+                row height from 0fr → 1fr; the inner overflow-hidden div clips
+                the menu while it slides open. */}
+            <div
+              className={cn(
+                'grid transition-[grid-template-rows] duration-300 ease-out',
+                isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+              )}
+            >
+              <div className="overflow-hidden">
+                <ul className={cn('mt-1 mb-2 space-y-0.5 pl-2 border-l ml-3', groupBorderCls)}>
+                  {items.map(item => {
+                    const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          onClick={onItemClick}
+                          className={cn(itemBase, active ? itemActive : itemIdle)}
+                        >
+                          <Icon className={cn('w-4 h-4 shrink-0', active ? iconActiveCls : iconIdleCls)} />
+                          <span className="truncate">{item.label}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
           </div>
         );
       })}
