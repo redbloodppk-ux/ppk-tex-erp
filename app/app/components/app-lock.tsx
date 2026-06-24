@@ -54,7 +54,10 @@ export function AppLock({ userLabel }: { userLabel: string }) {
   // initial wiring
   useEffect(() => {
     refresh();
-    isBiometricAvailable().then(setBioAvailable);
+    // Biometric is offered on phones/tablets only (Face ID / fingerprint).
+    // On desktop a 4-digit PIN is enough, so we don't surface biometric there.
+    const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (mobile) isBiometricAvailable().then(setBioAvailable);
   }, [refresh]);
 
   // Re-evaluate the lock when the tab regains focus / becomes visible, and
