@@ -88,6 +88,14 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
   const [partyFilter, setPartyFilter]   = useState<string>('');
   const [qualityFilter, setQualityFilter] = useState<string>('');
 
+  // Sort — DC No or Date, ascending / descending. Default: newest date first.
+  const [sortKey, setSortKey] = useState<'dc' | 'date'>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const toggleSort = (key: 'dc' | 'date'): void => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
@@ -184,6 +192,42 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
     [parties],
   );
 
+  const qualityById = useMemo<Map<number, QualityOpt>>(
+    () => new Map(qualities.map((q) => [q.id, q])),
+    [qualities],
+  );
+
+  // A DC may carry more than one fabric quality across its items — show
+  // every distinct one, comma-separated (code preferred, else name).
+  const qualityLabel = (dcId: number): string => {
+    const set = qualitiesByDc.get(dcId);
+    if (!set || set.size === 0) return '-';
+    const names = Array.from(set)
+      .map((id) => qualityById.get(id)?.code ?? qualityById.get(id)?.name ?? '')
+      .filter((s) => s !== '');
+    return names.length ? names.join(', ') : '-';
+  };
+
+  // Apply the chosen sort on top of the filtered rows. Date sort falls back
+  // to id for a stable order within the same day; DC No uses numeric-aware
+  // string compare so 0009 < 0010 etc.
+  const sorted = useMemo<DcRow[]>(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let cmp: number;
+      if (sortKey === 'date') {
+        cmp = a.dc_date.localeCompare(b.dc_date);
+        if (cmp === 0) cmp = a.id - b.id;
+      } else {
+        cmp = a.code.localeCompare(b.code, undefined, { numeric: true });
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const arrow = (key: 'dc' | 'date'): string => (sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+
   return (
     <div className="space-y-4">
       {/* ───── Filter bar ───── */}
@@ -275,8 +319,28 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
         {/* Mobile / PWA: card view. The wide DC table forces horizontal
             scrolling on a phone, so below md we render each DC as a
             tap-friendly card. The table below is hidden on mobile. */}
+        {/* Mobile sort controls — the desktop table sorts via clickable
+            headers, but cards have none, so expose the same toggle here. */}
+        <div className="md:hidden flex items-center gap-2 text-xs">
+          <span className="text-ink-mute">Sort:</span>
+          <button
+            type="button"
+            onClick={() => toggleSort('date')}
+            className={`px-2.5 py-1 rounded-full border ${sortKey === 'date' ? 'border-indigo text-indigo font-semibold' : 'border-line text-ink-soft'}`}
+          >
+            Date{arrow('date')}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleSort('dc')}
+            className={`px-2.5 py-1 rounded-full border ${sortKey === 'dc' ? 'border-indigo text-indigo font-semibold' : 'border-line text-ink-soft'}`}
+          >
+            DC No{arrow('dc')}
+          </button>
+        </div>
+
         <CardFilter placeholder="Search DCs…">
-          {filtered.length ? filtered.map((r) => {
+          {sorted.length ? sorted.map((r) => {
             const pill = statusPill(r.status);
             const party = r.party_id != null ? partyById.get(r.party_id) : null;
             return (
@@ -293,7 +357,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
 
                 <div className="text-xs text-ink-soft mt-1">
                   <span className="text-ink-mute">Date: </span>{fmtDate(r.dc_date)}
-                  {r.vehicle_no && <><span className="text-ink-mute"> · Vehicle: </span>{r.vehicle_no}</>}
+                  <span className="text-ink-mute"> · Quality: </span>{qualityLabel(r.id)}
                 </div>
                 <div className="text-xs text-ink-soft mt-1">
                   <span className="text-ink-mute">Metres: </span><span className="num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
@@ -352,10 +416,18 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left px-3 py-3">DC No</th>
-                <th className="text-left px-3 py-3">Date</th>
+                <th className="text-left px-3 py-3">
+                  <button type="button" onClick={() => toggleSort('dc')} className="uppercase tracking-wide hover:text-ink inline-flex items-center">
+                    DC No{arrow('dc')}
+                  </button>
+                </th>
+                <th className="text-left px-3 py-3">
+                  <button type="button" onClick={() => toggleSort('date')} className="uppercase tracking-wide hover:text-ink inline-flex items-center">
+                    Date{arrow('date')}
+                  </button>
+                </th>
                 <th className="text-left px-3 py-3">Jobwork Party</th>
-                <th className="text-left px-3 py-3">Vehicle</th>
+                <th className="text-left px-3 py-3">Fabric Quality</th>
                 <th className="text-right px-3 py-3">Metres</th>
                 <th className="text-right px-3 py-3">Pcs</th>
                 <th className="text-right px-3 py-3">Bundles</th>
@@ -372,7 +444,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
                       : `No ${dcLabel}s match the current filters.`}
                   </td>
                 </tr>
-              ) : filtered.map((r) => {
+              ) : sorted.map((r) => {
                 const pill = statusPill(r.status);
                 const party = r.party_id != null ? partyById.get(r.party_id) : null;
                 return (
@@ -382,7 +454,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
                     </td>
                     <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
                     <td className="px-3 py-2 font-medium">{party?.name ?? r.bill_to_name ?? '-'}</td>
-                    <td className="px-3 py-2 text-xs">{r.vehicle_no ?? '-'}</td>
+                    <td className="px-3 py-2 text-xs">{qualityLabel(r.id)}</td>
                     <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
                     <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
