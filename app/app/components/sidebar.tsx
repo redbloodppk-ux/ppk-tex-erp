@@ -198,17 +198,17 @@ function NavBody({
   // Theme tokens so the same nav can sit on a light surface (desktop) or on
   // the indigo push-menu (mobile) without duplicating markup.
   const itemBase = 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors';
-  const itemActive = onIndigo ? 'bg-white/20 text-white' : 'bg-indigo/10 text-indigo';
+  const itemActive = onIndigo ? 'bg-white/20 text-[#EFBF04]' : 'bg-indigo/10 text-[#EFBF04]';
   const itemIdle = onIndigo
-    ? 'text-white/90 hover:bg-white/15 hover:text-white'
-    : 'text-ink hover:bg-cloud hover:text-ink';
-  const iconActiveCls = onIndigo ? 'text-white' : 'text-indigo';
-  const iconIdleCls = onIndigo ? 'text-white/85' : 'text-indigo';
+    ? 'text-[#EFBF04] hover:bg-white/15'
+    : 'text-[#EFBF04] hover:bg-cloud';
+  const iconActiveCls = 'text-[#EFBF04]';
+  const iconIdleCls = 'text-[#EFBF04]';
   const groupBtnCls = onIndigo
-    ? 'text-white hover:bg-white/15 hover:text-white'
-    : 'text-ink hover:bg-cloud/60 hover:text-ink';
-  const groupIconCls = onIndigo ? 'text-white/85' : 'text-indigo';
-  const chevronCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+    ? 'text-[#EFBF04] hover:bg-white/15'
+    : 'text-[#EFBF04] hover:bg-cloud/60';
+  const groupIconCls = 'text-[#EFBF04]';
+  const chevronCls = 'text-[#EFBF04]/70';
   const groupBorderCls = onIndigo ? 'border-white/20' : 'border-line/40';
   const bottomBorderCls = onIndigo ? 'border-white/20' : 'border-line/60';
   const visible = NAV.filter(n => n.roles.includes(role));
@@ -479,7 +479,7 @@ function Flyout({
       className="z-[60] w-60 rounded-xl border border-white/15 bg-indigo text-white shadow-2xl py-2"
       role="menu"
     >
-      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70 border-b border-white/20">
+      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-[#EFBF04]/80 border-b border-white/20">
         {GROUP_LABEL[group]}
       </div>
       <ul className="px-1.5 space-y-0.5">
@@ -494,10 +494,10 @@ function Flyout({
                 onClick={onNavigate}
                 className={cn(
                   'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
-                  active ? 'bg-white/25 text-white' : 'text-white/90 hover:bg-white/15 hover:text-white',
+                  active ? 'bg-white/25 text-[#EFBF04]' : 'text-[#EFBF04] hover:bg-white/15',
                 )}
               >
-                <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-white' : 'text-white/85')} />
+                <Icon className={cn('w-4 h-4 shrink-0', 'text-[#EFBF04]')} />
                 <span className="truncate">{item.label}</span>
               </Link>
             </li>
@@ -565,11 +565,11 @@ function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
   // sidebar icons take the indigo brand colour (vivid) and text is full
   // ink; on the collapsed indigo rail icons go near-white.
   const idleItem = collapsed
-    ? 'text-white/90 hover:bg-white/15 hover:text-white'
-    : 'text-ink hover:bg-cloud';
-  const activeItem = collapsed ? 'bg-white/25 text-white' : 'bg-indigo/10 text-indigo';
-  const idleIcon = collapsed ? 'text-white/90' : 'text-indigo';
-  const activeIcon = collapsed ? 'text-white' : 'text-indigo';
+    ? 'text-[#EFBF04] hover:bg-white/15'
+    : 'text-[#EFBF04] hover:bg-cloud';
+  const activeItem = collapsed ? 'bg-white/25 text-[#EFBF04]' : 'bg-indigo/10 text-[#EFBF04]';
+  const idleIcon = 'text-[#EFBF04]';
+  const activeIcon = 'text-[#EFBF04]';
 
   const renderFlat = (item: NavItem) => {
     const active = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -650,7 +650,7 @@ function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
                     <GroupIcon className={cn('w-4 h-4 shrink-0', highlight ? activeIcon : idleIcon)} />
                     <span className="truncate">{GROUP_LABEL[group]}</span>
                   </span>
-                  <ChevronRight className={cn('w-4 h-4 shrink-0', highlight ? activeIcon : 'text-ink-mute')} />
+                  <ChevronRight className={cn('w-4 h-4 shrink-0', 'text-[#EFBF04]/70')} />
                 </>
               )}
             </button>
