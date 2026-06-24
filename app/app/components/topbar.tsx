@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  LogOut, ChevronDown, Menu, ArrowLeft, Settings,
+  LogOut, ChevronDown, Menu, ArrowLeft, Settings, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NotificationBell } from './notification-bell';
@@ -146,8 +146,15 @@ export function Topbar({
                   <div className="text-xs text-ink-mute">{ROLE_LABEL[role] ?? role}</div>
                 </div>
                 <button
-                  onClick={signOut}
+                  onClick={() => { setMenuOpen(false); window.dispatchEvent(new Event('ppk:lock-setup')); }}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-ink-soft hover:bg-cloud"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Quick Unlock (PIN / Face ID)
+                </button>
+                <button
+                  onClick={signOut}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-ink-soft hover:bg-cloud border-t border-line/60"
                 >
                   <LogOut className="w-4 h-4" />
                   Sign out

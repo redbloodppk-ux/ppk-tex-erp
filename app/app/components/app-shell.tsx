@@ -17,6 +17,7 @@ import { OfflineBanner } from './offline-banner';
 import { UpdatePrompt } from './update-prompt';
 import { InstallPrompt } from './install-prompt';
 import { EnterNav } from './enter-nav';
+import { AppLock } from './app-lock';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -115,6 +116,9 @@ export function AppShell({
           They live outside the main flow so they overlay every page. */}
       <OfflineSync />
       <InstallPrompt />
+      {/* Quick-unlock gate (PIN + Face ID / fingerprint) over the live
+          Supabase session. Renders nothing unless the owner has enabled it. */}
+      <AppLock userLabel={fullName} />
       {/* Global "Enter moves to the next field" handler. Renders nothing
           — just attaches a document-level keydown listener. */}
       <EnterNav />
