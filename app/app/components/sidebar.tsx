@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -199,14 +200,14 @@ function NavBody({
   const itemBase = 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors';
   const itemActive = onIndigo ? 'bg-white/20 text-white' : 'bg-indigo/10 text-indigo';
   const itemIdle = onIndigo
-    ? 'text-white/75 hover:bg-white/10 hover:text-white'
-    : 'text-ink-soft hover:bg-cloud hover:text-ink';
+    ? 'text-white/90 hover:bg-white/15 hover:text-white'
+    : 'text-ink hover:bg-cloud hover:text-ink';
   const iconActiveCls = onIndigo ? 'text-white' : 'text-indigo';
-  const iconIdleCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+  const iconIdleCls = onIndigo ? 'text-white/85' : 'text-indigo';
   const groupBtnCls = onIndigo
-    ? 'text-white/85 hover:bg-white/10 hover:text-white'
-    : 'text-ink-soft hover:bg-cloud/60 hover:text-ink';
-  const groupIconCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
+    ? 'text-white hover:bg-white/15 hover:text-white'
+    : 'text-ink hover:bg-cloud/60 hover:text-ink';
+  const groupIconCls = onIndigo ? 'text-white/85' : 'text-indigo';
   const chevronCls = onIndigo ? 'text-white/60' : 'text-ink-mute';
   const groupBorderCls = onIndigo ? 'border-white/20' : 'border-line/40';
   const bottomBorderCls = onIndigo ? 'border-white/20' : 'border-line/60';
@@ -434,39 +435,173 @@ function NavBody({
 }
 
 /**
- * Collapsed "mini" rail — every menu item rendered as an icon with a
- * native tooltip (title). Shown on the desktop sidebar when collapsed and
- * not being hovered. Flattens the home item, all labelled groups and the
- * pinned bottom items into a single vertical strip of icons.
+ * Fly-out submenu panel. Rendered through a portal onto document.body so
+ * it escapes the sidebar's clipping/scroll and floats over the page,
+ * anchored to the right edge of the hovered group row. Always a bright,
+ * high-contrast paper card for easy reading, whatever the rail colour.
  */
-function IconRail({ role, onIndigo = false }: { role: Role; onIndigo?: boolean }) {
+function Flyout({
+  group,
+  items,
+  anchor,
+  pathname,
+  onEnter,
+  onLeave,
+  onNavigate,
+}: {
+  group: LabelledGroupKey;
+  items: ReadonlyArray<NavItem>;
+  anchor: DOMRect;
+  pathname: string;
+  onEnter: () => void;
+  onLeave: () => void;
+  onNavigate: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Vertically clamp the panel so a low group's menu never spills past
+  // the bottom of the screen. Measured after layout, before paint.
+  const [top, setTop] = useState<number>(anchor.top);
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight ?? 0;
+    let t = anchor.top - 8;
+    const maxTop = window.innerHeight - h - 8;
+    if (t > maxTop) t = maxTop;
+    if (t < 8) t = 8;
+    setTop(t);
+  }, [anchor, items.length]);
+
+  return (
+    <div
+      ref={ref}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      style={{ position: 'fixed', top, left: anchor.right + 6 }}
+      className="z-[60] w-60 rounded-xl border border-line/70 bg-paper shadow-2xl py-2"
+      role="menu"
+    >
+      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-indigo border-b border-line/50">
+        {GROUP_LABEL[group]}
+      </div>
+      <ul className="px-1.5 space-y-0.5">
+        {items.map((item) => {
+          const active = pathname === item.href || pathname.startsWith(item.href + '/');
+          const Icon = item.icon;
+          return (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                role="menuitem"
+                onClick={onNavigate}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
+                  active ? 'bg-indigo/10 text-indigo' : 'text-ink hover:bg-cloud',
+                )}
+              >
+                <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-indigo/80')} />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Desktop nav with hover fly-out submenus. Replaces the old inline
+ * accordion: each group is a single row (icon + label when pinned open,
+ * just an icon when collapsed). Hovering a group pops its pages OUT to
+ * the right in a floating panel instead of pushing the rows below down.
+ * Works in both desktop states; mobile keeps the accordion (NavBody).
+ */
+function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
   const pathname = usePathname();
-  const visible = NAV.filter(n => n.roles.includes(role));
-  const flatItems = visible.filter(i => i.group === 'home');
-  const bottomItems = visible.filter(i => i.group === 'bottom' && i.href !== '/app/settings');
-  const middleItems = GROUP_ORDER.flatMap(g => visible.filter(i => i.group === g));
+  const visible = NAV.filter((n) => n.roles.includes(role));
+  const flatItems = visible.filter((i) => i.group === 'home');
+  const bottomItems = visible.filter((i) => i.group === 'bottom' && i.href !== '/app/settings');
+  const grouped = GROUP_ORDER
+    .map((g) => ({ group: g, items: visible.filter((i) => i.group === g) }))
+    .filter((g) => g.items.length > 0);
 
-  const activeCls = onIndigo ? 'bg-white/20 text-white' : 'bg-indigo/10 text-indigo';
-  const idleCls = onIndigo
-    ? 'text-white/70 hover:bg-white/10 hover:text-white'
-    : 'text-ink-mute hover:bg-cloud hover:text-ink';
-  const borderCls = onIndigo ? 'border-white/20' : 'border-line/60';
+  const activeGroup = visible.find(
+    (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
+  )?.group;
 
-  const renderItem = (item: NavItem) => {
+  const [open, setOpen] = useState<LabelledGroupKey | null>(null);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  // Portals need the DOM; gate on mount so SSR markup stays clean.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const cancelClose = (): void => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  // Small delay before closing so the mouse can cross the gap between
+  // the group row and the fly-out panel without it vanishing.
+  const scheduleClose = (): void => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => {
+      setOpen(null);
+      setAnchor(null);
+    }, 160);
+  };
+  const openFlyout = (g: LabelledGroupKey, el: HTMLElement): void => {
+    cancelClose();
+    setOpen(g);
+    setAnchor(el.getBoundingClientRect());
+  };
+  const closeNow = (): void => {
+    cancelClose();
+    setOpen(null);
+    setAnchor(null);
+  };
+
+  // Brighter, higher-contrast tokens than before. On the light pinned
+  // sidebar icons take the indigo brand colour (vivid) and text is full
+  // ink; on the collapsed indigo rail icons go near-white.
+  const idleItem = collapsed
+    ? 'text-white/90 hover:bg-white/15 hover:text-white'
+    : 'text-ink hover:bg-cloud';
+  const activeItem = collapsed ? 'bg-white/25 text-white' : 'bg-indigo/10 text-indigo';
+  const idleIcon = collapsed ? 'text-white/90' : 'text-indigo';
+  const activeIcon = collapsed ? 'text-white' : 'text-indigo';
+
+  const renderFlat = (item: NavItem) => {
     const active = pathname === item.href || pathname.startsWith(item.href + '/');
     const Icon = item.icon;
+    if (collapsed) {
+      return (
+        <li key={item.href}>
+          <Link
+            href={item.href}
+            title={item.label}
+            aria-label={item.label}
+            className={cn(
+              'flex items-center justify-center h-10 w-10 mx-auto rounded-lg transition-colors',
+              active ? activeItem : idleItem,
+            )}
+          >
+            <Icon className={cn('w-5 h-5 shrink-0', active ? activeIcon : idleIcon)} />
+          </Link>
+        </li>
+      );
+    }
     return (
       <li key={item.href}>
         <Link
           href={item.href}
-          title={item.label}
-          aria-label={item.label}
           className={cn(
-            'flex items-center justify-center h-10 w-10 mx-auto rounded-lg transition-colors',
-            active ? activeCls : idleCls,
+            'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
+            active ? activeItem : idleItem,
           )}
         >
-          <Icon className="w-5 h-5 shrink-0" />
+          <Icon className={cn('w-4 h-4 shrink-0', active ? activeIcon : idleIcon)} />
+          <span className="truncate">{item.label}</span>
         </Link>
       </li>
     );
@@ -475,11 +610,76 @@ function IconRail({ role, onIndigo = false }: { role: Role; onIndigo?: boolean }
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {flatItems.length > 0 && (
-        <ul className="space-y-1 px-2 pt-4 pb-2 shrink-0">{flatItems.map(renderItem)}</ul>
+        <ul className={cn('shrink-0', collapsed ? 'space-y-1 px-2 pt-4 pb-2' : 'space-y-0.5 px-3 pt-4 pb-2')}>
+          {flatItems.map(renderFlat)}
+        </ul>
       )}
-      <nav className="flex-1 overflow-y-auto px-2 space-y-1 min-h-0">{middleItems.map(renderItem)}</nav>
+
+      {/* Group rows. Hovering one opens its fly-out; the nav still scrolls
+          if there are more groups than fit, and scrolling closes any
+          open panel so it can't float detached from its row. */}
+      <nav
+        onScroll={closeNow}
+        className={cn('flex-1 overflow-y-auto min-h-0', collapsed ? 'px-2 space-y-1' : 'px-3 space-y-0.5')}
+      >
+        {grouped.map(({ group }) => {
+          const GroupIcon = GROUP_ICON[group];
+          const highlight = activeGroup === group || open === group;
+          return (
+            <button
+              key={group}
+              type="button"
+              title={collapsed ? GROUP_LABEL[group] : undefined}
+              onMouseEnter={(e) => openFlyout(group, e.currentTarget)}
+              onMouseLeave={scheduleClose}
+              onClick={(e) => (open === group ? closeNow() : openFlyout(group, e.currentTarget))}
+              aria-haspopup="menu"
+              aria-expanded={open === group}
+              className={cn(
+                'w-full transition-colors',
+                collapsed
+                  ? cn('flex items-center justify-center h-10 w-10 mx-auto rounded-lg', highlight ? activeItem : idleItem)
+                  : cn('flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-semibold', highlight ? activeItem : idleItem),
+              )}
+            >
+              {collapsed ? (
+                <GroupIcon className={cn('w-5 h-5 shrink-0', highlight ? activeIcon : idleIcon)} />
+              ) : (
+                <>
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <GroupIcon className={cn('w-4 h-4 shrink-0', highlight ? activeIcon : idleIcon)} />
+                    <span className="truncate">{GROUP_LABEL[group]}</span>
+                  </span>
+                  <ChevronRight className={cn('w-4 h-4 shrink-0', highlight ? activeIcon : 'text-ink-mute')} />
+                </>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
       {bottomItems.length > 0 && (
-        <ul className={cn('space-y-1 px-2 pt-3 pb-4 shrink-0 border-t', borderCls)}>{bottomItems.map(renderItem)}</ul>
+        <ul
+          className={cn(
+            'shrink-0 border-t',
+            collapsed ? 'space-y-1 px-2 pt-3 pb-4 border-white/20' : 'space-y-0.5 px-3 pt-3 pb-4 border-line/60',
+          )}
+        >
+          {bottomItems.map(renderFlat)}
+        </ul>
+      )}
+
+      {mounted && open !== null && anchor !== null && createPortal(
+        <Flyout
+          group={open}
+          items={grouped.find((x) => x.group === open)?.items ?? []}
+          anchor={anchor}
+          pathname={pathname}
+          onEnter={cancelClose}
+          onLeave={scheduleClose}
+          onNavigate={closeNow}
+        />,
+        document.body,
       )}
     </div>
   );
@@ -549,9 +749,6 @@ export function SidebarDesktop({ role }: { role: Role }) {
   // Persisted collapse preference. Default expanded so the first server
   // render and first paint match.
   const [collapsed, setCollapsed] = useState(false);
-  // Transient: is the mouse currently over the collapsed rail? Drives the
-  // hover-expand overlay. Never persisted.
-  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
     try {
@@ -569,15 +766,16 @@ export function SidebarDesktop({ role }: { role: Role }) {
       } catch {
         // ignore quota / disabled-storage errors
       }
-      // Pinning open should also clear any lingering hover state.
-      if (!next) setHovered(false);
       return next;
     });
   }
 
-  // Full-label layout shows when pinned open OR when hovering the rail.
-  const expanded = !collapsed || hovered;
-
+  // The rail no longer grows on hover — both the pinned-open (wide) and
+  // collapsed (narrow icon) states now reveal a group's pages via a
+  // fly-out panel anchored to the right (see DesktopNav / Flyout). The
+  // panel sits at z-10; the fly-outs portal to <body> at z-[60] so they
+  // always float above sticky table headers (z-40) instead of being
+  // clipped by the sidebar.
   return (
     <aside
       className={cn(
@@ -586,21 +784,15 @@ export function SidebarDesktop({ role }: { role: Role }) {
       )}
     >
       <div
-        onMouseEnter={() => { if (collapsed) setHovered(true); }}
-        onMouseLeave={() => setHovered(false)}
         className={cn(
-          'sticky top-14 h-[calc(100vh-3.5rem)] flex flex-col border-r',
-          'rounded-r-2xl overflow-hidden transition-[width,background-color] duration-200 ease-out',
+          'sticky top-14 h-[calc(100vh-3.5rem)] flex flex-col border-r z-10',
+          'rounded-r-2xl overflow-hidden transition-[background-color] duration-200 ease-out',
           collapsed ? 'bg-indigo text-white border-white/10' : 'bg-paper border-line/60',
-          expanded ? 'w-64' : 'w-16',
-          // z-50 keeps the hover-expand overlay above sticky table headers
-          // (which reach z-40) so they never bleed over the menu.
-          collapsed && hovered ? 'z-50 shadow-2xl' : 'z-10',
         )}
       >
-        <CollapseToggle expanded={expanded} collapsed={collapsed} onToggle={toggleCollapsed} />
-        {expanded ? <NavBody role={role} onIndigo={collapsed} /> : <IconRail role={role} onIndigo={collapsed} />}
-        {expanded && !collapsed && <Footer />}
+        <CollapseToggle expanded={!collapsed} collapsed={collapsed} onToggle={toggleCollapsed} />
+        <DesktopNav role={role} collapsed={collapsed} />
+        {!collapsed && <Footer />}
       </div>
     </aside>
   );
