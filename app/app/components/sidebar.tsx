@@ -593,7 +593,9 @@ export function SidebarDesktop({ role }: { role: Role }) {
           'rounded-r-2xl overflow-hidden transition-[width,background-color] duration-200 ease-out',
           collapsed ? 'bg-indigo text-white border-white/10' : 'bg-paper border-line/60',
           expanded ? 'w-64' : 'w-16',
-          collapsed && hovered ? 'z-40 shadow-2xl' : 'z-10',
+          // z-50 keeps the hover-expand overlay above sticky table headers
+          // (which reach z-40) so they never bleed over the menu.
+          collapsed && hovered ? 'z-50 shadow-2xl' : 'z-10',
         )}
       >
         <CollapseToggle expanded={expanded} collapsed={collapsed} onToggle={toggleCollapsed} />
