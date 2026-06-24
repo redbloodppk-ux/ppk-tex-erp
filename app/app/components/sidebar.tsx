@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
-  FileBarChart, Bell, Settings, BookCheck,
+  FileBarChart, Bell, Settings, BookCheck, UserCog,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
@@ -157,7 +157,7 @@ const GROUP_ICON: Record<LabelledGroupKey, React.ComponentType<{ className?: str
   people:     ClipboardList,
   finance:    Wallet,
   insights:   FileBarChart,
-  admin:      Settings,
+  admin:      UserCog,
 };
 
 /** localStorage key for per-group open/closed state. Persisted so the
