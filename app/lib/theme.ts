@@ -26,10 +26,10 @@ export interface ThemeConfig {
   fontPx: number;
 }
 
-/** Factory default — the original indigo rail + gold text look. */
+/** Factory default — indigo rail + white text look. */
 export const DEFAULT_THEME: ThemeConfig = {
   sidebarBg: '#6366f1',
-  sidebarFg: '#efbf04',
+  sidebarFg: '#ffffff',
   topbarBg: '#ffffff',
   topbarFg: '#0f172a',
   pageBg: '#f8fafc',
@@ -45,8 +45,8 @@ export interface ThemePreset {
 /** One-tap palettes. The first one is the factory default. */
 export const THEME_PRESETS: ReadonlyArray<ThemePreset> = [
   {
-    id: 'indigo-gold',
-    name: 'Indigo & Gold',
+    id: 'indigo-white',
+    name: 'Indigo & White',
     theme: { ...DEFAULT_THEME },
   },
   {

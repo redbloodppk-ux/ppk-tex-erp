@@ -20,9 +20,9 @@
      runtime by lib/theme.ts (applyTheme) from a per-device saved palette,
      and pre-painted by a tiny inline script in the root layout to avoid a
      colour flash on load. The values below are the factory defaults and
-     match the original indigo + gold look. */
+     match the default indigo + white look. */
   --sidebar-bg: #6366f1;
-  --sidebar-fg: #efbf04;
+  --sidebar-fg: #ffffff;
   --sidebar-hover: rgba(255, 255, 255, 0.14);
   --sidebar-active: rgba(255, 255, 255, 0.24);
   --topbar-bg: #ffffff;
