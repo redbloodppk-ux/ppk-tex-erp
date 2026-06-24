@@ -18,6 +18,7 @@ import { UpdatePrompt } from './update-prompt';
 import { InstallPrompt } from './install-prompt';
 import { EnterNav } from './enter-nav';
 import { AppLock } from './app-lock';
+import { ThemeInit } from './theme-init';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -59,7 +60,8 @@ export function AppShell({
   return (
     // overflow-x-hidden on mobile clips the page as it slides aside; reset
     // to visible at md+ so the desktop sticky sidebar keeps working.
-    <div className="min-h-screen bg-haze relative overflow-x-hidden md:overflow-x-visible">
+    <div className="min-h-screen bg-[var(--page-bg)] relative overflow-x-hidden md:overflow-x-visible">
+      <ThemeInit />
       {/* Mobile push-menu lives at the root (NOT inside the page surface)
           so the surface's transform doesn't scale the fixed drawer. */}
       <SidebarMobile
@@ -76,7 +78,7 @@ export function AppShell({
         className={cn(
           // relative z-10 keeps this surface painted ABOVE the fixed indigo
           // push-menu (z-0) so the menu only shows once the page slides aside.
-          'relative z-10 flex flex-col min-h-screen min-w-0 bg-haze',
+          'relative z-10 flex flex-col min-h-screen min-w-0 bg-[var(--page-bg)]',
           'transition-transform duration-300 ease-out will-change-transform',
           'md:transform-none md:transition-none',
           mobileOpen

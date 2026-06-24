@@ -4,6 +4,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked, ShieldAlert, Users } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
 import { CostingDefaults } from './costing-defaults';
+import { ThemeSettings } from '@/app/components/theme-settings';
 
 export const metadata = { title: 'Settings' };
 
@@ -282,6 +283,11 @@ export default async function SettingsPage({
           </div>
           <ChevronRight className="w-4 h-4 text-ink-mute" />
         </Link>
+      </div>
+
+      {/* Appearance — per-device theme + text size */}
+      <div className="card p-5">
+        <ThemeSettings />
       </div>
 
       {/* Shift settings */}

@@ -58,14 +58,17 @@ export function Topbar({
     .join('') || 'U';
 
   return (
-    <header className="h-14 bg-paper border-b border-line/60 sticky top-0 z-40 flex items-center px-3 sm:px-6 gap-2 sm:gap-4 rounded-b-2xl">
+    <header
+      className="h-14 border-b border-[color:var(--topbar-hover)] sticky top-0 z-40 flex items-center px-3 sm:px-6 gap-2 sm:gap-4 rounded-b-2xl"
+      style={{ backgroundColor: 'var(--topbar-bg)', color: 'var(--topbar-fg)' }}
+    >
       {/* ── Mobile-only: hamburger opens the sidebar drawer ────────────── */}
       <button
         onClick={onMenuClick}
-        className="md:hidden p-2 rounded-lg hover:bg-cloud"
+        className="md:hidden p-2 rounded-lg hover:bg-[var(--topbar-hover)]"
         aria-label="Open menu"
       >
-        <Menu className="w-5 h-5 text-ink-soft" />
+        <Menu className="w-5 h-5 opacity-70" />
       </button>
 
       {/* ── Brand: logo + title at the far-left corner. Always visible —
@@ -77,8 +80,8 @@ export function Topbar({
       >
         <BrandLogo variant="mark" height={34} />
         <div className="hidden sm:block leading-tight">
-          <div className="font-display font-extrabold text-ink text-base tracking-wider">PPK TEX</div>
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-ink-mute">Cloud ERP</div>
+          <div className="font-display font-extrabold text-base tracking-wider">PPK TEX</div>
+          <div className="text-[9px] font-semibold uppercase tracking-wider opacity-60">Cloud ERP</div>
         </div>
       </Link>
 
@@ -86,10 +89,10 @@ export function Topbar({
       {!isHome && (
         <button
           onClick={() => router.back()}
-          className="md:hidden p-2 rounded-lg hover:bg-cloud"
+          className="md:hidden p-2 rounded-lg hover:bg-[var(--topbar-hover)]"
           aria-label="Go back"
         >
-          <ArrowLeft className="w-5 h-5 text-ink-soft" />
+          <ArrowLeft className="w-5 h-5 opacity-70" />
         </button>
       )}
 
@@ -110,7 +113,7 @@ export function Topbar({
             aria-label="Settings"
             className={cn(
               'p-2 rounded-lg transition-colors',
-              settingsActive ? 'bg-indigo/10 text-indigo' : 'text-ink-soft hover:bg-cloud',
+              settingsActive ? 'bg-indigo/10 text-indigo' : 'opacity-70 hover:opacity-100 hover:bg-[var(--topbar-hover)]',
             )}
           >
             <Settings className="w-5 h-5" />
@@ -125,16 +128,16 @@ export function Topbar({
         <div className="relative">
           <button
             onClick={() => setMenuOpen(o => !o)}
-            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-cloud"
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--topbar-hover)]"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo to-violet text-white flex items-center justify-center text-xs font-bold">
               {initials}
             </div>
             <div className="hidden sm:block text-left leading-tight">
-              <div className="text-sm font-semibold text-ink">{fullName}</div>
-              <div className="text-[10px] uppercase tracking-wider text-ink-mute">{ROLE_LABEL[role] ?? role}</div>
+              <div className="text-sm font-semibold">{fullName}</div>
+              <div className="text-[10px] uppercase tracking-wider opacity-60">{ROLE_LABEL[role] ?? role}</div>
             </div>
-            <ChevronDown className={cn('w-4 h-4 text-ink-mute transition-transform hidden sm:block', menuOpen && 'rotate-180')} />
+            <ChevronDown className={cn('w-4 h-4 opacity-60 transition-transform hidden sm:block', menuOpen && 'rotate-180')} />
           </button>
 
           {menuOpen && (

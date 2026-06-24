@@ -186,31 +186,24 @@ function loadStoredOpen(): Set<GroupKey> {
 function NavBody({
   role,
   onItemClick,
-  onIndigo = false,
 }: {
   role: Role;
   onItemClick?: () => void;
-  /** Render on a dark indigo background (mobile push-menu) with light text
-   *  instead of the default light-surface styling. */
-  onIndigo?: boolean;
 }) {
   const pathname = usePathname();
-  // Theme tokens so the same nav can sit on a light surface (desktop) or on
-  // the indigo push-menu (mobile) without duplicating markup.
+  // Colour + background come from the theme: this nav sits inside the mobile
+  // menu (SidebarMobile), which sets --sidebar-bg / --sidebar-fg on its
+  // container, so text + icons inherit and items only need tint overlays.
   const itemBase = 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors';
-  const itemActive = onIndigo ? 'bg-white/20 text-[#EFBF04]' : 'bg-indigo/10 text-[#EFBF04]';
-  const itemIdle = onIndigo
-    ? 'text-[#EFBF04] hover:bg-white/15'
-    : 'text-[#EFBF04] hover:bg-cloud';
-  const iconActiveCls = 'text-[#EFBF04]';
-  const iconIdleCls = 'text-[#EFBF04]';
-  const groupBtnCls = onIndigo
-    ? 'text-[#EFBF04] hover:bg-white/15'
-    : 'text-[#EFBF04] hover:bg-cloud/60';
-  const groupIconCls = 'text-[#EFBF04]';
-  const chevronCls = 'text-[#EFBF04]/70';
-  const groupBorderCls = onIndigo ? 'border-white/20' : 'border-line/40';
-  const bottomBorderCls = onIndigo ? 'border-white/20' : 'border-line/60';
+  const itemActive = 'bg-[var(--sidebar-active)]';
+  const itemIdle = 'hover:bg-[var(--sidebar-hover)]';
+  const iconActiveCls = '';
+  const iconIdleCls = '';
+  const groupBtnCls = 'hover:bg-[var(--sidebar-hover)]';
+  const groupIconCls = '';
+  const chevronCls = 'opacity-70';
+  const groupBorderCls = 'border-[color:var(--sidebar-hover)]';
+  const bottomBorderCls = 'border-[color:var(--sidebar-hover)]';
   const visible = NAV.filter(n => n.roles.includes(role));
   // 'home' is special: items with this group key render as flat links
   // at the very top of the sidebar without a group header (Dashboard).
@@ -475,11 +468,17 @@ function Flyout({
       ref={ref}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      style={{ position: 'fixed', top, left: anchor.right + 6 }}
-      className="z-[60] w-60 rounded-xl border border-white/15 bg-indigo text-white shadow-2xl py-2"
+      style={{
+        position: 'fixed',
+        top,
+        left: anchor.right + 6,
+        backgroundColor: 'var(--sidebar-bg)',
+        color: 'var(--sidebar-fg)',
+      }}
+      className="z-[60] w-60 rounded-xl border border-[color:var(--sidebar-hover)] shadow-2xl py-2"
       role="menu"
     >
-      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-[#EFBF04]/80 border-b border-white/20">
+      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide opacity-80 border-b border-[color:var(--sidebar-hover)]">
         {GROUP_LABEL[group]}
       </div>
       <ul className="px-1.5 space-y-0.5">
@@ -494,10 +493,10 @@ function Flyout({
                 onClick={onNavigate}
                 className={cn(
                   'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
-                  active ? 'bg-white/25 text-[#EFBF04]' : 'text-[#EFBF04] hover:bg-white/15',
+                  active ? 'bg-[var(--sidebar-active)]' : 'hover:bg-[var(--sidebar-hover)]',
                 )}
               >
-                <Icon className={cn('w-4 h-4 shrink-0', 'text-[#EFBF04]')} />
+                <Icon className="w-4 h-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
               </Link>
             </li>
@@ -561,15 +560,13 @@ function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
     setAnchor(null);
   };
 
-  // Brighter, higher-contrast tokens than before. On the light pinned
-  // sidebar icons take the indigo brand colour (vivid) and text is full
-  // ink; on the collapsed indigo rail icons go near-white.
-  const idleItem = collapsed
-    ? 'text-[#EFBF04] hover:bg-white/15'
-    : 'text-[#EFBF04] hover:bg-cloud';
-  const activeItem = collapsed ? 'bg-white/25 text-[#EFBF04]' : 'bg-indigo/10 text-[#EFBF04]';
-  const idleIcon = 'text-[#EFBF04]';
-  const activeIcon = 'text-[#EFBF04]';
+  // Colour comes from the theme: text + icons inherit --sidebar-fg from the
+  // panel (set on the SidebarDesktop container), so items only need hover /
+  // active background tints, which are derived from --sidebar-bg brightness.
+  const idleItem = 'hover:bg-[var(--sidebar-hover)]';
+  const activeItem = 'bg-[var(--sidebar-active)]';
+  const idleIcon = '';
+  const activeIcon = '';
 
   const renderFlat = (item: NavItem) => {
     const active = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -650,7 +647,7 @@ function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
                     <GroupIcon className={cn('w-4 h-4 shrink-0', highlight ? activeIcon : idleIcon)} />
                     <span className="truncate">{GROUP_LABEL[group]}</span>
                   </span>
-                  <ChevronRight className={cn('w-4 h-4 shrink-0', 'text-[#EFBF04]/70')} />
+                  <ChevronRight className="w-4 h-4 shrink-0 opacity-70" />
                 </>
               )}
             </button>
@@ -661,8 +658,8 @@ function DesktopNav({ role, collapsed }: { role: Role; collapsed: boolean }) {
       {bottomItems.length > 0 && (
         <ul
           className={cn(
-            'shrink-0 border-t',
-            collapsed ? 'space-y-1 px-2 pt-3 pb-4 border-white/20' : 'space-y-0.5 px-3 pt-3 pb-4 border-line/60',
+            'shrink-0 border-t border-[color:var(--sidebar-hover)]',
+            collapsed ? 'space-y-1 px-2 pt-3 pb-4' : 'space-y-0.5 px-3 pt-3 pb-4',
           )}
         >
           {bottomItems.map(renderFlat)}
@@ -703,9 +700,8 @@ function CollapseToggle({
   return (
     <div
       className={cn(
-        'h-12 flex items-center shrink-0 border-b',
+        'h-12 flex items-center shrink-0 border-b border-[color:var(--sidebar-hover)]',
         expanded ? 'justify-end px-3' : 'justify-center',
-        collapsed ? 'border-white/20' : 'border-line/60',
       )}
     >
       <button
@@ -714,10 +710,8 @@ function CollapseToggle({
         title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
         aria-label={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
         className={cn(
-          'p-1.5 rounded-lg transition-colors',
-          collapsed
-            ? 'text-white/80 hover:bg-white/10 hover:text-white'
-            : 'text-ink-mute hover:bg-cloud hover:text-ink',
+          'p-1.5 rounded-lg transition-all opacity-80 hover:opacity-100',
+          'hover:bg-[var(--sidebar-hover)]',
         )}
       >
         <ToggleIcon className="w-5 h-5" />
@@ -728,7 +722,7 @@ function CollapseToggle({
 
 function Footer() {
   return (
-    <div className="px-4 py-3 border-t border-line/60 text-[10px] text-ink-mute">
+    <div className="px-4 py-3 border-t border-[color:var(--sidebar-hover)] text-[10px] opacity-60">
       v0.1 - {new Date().getFullYear()} PPK Tex Industries
     </div>
   );
@@ -784,10 +778,11 @@ export function SidebarDesktop({ role }: { role: Role }) {
       )}
     >
       <div
+        style={{ backgroundColor: 'var(--sidebar-bg)', color: 'var(--sidebar-fg)' }}
         className={cn(
           'sticky top-14 h-[calc(100vh-3.5rem)] flex flex-col border-r z-10',
           'rounded-r-2xl overflow-hidden transition-[background-color] duration-200 ease-out',
-          collapsed ? 'bg-indigo text-white border-white/10' : 'bg-paper border-line/60',
+          'border-[color:var(--sidebar-hover)]',
         )}
       >
         <CollapseToggle expanded={!collapsed} collapsed={collapsed} onToggle={toggleCollapsed} />
@@ -815,9 +810,10 @@ export function SidebarMobile({
 }) {
   return (
     <aside
+      style={{ backgroundColor: 'var(--sidebar-bg)', color: 'var(--sidebar-fg)' }}
       className={cn(
         'md:hidden fixed inset-y-0 left-0 z-0 w-[72%] max-w-xs',
-        'flex flex-col bg-indigo text-white',
+        'flex flex-col',
         mobileOpen ? 'pointer-events-auto' : 'pointer-events-none',
       )}
       aria-hidden={!mobileOpen}
@@ -825,7 +821,7 @@ export function SidebarMobile({
       <Link
         href="/app/dashboard"
         onClick={onClose}
-        className="px-5 py-5 flex items-center gap-3 border-b border-white/15 hover:bg-white/5 transition-colors"
+        className="px-5 py-5 flex items-center gap-3 border-b border-[color:var(--sidebar-hover)] hover:bg-[var(--sidebar-hover)] transition-colors"
         title="Go to dashboard"
       >
         <span className="bg-white/95 rounded-xl p-1.5 flex items-center justify-center">
@@ -833,11 +829,11 @@ export function SidebarMobile({
         </span>
         <div className="flex-1">
           <div className="font-display font-extrabold leading-tight text-base tracking-wider">PPK TEX</div>
-          <div className="text-[10px] uppercase tracking-wider text-white/70">Cloud ERP</div>
+          <div className="text-[10px] uppercase tracking-wider opacity-70">Cloud ERP</div>
         </div>
       </Link>
-      <NavBody role={role} onItemClick={onClose} onIndigo />
-      <div className="px-4 py-3 border-t border-white/15 text-[10px] text-white/60">
+      <NavBody role={role} onItemClick={onClose} />
+      <div className="px-4 py-3 border-t border-[color:var(--sidebar-hover)] text-[10px] opacity-60">
         v0.1 - {new Date().getFullYear()} PPK Tex Industries
       </div>
     </aside>
