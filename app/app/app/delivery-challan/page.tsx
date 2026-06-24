@@ -104,6 +104,41 @@ export default async function DeliveryChallanListPage({
     }
   }
 
+  // Fabric quality per DC. A DC's items each reference a fabric_quality;
+  // a single DC may carry more than one quality, so we collect the
+  // distinct set per DC and join their codes (falling back to name).
+  const qualityByDc = new Map<number, string>();
+  if (rows.length > 0) {
+    const { data: qItems } = await sb
+      .from('delivery_challan_item')
+      .select('dc_id, fabric_quality_id')
+      .in('dc_id', rows.map((r) => r.id));
+    // dc_id -> ordered set of quality ids
+    const qIdsByDc = new Map<number, Set<number>>();
+    const allQIds = new Set<number>();
+    for (const it of (qItems ?? []) as Array<{ dc_id: number | null; fabric_quality_id: number | null }>) {
+      if (it.dc_id == null || it.fabric_quality_id == null) continue;
+      let s = qIdsByDc.get(Number(it.dc_id));
+      if (!s) { s = new Set<number>(); qIdsByDc.set(Number(it.dc_id), s); }
+      s.add(Number(it.fabric_quality_id));
+      allQIds.add(Number(it.fabric_quality_id));
+    }
+    const qLabel = new Map<number, string>();
+    if (allQIds.size > 0) {
+      const { data: qMaster } = await sb
+        .from('fabric_quality')
+        .select('id, code, name')
+        .in('id', Array.from(allQIds));
+      for (const q of (qMaster ?? []) as Array<{ id: number; code: string | null; name: string | null }>) {
+        qLabel.set(Number(q.id), q.code ?? q.name ?? '');
+      }
+    }
+    for (const [dcId, ids] of qIdsByDc) {
+      const label = Array.from(ids).map((id) => qLabel.get(id) ?? '').filter(Boolean).join(', ');
+      if (label) qualityByDc.set(dcId, label);
+    }
+  }
+
   // Preserve the mode filter in any links built off this page.
   const qsMode = mode !== null ? `?mode=${mode}` : '';
   const newDcHref = `/app/delivery-challan/new${qsMode}`;
@@ -178,6 +213,9 @@ export default async function DeliveryChallanListPage({
                     {r.code}
                   </Link>
                   <div className="text-sm font-medium mt-0.5 break-words">{r.bill_to_name ?? '-'}</div>
+                  <div className="text-xs text-ink-soft mt-0.5 break-words">
+                    <span className="text-ink-mute">Quality: </span>{qualityByDc.get(r.id) ?? '-'}
+                  </div>
                 </div>
                 <span className={`pill ${pill.cls} text-xs uppercase tracking-wide shrink-0`}>{pill.label}</span>
               </div>
@@ -250,6 +288,7 @@ export default async function DeliveryChallanListPage({
               <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={mode !== null ? { mode } : {}} className="text-left px-3 py-3" />
               <th className="text-left px-3 py-3">Mode</th>
               <th className="text-left px-3 py-3">Party (Bill-To)</th>
+              <th className="text-left px-3 py-3">Fabric Quality</th>
               <th className="text-right px-3 py-3">Metres</th>
               <th className="text-right px-3 py-3">Pcs</th>
               <th className="text-right px-3 py-3">Bundles</th>
@@ -260,7 +299,7 @@ export default async function DeliveryChallanListPage({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
+                <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
                   {mode !== null
                     ? <>No {MODE_LABEL[mode].toLowerCase()} delivery challans yet. </>
                     : <>No delivery challans yet. </>}
@@ -277,6 +316,7 @@ export default async function DeliveryChallanListPage({
                   <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
                   <td className="px-3 py-2 text-xs capitalize">{r.production_mode}</td>
                   <td className="px-3 py-2 font-medium">{r.bill_to_name ?? '-'}</td>
+                  <td className="px-3 py-2 text-xs">{qualityByDc.get(r.id) ?? '-'}</td>
                   <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                   <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
                   <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
