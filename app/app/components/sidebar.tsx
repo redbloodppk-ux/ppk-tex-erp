@@ -476,10 +476,10 @@ function Flyout({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       style={{ position: 'fixed', top, left: anchor.right + 6 }}
-      className="z-[60] w-60 rounded-xl border border-line/70 bg-paper shadow-2xl py-2"
+      className="z-[60] w-60 rounded-xl border border-white/15 bg-indigo text-white shadow-2xl py-2"
       role="menu"
     >
-      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-indigo border-b border-line/50">
+      <div className="px-3 pb-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70 border-b border-white/20">
         {GROUP_LABEL[group]}
       </div>
       <ul className="px-1.5 space-y-0.5">
@@ -494,10 +494,10 @@ function Flyout({
                 onClick={onNavigate}
                 className={cn(
                   'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors',
-                  active ? 'bg-indigo/10 text-indigo' : 'text-ink hover:bg-cloud',
+                  active ? 'bg-white/25 text-white' : 'text-white/90 hover:bg-white/15 hover:text-white',
                 )}
               >
-                <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo' : 'text-indigo/80')} />
+                <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-white' : 'text-white/85')} />
                 <span className="truncate">{item.label}</span>
               </Link>
             </li>
