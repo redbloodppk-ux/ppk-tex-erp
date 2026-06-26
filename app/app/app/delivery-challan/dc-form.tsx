@@ -474,15 +474,123 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   //      seeded with a null fabric_quality_id (the operator can pick
   //      one manually before saving).
   useEffect(() => {
-    if (itemsSource !== 'production_batch' || form.production_mode !== 'inhouse') {
+    if (itemsSource !== 'production_batch') {
       setBatchOpts([]);
       return;
     }
     let cancelled = false;
     setBatchesLoading(true);
+    const mode = form.production_mode;
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
+
+      // ===== jobwork / outsource: load batches from fabric_stock =====
+      // These modes never write production_fabric ledger rows. Their produced
+      // fabric lives as fabric_stock rows (one per batch, source_type matching
+      // the mode). Available metres = metres_available (generated col), which
+      // already nets any prior DC depletion of metres_out. We mirror the
+      // in-house loader's shape so the picker/seed code is mode-agnostic.
+      if (mode === 'jobwork' || mode === 'outsource') {
+        const sourceType = mode === 'jobwork' ? 'jobwork' : 'outsourced';
+        const { data: fsRows, error: fsErr } = await sb
+          .from('fabric_stock')
+          .select('id, batch_id, costing_id, metres_available')
+          .eq('source_type', sourceType)
+          .not('batch_id', 'is', null);
+        if (fsErr || cancelled) {
+          if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+          return;
+        }
+        const availByBatch = new Map<number, number>();
+        const costingByBatch = new Map<number, number>();
+        for (const r of (fsRows ?? []) as Array<{
+          id: number; batch_id: number | null; costing_id: number | null; metres_available: number | string | null;
+        }>) {
+          if (r.batch_id == null) continue;
+          const id = Number(r.batch_id);
+          availByBatch.set(id, (availByBatch.get(id) ?? 0) + Number(r.metres_available ?? 0));
+          if (r.costing_id != null && !costingByBatch.has(id)) costingByBatch.set(id, Number(r.costing_id));
+        }
+        const liveIds: number[] = [];
+        for (const [id, avail] of availByBatch) {
+          if (avail > 0.0001) liveIds.push(id);
+        }
+        // Keep already-picked batches visible even if their remainder is 0
+        // (this DC's planned depletion may have already zeroed metres_available).
+        for (const id of pickedBatchIds) {
+          if (!liveIds.includes(id)) liveIds.push(id);
+        }
+        if (liveIds.length === 0) {
+          if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+          return;
+        }
+        const { data: batchRows, error: batchErr } = await sb
+          .from('production_batch')
+          .select('id, batch_code, costing_id, produced_m, entry_mode, total_pieces, total_bundles, bundles_detail')
+          .in('id', liveIds)
+          .order('batch_code', { ascending: false });
+        if (batchErr || cancelled) {
+          if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+          return;
+        }
+        const batches = (batchRows ?? []) as Array<{
+          id: number; batch_code: string; costing_id: number;
+          produced_m: number | string | null;
+          entry_mode: string | null;
+          total_pieces: number | null;
+          total_bundles: number | null;
+          bundles_detail: Array<{ sno: number; pieces: number[] }> | null;
+        }>;
+        if (batches.length === 0) {
+          if (!cancelled) { setBatchOpts([]); setBatchesLoading(false); }
+          return;
+        }
+        const costingIds = Array.from(new Set(batches.map((b) => b.costing_id)));
+        const [cmRes, fqRes] = await Promise.all([
+          sb.from('costing_master').select('id, quality_code, quality_name').in('id', costingIds),
+          sb.from('fabric_quality').select('id, name, hsn, costing_id').in('costing_id', costingIds),
+        ]);
+        if (cancelled) { setBatchesLoading(false); return; }
+        const cmById = new Map<number, { quality_code: string | null; quality_name: string | null }>();
+        for (const c of (cmRes.data ?? []) as Array<{ id: number; quality_code: string | null; quality_name: string | null }>) {
+          cmById.set(c.id, { quality_code: c.quality_code, quality_name: c.quality_name });
+        }
+        const fqByCostingId = new Map<number, { id: number; name: string; hsn: string | null }>();
+        for (const fq of (fqRes.data ?? []) as Array<{ id: number; name: string; hsn: string | null; costing_id: number | null }>) {
+          if (fq.costing_id == null) continue;
+          if (!fqByCostingId.has(fq.costing_id)) {
+            fqByCostingId.set(fq.costing_id, { id: fq.id, name: fq.name, hsn: fq.hsn });
+          }
+        }
+        const opts: BatchOpt[] = batches.map((b) => {
+          const cm = cmById.get(b.costing_id);
+          const fq = fqByCostingId.get(b.costing_id);
+          const avail = availByBatch.get(b.id) ?? 0;
+          return {
+            id: b.id,
+            batch_code: b.batch_code,
+            costing_id: b.costing_id,
+            quality_code: cm?.quality_code ?? null,
+            quality_name: cm?.quality_name ?? null,
+            fabric_quality_id: fq?.id ?? null,
+            fabric_quality_hsn: fq?.hsn ?? null,
+            entry_mode: (b.entry_mode === 'detailed' ? 'detailed' : 'summary'),
+            // Seed the delivered metres from what's available (unit='m'), so
+            // toggleBatchPick fills the line with the remaining metres.
+            produced_m: avail > 0.0001 ? avail : Number(b.produced_m ?? 0),
+            total_pieces: b.total_pieces,
+            total_bundles: b.total_bundles,
+            bundles_detail: (b.bundles_detail ?? []),
+            available: avail,
+            unit: 'm',
+          };
+        });
+        if (!cancelled) { setBatchOpts(opts); setBatchesLoading(false); }
+        return;
+      }
+
+      // ===== in-house: load batches from production_fabric stock_ledger =====
       // 1. Sum all production_fabric ledger rows per batch.
       const { data: ledgerRows, error: ledErr } = await sb
         .from('stock_ledger')
@@ -1140,15 +1248,47 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       // old items so the ledger doesn't double-count after re-insert.
       const { data: oldItems } = await sb
         .from('delivery_challan_item')
-        .select('id')
+        .select('id, production_batch_id, metres')
         .eq('dc_id', dcId);
-      const oldItemIds = ((oldItems ?? []) as Array<{ id: number }>).map((x) => x.id);
+      const oldItemsTyped = (oldItems ?? []) as Array<{
+        id: number; production_batch_id: number | null; metres: number | string | null;
+      }>;
+      const oldItemIds = oldItemsTyped.map((x) => x.id);
       if (oldItemIds.length > 0) {
         await sb.from('stock_ledger')
           .delete()
           .eq('bucket', 'production_fabric')
           .eq('source_kind', 'delivery_challan_item')
           .in('source_id', oldItemIds);
+      }
+      // jobwork/outsource don't use the production_fabric ledger — their
+      // depletion lives in fabric_stock.metres_out. Restore (subtract back)
+      // the old items' delivered metres before we re-insert + re-deplete,
+      // mirroring the ledger delete above so an edit nets to zero drift.
+      if (form.production_mode === 'jobwork' || form.production_mode === 'outsource') {
+        const restoreByBatch = new Map<number, number>();
+        for (const o of oldItemsTyped) {
+          if (o.production_batch_id == null) continue;
+          const qty = Number(o.metres ?? 0);
+          if (!(qty > 0)) continue;
+          restoreByBatch.set(o.production_batch_id, (restoreByBatch.get(o.production_batch_id) ?? 0) + qty);
+        }
+        if (restoreByBatch.size > 0) {
+          const sourceType = form.production_mode === 'jobwork' ? 'jobwork' : 'outsourced';
+          const bids = Array.from(restoreByBatch.keys());
+          const { data: fsRows } = await sb
+            .from('fabric_stock')
+            .select('id, batch_id, metres_out')
+            .eq('source_type', sourceType)
+            .in('batch_id', bids);
+          for (const r of (fsRows ?? []) as Array<{ id: number; batch_id: number | null; metres_out: number | string | null }>) {
+            if (r.batch_id == null) continue;
+            const delta = restoreByBatch.get(Number(r.batch_id));
+            if (delta == null) continue;
+            const newOut = Math.max(0, Number(r.metres_out ?? 0) - delta);
+            await sb.from('fabric_stock').update({ metres_out: newOut }).eq('id', r.id);
+          }
+        }
       }
       await sb.from('delivery_challan_item').delete().eq('dc_id', dcId);
     } else {
@@ -1206,13 +1346,54 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       insertedItems = (itemRows ?? []) as typeof insertedItems;
     }
 
-    // Production-batch outflows: for every saved item that points at a
-    // production_batch, write a stock_ledger row that depletes that
-    // batch's production_fabric inflow. The outflow unit must match
-    // the inflow unit (m vs pcs), so we read the original inflow row
-    // once per batch and cache it.
+    // Production-batch outflows. In-house batches deplete via the
+    // production_fabric stock_ledger (unit-matched outflow rows).
+    // jobwork/outsource batches deplete via fabric_stock.metres_out
+    // (handled in the else branch below).
     const ledgerBatchItems = insertedItems.filter((it) => it.production_batch_id != null);
-    if (ledgerBatchItems.length > 0) {
+    if (ledgerBatchItems.length > 0 && form.production_mode !== 'inhouse') {
+      // ----- jobwork / outsource: bump fabric_stock.metres_out -----
+      // metres_available is a generated column, so we never touch it —
+      // we add the delivered metres onto metres_out. Phase 2 keeps one
+      // fabric_stock row per batch, so a single update per batch suffices.
+      const deltaByBatch = new Map<number, number>();
+      for (const it of ledgerBatchItems) {
+        const qty = Number(it.metres ?? 0);
+        if (!(qty > 0)) continue;
+        const bid = Number(it.production_batch_id);
+        deltaByBatch.set(bid, (deltaByBatch.get(bid) ?? 0) + qty);
+      }
+      if (deltaByBatch.size > 0) {
+        const sourceType = form.production_mode === 'jobwork' ? 'jobwork' : 'outsourced';
+        const bids = Array.from(deltaByBatch.keys());
+        const { data: fsRows, error: fsReadErr } = await sb
+          .from('fabric_stock')
+          .select('id, batch_id, metres_out')
+          .eq('source_type', sourceType)
+          .in('batch_id', bids);
+        if (!fsReadErr) {
+          for (const r of (fsRows ?? []) as Array<{ id: number; batch_id: number | null; metres_out: number | string | null }>) {
+            if (r.batch_id == null) continue;
+            const delta = deltaByBatch.get(Number(r.batch_id));
+            if (delta == null) continue;
+            const newOut = Number(r.metres_out ?? 0) + delta;
+            const { error: updErr } = await sb
+              .from('fabric_stock')
+              .update({ metres_out: newOut })
+              .eq('id', r.id);
+            if (updErr) {
+              // Non-fatal: the DC is already saved. Surface a warning so
+              // the operator can reconcile fabric stock later.
+              // eslint-disable-next-line no-console
+              console.warn('DC saved but fabric_stock depletion failed:', updErr);
+              setError(`DC saved but fabric stock depletion failed: ${updErr.message}`);
+              setBusy(false);
+              return;
+            }
+          }
+        }
+      }
+    } else if (ledgerBatchItems.length > 0) {
       const uniqueBatchIds = Array.from(
         new Set(ledgerBatchItems.map((it) => Number(it.production_batch_id))),
       );
@@ -1610,14 +1791,18 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           stock_ledger outflow that depletes the batch's inflow.
           Only meaningful on inhouse DCs — jobwork / outsource modes still
           flow through the fabric_receipt path. */}
-      {form.production_mode === 'inhouse' && (
+      {(form.production_mode === 'inhouse'
+        || form.production_mode === 'jobwork'
+        || form.production_mode === 'outsource') && (
         <div>
           <label className="label">
             Items Source
             <span className="text-[10px] text-ink-mute font-normal ml-2">
               {itemsSource === 'manual'
                 ? 'Type each item by hand (default).'
-                : 'Pick from in-house production batches with leftover stock.'}
+                : form.production_mode === 'inhouse'
+                  ? 'Pick from in-house production batches with leftover stock.'
+                  : 'Pick from produced batches with leftover fabric stock.'}
             </span>
           </label>
           <div className="flex gap-1.5 max-w-md">
@@ -1641,11 +1826,12 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         </div>
       )}
 
-      {/* Production batch picker — only when in-house + the toggle is
-          flipped. Each row is a checkbox that seeds (or removes) a DC
-          item for that batch. Selected items remain freely editable
-          below in the items grid. */}
-      {form.production_mode === 'inhouse' && itemsSource === 'production_batch' && (
+      {/* Production batch picker — when the toggle is flipped (any of the
+          three production modes). Each row is a checkbox that seeds (or
+          removes) a DC item for that batch. In-house pulls leftover stock
+          from the production_fabric ledger; jobwork/outsource pull from
+          fabric_stock. Selected items remain freely editable below. */}
+      {itemsSource === 'production_batch' && (
         <div className="rounded-lg border border-line bg-paper">
           <div className="flex items-center justify-between p-3 border-b border-line/60">
             <h3 className="font-display font-bold text-sm">Pick production batches</h3>
