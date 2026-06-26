@@ -773,7 +773,7 @@ export default async function InvoicePrintPage({
           </div>
           <div className="sig-block">
             For {COMPANY.name}<br/>
-            <span style={{ display: 'inline-block', marginTop: 28 }}>Authorised Signatory</span>
+            <span style={{ display: 'inline-block', marginTop: 56 }}>Authorised Signatory</span>
           </div>
         </div>
 
