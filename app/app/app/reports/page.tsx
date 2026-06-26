@@ -14,6 +14,13 @@ interface ReportLink {
 
 const REPORTS: ReportLink[] = [
   {
+    href: '/app/reports/employee-loan-statement',
+    title: 'Employee Loan Statement',
+    description:
+      'Per-worker loan ledger — every cash advance given and every repayment withheld from wages, with a running outstanding balance. Filter by employee and date.',
+    ready: true,
+  },
+  {
     href: '/app/reports/sizing-spend',
     title: 'Sizing Spend',
     description:

@@ -32,7 +32,7 @@ export default async function EditWagePage({ params }: PageProps): Promise<React
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (supabase as any)
     .from('wage_entry')
-    .select('id, employee_id, pay_date, period_start, period_end, kind, amount, notes, source_ledger_id')
+    .select('id, employee_id, pay_date, period_start, period_end, kind, amount, notes, source_ledger_id, loan_deduction')
     .eq('id', id)
     .maybeSingle();
 

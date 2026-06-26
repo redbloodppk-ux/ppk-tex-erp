@@ -59,6 +59,7 @@ export interface InitialEntry {
   amount: number;
   notes: string | null;
   source_ledger_id?: number | null;
+  loan_deduction?: number | null;
 }
 
 // Cash / bank account the wage was paid from.
@@ -137,6 +138,16 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   const [amount, setAmount] = useState<string>(initial ? String(initial.amount) : '');
   const [notes, setNotes] = useState<string>(initial?.notes ?? '');
 
+  // Loan repayment withheld from this wage. The cash actually handed over is
+  // (amount - loanDeduction); the withheld part reduces the worker's
+  // outstanding employee_loan balance.
+  const [loanDeduction, setLoanDeduction] = useState<string>(
+    initial?.loan_deduction != null && initial.loan_deduction > 0 ? String(initial.loan_deduction) : '',
+  );
+  // The employee's outstanding loan (total disbursed - total already repaid),
+  // shown beside the Loan repayment field so the operator knows the cap.
+  const [outstandingLoan, setOutstandingLoan] = useState<number | null>(null);
+
   // "Paid from" cash/bank account. Defaults to CASH once the list loads.
   const [sourceLedgers, setSourceLedgers] = useState<SourceLedgerOption[]>([]);
   const [sourceLedgerId, setSourceLedgerId] = useState<string>(
@@ -173,6 +184,39 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
+
+  // Outstanding loan for the selected employee = SUM(employee_loan.amount) −
+  // SUM(wage_entry.loan_deduction). When editing, exclude this row's own
+  // existing deduction so the figure reflects the balance before this wage.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadOutstanding(): Promise<void> {
+      if (!employeeId) {
+        setOutstandingLoan(null);
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: loans } = await (supabase as any)
+        .from('employee_loan')
+        .select('amount')
+        .eq('employee_id', Number(employeeId));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: deds } = await (supabase as any)
+        .from('wage_entry')
+        .select('id, loan_deduction')
+        .eq('employee_id', Number(employeeId));
+      if (cancelled) return;
+      const disbursed = ((loans ?? []) as Array<{ amount: number }>)
+        .reduce((acc, r) => acc + Number(r.amount || 0), 0);
+      const repaid = ((deds ?? []) as Array<{ id: number; loan_deduction: number | null }>)
+        .filter((r) => !(isEdit && initial && r.id === initial.id))
+        .reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
+      setOutstandingLoan(disbursed - repaid);
+    }
+    void loadOutstanding();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, employeeId]);
 
   const [ctx, setCtx] = useState<WorkContext>({
     shifts: { morning: 0, night: 0 },
@@ -486,6 +530,15 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       setError('Amount must be a non-negative number.');
       return;
     }
+    const loanDed = loanDeduction === '' ? 0 : Number(loanDeduction);
+    if (!Number.isFinite(loanDed) || loanDed < 0) {
+      setError('Loan repayment must be a non-negative number.');
+      return;
+    }
+    if (loanDed > amt) {
+      setError('Loan repayment cannot be more than the wage amount.');
+      return;
+    }
     if (periodEnd < periodStart) {
       setError('Period end cannot be before period start.');
       return;
@@ -509,6 +562,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       amount: amt,
       notes: notes.trim() || null,
       source_ledger_id: sourceLedgerId ? Number(sourceLedgerId) : null,
+      loan_deduction: loanDed,
       updated_by: user?.id ?? null,
     };
 
@@ -623,6 +677,38 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         <p className="text-[11px] text-ink-mute mt-1">
           Which account this wage was paid from. It records a matching Credit on
           that cash/bank ledger so its balance reflects money going out.
+        </p>
+      </div>
+
+      <div>
+        <label className="label" htmlFor="loanDeduction">Loan repayment (₹)</label>
+        <input
+          id="loanDeduction"
+          type="number"
+          inputMode="decimal"
+          step="1"
+          min="0"
+          className="input num"
+          value={loanDeduction}
+          onChange={(e) => setLoanDeduction(e.target.value)}
+          placeholder="0"
+        />
+        <p className="text-[11px] text-ink-mute mt-1">
+          {outstandingLoan != null && outstandingLoan > 0 ? (
+            <>
+              Outstanding loan for this worker:{' '}
+              <span className="font-semibold text-rose-700">₹{outstandingLoan.toFixed(2)}</span>.{' '}
+            </>
+          ) : outstandingLoan != null ? (
+            <>This worker has no outstanding loan. </>
+          ) : null}
+          Amount withheld from this wage to repay their loan. Cash actually paid =
+          Amount − Loan repayment ={' '}
+          <span className="font-semibold num">
+            ₹{Math.max(0, (Number(amount) || 0) - (Number(loanDeduction) || 0)).toFixed(2)}
+          </span>
+          . Issue new loans on the{' '}
+          <Link href="/app/loans" className="text-indigo font-semibold">Loans</Link> page.
         </p>
       </div>
 

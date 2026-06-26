@@ -10,7 +10,7 @@ import {
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck, UserCog,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen,
+  ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -93,6 +93,7 @@ const NAV: NavItem[] = [
   // People (HR)
   { href: '/app/employees',     label: 'Employees',          icon: Users,           group: 'people',     roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/attendance',    label: 'Attendance',         icon: ClipboardList,   group: 'people',     roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
+  { href: '/app/loans',         label: 'Loans',              icon: HandCoins,       group: 'people',     roles: ['owner','accounts','mill_manager','auditor'] },
   // Wages, Expenses, Payments, Bank Entries moved into the Finance
   // group below so all money-flow tools sit together.
 

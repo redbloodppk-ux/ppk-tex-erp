@@ -81,7 +81,7 @@ interface PaymentRow {
 // render is a single loop.
 interface LedgerEntry {
   key:           string;
-  source:        'payment' | 'wage' | 'expense' | 'bill' | 'bank';
+  source:        'payment' | 'wage' | 'expense' | 'bill' | 'bank' | 'loan';
   /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc.
    *  Bank rows use 'bank_in' / 'bank_out'. */
   bill_kind?:    string;
@@ -269,10 +269,19 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     // this, a CASH ledger would only ever show debits (receipts) and its
     // balance would climb forever. (migration 218)
     let wagesSrcQ = sb.from('wage_entry')
-      .select('id, pay_date, amount, kind, notes, employee:employee_id ( full_name )')
+      .select('id, pay_date, amount, kind, notes, loan_deduction, employee:employee_id ( full_name )')
       .eq('source_ledger_id', numericId);
     if (startDate) wagesSrcQ = wagesSrcQ.gte('pay_date', startDate);
     if (endDate)   wagesSrcQ = wagesSrcQ.lte('pay_date', endDate);
+
+    // Employee loans disbursed FROM this cash/bank ledger. Each loan is cash
+    // that physically left this account, so it projects as a CREDIT (outflow),
+    // mirroring the wage/expense funding side. (migration 219)
+    let loanSrcQ = sb.from('employee_loan')
+      .select('id, loan_date, amount, notes, employee:employee_id ( full_name )')
+      .eq('source_ledger_id', numericId);
+    if (startDate) loanSrcQ = loanSrcQ.gte('loan_date', startDate);
+    if (endDate)   loanSrcQ = loanSrcQ.lte('loan_date', endDate);
 
     let expensesSrcQ = sb.from('expense_entry')
       .select('id, pay_date, amount, category, notes')
@@ -379,11 +388,12 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
       .eq('id', numericId)
       .maybeSingle();
 
-    const [wagesRes, expensesRes, wagesSrcRes, expensesSrcRes, bankRes, openingLedgerRes] = await Promise.all([wagesQ, expensesQ, wagesSrcQ, expensesSrcQ, bankQ, openingLedgerQ]);
+    const [wagesRes, expensesRes, wagesSrcRes, expensesSrcRes, loanSrcRes, bankRes, openingLedgerRes] = await Promise.all([wagesQ, expensesQ, wagesSrcQ, expensesSrcQ, loanSrcQ, bankQ, openingLedgerQ]);
     if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
     if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
     if (wagesSrcRes.error)    { setError(wagesSrcRes.error.message);    setLoading(false); return; }
     if (expensesSrcRes.error) { setError(expensesSrcRes.error.message); setLoading(false); return; }
+    if (loanSrcRes.error)  { setError(loanSrcRes.error.message);  setLoading(false); return; }
     if (bankRes.error)     { setError(bankRes.error.message);     setLoading(false); return; }
 
     // Step 4: project into LedgerEntry, sort, store.
@@ -476,8 +486,13 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
 
     // Funding side: this cash/bank ledger PAID these wages/expenses, so each
     // shows as a Credit (outflow) — money leaving the account. (migration 218)
+    // For wages, the cash that actually leaves is (amount − loan_deduction):
+    // any loan repayment is withheld from the wage, so it never leaves this
+    // account. (migration 219)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const w of ((wagesSrcRes.data ?? []) as any[])) {
+      const cashPaid = Number(w.amount ?? 0) - Number(w.loan_deduction ?? 0);
+      if (cashPaid <= 0) continue;
       all.push({
         key:          `wage-src-${w.id}`,
         source:       'wage',
@@ -487,7 +502,25 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         mode:         'Wages paid',
         reference:    w.kind ?? null,
         inflow:       0,
-        outflow:      Number(w.amount ?? 0),
+        outflow:      cashPaid,
+      });
+    }
+    // Employee loans disbursed FROM this ledger — cash handed to the worker,
+    // a Credit (outflow). Repayments aren't projected here: they're withheld
+    // from wages, so they reduce the wage outflow above rather than appearing
+    // as a separate inflow. (migration 219)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const l of ((loanSrcRes.data ?? []) as any[])) {
+      all.push({
+        key:          `loan-src-${l.id}`,
+        source:       'loan',
+        date:         l.loan_date,
+        voucher:      `LOAN/${l.id}`,
+        counterparty: l.employee?.full_name ?? 'Employee loan',
+        mode:         'Loan given',
+        reference:    l.notes ?? null,
+        inflow:       0,
+        outflow:      Number(l.amount ?? 0),
       });
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -877,6 +910,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                             : r.source === 'expense' ? 'bg-violet-50 text-violet-700'
                             : r.source === 'bill'  ? 'bg-indigo-50 text-indigo-700'
                             : r.source === 'bank'  ? 'bg-sky-50 text-sky-700'
+                            : r.source === 'loan'  ? 'bg-rose-50 text-rose-700'
                                                    : 'bg-cloud text-ink-soft',
                           )}>
                             {r.source === 'bill'
@@ -961,6 +995,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
                           : r.source === 'expense' ? 'bg-violet-50 text-violet-700'
                           : r.source === 'bill'  ? 'bg-indigo-50 text-indigo-700'
                           : r.source === 'bank'  ? 'bg-sky-50 text-sky-700'
+                          : r.source === 'loan'  ? 'bg-rose-50 text-rose-700'
                                                  : 'bg-cloud text-ink-soft',
                         )}>
                           {r.source === 'bill'
