@@ -35,11 +35,22 @@ import type { Database } from '@/lib/database.types';
 
 type ProductionBatchInsert = Database['public']['Tables']['production_batch']['Insert'];
 
+/** Weaving mode for a batch. Mirrors the DC form's three production modes. */
+export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
+
 interface Costing {
   id: number;
   quality_code: string;
   quality_name: string;
   approval_status: string;
+}
+
+/** Party master option — filtered by party type for jobwork / outsource. */
+interface PartyOpt {
+  id: number;
+  code: string;
+  name: string;
+  party_type_ids: number[] | null;
 }
 
 interface ActivePavuAssign {
@@ -89,6 +100,10 @@ export interface InitialBatch {
   pavu_assign_id: number | null;
   loom_id: number | null;
   warp_lot_id: number | null;
+  // Production mode + weaver party (migration 222). Older rows pre-dating
+  // the migration default to 'inhouse' with a null party.
+  production_mode?: ProductionMode | null;
+  party_id?: number | null;
   produced_m: number;
   rejected_m: number;
   start_date: string | null;
@@ -130,9 +145,20 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
   // ── master data ───────────────────────────────────────────────────────────
   const [costings, setCostings] = useState<Costing[]>([]);
   const [assigns, setAssigns] = useState<ActivePavuAssign[]>([]);
+  const [allParties, setAllParties] = useState<PartyOpt[]>([]);
+  const [jobworkTypeId, setJobworkTypeId] = useState<number | null>(null);
+  const [outsourceTypeId, setOutsourceTypeId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // ── form state ────────────────────────────────────────────────────────────
+  // Weaving mode + weaver party. inhouse leaves party empty; jobwork /
+  // outsource require a party of the matching type.
+  const [productionMode, setProductionMode] = useState<ProductionMode>(
+    initial?.production_mode === 'jobwork' ? 'jobwork'
+      : initial?.production_mode === 'outsource' ? 'outsource'
+      : 'inhouse',
+  );
+  const [partyId, setPartyId] = useState(initial?.party_id != null ? String(initial.party_id) : '');
   const [costingId, setCostingId] = useState(initial ? String(initial.costing_id) : '');
   const [pavuAssignId, setPavuAssignId] = useState(initial?.pavu_assign_id != null ? String(initial.pavu_assign_id) : '');
   const [loomId, setLoomId] = useState(initial?.loom_id != null ? String(initial.loom_id) : '');
@@ -186,7 +212,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [costingsRes, a] = await Promise.all([
+      const [costingsRes, a, ptRes, partyRes] = await Promise.all([
         (async () => {
           const [fqRes, cmRes] = await Promise.all([
             sb.from('fabric_quality')
@@ -229,13 +255,42 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           .in('status', ['mounted', 'running', 'completed'])
           .order('start_date', { ascending: false })
           .limit(50),
+        // Party types + active parties drive the jobwork / outsource
+        // weaver dropdown. Same source the DC form uses so the two stay
+        // in lockstep.
+        sb.from('party_type_master').select('id, name').in('name', ['Jobwork Party', 'Outsource Weaver']),
+        sb.from('party').select('id, code, name, party_type_ids').eq('status', 'active').order('name'),
       ]);
 
       setCostings(costingsRes.data ?? []);
       setAssigns((a.data as unknown as ActivePavuAssign[]) ?? []);
+      const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
+      setJobworkTypeId(types.find((t) => t.name === 'Jobwork Party')?.id ?? null);
+      setOutsourceTypeId(types.find((t) => t.name === 'Outsource Weaver')?.id ?? null);
+      setAllParties((partyRes.data ?? []) as PartyOpt[]);
       setLoading(false);
     })();
   }, [supabase]);
+
+  // ── Party dropdown filtered by mode ───────────────────────────────────────
+  //   jobwork   → Jobwork Party
+  //   outsource → Outsource Weaver
+  // inhouse never shows the dropdown. If the party-type master row is
+  // missing we fall back to showing every active party rather than an
+  // empty list.
+  const filteredParties = useMemo<PartyOpt[]>(() => {
+    if (productionMode === 'jobwork') {
+      return jobworkTypeId === null
+        ? allParties
+        : allParties.filter((p) => (p.party_type_ids ?? []).includes(jobworkTypeId));
+    }
+    if (productionMode === 'outsource') {
+      return outsourceTypeId === null
+        ? allParties
+        : allParties.filter((p) => (p.party_type_ids ?? []).includes(outsourceTypeId));
+    }
+    return [];
+  }, [allParties, productionMode, jobworkTypeId, outsourceTypeId]);
 
   // ── load cost preview whenever costing changes ────────────────────────────
   useEffect(() => {
@@ -522,6 +577,12 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       setError('Pick the quality being woven.');
       return;
     }
+    if (productionMode !== 'inhouse' && !partyId) {
+      setError(productionMode === 'jobwork'
+        ? 'Pick the jobwork party for this batch.'
+        : 'Pick the outsource weaver for this batch.');
+      return;
+    }
     const producedNum = Number(producedM);
     if (!producedM || !(producedNum > 0)) {
       setError('Enter the Batch DC bundle/piece data first.');
@@ -552,6 +613,8 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       // UPDATE existing row.
       const updatePayload = {
         costing_id: Number(costingId),
+        production_mode: productionMode,
+        party_id: productionMode === 'inhouse' ? null : (partyId ? Number(partyId) : null),
         pavu_assign_id: pavuAssignId ? Number(pavuAssignId) : null,
         loom_id: loomId ? Number(loomId) : null,
         warp_lot_id: warpLotId ? Number(warpLotId) : null,
@@ -600,9 +663,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         total_pieces: number;
         total_bundles: number;
         bundles_detail: BundleDetailRow[];
+        production_mode: ProductionMode;
+        party_id: number | null;
       } = {
         batch_code: '',
         costing_id: Number(costingId),
+        production_mode: productionMode,
+        party_id: productionMode === 'inhouse' ? null : (partyId ? Number(partyId) : null),
         so_line_id: null,
         pavu_assign_id: pavuAssignId ? Number(pavuAssignId) : null,
         loom_id: loomId ? Number(loomId) : null,
@@ -658,6 +725,69 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
 
   return (
     <form onSubmit={onSubmit} className="space-y-4 max-w-3xl">
+      {/* ─── Production mode ───────────────────────────────────────────
+          Pick who weaves this batch. inhouse keeps the original flow;
+          jobwork / outsource also require a weaver party. Everything
+          else on the form behaves identically across the three modes. */}
+      <section className="card p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">
+          Production for
+        </h3>
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            { key: 'inhouse', label: 'In-house' },
+            { key: 'jobwork', label: 'Job Work' },
+            { key: 'outsource', label: 'Outsource Weaver' },
+          ] as Array<{ key: ProductionMode; label: string }>).map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => {
+                setProductionMode(m.key);
+                if (m.key === 'inhouse') setPartyId('');
+              }}
+              className={
+                'px-3 py-1.5 rounded-lg text-xs font-semibold border ' +
+                (productionMode === m.key
+                  ? 'border-transparent bg-indigo-600 text-white'
+                  : 'border-line bg-white text-ink-soft hover:bg-haze/60')
+              }
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {productionMode !== 'inhouse' && (
+          <div>
+            <label className="label">
+              {productionMode === 'jobwork' ? 'Jobwork Party *' : 'Outsource Weaver *'}
+            </label>
+            <select
+              required
+              value={partyId}
+              onChange={(e) => setPartyId(e.target.value)}
+              className="input"
+            >
+              <option value="" disabled>
+                {productionMode === 'jobwork' ? 'Select jobwork party…' : 'Select outsource weaver…'}
+              </option>
+              {filteredParties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code} — {p.name}
+                </option>
+              ))}
+            </select>
+            {filteredParties.length === 0 && (
+              <div className="text-xs text-amber-700 mt-1">
+                No {productionMode === 'jobwork' ? 'jobwork parties' : 'outsource weavers'} found.
+                Add one in the Party master with the matching party type first.
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* ─── Section 1: Quality ────────────────────────────────────────── */}
       <section className="card p-4 space-y-3">
         <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">

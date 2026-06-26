@@ -35,7 +35,7 @@ export default function EditProductionBatchPage(): React.ReactElement {
       const sb = supabase as any;
       const { data, error: qErr } = await sb
         .from('production_batch')
-        .select('id, batch_code, costing_id, pavu_assign_id, loom_id, warp_lot_id, produced_m, rejected_m, start_date, end_date, notes, entry_mode, total_pieces, total_bundles, bundles_detail')
+        .select('id, batch_code, costing_id, production_mode, party_id, pavu_assign_id, loom_id, warp_lot_id, produced_m, rejected_m, start_date, end_date, notes, entry_mode, total_pieces, total_bundles, bundles_detail')
         .eq('id', id)
         .maybeSingle();
       if (qErr) {

@@ -20,6 +20,8 @@ import { CardFilter } from '@/app/components/card-filter';
 export const metadata = { title: 'Production' };
 export const dynamic = 'force-dynamic';
 
+type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
+
 interface BatchRow {
   id: number;
   batch_code: string;
@@ -28,9 +30,37 @@ interface BatchRow {
   produced_m: number;
   actual_true_cost_per_m: number | null;
   actual_sizing_cost_per_m: number | null;
+  production_mode: ProductionMode | null;
+  party_id: number | null;
   loom: { loom_code: string } | null;
   costing: { quality_code: string; quality_name: string } | null;
+  party: { code: string; name: string } | null;
 }
+
+const MODE_LABEL: Record<ProductionMode, string> = {
+  inhouse: 'In-house',
+  jobwork: 'Job Work',
+  outsource: 'Outsource',
+};
+
+const MODE_BADGE: Record<ProductionMode, string> = {
+  inhouse: 'bg-indigo-50 text-indigo-700',
+  jobwork: 'bg-amber-50 text-amber-700',
+  outsource: 'bg-violet-50 text-violet-700',
+};
+
+function modeOf(b: BatchRow): ProductionMode {
+  return b.production_mode === 'jobwork' || b.production_mode === 'outsource'
+    ? b.production_mode
+    : 'inhouse';
+}
+
+const MODE_FILTERS: { key: 'all' | ProductionMode; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'inhouse', label: 'In-house' },
+  { key: 'jobwork', label: 'Job Work' },
+  { key: 'outsource', label: 'Outsource' },
+];
 
 interface VarianceRow {
   batch_id: number;
@@ -39,8 +69,17 @@ interface VarianceRow {
   actual_sizing_cost_per_m: number | null;
 }
 
-export default async function ProductionPage() {
+export default async function ProductionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
   const supabase = await createClient();
+  const sp = await searchParams;
+  const activeMode: 'all' | ProductionMode =
+    sp.mode === 'inhouse' || sp.mode === 'jobwork' || sp.mode === 'outsource'
+      ? sp.mode
+      : 'all';
 
   const [batchesRes, varianceRes] = await Promise.all([
     supabase
@@ -48,8 +87,10 @@ export default async function ProductionPage() {
       .select(`
         id, batch_code, start_date, end_date, produced_m,
         actual_true_cost_per_m, actual_sizing_cost_per_m,
+        production_mode, party_id,
         loom:loom_id ( loom_code ),
-        costing:costing_id ( quality_code, quality_name )
+        costing:costing_id ( quality_code, quality_name ),
+        party:party_id ( code, name )
       `)
       .order('created_at', { ascending: false })
       .limit(50),
@@ -58,7 +99,11 @@ export default async function ProductionPage() {
       .select('batch_id, variance_per_m, variance_total, actual_sizing_cost_per_m'),
   ]);
 
-  const batches = (batchesRes.data as unknown as BatchRow[]) ?? [];
+  const allBatches = (batchesRes.data as unknown as BatchRow[]) ?? [];
+  const batches =
+    activeMode === 'all'
+      ? allBatches
+      : allBatches.filter((b) => modeOf(b) === activeMode);
   const variances = (varianceRes.data as unknown as VarianceRow[]) ?? [];
   const varianceByBatch = new Map<number, VarianceRow>();
   for (const v of variances) {
@@ -101,6 +146,27 @@ export default async function ProductionPage() {
           Production Batches <span className="text-ink-mute">· cost snapshots</span>
         </h2>
 
+        {/* Mode filter pills */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {MODE_FILTERS.map((f) => {
+            const isActive = activeMode === f.key;
+            const href = f.key === 'all' ? '/app/production' : `/app/production?mode=${f.key}`;
+            return (
+              <Link
+                key={f.key}
+                href={href}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  isActive
+                    ? 'bg-indigo text-white border-indigo'
+                    : 'bg-white text-ink-soft border-line hover:bg-cloud/40'
+                }`}
+              >
+                {f.label}
+              </Link>
+            );
+          })}
+        </div>
+
         {batchesRes.error && (
           <div className="card p-4 text-sm text-err mb-4">
             Could not load batches: {batchesRes.error.message}
@@ -110,7 +176,9 @@ export default async function ProductionPage() {
         {batches.length === 0 ? (
           <div className="card p-10 text-center text-ink-soft text-sm">
             <Factory className="w-6 h-6 mx-auto mb-2 text-ink-mute" />
-            No production batches yet. Once a loom finishes a beam, record the batch here.
+            {activeMode === 'all'
+              ? 'No production batches yet. Once a loom finishes a beam, record the batch here.'
+              : `No ${MODE_LABEL[activeMode].toLowerCase()} batches yet.`}
           </div>
         ) : (
           <>
@@ -128,12 +196,17 @@ export default async function ProductionPage() {
                 <div key={b.id} className="card p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <Link
-                        href={`/app/production/${b.id}/edit`}
-                        className="font-mono font-semibold text-ink hover:text-indigo break-words"
-                      >
-                        {b.batch_code}
-                      </Link>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/app/production/${b.id}/edit`}
+                          className="font-mono font-semibold text-ink hover:text-indigo break-words"
+                        >
+                          {b.batch_code}
+                        </Link>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${MODE_BADGE[modeOf(b)]}`}>
+                          {MODE_LABEL[modeOf(b)]}
+                        </span>
+                      </div>
                       <div className="text-xs text-ink-soft mt-0.5">
                         {b.costing ? (
                           <>
@@ -151,6 +224,14 @@ export default async function ProductionPage() {
                     </div>
                   </div>
 
+                  {modeOf(b) !== 'inhouse' && (
+                    <div className="text-xs text-ink-soft mt-2">
+                      <span className="text-ink-mute">
+                        {modeOf(b) === 'jobwork' ? 'Jobwork party: ' : 'Outsource weaver: '}
+                      </span>
+                      <span className="font-semibold">{b.party?.name ?? '—'}</span>
+                    </div>
+                  )}
                   <div className="text-xs text-ink-soft mt-2">
                     <span className="text-ink-mute">Loom: </span>
                     <span className="font-mono">{b.loom?.loom_code ?? '—'}</span>
@@ -202,8 +283,9 @@ export default async function ProductionPage() {
               <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
                 <tr>
                   <th className="text-left px-3 py-2">Batch</th>
+                  <th className="text-left px-3 py-2">Mode</th>
                   <th className="text-left px-3 py-2">Quality</th>
-                  <th className="text-left px-3 py-2">Loom</th>
+                  <th className="text-left px-3 py-2">Loom / Party</th>
                   <th className="text-left px-3 py-2">Dates</th>
                   <th className="text-right px-3 py-2">Produced m</th>
                   {showTrueCost && (
@@ -226,6 +308,11 @@ export default async function ProductionPage() {
                     <tr key={b.id} className="border-t border-line/40">
                       <td className="px-3 py-2 font-mono font-semibold">{b.batch_code}</td>
                       <td className="px-3 py-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${MODE_BADGE[modeOf(b)]}`}>
+                          {MODE_LABEL[modeOf(b)]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
                         {b.costing ? (
                           <>
                             <span className="font-semibold">{b.costing.quality_code}</span>
@@ -235,8 +322,14 @@ export default async function ProductionPage() {
                           <span className="text-ink-mute">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {b.loom?.loom_code ?? <span className="text-ink-mute">—</span>}
+                      <td className="px-3 py-2 text-xs">
+                        {modeOf(b) === 'inhouse' ? (
+                          <span className="font-mono">
+                            {b.loom?.loom_code ?? <span className="text-ink-mute">—</span>}
+                          </span>
+                        ) : (
+                          <span className="font-semibold">{b.party?.name ?? '—'}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs text-ink-soft">
                         {b.start_date ?? '—'} → {b.end_date ?? 'open'}
