@@ -271,7 +271,7 @@ export default async function DeliveryChallanListPage({
                     </Link>
                   )
                 )}
-                {r.status !== 'cancelled' && r.invoice_id == null && (
+                {r.status !== 'cancelled' && r.invoice_id == null && r.fabric_receipt_id == null && (
                   <span className="inline-flex items-center">
                     <CancelDcButton
                       dcId={r.id}
@@ -387,7 +387,7 @@ export default async function DeliveryChallanListPage({
                         </Link>
                       )
                     )}
-                    {r.status !== 'cancelled' && r.invoice_id == null && (
+                    {r.status !== 'cancelled' && r.invoice_id == null && r.fabric_receipt_id == null && (
                       <CancelDcButton
                         dcId={r.id}
                         code={r.code}

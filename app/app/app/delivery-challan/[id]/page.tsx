@@ -22,6 +22,8 @@ interface DcRow {
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
+  invoice_id: number | null;
+  fabric_receipt_id: number | null;
   entry_mode: 'detailed' | 'summary';
   sales_order_id: number | null;
   party_id: number | null;
@@ -103,7 +105,7 @@ export default async function EditDcPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, void_code, dc_date, status, production_mode, entry_mode, sales_order_id, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
+      .select('id, code, void_code, dc_date, status, production_mode, invoice_id, fabric_receipt_id, entry_mode, sales_order_id, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -180,7 +182,7 @@ export default async function EditDcPage({
             >
               <Printer className="w-3.5 h-3.5" /> View / Print / PDF
             </Link>
-            {dc.status !== 'cancelled' && (
+            {dc.status !== 'cancelled' && dc.invoice_id == null && dc.fabric_receipt_id == null && (
               <CancelDcButton
                 dcId={dc.id}
                 code={dc.code}
