@@ -15,15 +15,20 @@
  * On submit:
  *   - Insert / update production_batch (snapshot triggers fill actual_*
  *     cost columns).
- *   - Best-effort write to stock_ledger:
+ *   - Best-effort write to stock_ledger (all modes):
  *        warp_beam     out  produced_m              (m)
  *        weft_yarn     out  weft_kg_per_m * m       (kg, if > 0)
  *        porvai_yarn   out  porvai_kg_per_m * m     (kg, if > 0)
  *        bobbin        out  produced_m              (m, per costing row — 1:1 with fabric)
- *        production_fabric in produced_m or pcs      (m or pcs)
+ *   - Produced fabric destination depends on production_mode:
+ *        inhouse              → stock_ledger 'production_fabric' in (m or pcs)
+ *        jobwork / outsource  → a fabric_stock row (source_type
+ *                               jobwork/outsourced, batch_id) so it shows on
+ *                               the warehouse Job Work / Outsource fabric tab.
  *
  *   On edit, old ledger rows (source_kind='production_batch',
- *   source_id=batch.id) are deleted first, then reinserted.
+ *   source_id=batch.id) AND any fabric_stock row (batch_id) are deleted
+ *   first, then reinserted per the current mode.
  *
  *   Ledger write failures are surfaced but do not roll back the batch.
  */
@@ -527,43 +532,85 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       });
     }
 
-    // Production fabric INFLOW — store the operator's entered value
-    // as-is, no unit conversion. Per the owner's spec: warp/weft/porvai/
-    // bobbin convert pcs→metres so raw-material consumption is always
-    // in metres, but the produced fabric goes into stock in whatever
-    // unit the operator entered.
-    //   entryInPieces (toggle OFF + hasTowelLen) → save pcs as-is
-    //   else (toggle ON, or no towel length)     → save metres as-is
-    let inflowQty: number;
-    let inflowUnit: 'pcs' | 'm';
-    let inflowNote: string;
-    if (entryInPieces) {
-      inflowQty = Math.round(producedMetres);
-      inflowUnit = 'pcs';
-      inflowNote = `Produced as towel — entered in pcs (${towelLenNum} m/pc)`;
-    } else if (hasTowelLen) {
-      inflowQty = producedMetres;
-      inflowUnit = 'm';
-      inflowNote = `Produced as towel — entered in metres (${towelLenNum} m/pc)`;
-    } else {
-      inflowQty = producedMetres;
-      inflowUnit = 'm';
-      inflowNote = 'Produced fabric stock';
+    // ── Produced fabric — destination depends on the weaving mode ──────────
+    //
+    //   inhouse              → stock_ledger bucket 'production_fabric'
+    //                          (feeds the warehouse In-house "Production
+    //                          Fabric (m)" pivot, unchanged).
+    //   jobwork / outsource  → a fabric_stock row tagged with the matching
+    //                          source_type + this batch_id, so the cloth
+    //                          shows up in the warehouse Job Work / Outsource
+    //                          "Fabric (m)" tab. We deliberately DO NOT also
+    //                          post a production_fabric ledger row for these
+    //                          modes — the produced fabric lives in exactly
+    //                          one place.
+    //
+    // Raw-material outflows above are posted for every mode.
+    if (productionMode === 'inhouse') {
+      // Production fabric INFLOW — store the operator's entered value
+      // as-is, no unit conversion (pcs when entered as towel pieces,
+      // else metres).
+      let inflowQty: number;
+      let inflowUnit: 'pcs' | 'm';
+      let inflowNote: string;
+      if (entryInPieces) {
+        inflowQty = Math.round(producedMetres);
+        inflowUnit = 'pcs';
+        inflowNote = `Produced as towel — entered in pcs (${towelLenNum} m/pc)`;
+      } else if (hasTowelLen) {
+        inflowQty = producedMetres;
+        inflowUnit = 'm';
+        inflowNote = `Produced as towel — entered in metres (${towelLenNum} m/pc)`;
+      } else {
+        inflowQty = producedMetres;
+        inflowUnit = 'm';
+        inflowNote = 'Produced fabric stock';
+      }
+      ledgerRows.push({
+        bucket: 'production_fabric',
+        direction: 'in',
+        fabric_quality_id: linkedFqId,
+        quantity: inflowQty,
+        ...src,
+        unit: inflowUnit,
+        notes: inflowNote,
+      });
     }
-    ledgerRows.push({
-      bucket: 'production_fabric',
-      direction: 'in',
-      fabric_quality_id: linkedFqId,
-      quantity: inflowQty,
-      unit: inflowUnit,
-      ...src,
-      notes: inflowNote,
-    });
 
     const { error: insErr } = await sb.from('stock_ledger').insert(ledgerRows);
     if (insErr) {
       return `Stock ledger write failed (batch was saved): ${insErr.message}`;
     }
+
+    // Job Work / Outsource: post the produced cloth into fabric_stock so it
+    // lands on the matching warehouse fabric tab. fabric_stock is a
+    // metre-based store (metres_available is generated as metres_in
+    // - metres_out), so we always record the TRUE metres here, never pcs.
+    if (productionMode !== 'inhouse') {
+      // Freeze the per-metre cost from the costing's true cost so stock
+      // valuation matches the in-house snapshot logic.
+      let trueCost = 0;
+      const { data: costRow } = await sb
+        .from('v_costing_two_cost')
+        .select('true_cost_per_m')
+        .eq('id', Number(costingId))
+        .maybeSingle();
+      if (costRow && costRow.true_cost_per_m != null) {
+        trueCost = Number(costRow.true_cost_per_m);
+      }
+      const { error: fsErr } = await sb.from('fabric_stock').insert({
+        costing_id: Number(costingId),
+        source_type: productionMode === 'jobwork' ? 'jobwork' : 'outsourced',
+        batch_id: batchId,
+        metres_in: actualMetres,
+        metres_out: 0,
+        cost_per_m_frozen: trueCost,
+      });
+      if (fsErr) {
+        return `Fabric stock write failed (batch was saved): ${fsErr.message}`;
+      }
+    }
+
     return null;
   }
 
@@ -651,6 +698,20 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       if (delErr) {
         setBusy(false);
         setLedgerWarning(`Could not clear old ledger rows: ${delErr.message}. Batch was updated; ledger not reset.`);
+        return;
+      }
+
+      // Also wipe any fabric_stock row this batch posted (jobwork /
+      // outsource). The mode may have changed since the last save, so we
+      // clear both representations and let writeStockLedger repost the
+      // correct one. Skipped silently if there was none.
+      const { error: fsDelErr } = await sb
+        .from('fabric_stock')
+        .delete()
+        .eq('batch_id', batchId);
+      if (fsDelErr) {
+        setBusy(false);
+        setLedgerWarning(`Could not clear old fabric stock: ${fsDelErr.message}. Batch was updated; stock not reset.`);
         return;
       }
     } else {

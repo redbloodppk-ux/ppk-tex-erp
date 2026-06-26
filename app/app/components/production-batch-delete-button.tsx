@@ -51,6 +51,19 @@ export function ProductionBatchDeleteButton({
       return;
     }
 
+    // 1b. Wipe any fabric_stock row this batch posted (jobwork / outsource
+    // produced fabric lives there instead of the stock ledger).
+    const { error: fsErr } = await sb
+      .from('fabric_stock')
+      .delete()
+      .eq('batch_id', id);
+    if (fsErr) {
+      setBusy(false);
+      setErr(fsErr.message);
+      window.alert(`Failed to clear fabric stock: ${fsErr.message}`);
+      return;
+    }
+
     // 2. Hard-delete the batch row.
     const { error: delErr } = await sb.from('production_batch').delete().eq('id', id);
     setBusy(false);
