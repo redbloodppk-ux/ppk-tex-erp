@@ -716,6 +716,10 @@ export default async function InvoicePrintPage({
                     <tr><td>SGST</td><td className="v">{fmtMoney(inv.sgst_amount)}</td></tr>
                   </>
                 )}
+                <tr style={{ borderTop: '1px solid #ddd' }}>
+                  <td>GST sub total</td>
+                  <td className="v">{fmtMoney(num(inv.cgst_amount) + num(inv.sgst_amount) + num(inv.igst_amount))}</td>
+                </tr>
                 {num(inv.extra_charge) !== 0 && (
                   <tr><td>Other charges</td><td className="v">{fmtMoney(inv.extra_charge)}</td></tr>
                 )}
