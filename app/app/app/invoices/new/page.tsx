@@ -20,6 +20,7 @@ import { SearchSelect, type SearchSelectOption } from '@/app/components/search-s
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { useColumnHistory } from '@/app/components/use-column-history';
 import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation, type SelectedBill } from '@/app/components/unpaid-bills-picker';
+import { HsnDatalist } from '@/app/components/hsn-datalist';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -166,6 +167,16 @@ const DOC_OPTIONS: { key: DocType; label: string; icon: any; tagline: string }[]
 const FABRIC_HSN = '5208';
 const YARN_HSN   = '5205';
 const GST_DEFAULT = '5';
+
+/** UOM dropdown choices. Stored values stay canonical (mtr/pcs/kg/Nos) so
+ *  all the piece-vs-metre logic keeps working; only the labels are the
+ *  friendly upper-case forms the operator and the printed bill show. */
+const UOM_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'mtr', label: 'MTRS' },
+  { value: 'pcs', label: 'PCS' },
+  { value: 'kg',  label: 'KGS' },
+  { value: 'Nos', label: 'NOS' },
+];
 
 const newRow = (): Row => ({
   id: Math.random().toString(36).slice(2),
@@ -1787,6 +1798,7 @@ export default function NewInvoicePage() {
             </div>
 
             <div className="overflow-x-auto">
+              <HsnDatalist />
               <table className="w-full text-xs">
                 <thead className="text-[10px] uppercase tracking-wide text-ink-mute">
                   <tr>
@@ -1875,17 +1887,21 @@ export default function NewInvoicePage() {
                           className="input input-sm w-full" placeholder="Item description" />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.hsn_sac}
+                        <input value={r.hsn_sac} list="hsn-textile"
                           onChange={e => updateRow(r.id, { hsn_sac: e.target.value })}
-                          className="input input-sm w-20 num" />
+                          className="input input-sm w-20 num" placeholder="HSN" />
                       </td>
                       <td className="px-2 py-1.5">
                         <input value={r.quantity} onChange={e => updateRow(r.id, { quantity: e.target.value })}
                           className="input input-sm w-20 num text-right" type="number" step="0.01" />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.uom} onChange={e => updateRow(r.id, { uom: e.target.value })}
-                          className="input input-sm w-16" />
+                        <select value={UOM_OPTIONS.some(o => o.value === r.uom) ? r.uom : '__other'}
+                          onChange={e => { if (e.target.value !== '__other') updateRow(r.id, { uom: e.target.value }); }}
+                          className="input input-sm w-20">
+                          {UOM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          {!UOM_OPTIONS.some(o => o.value === r.uom) && <option value="__other">{r.uom || '—'}</option>}
+                        </select>
                       </td>
                       <td className="px-2 py-1.5">
                         <input value={r.rate} onChange={e => updateRow(r.id, { rate: e.target.value })}

@@ -26,6 +26,7 @@ import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, AlertTriangle } from 'lucide-react';
+import { HsnDatalist } from '@/app/components/hsn-datalist';
 
 export interface InvoiceLineRow {
   /** id from DB; null means this is a new line not yet persisted. */
@@ -378,6 +379,8 @@ export function EditInvoiceLines({
         </div>
       )}
 
+      <HsnDatalist />
+
       {lines.length === 0 ? (
         <div className="p-6 text-center text-ink-mute text-sm">
           No line items. Add one to start.
@@ -424,6 +427,7 @@ export function EditInvoiceLines({
                     value={l.hsn_sac}
                     onChange={(e) => patchLine(idx, { hsn_sac: e.target.value })}
                     placeholder="HSN"
+                    list="hsn-textile"
                   />
                 </td>
                 <td className="px-2 py-1.5">

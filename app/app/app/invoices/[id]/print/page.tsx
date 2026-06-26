@@ -175,6 +175,22 @@ function fmtRupees(v: unknown): string {
   return Math.round(num(v)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+// Format a GST percentage with no trailing zeros: 2.50 → "2.5", 6.00 → "6".
+function fmtPct(v: number): string {
+  return Number(v.toFixed(2)).toString();
+}
+
+// Friendly uppercase label for the canonical UOM codes stored on a line.
+function uomLabel(uom: string | null | undefined): string {
+  switch ((uom ?? '').toLowerCase()) {
+    case 'mtr': return 'MTRS';
+    case 'pcs': return 'PCS';
+    case 'kg': return 'KGS';
+    case 'nos': return 'NOS';
+    default: return uom ?? '';
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Page
 // ────────────────────────────────────────────────────────────────────────
@@ -300,6 +316,18 @@ export default async function InvoicePrintPage({
 
   const isInterstate = inv.is_interstate;
   const grand = num(inv.total);
+
+  // GST rate to print beside the CGST / SGST / IGST rows. When every line
+  // shares one rate we show the exact split (e.g. 5% → CGST 2.5% / SGST 2.5%);
+  // for mixed-rate invoices we fall back to the effective rate from amounts.
+  const lineRates = Array.from(
+    new Set(lines.map((l) => num(l.gst_rate_pct)).filter((r) => r > 0)),
+  );
+  const singleRate = lineRates.length === 1 ? lineRates[0] : null;
+  const tax = num(inv.taxable_value);
+  const igstPct = singleRate ?? (tax > 0 ? (num(inv.igst_amount) / tax) * 100 : 0);
+  const cgstPct = singleRate != null ? singleRate / 2 : tax > 0 ? (num(inv.cgst_amount) / tax) * 100 : 0;
+  const sgstPct = singleRate != null ? singleRate / 2 : tax > 0 ? (num(inv.sgst_amount) / tax) * 100 : 0;
 
   return (
     <>
@@ -669,7 +697,7 @@ export default async function InvoicePrintPage({
               <tr key={l.id}>
                 <td>{l.description}</td>
                 <td>{l.hsn_sac || '-'}</td>
-                <td className="num">{fmtMoney(l.quantity)} {l.uom}</td>
+                <td className="num">{fmtMoney(l.quantity)} {uomLabel(l.uom)}</td>
                 <td className="num">{fmtMoney(l.rate)}</td>
                 <td className="num">{fmtMoney(l.taxable_amount)}</td>
                 <td className="num">{fmtMoney(l.total_amount)}</td>
@@ -705,11 +733,11 @@ export default async function InvoicePrintPage({
               <tbody>
                 <tr><td>Subtotal</td><td className="v">{fmtMoney(inv.taxable_value)}</td></tr>
                 {isInterstate ? (
-                  <tr><td>IGST</td><td className="v">{fmtMoney(inv.igst_amount)}</td></tr>
+                  <tr><td>IGST @ {fmtPct(igstPct)}%</td><td className="v">{fmtMoney(inv.igst_amount)}</td></tr>
                 ) : (
                   <>
-                    <tr><td>CGST</td><td className="v">{fmtMoney(inv.cgst_amount)}</td></tr>
-                    <tr><td>SGST</td><td className="v">{fmtMoney(inv.sgst_amount)}</td></tr>
+                    <tr><td>CGST @ {fmtPct(cgstPct)}%</td><td className="v">{fmtMoney(inv.cgst_amount)}</td></tr>
+                    <tr><td>SGST @ {fmtPct(sgstPct)}%</td><td className="v">{fmtMoney(inv.sgst_amount)}</td></tr>
                   </>
                 )}
                 <tr style={{ borderTop: '1px solid #ddd' }}>
