@@ -4,6 +4,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Printer, PackageCheck } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { CancelDcButton } from './cancel-dc-button';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,8 @@ function isModeFilter(v: string | undefined): v is ModeFilter {
 
 interface DcRow {
   id: number;
-  code: string;
+  code: string | null;
+  void_code: string | null;
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork' | 'outsource';
@@ -38,6 +40,12 @@ interface DcRow {
   sales_order_id: number | null;
   invoice_id: number | null;
   fabric_receipt_id: number | null;
+}
+
+// A cancelled DC has its `code` nulled (the number is freed for reuse) and
+// the old number preserved in `void_code`. Show whichever is present.
+function dcCode(r: { code: string | null; void_code: string | null }): string {
+  return r.code ?? r.void_code ?? '—';
 }
 
 function fmtDate(s: string | null): string {
@@ -79,7 +87,7 @@ export default async function DeliveryChallanListPage({
   const sb = supabase as any;
   let q = sb
     .from('delivery_challan')
-    .select('id, code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id, fabric_receipt_id')
+    .select('id, code, void_code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id, fabric_receipt_id')
     .order(sort, { ascending: dir === 'asc' })
     .order('id', { ascending: false });
   if (mode !== null) q = q.eq('production_mode', mode);
@@ -210,7 +218,7 @@ export default async function DeliveryChallanListPage({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <Link href={`/app/delivery-challan/${r.id}`} className="font-mono text-xs font-semibold text-ink hover:text-indigo break-words">
-                    {r.code}
+                    {dcCode(r)}
                   </Link>
                   <div className="text-sm font-medium mt-0.5 break-words">{r.bill_to_name ?? '-'}</div>
                   <div className="text-xs text-ink-soft mt-0.5 break-words">
@@ -239,9 +247,11 @@ export default async function DeliveryChallanListPage({
                 >
                   <Printer className="w-3.5 h-3.5" /> Print
                 </Link>
-                <Link href={`/app/delivery-challan/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit DC">
-                  <Pencil className="w-3.5 h-3.5" /> Edit
-                </Link>
+                {r.status !== 'cancelled' && (
+                  <Link href={`/app/delivery-challan/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit DC">
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </Link>
+                )}
                 {r.status !== 'cancelled' && r.fabric_receipt_id == null && (
                   batchDcIds.has(r.id) ? (
                     <span
@@ -260,6 +270,16 @@ export default async function DeliveryChallanListPage({
                       <PackageCheck className="w-3.5 h-3.5" /> Receive
                     </Link>
                   )
+                )}
+                {r.status !== 'cancelled' && r.invoice_id == null && (
+                  <span className="inline-flex items-center">
+                    <CancelDcButton
+                      dcId={r.id}
+                      code={r.code}
+                      productionMode={r.production_mode}
+                      variant="button"
+                    />
+                  </span>
                 )}
               </div>
             </div>
@@ -311,7 +331,7 @@ export default async function DeliveryChallanListPage({
               return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-2 font-mono text-xs">
-                    <Link href={`/app/delivery-challan/${r.id}`} className="text-indigo hover:underline">{r.code}</Link>
+                    <Link href={`/app/delivery-challan/${r.id}`} className="text-indigo hover:underline">{dcCode(r)}</Link>
                   </td>
                   <td className="px-3 py-2 text-ink-soft">{fmtDate(r.dc_date)}</td>
                   <td className="px-3 py-2 text-xs capitalize">{r.production_mode}</td>
@@ -332,9 +352,11 @@ export default async function DeliveryChallanListPage({
                     >
                       <Printer className="w-4 h-4" />
                     </Link>
-                    <Link href={`/app/delivery-challan/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="Edit DC">
-                      <Pencil className="w-4 h-4" />
-                    </Link>
+                    {r.status !== 'cancelled' && (
+                      <Link href={`/app/delivery-challan/${r.id}`} className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex" title="Edit DC">
+                        <Pencil className="w-4 h-4" />
+                      </Link>
+                    )}
                     {/* Receive fabric against this DC — opens the fabric
                         receipt form (works for in-house, jobwork and
                         outsource DCs alike). DCs cut from a production
@@ -364,6 +386,14 @@ export default async function DeliveryChallanListPage({
                           <PackageCheck className="w-4 h-4" />
                         </Link>
                       )
+                    )}
+                    {r.status !== 'cancelled' && r.invoice_id == null && (
+                      <CancelDcButton
+                        dcId={r.id}
+                        code={r.code}
+                        productionMode={r.production_mode}
+                        variant="icon"
+                      />
                     )}
                   </td>
                 </tr>

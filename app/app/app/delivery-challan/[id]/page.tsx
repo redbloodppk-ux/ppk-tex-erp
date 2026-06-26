@@ -10,13 +10,15 @@ import {
   type DcItem,
   type Bundle,
 } from '../dc-form';
+import { CancelDcButton } from '../cancel-dc-button';
 
 export const metadata = { title: 'Edit Delivery Challan' };
 export const dynamic = 'force-dynamic';
 
 interface DcRow {
   id: number;
-  code: string;
+  code: string | null;
+  void_code: string | null;
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
@@ -101,7 +103,7 @@ export default async function EditDcPage({
   const sb = supabase as any;
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, entry_mode, sales_order_id, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
+      .select('id, code, void_code, dc_date, status, production_mode, entry_mode, sales_order_id, party_id, ship_to_same, ship_to_party_id, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -130,9 +132,13 @@ export default async function EditDcPage({
       }))
     : EMPTY_DC.items;
 
+  // A cancelled DC has its `code` nulled (the number was freed for reuse);
+  // the old number lives in `void_code`. Show whichever is present.
+  const displayCode = dc.code ?? dc.void_code ?? '';
+
   const initial: DcFormValues = {
     id: dc.id,
-    code: dc.code,
+    code: displayCode,
     dc_date: dc.dc_date,
     status: dc.status,
     production_mode: dc.production_mode,
@@ -159,20 +165,30 @@ export default async function EditDcPage({
   return (
     <div>
       <PageHeader
-        title={`Delivery Challan ${dc.code}`}
+        title={`Delivery Challan ${displayCode}`}
         crumbs={[
           { label: 'Delivery Challan', href: '/app/delivery-challan' },
-          { label: dc.code },
+          { label: displayCode },
         ]}
         actions={
-          <Link
-            href={`/app/delivery-challan/${dc.id}/print`}
-            target="_blank"
-            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
-            title="View / Print / Download PDF"
-          >
-            <Printer className="w-3.5 h-3.5" /> View / Print / PDF
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/app/delivery-challan/${dc.id}/print`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+              title="View / Print / Download PDF"
+            >
+              <Printer className="w-3.5 h-3.5" /> View / Print / PDF
+            </Link>
+            {dc.status !== 'cancelled' && (
+              <CancelDcButton
+                dcId={dc.id}
+                code={dc.code}
+                productionMode={dc.production_mode === 'jobwork' ? 'jobwork' : 'inhouse'}
+                variant="button"
+              />
+            )}
+          </div>
         }
       />
       <DeliveryChallanForm initial={initial} />

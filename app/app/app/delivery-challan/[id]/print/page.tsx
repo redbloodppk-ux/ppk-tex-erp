@@ -38,7 +38,8 @@ export async function generateMetadata({
 
 interface DcHeader {
   id: number;
-  code: string;
+  code: string | null;
+  void_code: string | null;
   dc_date: string;
   status: 'draft' | 'confirmed' | 'invoiced' | 'cancelled';
   production_mode: 'inhouse' | 'jobwork';
@@ -154,7 +155,7 @@ export default async function DcPrintPage({
   const companyP = loadCompany();
   const [hdrRes, itemsRes] = await Promise.all([
     sb.from('delivery_challan')
-      .select('id, code, dc_date, status, production_mode, entry_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
+      .select('id, code, void_code, dc_date, status, production_mode, entry_mode, bill_to_name, bill_to_address, bill_to_gstin, bill_to_state, bill_to_state_code, ship_to_same, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state, ship_to_state_code, vehicle_no, notes, total_metres, total_pieces, total_bundles')
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
@@ -190,6 +191,8 @@ export default async function DcPrintPage({
   const shipToGstin   = dc.ship_to_same ? (dc.bill_to_gstin ?? '')   : (dc.ship_to_gstin ?? '');
   const shipToState   = dc.ship_to_same ? (dc.bill_to_state ?? '')   : (dc.ship_to_state ?? '');
   const shipToCode    = dc.ship_to_same ? (dc.bill_to_state_code ?? '') : (dc.ship_to_state_code ?? '');
+  // Cancelled DCs have `code` nulled; the original number lives in void_code.
+  const dcDisplayCode = dc.code ?? dc.void_code ?? '';
 
   return (
     <>
@@ -324,7 +327,7 @@ export default async function DcPrintPage({
         .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 62px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
-      <PrintActions dcId={dc.id} dcCode={dc.code} partyName={dc.bill_to_name} dcDate={dc.dc_date} />
+      <PrintActions dcId={dc.id} dcCode={dcDisplayCode} partyName={dc.bill_to_name} dcDate={dc.dc_date} />
 
       <div
         className={'dc-sheet dc-watermark ' +
@@ -344,7 +347,7 @@ export default async function DcPrintPage({
         {/* ───── Meta strip ───── */}
         <div className="dc-meta">
           <div><div className="lbl">CHELLAN DATE</div><div className="val">{fmtDc(dc.dc_date)}</div></div>
-          <div><div className="lbl">CHELLAN #</div><div className="val">{dc.code}</div></div>
+          <div><div className="lbl">CHELLAN #</div><div className="val">{dcDisplayCode}</div></div>
           <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
           <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
         </div>
