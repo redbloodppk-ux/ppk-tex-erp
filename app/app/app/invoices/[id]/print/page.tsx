@@ -330,7 +330,12 @@ export default async function InvoicePrintPage({
              pushes signatures + address footer to the page bottom.
              Without min-height:100vh the column collapses to content
              size and the printout looks "shrunken" vs preview. */
-          .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
+          /* Printable area = page (100vh) minus the @page top+bottom
+             margins (28mm + 26mm). Using the full 100vh forced the sheet
+             ~54mm taller than the printable area, spilling the footer to
+             a 2nd page. Subtract the margins (+2mm slack) so a normal
+             invoice fits one page; long invoices still grow and spill. */
+          .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: calc(100vh - 56mm) !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
           /* Fresh A4 page between ORIGINAL and DUPLICATE copies. */
           .inv-sheet + .inv-sheet { page-break-before: always; }
           .inv-print-header {
@@ -641,7 +646,7 @@ export default async function InvoicePrintPage({
             <div><div className="lbl">Status</div><div className="val" style={{ textTransform: 'capitalize' }}>{inv.status.replace('_', ' ')}</div></div>
             <div><div className="lbl">Rev. chg</div><div className="val">No</div></div>
             <div><div className="lbl">Ship mode</div><div className="val">Road</div></div>
-            <div><div className="lbl">DCs</div><div className="val">{linkedDcs.length > 0 ? linkedDcs.length : '-'}</div></div>
+            <div><div className="lbl">DC No</div><div className="val">{linkedDcs.length > 0 ? linkedDcs.map((d) => d.code).join(', ') : '-'}</div></div>
           </div>
         )}
 
@@ -680,15 +685,6 @@ export default async function InvoicePrintPage({
           </tfoot>
         </table>
 
-        {/* ───── Linked DC numbers (just the codes, comma-separated) ───── */}
-        {linkedDcs.length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 10, color: '#555' }}>
-            <span className="inv-lab" style={{ display: 'inline', marginRight: 6 }}>DC No:</span>
-            <span style={{ fontFamily: 'monospace', color: '#111', fontSize: 11 }}>
-              {linkedDcs.map((d) => d.code).join(',  ')}
-            </span>
-          </div>
-        )}
 
         {/* ───── Totals grid: bank/notes on left, money on right ───── */}
         <div className="totals-grid">
