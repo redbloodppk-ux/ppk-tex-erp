@@ -17,9 +17,25 @@ import { formatRupee } from '@/lib/utils';
 import { DeleteWageButton } from './delete-wage-button';
 import { WageFilters } from './wage-filters';
 import { CardFilter } from '@/app/components/card-filter';
+import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
+
+// Columns the list may be sorted by. Anything else falls back to the default.
+const SORTABLE_COLUMNS = new Set(['pay_date', 'created_at']);
+
+// Render the entry timestamp as date + 24h time in IST, e.g. "27-Jun-2026 20:18".
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Kolkata',
+  }).format(d).replace(',', '');
+}
 
 type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
 
@@ -31,6 +47,7 @@ interface WageRow {
   kind: Kind;
   amount: number;
   notes: string | null;
+  created_at: string | null;
   employee: { code: string; full_name: string; wage_alloc_basis: string } | null;
 }
 
@@ -44,7 +61,7 @@ const KIND_PILL: Record<Kind, string> = {
 export default async function WagesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ emp?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ emp?: string; from?: string; to?: string; sort?: string; dir?: string }>;
 }): Promise<React.ReactElement> {
   const sp = await searchParams;
   const empId = sp.emp != null && /^\d+$/.test(sp.emp) ? Number(sp.emp) : null;
@@ -52,6 +69,11 @@ export default async function WagesPage({
   const isDate = (s: string | undefined): s is string => s != null && /^\d{4}-\d{2}-\d{2}$/.test(s);
   const from = isDate(sp.from) ? sp.from : null;
   const to = isDate(sp.to) ? sp.to : null;
+
+  // Sort: default newest pay date first. The Pay date and Entered headers are
+  // clickable; created_at lets the user order by exact time of data entry.
+  const sortKey = sp.sort && SORTABLE_COLUMNS.has(sp.sort) ? sp.sort : 'pay_date';
+  const dir: SortDir = sp.dir === 'asc' ? 'asc' : 'desc';
 
   const supabase = await createClient();
   // wage_entry was added in migration 031 — database.types.ts hasn't been
@@ -62,10 +84,12 @@ export default async function WagesPage({
   let query = (supabase as any)
     .from('wage_entry')
     .select(`
-      id, pay_date, period_start, period_end, kind, amount, notes,
+      id, pay_date, period_start, period_end, kind, amount, notes, created_at,
       employee:employee_id ( code, full_name, wage_alloc_basis )
     `)
-    .order('pay_date', { ascending: false })
+    .order(sortKey, { ascending: dir === 'asc' })
+    // Stable tiebreaker so equal sort keys keep a deterministic order.
+    .order('created_at', { ascending: false })
     .limit(200);
 
   // Employee filter.
@@ -88,6 +112,13 @@ export default async function WagesPage({
 
   const rows = (data as unknown as WageRow[]) ?? [];
   const total = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+
+  // Preserve the active filters when a sortable header is clicked.
+  const sortParams: Record<string, string | undefined> = {
+    emp: empId != null ? String(empId) : undefined,
+    from: from ?? undefined,
+    to: to ?? undefined,
+  };
 
   return (
     <div>
@@ -143,6 +174,9 @@ export default async function WagesPage({
                 <div className="mt-0.5 capitalize">
                   Basis: {(r.employee?.wage_alloc_basis ?? 'metres').replace('_', '-')}
                 </div>
+                <div className="mt-0.5">
+                  <span className="text-ink-mute">Entered: </span><span className="num">{fmtDateTime(r.created_at)}</span>
+                </div>
               </div>
               <div className="num font-semibold text-base text-right">
                 {formatRupee(Number(r.amount))}
@@ -182,12 +216,13 @@ export default async function WagesPage({
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
-              <th className="text-left px-4 py-3">Pay date</th>
+              <SortableTh column="pay_date" label="Pay date" sort={sortKey} dir={dir} basePath="/app/wages" extraParams={sortParams} className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3">Employee</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Period</th>
               <th className="text-left px-4 py-3">Kind</th>
               <th className="text-right px-4 py-3">Amount</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">Basis</th>
+              <SortableTh column="created_at" label="Entered" sort={sortKey} dir={dir} basePath="/app/wages" extraParams={sortParams} className="text-left px-4 py-3" />
               <th className="text-left px-4 py-3 hidden xl:table-cell">Notes</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
@@ -212,6 +247,9 @@ export default async function WagesPage({
                 <td className="px-4 py-3 hidden lg:table-cell text-xs capitalize">
                   {(r.employee?.wage_alloc_basis ?? 'metres').replace('_', '-')}
                 </td>
+                <td className="px-4 py-3 num text-xs text-ink-soft whitespace-nowrap">
+                  {fmtDateTime(r.created_at)}
+                </td>
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-ink-soft">
                   {r.notes ?? '—'}
                 </td>
@@ -233,7 +271,7 @@ export default async function WagesPage({
               </tr>
             )) : (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No wage entries yet.{' '}
                   <Link href="/app/wages/new" className="text-indigo font-semibold">
                     Add the first one →
