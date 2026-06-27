@@ -353,17 +353,16 @@ export default async function InvoicePrintPage({
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
-          /* Critical: keep .inv-sheet full-printable-page tall so the
-             flex column stretches and 'margin-top:auto' on .foot-strip
-             pushes signatures + address footer to the page bottom.
-             Without min-height:100vh the column collapses to content
-             size and the printout looks "shrunken" vs preview. */
-          /* Printable area = page (100vh) minus the @page top+bottom
-             margins (28mm + 26mm). Using the full 100vh forced the sheet
-             ~54mm taller than the printable area, spilling the footer to
-             a 2nd page. Subtract the margins (+2mm slack) so a normal
-             invoice fits one page; long invoices still grow and spill. */
-          .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: calc(100vh - 56mm) !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
+          /* Each copy = exactly one page. We deliberately do NOT force a
+             full-page min-height here: stretching the sheet to ~100vh and
+             pushing the declaration to the bottom with margin-top:auto kept
+             shoving the signature block onto a 2nd sheet (sub-mm rounding at
+             the page edge wraps it over). Letting the sheet collapse to its
+             content height means a normal invoice + declaration always sits
+             on one page; the @page break between copies still gives ORIGINAL
+             and DUPLICATE their own sheet. Truly long invoices grow naturally
+             and spill, which is correct. */
+          .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 0 !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
           /* Fresh A4 page between ORIGINAL and DUPLICATE copies. */
           .inv-sheet + .inv-sheet { page-break-before: always; }
           .inv-print-header {
