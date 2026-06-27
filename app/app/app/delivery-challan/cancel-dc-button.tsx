@@ -31,11 +31,6 @@ interface BatchOpt {
   label: string;
 }
 
-interface CostingOpt {
-  id: number;
-  label: string;
-}
-
 interface CancelDcButtonProps {
   dcId: number;
   code: string | null;
@@ -67,13 +62,14 @@ export function CancelDcButton({
 
   // Manual-entry DC → "move to batch" on cancel. When the DC's items aren't
   // tied to any production batch, we offer to auto-create a batch (dated to
-  // the DC) and post the delivered metres into it as available stock. A batch
-  // is costing-anchored, so the operator picks the quality/costing — it's
-  // pre-selected when the fabric already carries one.
+  // the DC) and post the delivered metres into it as available stock. The new
+  // batch is created from the DC's own production mode + quality — there is no
+  // manual quality picker. The quality/costing is resolved from the DC's
+  // fabric quality; if it can't be resolved, the cancel is blocked.
   const [isManual, setIsManual] = useState(false);
   const [moveToBatch, setMoveToBatch] = useState(true);
-  const [costingOpts, setCostingOpts] = useState<CostingOpt[]>([]);
   const [manualCostingId, setManualCostingId] = useState<string>('');
+  const [manualQualityLabel, setManualQualityLabel] = useState<string>('');
 
   async function openDialog() {
     setOpen(true);
@@ -85,8 +81,8 @@ export function CancelDcButton({
     setOrigBatchId(null);
     setIsManual(false);
     setMoveToBatch(true);
-    setCostingOpts([]);
     setManualCostingId('');
+    setManualQualityLabel('');
 
     setLoading(true);
     try {
@@ -119,8 +115,10 @@ export function CancelDcButton({
         }
         setIsManual(true);
 
-        // Default costing = the costing carried by the DC's fabric quality
-        // (often NULL for manually-entered fabric — then the operator picks).
+        // The new batch is created from the DC's own mode + quality. Resolve
+        // the costing straight from the DC's fabric quality — no manual pick.
+        // If no quality (or its costing) resolves, manualCostingId stays empty
+        // and the cancel is blocked below.
         const qualityIds = Array.from(
           new Set(
             items
@@ -128,7 +126,7 @@ export function CancelDcButton({
               .filter((v): v is number => v != null),
           ),
         );
-        let defaultCosting: number | null = null;
+        let resolvedCosting: number | null = null;
         if (qualityIds.length > 0) {
           const { data: fqRows } = await sb
             .from('fabric_quality')
@@ -139,29 +137,31 @@ export function CancelDcButton({
             costing_id: number | null;
           }>) {
             if (fq.costing_id != null) {
-              defaultCosting = fq.costing_id;
+              resolvedCosting = fq.costing_id;
               break;
             }
           }
         }
 
-        // All costings as options for the new batch.
-        const { data: cmRows } = await sb
-          .from('costing_master')
-          .select('id, quality_code, quality_name')
-          .order('quality_code', { ascending: true });
-        const opts: CostingOpt[] = (
-          (cmRows ?? []) as Array<{
-            id: number;
-            quality_code: string | null;
-            quality_name: string | null;
-          }>
-        ).map((c) => ({
-          id: c.id,
-          label: c.quality_code ?? c.quality_name ?? `Costing #${c.id}`,
-        }));
-        setCostingOpts(opts);
-        setManualCostingId(defaultCosting != null ? String(defaultCosting) : '');
+        // Quality label for display (so the operator sees what batch is made).
+        let qualityLabel = '';
+        if (resolvedCosting != null) {
+          const { data: cmRow } = await sb
+            .from('costing_master')
+            .select('quality_code, quality_name')
+            .eq('id', resolvedCosting)
+            .maybeSingle();
+          if (cmRow) {
+            const c = cmRow as {
+              quality_code: string | null;
+              quality_name: string | null;
+            };
+            qualityLabel = c.quality_code ?? c.quality_name ?? '';
+          }
+        }
+
+        setManualCostingId(resolvedCosting != null ? String(resolvedCosting) : '');
+        setManualQualityLabel(qualityLabel);
 
         setLoading(false);
         return;
@@ -266,9 +266,19 @@ export function CancelDcButton({
   }
 
   async function confirmCancel() {
-    if (isManual && moveToBatch && !manualCostingId) {
-      setError('Pick the quality for the new batch, or untick "move to batch".');
-      return;
+    // The new batch is built from the DC's mode + quality. Both must resolve,
+    // otherwise we can't create the batch — block the cancel.
+    if (isManual && moveToBatch) {
+      if (!productionMode) {
+        setError('This DC has no production mode, so a batch can\u2019t be created.');
+        return;
+      }
+      if (!manualCostingId) {
+        setError(
+          'This DC has no quality, so a batch can\u2019t be created. Set the fabric quality on the DC, or untick "move to batch".',
+        );
+        return;
+      }
     }
     setBusy(true);
     setError(null);
@@ -333,7 +343,7 @@ export function CancelDcButton({
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+          <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">
                 Cancel DC {code ?? ''}
@@ -394,7 +404,7 @@ export function CancelDcButton({
                           onChange={(e) => setMoveToBatch(e.target.checked)}
                           className="mt-0.5 rounded border-line"
                         />
-                        <span>
+                        <span className="flex-1 min-w-0 break-words">
                           Move this fabric to a new batch
                           <span className="block text-[11px] text-ink-mute font-normal">
                             This DC was entered manually (no batch). On cancel
@@ -405,25 +415,35 @@ export function CancelDcButton({
                       </label>
 
                       {moveToBatch && (
-                        <div>
-                          <label className="block text-xs font-semibold text-ink-soft mb-1">
-                            Quality for the new batch
-                          </label>
-                          <select
-                            value={manualCostingId}
-                            onChange={(e) => setManualCostingId(e.target.value)}
-                            className="w-full rounded-md border border-line px-2 py-1.5 text-sm"
-                          >
-                            <option value="">Select quality…</option>
-                            {costingOpts.map((c) => (
-                              <option key={c.id} value={String(c.id)}>
-                                {c.label}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="mt-1 text-[11px] text-ink-mute">
-                            Pre-filled when the fabric already has a costing.
-                          </p>
+                        <div className="rounded-md border border-line bg-white px-2.5 py-2 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-ink-soft">Mode</span>
+                            <span className="font-semibold text-ink">
+                              {productionMode === 'inhouse'
+                                ? 'In-house'
+                                : productionMode === 'jobwork'
+                                  ? 'Jobwork'
+                                  : 'Outsource'}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <span className="text-ink-soft">Quality</span>
+                            <span className="font-semibold text-ink break-words text-right">
+                              {manualQualityLabel || '—'}
+                            </span>
+                          </div>
+                          {manualCostingId ? (
+                            <p className="mt-1.5 text-[11px] text-ink-mute">
+                              The batch will be created from this DC&apos;s mode
+                              and quality.
+                            </p>
+                          ) : (
+                            <p className="mt-1.5 text-[11px] text-rose-600">
+                              This DC has no quality set, so a batch can&apos;t be
+                              created. Set the fabric quality on the DC, or untick
+                              above to cancel without moving stock.
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -473,7 +493,13 @@ export function CancelDcButton({
               <button
                 type="button"
                 onClick={confirmCancel}
-                disabled={busy || loading}
+                disabled={
+                  busy ||
+                  loading ||
+                  (isManual &&
+                    moveToBatch &&
+                    (!productionMode || !manualCostingId))
+                }
                 className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
               >
                 {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
