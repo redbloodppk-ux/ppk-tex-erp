@@ -406,6 +406,13 @@ export default async function InvoicePrintPage({
           /* The on-page address footer is redundant with the fixed
              footer — hide it during print so it doesn't double-print. */
           .addr-foot { display: none !important; }
+          /* Single-page copies: on screen we push the declaration +
+             signature to the very bottom (margin-top:auto) for visual
+             balance, but in print that auto-gap shoved the block past
+             the printable area onto a 2nd sheet. Pin it just under the
+             totals instead and keep it from splitting, so each ORIGINAL
+             / DUPLICATE copy prints on one page. */
+          .inv-sheet .foot-strip { margin-top: 22px !important; break-inside: avoid; }
         }
         body { background: #f3f4f6; }
         .inv-sheet {
