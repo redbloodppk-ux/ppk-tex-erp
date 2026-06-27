@@ -274,6 +274,14 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   const [itemsSource, setItemsSource] = useState<'manual' | 'production_batch'>('manual');
   const [batchOpts, setBatchOpts] = useState<BatchOpt[]>([]);
   const [batchesLoading, setBatchesLoading] = useState<boolean>(false);
+  // Per-batch piece selection state. Keyed by production_batch.id. Each
+  // entry is the full list of that batch's leftover pieces, each flagged
+  // selected / unselected and tagged with the DC bundle number it should
+  // land in. Only populated for detailed-mode batches in the picker.
+  const [batchSel, setBatchSel] = useState<Record<number, PieceSel[]>>({});
+  // Keys "<batchId>:<dcBundleNo>" for bundle rows expanded in the
+  // selection panel so the operator can see/toggle individual pieces.
+  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
   // Set of production_batch.ids currently ticked in the picker. Driven
   // off form.items so unchecking the picker stays in sync if the
   // operator deletes a seeded item directly from the list below.
@@ -926,11 +934,49 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   }
 
   // ---- Production batch picker helpers ----
+  // Rebuilds the seeded DC item for one batch from its current piece
+  // selection. Groups the selected pieces into DC bundles (by their
+  // assigned dcBundle number), recomputes the metres / pieces / bundles
+  // totals, and writes them onto the matching form item. The batch's own
+  // layout is untouched — only the DC item changes.
+  function applySelection(batchId: number, sel: PieceSel[]): void {
+    setBatchSel((m) => ({ ...m, [batchId]: sel }));
+    const grouped = groupSelectionToBundles(sel);
+    const selPieces = sel.filter((p) => p.selected);
+    const metres = selPieces.reduce((s, p) => s + p.metres, 0);
+    const metresR = Math.round(metres * 100) / 100;
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((it) => {
+        if (it.production_batch_id !== batchId) return it;
+        const bundles: Bundle[] = grouped.length > 0
+          ? grouped.map((g) => ({ sno: g.sno, pieces: g.pieces.length > 0 ? g.pieces : [''] }))
+          : [{ sno: 1, pieces: [''] }];
+        return {
+          ...it,
+          bundles,
+          summary_metres:  metresR > 0 ? String(metresR) : '',
+          summary_pieces:  selPieces.length > 0 ? String(selPieces.length) : '',
+          summary_bundles: grouped.length > 0 ? String(grouped.length) : '',
+        };
+      }),
+    }));
+  }
+
   // Seeds (or removes) a DC item for one batch. The seeded item is
   // pre-filled with the batch's fabric_quality, metres / pieces /
   // bundles snapshots, and a copy of its bundles_detail so the print
   // grid rehydrates correctly. The operator can still edit any field.
   function toggleBatchPick(batch: BatchOpt, checked: boolean): void {
+    if (!checked) {
+      // Drop this batch's piece-selection state alongside its item.
+      setBatchSel((m) => {
+        if (!(batch.id in m)) return m;
+        const next = { ...m };
+        delete next[batch.id];
+        return next;
+      });
+    }
     setForm((f) => {
       if (!checked) {
         // Remove every item that points at this batch.
@@ -994,6 +1040,15 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       const next = isEmptyStarter ? [seeded] : [...f.items, seeded];
       return { ...f, items: next.map((it, i) => ({ ...it, sno: i + 1 })) };
     });
+    // Seed piece-selection state for detailed batches so the operator can
+    // pick/move individual pieces. Summary batches keep whole-quantity
+    // behaviour and get no selection panel.
+    if (checked && batch.entry_mode === 'detailed' && batch.bundles_detail.length > 0) {
+      setBatchSel((m) => {
+        if (batch.id in m) return m; // already seeded
+        return { ...m, [batch.id]: selFromBundles(batch.bundles_detail) };
+      });
+    }
   }
 
   // ---- Bundle helpers ----
