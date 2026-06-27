@@ -5,7 +5,7 @@
  * E-waybill is mandatory for movement of goods worth > Rs 50,000 under
  * Indian GST. Two paths to populate it:
  *
- *  1. MANUAL (today) - operator opens ewaybill.gov.in in a new tab,
+ *  1. MANUAL (today) - operator opens ewaybillgst.gov.in in a new tab,
  *     generates the EWB there, pastes the number + validity back here.
  *  2. API (later)    - call a GSP (Sandbox / Cygnet / ClearTax) directly
  *     from the Generate button. Stubbed out below with a clear note.
@@ -30,7 +30,7 @@ interface EwaybillCardProps {
   ewaybillNotes: string | null;
 }
 
-const EWB_PORTAL = 'https://ewaybill.gov.in';
+const EWB_PORTAL = 'https://ewaybillgst.gov.in';
 
 function todayISO(): string {
   const d = new Date();
@@ -195,7 +195,7 @@ export function EwaybillCard({
               rel="noopener noreferrer"
               className="num font-bold text-indigo hover:underline inline-flex items-center gap-1"
             >
-              ewaybill.gov.in <ExternalLink className="w-3 h-3" />
+              ewaybillgst.gov.in <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         </div>
@@ -235,7 +235,7 @@ export function EwaybillCard({
         <p className="text-xs text-ink-soft">
           E-waybill is generated on the government portal{' '}
           <a href={EWB_PORTAL} target="_blank" rel="noopener noreferrer" className="text-indigo hover:underline inline-flex items-center gap-1">
-            ewaybill.gov.in <ExternalLink className="w-3 h-3" />
+            ewaybillgst.gov.in <ExternalLink className="w-3 h-3" />
           </a>{' '}
           and then captured here. Click <b>Generate E-waybill</b> to open the capture form.
         </p>
@@ -291,7 +291,7 @@ export function EwaybillCard({
             <ol className="list-decimal list-inside space-y-0.5">
               <li>Open the e-waybill portal:&nbsp;
                 <a href={EWB_PORTAL} target="_blank" rel="noopener noreferrer" className="text-indigo hover:underline inline-flex items-center gap-1">
-                  ewaybill.gov.in <ExternalLink className="w-3 h-3" />
+                  ewaybillgst.gov.in <ExternalLink className="w-3 h-3" />
                 </a>
               </li>
               <li>Generate a new e-waybill for invoice <b>{invoiceNo}</b>.</li>
