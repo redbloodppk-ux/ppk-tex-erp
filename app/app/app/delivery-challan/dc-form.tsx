@@ -21,7 +21,7 @@
  *
  * Header-level snapshots are sums across all items.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
@@ -930,6 +930,49 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       fabric_quality_id: fqIdStr,
       description: fq?.name ?? '',
       hsn: fq?.hsn ?? '',
+    });
+  }
+
+  // ---- Selection-panel mutators ----
+  // Every mutator computes the next PieceSel[] for one batch and routes it
+  // through applySelection so the DC item rebuilds in lock-step. They read
+  // the live selection out of batchSel inside applySelection's own setter
+  // path via the `cur` snapshot passed in by the caller.
+  function currentSel(batchId: number): PieceSel[] {
+    return batchSel[batchId] ?? [];
+  }
+  // Flip one piece (by its index in the batch's selection array) on/off.
+  function togglePiece(batchId: number, idx: number): void {
+    const cur = currentSel(batchId);
+    const next = cur.map((p, i) => (i === idx ? { ...p, selected: !p.selected } : p));
+    applySelection(batchId, next);
+  }
+  // Select / deselect every piece currently grouped under one DC bundle.
+  function toggleBundle(batchId: number, dcBundle: number, selected: boolean): void {
+    const cur = currentSel(batchId);
+    const next = cur.map((p) => (p.dcBundle === dcBundle ? { ...p, selected } : p));
+    applySelection(batchId, next);
+  }
+  // Select / deselect all pieces for the batch.
+  function setAllPieces(batchId: number, selected: boolean): void {
+    const cur = currentSel(batchId);
+    const next = cur.map((p) => ({ ...p, selected }));
+    applySelection(batchId, next);
+  }
+  // Move one piece (by index) into a different DC bundle number. Used to
+  // regroup pieces across bundles on the DC without touching the batch.
+  function movePiece(batchId: number, idx: number, dcBundle: number): void {
+    const cur = currentSel(batchId);
+    const next = cur.map((p, i) => (i === idx ? { ...p, dcBundle } : p));
+    applySelection(batchId, next);
+  }
+  // Expand / collapse a bundle row in the selection panel.
+  function toggleExpand(batchId: number, dcBundle: number): void {
+    const key = `${batchId}:${dcBundle}`;
+    setExpandedBundles((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
     });
   }
 
@@ -1947,9 +1990,21 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               const qualityLabel = b.quality_name ?? b.quality_code ?? '(no quality)';
               const unitLabel = b.unit === 'pcs' ? 'pcs' : 'm';
               const noLink = b.fabric_quality_id == null;
+              // The piece-selection panel only applies to detailed batches
+              // (those carry a real bundle/piece layout). Summary batches
+              // keep whole-quantity behaviour and show no panel.
+              const showPanel = checked
+                && b.entry_mode === 'detailed'
+                && b.bundles_detail.length > 0;
+              const sel = batchSel[b.id] ?? [];
+              // Group the selection into the DC bundle buckets it currently
+              // maps to, preserving each piece's index in `sel` so the
+              // mutators can address it.
+              const bundleNos = Array.from(new Set(sel.map((p) => p.dcBundle))).sort((a, c) => a - c);
+              const selCount = sel.filter((p) => p.selected).length;
               return (
+                <Fragment key={b.id}>
                 <label
-                  key={b.id}
                   className={'flex items-start gap-2 p-2 rounded border cursor-pointer ' +
                     (checked
                       ? 'border-indigo-400 bg-indigo-50/60'
@@ -1982,6 +2037,94 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     </div>
                   </div>
                 </label>
+                {showPanel && (
+                  <div className="ml-6 mb-1 rounded border border-indigo-200 bg-white p-2 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-ink-soft">
+                        Pieces on this DC: <span className="font-mono">{selCount}</span> / {sel.length}
+                      </span>
+                      <span className="flex gap-1.5">
+                        <button type="button"
+                          className="text-[11px] text-indigo-600 hover:underline"
+                          onClick={() => setAllPieces(b.id, true)}>
+                          Select all
+                        </button>
+                        <span className="text-line">·</span>
+                        <button type="button"
+                          className="text-[11px] text-indigo-600 hover:underline"
+                          onClick={() => setAllPieces(b.id, false)}>
+                          Clear
+                        </button>
+                      </span>
+                    </div>
+                    {bundleNos.map((bn) => {
+                      const key = `${b.id}:${bn}`;
+                      const expanded = expandedBundles.has(key);
+                      // pieces in this DC bundle, with their sel index
+                      const inBundle = sel
+                        .map((p, i) => ({ p, i }))
+                        .filter((x) => x.p.dcBundle === bn);
+                      const allOn = inBundle.length > 0 && inBundle.every((x) => x.p.selected);
+                      const someOn = inBundle.some((x) => x.p.selected);
+                      const bundleMetres = inBundle
+                        .filter((x) => x.p.selected)
+                        .reduce((s, x) => s + x.p.metres, 0);
+                      return (
+                        <div key={bn} className="rounded border border-line/70 bg-haze/20">
+                          <div className="flex items-center gap-2 px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={allOn}
+                              ref={(el) => { if (el) el.indeterminate = !allOn && someOn; }}
+                              onChange={(e) => toggleBundle(b.id, bn, e.target.checked)}
+                            />
+                            <button type="button"
+                              className="flex-1 flex items-center justify-between text-left text-[11px]"
+                              onClick={() => toggleExpand(b.id, bn)}>
+                              <span className="font-semibold text-ink">
+                                Bundle {bn}
+                                <span className="ml-1.5 font-normal text-ink-mute">
+                                  {inBundle.filter((x) => x.p.selected).length}/{inBundle.length} pcs
+                                  · <span className="font-mono">{(Math.round(bundleMetres * 100) / 100)}</span> {unitLabel}
+                                </span>
+                              </span>
+                              <span className="text-ink-mute">{expanded ? '▾' : '▸'}</span>
+                            </button>
+                          </div>
+                          {expanded && (
+                            <div className="px-2 pb-1.5 grid grid-cols-1 gap-1">
+                              {inBundle.map(({ p, i }) => (
+                                <div key={i} className="flex items-center gap-2 text-[11px]">
+                                  <input
+                                    type="checkbox"
+                                    checked={p.selected}
+                                    onChange={() => togglePiece(b.id, i)}
+                                  />
+                                  <span className="font-mono w-16">{p.metres} {unitLabel}</span>
+                                  <span className="text-ink-mute">orig bundle {p.origSno}</span>
+                                  <label className="ml-auto flex items-center gap-1 text-ink-mute">
+                                    move to
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={p.dcBundle}
+                                      onChange={(e) => {
+                                        const v = parseInt(e.target.value, 10);
+                                        if (Number.isFinite(v) && v >= 1) movePiece(b.id, i, v);
+                                      }}
+                                      className="input h-6 w-12 text-[11px] px-1"
+                                    />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
           </div>
