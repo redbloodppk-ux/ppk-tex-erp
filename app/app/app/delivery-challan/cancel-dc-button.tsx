@@ -343,8 +343,8 @@ export function CancelDcButton({
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">
                 Cancel DC {code ?? ''}
               </h2>
@@ -359,7 +359,7 @@ export function CancelDcButton({
               </button>
             </div>
 
-            <div className="px-4 py-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
               <p className="text-xs text-ink-soft">
                 Cancelling reverses the stock this DC consumed and frees its
                 number for reuse. This cannot be undone.
@@ -402,11 +402,13 @@ export function CancelDcButton({
                           type="checkbox"
                           checked={moveToBatch}
                           onChange={(e) => setMoveToBatch(e.target.checked)}
-                          className="mt-0.5 rounded border-line"
+                          className="mt-0.5 shrink-0 rounded border-line"
                         />
-                        <span className="flex-1 min-w-0 break-words">
-                          Move this fabric to a new batch
-                          <span className="block text-[11px] text-ink-mute font-normal">
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words font-medium">
+                            Move this fabric to a new batch
+                          </span>
+                          <span className="block break-words text-[11px] font-normal text-ink-mute">
                             This DC was entered manually (no batch). On cancel
                             we&apos;ll create a batch dated to the DC and put its
                             metres in as available stock.
@@ -481,7 +483,7 @@ export function CancelDcButton({
               )}
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
+            <div className="flex shrink-0 justify-end gap-2 border-t border-line px-4 py-3">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
