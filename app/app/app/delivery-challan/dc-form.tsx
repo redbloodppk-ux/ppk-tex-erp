@@ -1041,17 +1041,12 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       // (summary). We also rebuild the local `bundles` Bundle[] shape
       // from the saved bundles_detail so the grid is editable.
       const isDetailed = batch.entry_mode === 'detailed' && batch.bundles_detail.length > 0;
-      // Start blank, keep total: keep the bundle/piece STRUCTURE from the
-      // batch (so the grid has the right number of bundles and piece rows)
-      // but leave each piece's metres box EMPTY for the operator to type.
-      // The batch's metres snapshot is still retained on summary_metres
-      // below, so nothing about the total is lost. (Previously we copied
-      // each saved piece's metres into the box, which surfaced values like
-      // "96.7" before the operator had entered anything.)
+      // Pre-fill each piece's measured metres from the batch so the operator
+      // sees the actual delivered figures and only edits what changed.
       const bundles: Bundle[] = isDetailed
         ? batch.bundles_detail.map((bd, i) => ({
             sno: i + 1,
-            pieces: (bd.pieces ?? []).map(() => ''),
+            pieces: (bd.pieces ?? []).map((p) => String(p)),
           }))
         : [{ sno: 1, pieces: [''] }];
 
