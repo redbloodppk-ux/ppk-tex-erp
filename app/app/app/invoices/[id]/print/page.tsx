@@ -411,7 +411,19 @@ export default async function InvoicePrintPage({
              the printable area onto a 2nd sheet. Pin it just under the
              totals instead and keep it from splitting, so each ORIGINAL
              / DUPLICATE copy prints on one page. */
-          .inv-sheet .foot-strip { margin-top: 22px !important; break-inside: avoid; }
+          .inv-sheet .foot-strip { margin-top: 14px !important; break-inside: avoid; }
+          /* The signature block reserved ~23mm of empty space (padding +
+             a 56px gap above "Authorised Signatory"). Combined with the
+             full invoice body that tipped the declaration onto a 2nd
+             page. Trim the empty space for print so the block is compact
+             enough to sit under the totals on the same sheet. */
+          .inv-sheet .sig-block { padding-top: 16px !important; }
+          .inv-sheet .sig-block span { margin-top: 30px !important; }
+          /* Final insurance: shave the print zoom a step (0.92 -> 0.85,
+             compact 0.90 -> 0.84) so the whole document — body plus the
+             declaration/signature — comfortably clears one page. */
+          .inv-sheet { zoom: 0.85 !important; }
+          .inv-sheet.inv-compact { zoom: 0.84 !important; }
         }
         body { background: #f3f4f6; }
         .inv-sheet {
