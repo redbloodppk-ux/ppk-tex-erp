@@ -276,8 +276,9 @@ export default async function WarehousePage({
   // moved to /app/reports/fabric-movements. loadFabric() still runs for
   // jobwork / outsource modes where the aggregate Fabric (m) sub-tab
   // remains.
-  const fabricRowsRaw  = (mode !== 'inhouse' && tab === 'fabric')        ? await loadFabric(supabase, sp, mode) : null;
-  const fabricRows = fabricRowsRaw;
+  // Jobwork / Outsource Fabric (m) tab now renders the same per-event pivot
+  // ledger the In-house Production Fabric tab uses (see loadJobworkFabricPivot).
+  const fabricPivot    = (mode !== 'inhouse' && tab === 'fabric')        ? await loadJobworkFabricPivot(supabase, sp, mode) : null;
   const warpBeamRows   = isJobworkLike && tab === 'warp_beam'           ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
   const weftYarnRows   = isJobworkLike && tab === 'weft_yarn'           ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
   const porvaiYarnRows = isJobworkLike && tab === 'porvai_yarn'         ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'porvai') : null;
@@ -634,7 +635,7 @@ export default async function WarehousePage({
       {isJobworkLike && tab === 'weft_yarn'   && <PivotView data={weftYarnRows!}   emptyMessage={mode === 'outsource' ? 'No weft yarn entries yet. Issue yarn from Outsource Weaving → Weft Yarn Given to see them here.' : 'No weft yarn entries yet. Issue yarn from Job Work → Weft Yarn Given to see them here.'} />}
       {isJobworkLike && tab === 'porvai_yarn' && <PivotView data={porvaiYarnRows!} emptyMessage="No porvai yarn entries yet. Assign porvai counts on Fabric Quality master and issue yarn." />}
       {isJobworkLike && tab === 'bobbin'      && <PivotView data={jwBobbinRows!}   emptyMessage={mode === 'outsource' ? 'No bobbin entries yet. Assign bobbins to outsource weavers to see them here.' : 'No bobbin entries yet. Assign bobbins to jobwork parties to see them here.'} />}
-      {isJobworkLike && tab === 'fabric'      && <FabricView rows={fabricRows!} />}
+      {isJobworkLike && tab === 'fabric'      && <PivotView data={fabricPivot!} emptyMessage={mode === 'outsource' ? 'No outsource fabric stock yet. Finished cloth received from weavers appears here as inflows; DC shipments reduce it.' : 'No jobwork fabric stock yet. Finished cloth produced for the party appears here as inflows; DC shipments reduce it.'} />}
     </div>
   );
 }
@@ -1301,6 +1302,96 @@ function FabricView({ rows }: { rows: FabricRow[] }) {
       </div>
     </>
   );
+}
+
+// ─── Jobwork / Outsource Fabric — per-event pivot ledger ────────────────────
+// Mirrors the In-house "Production Fabric" pivot (Date / Reference / one
+// column per fabric quality with a running balance), but sourced from
+// fabric_stock instead of stock_ledger. Each fabric_stock row expands into
+// an IN event (metres_in, dated at received_at, referenced by its batch
+// code) and — when depleted — an OUT event (metres_out) so the column's
+// closing balance equals metres_available, matching the old summary view.
+// Columns key by fabric_quality_id (resolved from the costing's quality
+// code) so the Fabric Quality filter lines up; party comes from the batch.
+async function loadJobworkFabricPivot(supabase: any, sp: SP, mode: Mode): Promise<PivotData> {
+  const sourceType = mode === 'outsource' ? 'outsourced' : 'jobwork';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from('fabric_stock')
+    .select(`
+      id, costing_id, metres_in, metres_out, received_at, batch_id,
+      costing:costing_id ( quality_code, quality_name )
+    `)
+    .eq('source_type', sourceType)
+    .order('received_at');
+  const rows = ((data ?? []) as Array<{
+    id: number;
+    metres_in: number | string | null;
+    metres_out: number | string | null;
+    received_at: string | null;
+    batch_id: number | null;
+    costing: { quality_code: string | null; quality_name: string | null } | null;
+  }>);
+
+  // Batch code (for the Reference column) + party_id (for the party filter).
+  const batchIds = Array.from(new Set(rows.map((r) => r.batch_id).filter((x): x is number => x != null)));
+  const batchById = new Map<number, { batch_code: string | null; party_id: number | null }>();
+  if (batchIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: bRows } = await (supabase as any)
+      .from('production_batch').select('id, batch_code, party_id').in('id', batchIds);
+    for (const b of ((bRows ?? []) as Array<{ id: number; batch_code: string | null; party_id: number | null }>)) {
+      batchById.set(b.id, { batch_code: b.batch_code, party_id: b.party_id });
+    }
+  }
+
+  // costing.quality_code → fabric_quality (id + name). Both codes are unique
+  // strings, so the join is by code. The id keys the pivot column so the
+  // Fabric Quality filter (a fabric_quality.id) matches.
+  const codes = Array.from(new Set(rows.map((r) => r.costing?.quality_code).filter((c): c is string => !!c)));
+  const qualityByCode = new Map<string, { id: number; name: string }>();
+  if (codes.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: qRows } = await (supabase as any)
+      .from('fabric_quality').select('id, code, name').in('code', codes);
+    for (const q of ((qRows ?? []) as Array<{ id: number; code: string; name: string }>)) {
+      qualityByCode.set(q.code, { id: q.id, name: q.name });
+    }
+  }
+
+  const partyFilter = sp.party && /^\d+$/.test(sp.party) ? Number(sp.party) : null;
+
+  const cols = new Map<string, PivotColumn>();
+  const events: PivotEvent[] = [];
+
+  for (const r of rows) {
+    const batch = r.batch_id != null ? batchById.get(r.batch_id) : undefined;
+    if (partyFilter !== null && (batch?.party_id ?? null) !== partyFilter) continue;
+
+    const code = r.costing?.quality_code ?? null;
+    const q = code ? qualityByCode.get(code) : undefined;
+    const colId = q ? `fq:${q.id}` : code ? `code:${code}` : 'unknown';
+    if (!cols.has(colId)) {
+      cols.set(colId, { id: colId, label: code ?? '(no quality)', sublabel: q?.name ?? r.costing?.quality_name ?? '' });
+    }
+
+    const ref = batch?.batch_code ?? `Receipt #${r.id}`;
+    const mIn = Number(r.metres_in ?? 0);
+    const mOut = Number(r.metres_out ?? 0);
+    if (mIn > 0) events.push({ event_date: r.received_at ?? '', column_id: colId, direction: 'in', quantity: mIn, reference: ref, notes: '' });
+    if (mOut > 0) events.push({ event_date: r.received_at ?? '', column_id: colId, direction: 'out', quantity: mOut, reference: ref, notes: 'Shipped / depleted' });
+  }
+
+  // Fabric Quality filter — keep only the chosen quality's column + events.
+  const qualityFilter = sp.quality && /^\d+$/.test(sp.quality) ? `fq:${sp.quality}` : null;
+  let columns = Array.from(cols.values()).sort((a, b) => a.label.localeCompare(b.label));
+  let evs = events;
+  if (qualityFilter) {
+    columns = columns.filter((c) => c.id === qualityFilter);
+    evs = events.filter((e) => e.column_id === qualityFilter);
+  }
+
+  return { unit: 'm', columns, events: evs };
 }
 
 // ─── Fabric lineage (per-event view for the In-house Fabric tab) ────────────
