@@ -26,6 +26,12 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
+import {
+  leftoverBundles,
+  selFromBundles,
+  groupSelectionToBundles,
+  type PieceSel,
+} from '@/lib/dc-leftover';
 
 export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -485,6 +491,34 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
 
+      // Pieces already shipped per batch across NON-cancelled DCs. Used to
+      // trim each batch down to its leftover bundles (by piece value, so
+      // partial bundles and DC-side renumbering both work). Cancelled DCs
+      // are excluded because their stock has been restored.
+      const loadShippedByBatch = async (batchIds: number[]): Promise<Map<number, number[]>> => {
+        const out = new Map<number, number[]>();
+        if (batchIds.length === 0) return out;
+        const { data: dciRows } = await sb
+          .from('delivery_challan_item')
+          .select('production_batch_id, bundles_detail, delivery_challan!inner(status)')
+          .in('production_batch_id', batchIds);
+        for (const d of (dciRows ?? []) as Array<{
+          production_batch_id: number | null;
+          bundles_detail: Array<{ sno: number; pieces: number[] }> | null;
+          delivery_challan: { status: string } | Array<{ status: string }> | null;
+        }>) {
+          if (d.production_batch_id == null) continue;
+          const dc = Array.isArray(d.delivery_challan) ? d.delivery_challan[0] : d.delivery_challan;
+          if (dc?.status === 'cancelled') continue;
+          const arr = out.get(d.production_batch_id) ?? [];
+          for (const bd of (d.bundles_detail ?? [])) {
+            for (const p of (bd.pieces ?? [])) arr.push(Number(p));
+          }
+          out.set(d.production_batch_id, arr);
+        }
+        return out;
+      };
+
       // ===== jobwork / outsource: load batches from fabric_stock =====
       // These modes never write production_fabric ledger rows. Their produced
       // fabric lives as fabric_stock rows (one per batch, source_type matching
@@ -563,10 +597,19 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             fqByCostingId.set(fq.costing_id, { id: fq.id, name: fq.name, hsn: fq.hsn });
           }
         }
+        const shippedByBatch = await loadShippedByBatch(liveIds);
+        if (cancelled) { setBatchesLoading(false); return; }
         const opts: BatchOpt[] = batches.map((b) => {
           const cm = cmById.get(b.costing_id);
           const fq = fqByCostingId.get(b.costing_id);
           const avail = availByBatch.get(b.id) ?? 0;
+          const allBundles = (b.bundles_detail ?? []) as Array<{ sno: number; pieces: number[] }>;
+          // Batches already picked on THIS DC keep their full bundle set so
+          // the live selection isn't hidden; others are trimmed to leftovers.
+          const lo = pickedBatchIds.has(b.id)
+            ? { bundles: allBundles, pieces: allBundles.reduce((n, x) => n + x.pieces.length, 0) }
+            : leftoverBundles(allBundles, shippedByBatch.get(b.id) ?? []);
+          const trimmed = !pickedBatchIds.has(b.id) && (shippedByBatch.get(b.id)?.length ?? 0) > 0;
           return {
             id: b.id,
             batch_code: b.batch_code,
@@ -579,9 +622,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
             // Seed the delivered metres from what's available (unit='m'), so
             // toggleBatchPick fills the line with the remaining metres.
             produced_m: avail > 0.0001 ? avail : Number(b.produced_m ?? 0),
-            total_pieces: b.total_pieces,
-            total_bundles: b.total_bundles,
-            bundles_detail: (b.bundles_detail ?? []),
+            total_pieces: trimmed ? lo.pieces : b.total_pieces,
+            total_bundles: trimmed ? lo.bundles.length : b.total_bundles,
+            bundles_detail: lo.bundles,
             available: avail,
             unit: 'm',
           };
@@ -642,22 +685,17 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       // Map DC line id -> batch id, and collect which bundle snos have
       // already left the building so we can show only leftover bundles.
       const dciToBatch = new Map<number, number>();
-      const deliveredSnosByBatch = new Map<number, Set<number>>();
       if (dciIds.length > 0) {
         const { data: dciRows } = await sb
           .from('delivery_challan_item')
-          .select('id, production_batch_id, bundles_detail')
+          .select('id, production_batch_id')
           .in('id', dciIds);
         for (const d of (dciRows ?? []) as Array<{
           id: number;
           production_batch_id: number | null;
-          bundles_detail: Array<{ sno: number; pieces: number[] }> | null;
         }>) {
           if (d.production_batch_id == null) continue;
           dciToBatch.set(d.id, d.production_batch_id);
-          const set = deliveredSnosByBatch.get(d.production_batch_id) ?? new Set<number>();
-          for (const bd of (d.bundles_detail ?? [])) set.add(bd.sno);
-          deliveredSnosByBatch.set(d.production_batch_id, set);
         }
       }
       for (const r of (dcLedger ?? []) as Array<{
@@ -737,20 +775,19 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         }
       }
 
+      const shippedByBatch = await loadShippedByBatch(liveIds);
+      if (cancelled) { setBatchesLoading(false); return; }
       const opts: BatchOpt[] = batches.map((b) => {
         const cm = cmById.get(b.costing_id);
         const fq = fqByCostingId.get(b.costing_id);
         const slot = perBatch.get(b.id) ?? { net: 0, unit: 'm' as 'm' | 'pcs' };
         const allBundles = (b.bundles_detail ?? []) as Array<{ sno: number; pieces: number[] }>;
-        // Show only the leftover bundles — drop any sno already delivered on
-        // an earlier DC. Skip trimming for batches already picked on THIS DC
-        // (their own delivery is in the ledger) so the selection stays intact.
-        const deliveredSnos = pickedBatchIds.has(b.id)
-          ? new Set<number>()
-          : (deliveredSnosByBatch.get(b.id) ?? new Set<number>());
-        const leftoverBundles = allBundles.filter((bd) => !deliveredSnos.has(bd.sno));
-        const trimmed = deliveredSnos.size > 0;
-        const leftoverPieces = leftoverBundles.reduce((n, bd) => n + bd.pieces.length, 0);
+        // Trim to leftover pieces (by value). Batches already picked on THIS
+        // DC keep their full set so the live selection isn't hidden.
+        const lo = pickedBatchIds.has(b.id)
+          ? { bundles: allBundles, pieces: allBundles.reduce((n, x) => n + x.pieces.length, 0) }
+          : leftoverBundles(allBundles, shippedByBatch.get(b.id) ?? []);
+        const trimmed = !pickedBatchIds.has(b.id) && (shippedByBatch.get(b.id)?.length ?? 0) > 0;
         return {
           id: b.id,
           batch_code: b.batch_code,
@@ -761,9 +798,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
           fabric_quality_hsn: fq?.hsn ?? null,
           entry_mode: (b.entry_mode === 'detailed' ? 'detailed' : 'summary'),
           produced_m: Number(b.produced_m ?? 0),
-          total_pieces: trimmed ? leftoverPieces : b.total_pieces,
-          total_bundles: trimmed ? leftoverBundles.length : b.total_bundles,
-          bundles_detail: leftoverBundles,
+          total_pieces: trimmed ? lo.pieces : b.total_pieces,
+          total_bundles: trimmed ? lo.bundles.length : b.total_bundles,
+          bundles_detail: lo.bundles,
           available: slot.net,
           unit: slot.unit,
         };
