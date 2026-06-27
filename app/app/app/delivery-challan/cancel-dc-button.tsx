@@ -282,7 +282,11 @@ export function CancelDcButton({
         setError('This DC has no production mode, so a batch can\u2019t be created.');
         return;
       }
-      if (!manualCostingId) {
+      // Jobwork is exempt from costing — the weaver is paid for labour only, so
+      // the new batch can be created without a quality/costing (the RPC attaches
+      // the reusable "Jobwork – exempt" costing). Every other mode still needs a
+      // real costing to build the batch.
+      if (productionMode !== 'jobwork' && !manualCostingId) {
         setError(
           manualQualityLabel
             ? `\u201C${manualQualityLabel}\u201D isn\u2019t linked to a costing, so a batch can\u2019t be created. Link a costing to this quality, or untick "move to batch".`
@@ -450,6 +454,11 @@ export function CancelDcButton({
                               The batch will be created from this DC&apos;s mode
                               and quality.
                             </p>
+                          ) : productionMode === 'jobwork' ? (
+                            <p className="mt-1.5 text-[11px] text-ink-mute">
+                              Jobwork is exempt from costing — the batch will be
+                              created without a quality (no yarn cost is tracked).
+                            </p>
                           ) : (
                             <p className="mt-1.5 break-words text-[11px] text-rose-600">
                               {manualQualityLabel
@@ -511,7 +520,8 @@ export function CancelDcButton({
                   loading ||
                   (isManual &&
                     moveToBatch &&
-                    (!productionMode || !manualCostingId))
+                    (!productionMode ||
+                      (productionMode !== 'jobwork' && !manualCostingId)))
                 }
                 className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
               >

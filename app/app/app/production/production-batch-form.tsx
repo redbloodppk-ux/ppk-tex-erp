@@ -149,6 +149,10 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
 
   // ── master data ───────────────────────────────────────────────────────────
   const [costings, setCostings] = useState<Costing[]>([]);
+  // Reusable placeholder costing for jobwork fabric with no real costing.
+  // In jobwork the weaver is paid for weaving and does not own the material
+  // cost, so a fabric costing is optional — we attach this row instead.
+  const [exemptCostingId, setExemptCostingId] = useState<number | null>(null);
   const [assigns, setAssigns] = useState<ActivePavuAssign[]>([]);
   const [allParties, setAllParties] = useState<PartyOpt[]>([]);
   const [jobworkTypeId, setJobworkTypeId] = useState<number | null>(null);
@@ -268,6 +272,15 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       ]);
 
       setCostings(costingsRes.data ?? []);
+      // Resolve the jobwork-exempt placeholder costing id once.
+      const { data: exemptRow } = await sb
+        .from('costing_master')
+        .select('id')
+        .eq('quality_code', 'JOBWORK-EXEMPT')
+        .maybeSingle();
+      setExemptCostingId(
+        exemptRow && typeof exemptRow.id === 'number' ? exemptRow.id : null,
+      );
       setAssigns((a.data as unknown as ActivePavuAssign[]) ?? []);
       const types = (ptRes.data ?? []) as Array<{ id: number; name: string }>;
       setJobworkTypeId(types.find((t) => t.name === 'Jobwork Party')?.id ?? null);
@@ -408,7 +421,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
   }, [pavuAssignId, assigns, startDate]);
 
   // ── ledger writer ─────────────────────────────────────────────────────────
-  async function writeStockLedger(batchId: number, batchCode: string, producedMetres: number): Promise<string | null> {
+  async function writeStockLedger(
+    batchId: number,
+    batchCode: string,
+    producedMetres: number,
+    effectiveCostingId: number,
+    exempt: boolean,
+  ): Promise<string | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
@@ -416,7 +435,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     const { data: costingRow, error: cErr } = await sb
       .from('costing_master')
       .select('weft_kg_per_m, porvai_kg_per_m, warp_count_id, weft_count_id, porvai_count_id')
-      .eq('id', Number(costingId))
+      .eq('id', effectiveCostingId)
       .maybeSingle();
     if (cErr) {
       return `Failed to load costing for ledger: ${cErr.message}`;
@@ -429,7 +448,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     const { data: fqRow } = await sb
       .from('fabric_quality')
       .select('id')
-      .eq('costing_id', Number(costingId))
+      .eq('costing_id', effectiveCostingId)
       .limit(1)
       .maybeSingle();
     if (fqRow && typeof fqRow.id === 'number') linkedFqId = fqRow.id;
@@ -438,7 +457,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     const { data: bobbinRows } = await sb
       .from('costing_master_bobbin')
       .select('bobbin_id, metres')
-      .eq('costing_id', Number(costingId));
+      .eq('costing_id', effectiveCostingId);
     const bobbins = ((bobbinRows ?? []) as CostingBobbinRow[]);
 
     const evt = endDate || startDate || today();
@@ -471,6 +490,11 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       ? producedMetres * towelLenNum   // pcs × length → metres
       : producedMetres;                // already metres
 
+    // Raw-material outflows (warp / weft / porvai / bobbin) reflect yarn the
+    // weaver consumed. A jobwork-exempt batch carries no costing, so there is
+    // nothing to deplete — skip every consumption row and post only the
+    // produced fabric below.
+    if (!exempt) {
     // Warp metre outflow — uses TRUE metres consumed by the weaving.
     ledgerRows.push({
       bucket: 'warp_beam',
@@ -531,6 +555,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         notes: 'In-house bobbin consumption (1 m per fabric metre)',
       });
     }
+    } // end if (!exempt) — jobwork-exempt batches skip all raw-material outflows
 
     // ── Produced fabric — destination depends on the weaving mode ──────────
     //
@@ -577,9 +602,12 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       });
     }
 
-    const { error: insErr } = await sb.from('stock_ledger').insert(ledgerRows);
-    if (insErr) {
-      return `Stock ledger write failed (batch was saved): ${insErr.message}`;
+    // Exempt jobwork batches produce no ledger rows at all — skip the insert.
+    if (ledgerRows.length > 0) {
+      const { error: insErr } = await sb.from('stock_ledger').insert(ledgerRows);
+      if (insErr) {
+        return `Stock ledger write failed (batch was saved): ${insErr.message}`;
+      }
     }
 
     // Job Work / Outsource: post the produced cloth into fabric_stock so it
@@ -593,13 +621,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       const { data: costRow } = await sb
         .from('v_costing_two_cost')
         .select('true_cost_per_m')
-        .eq('id', Number(costingId))
+        .eq('id', effectiveCostingId)
         .maybeSingle();
       if (costRow && costRow.true_cost_per_m != null) {
         trueCost = Number(costRow.true_cost_per_m);
       }
       const { error: fsErr } = await sb.from('fabric_stock').insert({
-        costing_id: Number(costingId),
+        costing_id: effectiveCostingId,
         source_type: productionMode === 'jobwork' ? 'jobwork' : 'outsourced',
         batch_id: batchId,
         metres_in: actualMetres,
@@ -620,10 +648,19 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     setError(null);
     setLedgerWarning(null);
 
-    if (!costingId) {
+    // Jobwork is exempt from costing — the weaver is paid for labour and does
+    // not own the yarn cost, so a quality/costing is optional. Every other mode
+    // still requires a real costing.
+    const exempt = productionMode === 'jobwork' && !costingId;
+    if (!costingId && productionMode !== 'jobwork') {
       setError('Pick the quality being woven.');
       return;
     }
+    if (exempt && !exemptCostingId) {
+      setError('Jobwork-exempt costing is not set up yet. Please reload and try again.');
+      return;
+    }
+    const effectiveCostingId = costingId ? Number(costingId) : (exemptCostingId as number);
     if (productionMode !== 'inhouse' && !partyId) {
       setError(productionMode === 'jobwork'
         ? 'Pick the jobwork party for this batch.'
@@ -659,7 +696,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     if (mode === 'edit' && initial) {
       // UPDATE existing row.
       const updatePayload = {
-        costing_id: Number(costingId),
+        costing_id: effectiveCostingId,
         production_mode: productionMode,
         party_id: productionMode === 'inhouse' ? null : (partyId ? Number(partyId) : null),
         pavu_assign_id: pavuAssignId ? Number(pavuAssignId) : null,
@@ -728,7 +765,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         party_id: number | null;
       } = {
         batch_code: '',
-        costing_id: Number(costingId),
+        costing_id: effectiveCostingId,
         production_mode: productionMode,
         party_id: productionMode === 'inhouse' ? null : (partyId ? Number(partyId) : null),
         so_line_id: null,
@@ -764,7 +801,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     }
 
     // Best-effort ledger write — surface error but don't roll back the batch.
-    const ledgerErr = await writeStockLedger(batchId, batchCode, producedNum);
+    const ledgerErr = await writeStockLedger(batchId, batchCode, producedNum, effectiveCostingId, exempt);
     setBusy(false);
 
     if (ledgerErr) {
@@ -855,21 +892,30 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           1. Quality being woven
         </h3>
         <div>
-          <label className="label">Fabric Quality *</label>
+          <label className="label">
+            Fabric Quality {productionMode === 'jobwork' ? '(optional)' : '*'}
+          </label>
           <select
-            required
+            required={productionMode !== 'jobwork'}
             value={costingId}
             onChange={e => setCostingId(e.target.value)}
             className="input"
           >
-            <option value="" disabled>Select quality…</option>
+            <option value="" disabled={productionMode !== 'jobwork'}>
+              {productionMode === 'jobwork' ? 'No costing (jobwork — exempt)' : 'Select quality…'}
+            </option>
             {costings.map(c => (
               <option key={c.id} value={c.id}>
                 {c.quality_code} — {c.quality_name}
               </option>
             ))}
           </select>
-          {costings.length === 0 && (
+          {productionMode === 'jobwork' && (
+            <div className="text-xs text-ink-soft mt-1">
+              Jobwork is paid for weaving labour only — no yarn cost is tracked, so a quality is optional.
+            </div>
+          )}
+          {productionMode !== 'jobwork' && costings.length === 0 && (
             <div className="text-xs text-amber-700 mt-1">
               No fabric qualities with an approved costing. Set up one in Fabric Quality master + approve its costing first.
             </div>
@@ -1195,7 +1241,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         >
           Cancel
         </button>
-        <button type="submit" className="btn-primary" disabled={busy || !costingId || !(dcTotals.metres > 0)}>
+        <button type="submit" className="btn-primary" disabled={busy || (productionMode !== 'jobwork' && !costingId) || !(dcTotals.metres > 0)}>
           {busy ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" /> Saving…
