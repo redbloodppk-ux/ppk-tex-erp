@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Ban, X, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -356,9 +357,9 @@ export function CancelDcButton({
     <>
       {trigger}
 
-      {open && (
+      {open && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md min-w-0 flex-col overflow-hidden rounded-lg bg-white shadow-xl">
             <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-sm font-semibold text-ink">
                 Cancel DC {code ?? ''}
@@ -374,7 +375,7 @@ export function CancelDcButton({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+            <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
               <p className="text-xs text-ink-soft">
                 Cancelling reverses the stock this DC consumed and frees its
                 number for reuse. This cannot be undone.
@@ -530,7 +531,8 @@ export function CancelDcButton({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
