@@ -309,8 +309,7 @@ export default async function DeliveryChallanListPage({
               <th className="text-left px-3 py-3">Mode</th>
               <th className="text-left px-3 py-3">Party (Bill-To)</th>
               <th className="text-left px-3 py-3">Fabric Quality</th>
-              <th className="text-right px-3 py-3">Metres</th>
-              <th className="text-right px-3 py-3">Pcs</th>
+              <th className="text-right px-3 py-3">Metres / Pcs</th>
               <th className="text-right px-3 py-3">Bundles</th>
               <th className="text-left px-3 py-3">Status</th>
               <th className="text-right px-3 py-3" />
@@ -319,7 +318,7 @@ export default async function DeliveryChallanListPage({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center text-ink-soft">
+                <td colSpan={9} className="px-3 py-10 text-center text-ink-soft">
                   {mode !== null
                     ? <>No {MODE_LABEL[mode].toLowerCase()} delivery challans yet. </>
                     : <>No delivery challans yet. </>}
@@ -337,8 +336,10 @@ export default async function DeliveryChallanListPage({
                   <td className="px-3 py-2 text-xs capitalize">{r.production_mode}</td>
                   <td className="px-3 py-2 font-medium">{r.bill_to_name ?? '-'}</td>
                   <td className="px-3 py-2 text-xs">{qualityByDc.get(r.id) ?? '-'}</td>
-                  <td className="px-3 py-2 text-right num">{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                  <td className="px-3 py-2 text-right num">{r.total_pieces ?? 0}</td>
+                  <td className="px-3 py-2 text-right num whitespace-nowrap">
+                    {Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} m
+                    <span className="text-ink-mute"> · {r.total_pieces ?? 0} pcs</span>
+                  </td>
                   <td className="px-3 py-2 text-right num">{r.total_bundles ?? 0}</td>
                   <td className="px-3 py-2">
                     <span className={`pill ${pill.cls} text-xs uppercase tracking-wide`}>{pill.label}</span>
