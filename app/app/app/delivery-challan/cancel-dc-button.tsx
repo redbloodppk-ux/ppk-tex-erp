@@ -127,24 +127,33 @@ export function CancelDcButton({
           ),
         );
         let resolvedCosting: number | null = null;
+        let fqName = '';
         if (qualityIds.length > 0) {
           const { data: fqRows } = await sb
             .from('fabric_quality')
-            .select('id, costing_id')
+            .select('id, name, costing_id')
             .in('id', qualityIds);
-          for (const fq of (fqRows ?? []) as Array<{
+          const fqList = (fqRows ?? []) as Array<{
             id: number;
+            name: string | null;
             costing_id: number | null;
-          }>) {
+          }>;
+          for (const fq of fqList) {
             if (fq.costing_id != null) {
               resolvedCosting = fq.costing_id;
               break;
             }
           }
+          // Keep the quality's own name so we can show it even when the
+          // quality has no costing linked — that lets the message say
+          // exactly which quality needs a costing.
+          fqName = fqList.find((f) => f.name)?.name ?? '';
         }
 
         // Quality label for display (so the operator sees what batch is made).
-        let qualityLabel = '';
+        // Prefer the costing's quality code/name; fall back to the fabric
+        // quality's own name when no costing is linked.
+        let qualityLabel = fqName;
         if (resolvedCosting != null) {
           const { data: cmRow } = await sb
             .from('costing_master')
@@ -156,7 +165,7 @@ export function CancelDcButton({
               quality_code: string | null;
               quality_name: string | null;
             };
-            qualityLabel = c.quality_code ?? c.quality_name ?? '';
+            qualityLabel = c.quality_code ?? c.quality_name ?? fqName;
           }
         }
 
@@ -275,7 +284,9 @@ export function CancelDcButton({
       }
       if (!manualCostingId) {
         setError(
-          'This DC has no quality, so a batch can\u2019t be created. Set the fabric quality on the DC, or untick "move to batch".',
+          manualQualityLabel
+            ? `\u201C${manualQualityLabel}\u201D isn\u2019t linked to a costing, so a batch can\u2019t be created. Link a costing to this quality, or untick "move to batch".`
+            : 'This DC has no quality, so a batch can\u2019t be created. Set the fabric quality on the DC, or untick "move to batch".',
         );
         return;
       }
@@ -359,7 +370,7 @@ export function CancelDcButton({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
               <p className="text-xs text-ink-soft">
                 Cancelling reverses the stock this DC consumed and frees its
                 number for reuse. This cannot be undone.
@@ -440,10 +451,10 @@ export function CancelDcButton({
                               and quality.
                             </p>
                           ) : (
-                            <p className="mt-1.5 text-[11px] text-rose-600">
-                              This DC has no quality set, so a batch can&apos;t be
-                              created. Set the fabric quality on the DC, or untick
-                              above to cancel without moving stock.
+                            <p className="mt-1.5 break-words text-[11px] text-rose-600">
+                              {manualQualityLabel
+                                ? `“${manualQualityLabel}” isn’t linked to a costing, so a batch can’t be created from it. Link a costing to this quality in Costing Master, or untick above to cancel without moving stock.`
+                                : 'This DC has no quality set, so a batch can’t be created. Set the fabric quality on the DC, or untick above to cancel without moving stock.'}
                             </p>
                           )}
                         </div>
