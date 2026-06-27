@@ -48,6 +48,17 @@ function dcCode(r: { code: string | null; void_code: string | null }): string {
   return r.code ?? r.void_code ?? '—';
 }
 
+// Some fabric types are counted in pieces, not metres: a towel quality stores
+// its towel count in total_metres, a dhoti quality its dhoti count, etc. Map
+// such a type to its display unit; metre-based types ('fabric', 'woven') → null.
+function pieceUnit(fabricType: string | null): string | null {
+  switch (fabricType) {
+    case 'towel':   return 'towels';
+    case 'dhoties': return 'dhotis';
+    default:        return null;
+  }
+}
+
 function fmtDate(s: string | null): string {
   if (!s) return '-';
   const d = new Date(s + 'T00:00:00');
@@ -116,10 +127,10 @@ export default async function DeliveryChallanListPage({
   // a single DC may carry more than one quality, so we collect the
   // distinct set per DC and join their codes (falling back to name).
   const qualityByDc = new Map<number, string>();
-  // dc_id -> true when every quality on the DC is a towel quality.
-  // Towel qualities store their towel-piece count in total_metres (not metres),
-  // so the list must label the figure as towels rather than "m".
-  const towelByDc = new Map<number, boolean>();
+  // dc_id -> piece-unit label ('towels' / 'dhotis') when every quality on the
+  // DC is a piece-counted type. These qualities store their PIECE count in
+  // total_metres (not metres), so the list labels the figure in pieces, not m.
+  const pieceUnitByDc = new Map<number, string>();
   if (rows.length > 0) {
     const { data: qItems } = await sb
       .from('delivery_challan_item')
@@ -136,7 +147,7 @@ export default async function DeliveryChallanListPage({
       allQIds.add(Number(it.fabric_quality_id));
     }
     const qLabel = new Map<number, string>();
-    const qIsTowel = new Map<number, boolean>();
+    const qType = new Map<number, string | null>();
     if (allQIds.size > 0) {
       const { data: qMaster } = await sb
         .from('fabric_quality')
@@ -144,16 +155,19 @@ export default async function DeliveryChallanListPage({
         .in('id', Array.from(allQIds));
       for (const q of (qMaster ?? []) as Array<{ id: number; code: string | null; name: string | null; fabric_type: string | null }>) {
         qLabel.set(Number(q.id), q.code ?? q.name ?? '');
-        qIsTowel.set(Number(q.id), q.fabric_type === 'towel');
+        qType.set(Number(q.id), q.fabric_type);
       }
     }
     for (const [dcId, ids] of qIdsByDc) {
       const idList = Array.from(ids);
       const label = idList.map((id) => qLabel.get(id) ?? '').filter(Boolean).join(', ');
       if (label) qualityByDc.set(dcId, label);
-      // Treat the DC as a towel DC only when all of its qualities are towels.
-      if (idList.length > 0 && idList.every((id) => qIsTowel.get(id) === true)) {
-        towelByDc.set(dcId, true);
+      // Only a DC whose qualities all share one piece-counted type gets a
+      // piece-unit; mixed-type DCs stay in metres to avoid mislabelling.
+      const units = new Set(idList.map((id) => pieceUnit(qType.get(id) ?? null)));
+      if (idList.length > 0 && units.size === 1) {
+        const u = units.values().next().value;
+        if (u) pieceUnitByDc.set(dcId, u);
       }
     }
   }
@@ -224,9 +238,11 @@ export default async function DeliveryChallanListPage({
       <CardFilter placeholder="Search DCs…">
         {rows.length ? rows.map((r) => {
           const pill = statusPill(r.status);
-          // A whole-number total_metres on a towel DC is really a towel-piece
-          // count, so label it "towels"; decimals mean a real metre delivery.
-          const isTowelQty = (towelByDc.get(r.id) ?? false) && Number.isInteger(Number(r.total_metres ?? 0));
+          // A whole-number total_metres on a piece-counted DC (towel/dhoti) is
+          // really a piece count, so label it in pieces; decimals mean a real
+          // metre delivery and stay in metres.
+          const pUnit = pieceUnitByDc.get(r.id);
+          const qtyUnit = pUnit && Number.isInteger(Number(r.total_metres ?? 0)) ? pUnit : null;
           return (
             <div key={r.id} className="card p-3">
               <div className="flex items-start justify-between gap-2">
@@ -247,9 +263,9 @@ export default async function DeliveryChallanListPage({
                 <span className="text-ink-mute"> · Mode: </span><span className="capitalize">{r.production_mode}</span>
               </div>
               <div className="text-xs text-ink-soft mt-1">
-                {isTowelQty ? (
+                {qtyUnit ? (
                   <>
-                    <span className="text-ink-mute">Towels: </span><span className="num">{Math.round(Number(r.total_metres ?? 0)).toLocaleString('en-IN')}</span>
+                    <span className="text-ink-mute capitalize">{qtyUnit}: </span><span className="num">{Math.round(Number(r.total_metres ?? 0)).toLocaleString('en-IN')}</span>
                   </>
                 ) : (
                   <>
@@ -349,7 +365,8 @@ export default async function DeliveryChallanListPage({
               </tr>
             ) : rows.map((r) => {
               const pill = statusPill(r.status);
-              const isTowelQty = (towelByDc.get(r.id) ?? false) && Number.isInteger(Number(r.total_metres ?? 0));
+              const pUnit = pieceUnitByDc.get(r.id);
+              const qtyUnit = pUnit && Number.isInteger(Number(r.total_metres ?? 0)) ? pUnit : null;
               return (
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-2 font-mono text-xs">
@@ -360,8 +377,8 @@ export default async function DeliveryChallanListPage({
                   <td className="px-3 py-2 font-medium">{r.bill_to_name ?? '-'}</td>
                   <td className="px-3 py-2 text-xs">{qualityByDc.get(r.id) ?? '-'}</td>
                   <td className="px-3 py-2 text-right num whitespace-nowrap">
-                    {isTowelQty
-                      ? <>{Math.round(Number(r.total_metres ?? 0)).toLocaleString('en-IN')} towels</>
+                    {qtyUnit
+                      ? <>{Math.round(Number(r.total_metres ?? 0)).toLocaleString('en-IN')} {qtyUnit}</>
                       : <>{Number(r.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })} m</>}
                     <span className="text-ink-mute"> · {r.total_pieces ?? 0} pcs</span>
                   </td>

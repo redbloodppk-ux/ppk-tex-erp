@@ -102,13 +102,24 @@ function emptyFlow(): BatchFlow {
   return { deliveredM: 0, deliveredPcs: 0, invoicedM: 0, partialM: 0, paidM: 0 };
 }
 
+// Some fabric types are counted in pieces, not metres: a towel quality records
+// its towel count in produced_m, a dhoti quality its dhoti count, etc. Map such
+// a type to its display unit; metre-based types ('fabric', 'woven') → null.
+function pieceUnit(fabricType: string | null | undefined): string | null {
+  switch (fabricType) {
+    case 'towel':   return 'towels';
+    case 'dhoties': return 'dhotis';
+    default:        return null;
+  }
+}
+
 // Render a quantity + pieces with each half in its own fixed-width,
-// right-aligned slot so columns line up cleanly row to row. Towel qualities
-// count their output in towels, not metres, so the unit label switches.
-function QtyMP({ m, pcs, showPcs, towel }: { m: number; pcs: number | null; showPcs: boolean; towel?: boolean }) {
+// right-aligned slot so columns line up cleanly row to row. Piece-counted
+// qualities switch the unit label from metres to towels/dhotis.
+function QtyMP({ m, pcs, showPcs, unit }: { m: number; pcs: number | null; showPcs: boolean; unit?: string | null }) {
   return (
     <span className="num tabular-nums whitespace-nowrap inline-flex justify-end items-baseline gap-2">
-      <span className="inline-block text-right min-w-[4rem]">{m.toFixed(0)} {towel ? 'towels' : 'm'}</span>
+      <span className="inline-block text-right min-w-[4rem]">{m.toFixed(0)} {unit ?? 'm'}</span>
       {showPcs && (
         <span className="inline-block text-right min-w-[3rem] text-ink-mute">{pcs ?? 0} pcs</span>
       )}
@@ -116,11 +127,12 @@ function QtyMP({ m, pcs, showPcs, towel }: { m: number; pcs: number | null; show
   );
 }
 
-// A towel batch records its towel-piece count in produced_m (not metres).
-// A whole-number value confirms it's a towel count; a decimal means a real
-// metre delivery, so it stays in metres.
-function isTowelBatch(b: BatchRow): boolean {
-  return b.costing?.fabric_type === 'towel' && Number.isInteger(Number(b.produced_m) || 0);
+// A piece-counted batch records its piece count in produced_m (not metres).
+// A whole-number value confirms it's a piece count; a decimal means a real
+// metre delivery, so it stays in metres (returns null).
+function batchUnit(b: BatchRow): string | null {
+  const u = pieceUnit(b.costing?.fabric_type ?? null);
+  return u && Number.isInteger(Number(b.produced_m) || 0) ? u : null;
 }
 
 // Decide the furthest-along status for a batch from its metre tallies.
@@ -396,8 +408,7 @@ export default async function ProductionPage({
                     </div>
                     <div className="text-right shrink-0">
                       {(() => {
-                        const towel = isTowelBatch(b);
-                        const unit = towel ? 'towels' : 'm';
+                        const unit = batchUnit(b) ?? 'm';
                         const f = flowByBatch.get(b.id) ?? emptyFlow();
                         const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                         const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
@@ -548,7 +559,7 @@ export default async function ProductionPage({
                           m={Number(b.produced_m) || 0}
                           pcs={b.total_pieces}
                           showPcs={b.total_pieces != null}
-                          towel={isTowelBatch(b)}
+                          unit={batchUnit(b)}
                         />
                       </td>
                       <td className="px-3 py-2 text-right text-ink-soft">
@@ -556,7 +567,7 @@ export default async function ProductionPage({
                           const f = flowByBatch.get(b.id) ?? emptyFlow();
                           const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                           const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
-                          return <QtyMP m={balM} pcs={balPcs} showPcs={b.total_pieces != null} towel={isTowelBatch(b)} />;
+                          return <QtyMP m={balM} pcs={balPcs} showPcs={b.total_pieces != null} unit={batchUnit(b)} />;
                         })()}
                       </td>
                       {showTrueCost && (
