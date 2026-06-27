@@ -102,6 +102,19 @@ function emptyFlow(): BatchFlow {
   return { deliveredM: 0, deliveredPcs: 0, invoicedM: 0, partialM: 0, paidM: 0 };
 }
 
+// Render a metre + pieces quantity with the metre and pcs halves each in their
+// own fixed-width, right-aligned slot so columns line up cleanly row to row.
+function QtyMP({ m, pcs, showPcs }: { m: number; pcs: number | null; showPcs: boolean }) {
+  return (
+    <span className="num tabular-nums whitespace-nowrap inline-flex justify-end items-baseline gap-2">
+      <span className="inline-block text-right min-w-[3.25rem]">{m.toFixed(0)} m</span>
+      {showPcs && (
+        <span className="inline-block text-right min-w-[3rem] text-ink-mute">{pcs ?? 0} pcs</span>
+      )}
+    </span>
+  );
+}
+
 // Decide the furthest-along status for a batch from its metre tallies.
 // EPS absorbs rounding so 799.9 of 800 still reads as "fully".
 function deriveStatus(producedM: number, f: BatchFlow): SaleStatusKey {
@@ -375,13 +388,23 @@ export default async function ProductionPage({
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-[10px] uppercase tracking-wide text-ink-mute">Produced</div>
-                      <div className="num font-semibold text-base">{Number(b.produced_m).toFixed(0)} m</div>
+                      <div className="num font-semibold text-base">
+                        {Number(b.produced_m).toFixed(0)} m
+                        {b.total_pieces != null && (
+                          <span className="text-sm font-normal text-ink-mute"> · {b.total_pieces} pcs</span>
+                        )}
+                      </div>
                       {(() => {
                         const f = flowByBatch.get(b.id) ?? emptyFlow();
                         const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                         const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
                         return (
                           <>
+                            <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-1">Dispatched</div>
+                            <div className="num text-sm text-ink-soft">
+                              {f.deliveredM.toFixed(0)} m
+                              {b.total_pieces != null && <> · {f.deliveredPcs} pcs</>}
+                            </div>
                             <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-1">Balance</div>
                             <div className="num text-sm text-ink-soft">
                               {balM.toFixed(0)} m
@@ -457,7 +480,8 @@ export default async function ProductionPage({
                   <th className="text-left px-3 py-2">Quality</th>
                   <th className="text-left px-3 py-2">Loom / Party</th>
                   <th className="text-left px-3 py-2">Dates</th>
-                  <th className="text-right px-3 py-2">Produced m</th>
+                  <th className="text-right px-3 py-2">Produced</th>
+                  <th className="text-right px-3 py-2">Dispatched</th>
                   <th className="text-right px-3 py-2">Balance</th>
                   {showTrueCost && (
                     <th className="text-right px-3 py-2">True rupees/m</th>
@@ -515,20 +539,27 @@ export default async function ProductionPage({
                       <td className="px-3 py-2 text-xs text-ink-soft">
                         {b.start_date ?? '—'} → {b.end_date ?? 'open'}
                       </td>
-                      <td className="px-3 py-2 text-right num">{Number(b.produced_m).toFixed(0)}</td>
-                      <td className="px-3 py-2 text-right num text-ink-soft whitespace-nowrap">
+                      <td className="px-3 py-2 text-right">
+                        <QtyMP
+                          m={Number(b.produced_m) || 0}
+                          pcs={b.total_pieces}
+                          showPcs={b.total_pieces != null}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right text-ink-soft">
+                        {(() => {
+                          const f = flowByBatch.get(b.id) ?? emptyFlow();
+                          return (
+                            <QtyMP m={f.deliveredM} pcs={f.deliveredPcs} showPcs={b.total_pieces != null} />
+                          );
+                        })()}
+                      </td>
+                      <td className="px-3 py-2 text-right text-ink-soft">
                         {(() => {
                           const f = flowByBatch.get(b.id) ?? emptyFlow();
                           const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                           const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
-                          return (
-                            <>
-                              {balM.toFixed(0)} m
-                              {b.total_pieces != null && (
-                                <span className="text-ink-mute"> · {balPcs} pcs</span>
-                              )}
-                            </>
-                          );
+                          return <QtyMP m={balM} pcs={balPcs} showPcs={b.total_pieces != null} />;
                         })()}
                       </td>
                       {showTrueCost && (
