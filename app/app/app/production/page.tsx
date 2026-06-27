@@ -34,7 +34,7 @@ interface BatchRow {
   production_mode: ProductionMode | null;
   party_id: number | null;
   loom: { loom_code: string } | null;
-  costing: { quality_code: string; quality_name: string } | null;
+  costing: { quality_code: string; quality_name: string; fabric_type: string | null } | null;
   party: { code: string; name: string } | null;
 }
 
@@ -102,17 +102,25 @@ function emptyFlow(): BatchFlow {
   return { deliveredM: 0, deliveredPcs: 0, invoicedM: 0, partialM: 0, paidM: 0 };
 }
 
-// Render a metre + pieces quantity with the metre and pcs halves each in their
-// own fixed-width, right-aligned slot so columns line up cleanly row to row.
-function QtyMP({ m, pcs, showPcs }: { m: number; pcs: number | null; showPcs: boolean }) {
+// Render a quantity + pieces with each half in its own fixed-width,
+// right-aligned slot so columns line up cleanly row to row. Towel qualities
+// count their output in towels, not metres, so the unit label switches.
+function QtyMP({ m, pcs, showPcs, towel }: { m: number; pcs: number | null; showPcs: boolean; towel?: boolean }) {
   return (
     <span className="num tabular-nums whitespace-nowrap inline-flex justify-end items-baseline gap-2">
-      <span className="inline-block text-right min-w-[3.25rem]">{m.toFixed(0)} m</span>
+      <span className="inline-block text-right min-w-[4rem]">{m.toFixed(0)} {towel ? 'towels' : 'm'}</span>
       {showPcs && (
         <span className="inline-block text-right min-w-[3rem] text-ink-mute">{pcs ?? 0} pcs</span>
       )}
     </span>
   );
+}
+
+// A towel batch records its towel-piece count in produced_m (not metres).
+// A whole-number value confirms it's a towel count; a decimal means a real
+// metre delivery, so it stays in metres.
+function isTowelBatch(b: BatchRow): boolean {
+  return b.costing?.fabric_type === 'towel' && Number.isInteger(Number(b.produced_m) || 0);
 }
 
 // Decide the furthest-along status for a batch from its metre tallies.
@@ -155,7 +163,7 @@ export default async function ProductionPage({
         actual_true_cost_per_m, actual_sizing_cost_per_m,
         production_mode, party_id,
         loom:loom_id ( loom_code ),
-        costing:costing_id ( quality_code, quality_name ),
+        costing:costing_id ( quality_code, quality_name, fabric_type ),
         party:party_id ( code, name )
       `)
       .order('created_at', { ascending: false })
@@ -387,27 +395,24 @@ export default async function ProductionPage({
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-[10px] uppercase tracking-wide text-ink-mute">Produced</div>
-                      <div className="num font-semibold text-base">
-                        {Number(b.produced_m).toFixed(0)} m
-                        {b.total_pieces != null && (
-                          <span className="text-sm font-normal text-ink-mute"> · {b.total_pieces} pcs</span>
-                        )}
-                      </div>
                       {(() => {
+                        const towel = isTowelBatch(b);
+                        const unit = towel ? 'towels' : 'm';
                         const f = flowByBatch.get(b.id) ?? emptyFlow();
                         const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                         const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
                         return (
                           <>
-                            <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-1">Dispatched</div>
-                            <div className="num text-sm text-ink-soft">
-                              {f.deliveredM.toFixed(0)} m
-                              {b.total_pieces != null && <> · {f.deliveredPcs} pcs</>}
+                            <div className="text-[10px] uppercase tracking-wide text-ink-mute">Produced</div>
+                            <div className="num font-semibold text-base">
+                              {Number(b.produced_m).toFixed(0)} {unit}
+                              {b.total_pieces != null && (
+                                <span className="text-sm font-normal text-ink-mute"> · {b.total_pieces} pcs</span>
+                              )}
                             </div>
                             <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-1">Balance</div>
                             <div className="num text-sm text-ink-soft">
-                              {balM.toFixed(0)} m
+                              {balM.toFixed(0)} {unit}
                               {b.total_pieces != null && <> · {balPcs} pcs</>}
                             </div>
                           </>
@@ -481,7 +486,6 @@ export default async function ProductionPage({
                   <th className="text-left px-3 py-2">Loom / Party</th>
                   <th className="text-left px-3 py-2">Dates</th>
                   <th className="text-right px-3 py-2">Produced</th>
-                  <th className="text-right px-3 py-2">Dispatched</th>
                   <th className="text-right px-3 py-2">Balance</th>
                   {showTrueCost && (
                     <th className="text-right px-3 py-2">True rupees/m</th>
@@ -544,22 +548,15 @@ export default async function ProductionPage({
                           m={Number(b.produced_m) || 0}
                           pcs={b.total_pieces}
                           showPcs={b.total_pieces != null}
+                          towel={isTowelBatch(b)}
                         />
-                      </td>
-                      <td className="px-3 py-2 text-right text-ink-soft">
-                        {(() => {
-                          const f = flowByBatch.get(b.id) ?? emptyFlow();
-                          return (
-                            <QtyMP m={f.deliveredM} pcs={f.deliveredPcs} showPcs={b.total_pieces != null} />
-                          );
-                        })()}
                       </td>
                       <td className="px-3 py-2 text-right text-ink-soft">
                         {(() => {
                           const f = flowByBatch.get(b.id) ?? emptyFlow();
                           const balM = (Number(b.produced_m) || 0) - f.deliveredM;
                           const balPcs = (b.total_pieces ?? 0) - f.deliveredPcs;
-                          return <QtyMP m={balM} pcs={balPcs} showPcs={b.total_pieces != null} />;
+                          return <QtyMP m={balM} pcs={balPcs} showPcs={b.total_pieces != null} towel={isTowelBatch(b)} />;
                         })()}
                       </td>
                       {showTrueCost && (
