@@ -1318,6 +1318,18 @@ export default function NewInvoicePage() {
       }
     }
 
+    // Auto-link sales order: when this customer has exactly ONE open
+    // order, point the DC(s) we invoice below at it so the order walks
+    // forward (→ invoiced / paid) via fn_so_refresh_status. We only fill
+    // DCs that have no SO yet, so a link made in the DC form is never
+    // overwritten. Skipped when the customer has 0 or 2+ open orders —
+    // there's no single obvious order to attach to.
+    const OPEN_SO_STATUSES = new Set(['approved', 'in_production', 'partial_dispatch', 'dispatched']);
+    const openSosForCustomer = salesOrders.filter(
+      (s) => s.customer_id === Number(customerId) && OPEN_SO_STATUSES.has(s.status),
+    );
+    const autoLinkSoId = openSosForCustomer.length === 1 ? openSosForCustomer[0]!.id : null;
+
     // Fabric Sale from in-house receipts: advance each picked DC's
     // workflow status — confirmed (set when the receipt was saved) →
     // invoiced — and lock it to this invoice so it never shows up in
@@ -1331,6 +1343,13 @@ export default function NewInvoicePage() {
       if (dcErr) {
         setBusy(false);
         return setError(`Invoice ${inv.invoice_no} created but marking the DCs invoiced failed: ${dcErr.message}`);
+      }
+      if (autoLinkSoId !== null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('delivery_challan')
+          .update({ sales_order_id: autoLinkSoId })
+          .in('id', Array.from(pickedDcIds))
+          .is('sales_order_id', null);
       }
     }
 
@@ -1358,6 +1377,13 @@ export default function NewInvoicePage() {
         if (dcErr) {
           setBusy(false);
           return setError(`Invoice ${inv.invoice_no} created but marking the DCs invoiced failed: ${dcErr.message}`);
+        }
+        if (autoLinkSoId !== null) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase as any).from('delivery_challan')
+            .update({ sales_order_id: autoLinkSoId })
+            .in('id', Array.from(stockPickedDcIds))
+            .is('sales_order_id', null);
         }
       }
     }
