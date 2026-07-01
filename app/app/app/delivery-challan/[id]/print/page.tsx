@@ -194,6 +194,81 @@ export default async function DcPrintPage({
   // Cancelled DCs have `code` nulled; the original number lives in void_code.
   const dcDisplayCode = dc.code ?? dc.void_code ?? '';
 
+  // ── Precompute item view-models ──
+  // A batch DC combines several production batches (one delivery_challan_item
+  // each) into one DC. We number bundles CONTINUOUSLY across every batch
+  // (1..N) for the printed grid, and roll all batch totals into ONE
+  // consolidated summary at the bottom instead of a subtotal box per batch —
+  // so the printed DC reads as a single clear document.
+  let runningBundleOffset = 0;
+  let grandMetres = 0;
+  let grandPieces = 0;
+  let grandBundles = 0;
+  let grandTowelPcs = 0;
+  let anyTowel = false;
+  const distinctQualityIds = new Set<number>();
+
+  const itemViews = itemRows.map((item) => {
+    const fq = item.fabric_quality_id != null ? (qualityById.get(item.fabric_quality_id) ?? null) : null;
+    if (item.fabric_quality_id != null) distinctQualityIds.add(item.fabric_quality_id);
+    const qualityLabel = fq
+      ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}`
+      : (item.description || '-');
+    const isTowelQuality = fq?.fabric_type === 'towel';
+
+    const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
+    const bundleRows = chunk(bundles, BUNDLES_PER_ROW);
+    const maxPieces = Math.max(1, maxPiecesInItem(bundles));
+
+    let itemMetres = 0;
+    let itemPieces = 0;
+    let hasDecimalValue = false;
+    for (const b of bundles) {
+      for (const p of (b.pieces ?? [])) {
+        const v = num(p);
+        if (v > 0) {
+          itemMetres += v; itemPieces += 1;
+          if (!Number.isInteger(v)) hasDecimalValue = true;
+        }
+      }
+    }
+    let itemBundles = bundles.length;
+
+    // Summary-mode rows have no bundles_detail to roll up - take the totals
+    // straight off the row instead.
+    if (dc.entry_mode === 'summary') {
+      itemMetres  = num(item.metres);
+      itemPieces  = item.pieces  ?? 0;
+      itemBundles = item.bundles ?? 0;
+      hasDecimalValue = !Number.isInteger(itemMetres);
+    }
+
+    const isTowel = isTowelQuality && !hasDecimalValue;
+
+    // Continuous numbering: this batch's bundles start after every prior
+    // batch's bundle count.
+    const bundleOffset = runningBundleOffset;
+    runningBundleOffset += bundles.length;
+
+    if (isTowel) { grandTowelPcs += Math.round(itemMetres); grandPieces += itemPieces; anyTowel = true; }
+    else { grandMetres += itemMetres; grandPieces += itemPieces; }
+    grandBundles += itemBundles;
+
+    return { item, fq, qualityLabel, isTowel, bundles, bundleRows, maxPieces, itemBundles, bundleOffset };
+  });
+
+  // The consolidated spec block (reed/width/weight) only makes sense when the
+  // whole DC is a single quality — which is the norm for a batch DC. If the DC
+  // mixes qualities we drop the spec column and show totals only.
+  const singleQuality = distinctQualityIds.size === 1
+    ? (itemViews.find((v) => v.fq)?.fq ?? null)
+    : null;
+  const reedXpick = singleQuality?.reed && singleQuality?.pick_per_inch
+    ? `${Number(singleQuality.reed)} \u00d7 ${Number(singleQuality.pick_per_inch)}`
+    : '-';
+  const widthLabel = singleQuality?.width_in ? `${Number(singleQuality.width_in)} INCH` : '-';
+  const weightLabel = singleQuality?.weight_gsm ? `${Number(singleQuality.weight_gsm)} GMS` : '-';
+
   return (
     <>
       {/*
@@ -300,6 +375,15 @@ export default async function DcPrintPage({
         .dc-item .summary td { padding: 3px 0; }
         .dc-item .summary td.l { color: #222; font-weight: 700; }
         .dc-item .summary td.v { text-align: right; font-weight: 800; font-size: 12px; }
+        /* Consolidated whole-DC summary (replaces per-batch subtotal boxes). */
+        .dc-summary { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; border-top: none; }
+        .dc-summary > div { padding: 6px 12px; }
+        .dc-summary > div + div { border-left: 0.5px solid #000; }
+        .dc-summary table { width: 100%; font-size: 13px; }
+        .dc-summary td { padding: 3px 0; }
+        .dc-summary td.l { color: #222; font-weight: 700; }
+        .dc-summary td.v { text-align: right; font-weight: 800; font-size: 13px; }
+        .dc-summary td.v.big { font-size: 15px; }
         .notforsale { font-size: 13px; font-weight: 900; color: #000; letter-spacing: 1.5px; border: 1.6px solid #000; padding: 1px 9px; white-space: nowrap; }
         /* Signature footer block — margin-top:auto pushes it to the
            bottom of the dc-sheet flex column, so it sits at the bottom
@@ -398,60 +482,15 @@ export default async function DcPrintPage({
           </div>
         </div>
 
-        {/* ───── Items: each item gets its own quality + bundle grid + summary ───── */}
-        {itemRows.length === 0 ? (
+        {/* ───── Items: each batch shows its quality + bundle grid. Bundle
+              numbers run continuously across every batch (1..N). Batch
+              subtotals are omitted here — a single consolidated summary sits
+              below all batches. ───── */}
+        {itemViews.length === 0 ? (
           <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
             No items on this DC.
           </div>
-        ) : itemRows.map((item) => {
-          const fq = item.fabric_quality_id != null ? qualityById.get(item.fabric_quality_id) : null;
-          const qualityLabel = fq
-            ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}`
-            : (item.description || '-');
-          const reedXpick = fq?.reed && fq?.pick_per_inch
-            ? `${Number(fq.reed)} \u00d7 ${Number(fq.pick_per_inch)}`
-            : '-';
-          const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
-          const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
-          // Towel qualities have fabric_type = 'towel'; for these the DC is
-          // counted in PIECES, not metres. In summary mode the piece count is
-          // stored in item.metres (overloaded), so itemMetres holds it.
-          // (fabric / woven / dhoties also carry meter_per_pc, so we must key
-          // off fabric_type, not meter_per_pc > 0.)
-          const isTowelQuality = fq?.fabric_type === 'towel';
-
-          const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
-          const bundleRows = chunk(bundles, BUNDLES_PER_ROW);
-          const maxPieces = Math.max(1, maxPiecesInItem(bundles));
-
-          let itemMetres = 0;
-          let itemPieces = 0;
-          // Whether any value entered is a decimal length (e.g. 96.7). A towel
-          // line with decimal values is really a metre delivery, so we report
-          // it under metres rather than as a piece count.
-          let hasDecimalValue = false;
-          for (const b of bundles) {
-            for (const p of (b.pieces ?? [])) {
-              const v = num(p);
-              if (v > 0) {
-                itemMetres += v; itemPieces += 1;
-                if (!Number.isInteger(v)) hasDecimalValue = true;
-              }
-            }
-          }
-          let itemBundles = bundles.length;
-
-          // Summary-mode rows have no bundles_detail to roll up - take the
-          // totals straight off the row instead.
-          if (dc.entry_mode === 'summary') {
-            itemMetres  = num(item.metres);
-            itemPieces  = item.pieces  ?? 0;
-            itemBundles = item.bundles ?? 0;
-            hasDecimalValue = !Number.isInteger(itemMetres);
-          }
-
-          const isTowel = isTowelQuality && !hasDecimalValue;
-
+        ) : itemViews.map(({ item, fq, qualityLabel, bundles, bundleRows, maxPieces, bundleOffset }) => {
           return (
             <div className="dc-item" key={item.id}>
               <div className="qline">
@@ -476,7 +515,10 @@ export default async function DcPrintPage({
                         <th className="lbl" style={{ minWidth: 50 }}>BUNDLE</th>
                         {Array.from({ length: BUNDLES_PER_ROW }).map((_, i) => {
                           const b = rowBundles[i];
-                          const label = b ? (b.sno ?? (startBundle + i + 1)) : (startBundle + i + 1);
+                          // Continuous number = prior batches' bundles + this
+                          // row's start + column index. Empty trailing cells
+                          // stay blank (no phantom numbers).
+                          const label = b ? (bundleOffset + startBundle + i + 1) : '';
                           return <th key={i}>{label}</th>;
                         })}
                       </tr>
@@ -510,42 +552,49 @@ export default async function DcPrintPage({
                   </table>
                 );
               })}
-
-              <div className="summary">
-                <div>
-                  <table>
-                    <tbody>
-                      <tr><td className="l">REED &times; PICK</td><td className="v">{reedXpick}</td></tr>
-                      <tr><td className="l">FABRIC WIDTH</td><td className="v">{widthLabel}</td></tr>
-                      <tr><td className="l">FABRIC WEIGHT</td><td className="v">{weightLabel}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <table>
-                    <tbody>
-                      {isTowel ? (
-                        <>
-                          {/* Towel: itemMetres holds the towel-piece count
-                              (sum of bundle cells); itemPieces is the number
-                              of physical pieces/cuts across the bundles. */}
-                          <tr><td className="l">TOTAL TOWEL PCS</td><td className="v">{Math.round(itemMetres)}</td></tr>
-                          <tr><td className="l">TOTAL PCS</td><td className="v">{itemPieces}</td></tr>
-                        </>
-                      ) : (
-                        <>
-                          <tr><td className="l">TOTAL METRES</td><td className="v">{fmtMetres(itemMetres)}</td></tr>
-                          <tr><td className="l">TOTAL PIECES</td><td className="v">{itemPieces}</td></tr>
-                        </>
-                      )}
-                      <tr><td className="l">TOTAL BUNDLES</td><td className="v">{itemBundles}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
           );
         })}
+
+        {/* ───── Consolidated DC summary: one box for the whole document
+              (spec block shown when the DC is a single quality) instead of a
+              subtotal per batch. ───── */}
+        {itemViews.length > 0 && (
+          <div className="dc-summary">
+            <div>
+              {singleQuality ? (
+                <table>
+                  <tbody>
+                    <tr><td className="l">REED &times; PICK</td><td className="v">{reedXpick}</td></tr>
+                    <tr><td className="l">FABRIC WIDTH</td><td className="v">{widthLabel}</td></tr>
+                    <tr><td className="l">FABRIC WEIGHT</td><td className="v">{weightLabel}</td></tr>
+                  </tbody>
+                </table>
+              ) : (
+                <table>
+                  <tbody>
+                    <tr><td className="l">QUALITIES</td><td className="v">{distinctQualityIds.size}</td></tr>
+                    <tr><td className="l">BATCHES</td><td className="v">{itemViews.length}</td></tr>
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div>
+              <table>
+                <tbody>
+                  {anyTowel && grandTowelPcs > 0 && (
+                    <tr><td className="l">TOTAL TOWEL PCS</td><td className="v">{grandTowelPcs}</td></tr>
+                  )}
+                  {grandMetres > 0 && (
+                    <tr><td className="l">TOTAL METRES</td><td className="v big">{fmtMetres(grandMetres)}</td></tr>
+                  )}
+                  <tr><td className="l">TOTAL PIECES</td><td className="v big">{grandPieces}</td></tr>
+                  <tr><td className="l">TOTAL BUNDLES</td><td className="v big">{grandBundles}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* ───── Bottom block: vehicle + signatures + address + totals.
               Grouped so they sit together at the page bottom on ONE page. ───── */}
