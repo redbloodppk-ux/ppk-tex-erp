@@ -194,31 +194,36 @@ export default async function DcPrintPage({
   // Cancelled DCs have `code` nulled; the original number lives in void_code.
   const dcDisplayCode = dc.code ?? dc.void_code ?? '';
 
-  // ── Precompute item view-models ──
+  // ── Group items by quality ──
   // A batch DC combines several production batches (one delivery_challan_item
-  // each) into one DC. We number bundles CONTINUOUSLY across every batch
-  // (1..N) for the printed grid, and roll all batch totals into ONE
-  // consolidated summary at the bottom instead of a subtotal box per batch —
-  // so the printed DC reads as a single clear document.
-  let runningBundleOffset = 0;
-  let grandMetres = 0;
-  let grandPieces = 0;
-  let grandBundles = 0;
-  let grandTowelPcs = 0;
-  let anyTowel = false;
-  const distinctQualityIds = new Set<number>();
+  // each). Batches that share a fabric quality are MERGED into one continuous
+  // bundle grid and one summary line; DIFFERENT qualities stay separate and
+  // are never summed into a single mixed total. Bundle numbers run
+  // continuously across the whole DC (1..N), flowing quality group by group.
+  interface QualityGroup {
+    key: string;
+    fq: FabricQualityMeta | null;
+    qualityLabel: string;
+    hsn: string | null;
+    isTowel: boolean;
+    bundles: BundleJson[];
+    totalMetres: number;
+    totalPieces: number;
+    totalBundles: number;
+  }
 
-  const itemViews = itemRows.map((item) => {
+  const groupOrder: string[] = [];
+  const groupMap = new Map<string, QualityGroup>();
+
+  for (const item of itemRows) {
     const fq = item.fabric_quality_id != null ? (qualityById.get(item.fabric_quality_id) ?? null) : null;
-    if (item.fabric_quality_id != null) distinctQualityIds.add(item.fabric_quality_id);
-    const qualityLabel = fq
-      ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}`
-      : (item.description || '-');
+    // Same fabric_quality_id → same group. Items with no quality id never
+    // merge (each keyed by its own row id) so distinct free-text lines stay
+    // separate.
+    const key = item.fabric_quality_id != null ? `q:${item.fabric_quality_id}` : `i:${item.id}`;
     const isTowelQuality = fq?.fabric_type === 'towel';
 
     const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
-    const bundleRows = chunk(bundles, BUNDLES_PER_ROW);
-    const maxPieces = Math.max(1, maxPiecesInItem(bundles));
 
     let itemMetres = 0;
     let itemPieces = 0;
@@ -245,29 +250,51 @@ export default async function DcPrintPage({
 
     const isTowel = isTowelQuality && !hasDecimalValue;
 
-    // Continuous numbering: this batch's bundles start after every prior
-    // batch's bundle count.
+    let g = groupMap.get(key);
+    if (!g) {
+      g = {
+        key,
+        fq,
+        qualityLabel: fq ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}` : (item.description || '-'),
+        hsn: item.hsn ?? fq?.hsn ?? null,
+        isTowel: true,
+        bundles: [],
+        totalMetres: 0,
+        totalPieces: 0,
+        totalBundles: 0,
+      };
+      groupMap.set(key, g);
+      groupOrder.push(key);
+    }
+    g.bundles.push(...bundles);
+    g.totalMetres += itemMetres;
+    g.totalPieces += itemPieces;
+    g.totalBundles += itemBundles;
+    // A merged group counts as towel only if EVERY batch in it is towel.
+    g.isTowel = g.isTowel && isTowel;
+  }
+
+  // Attach continuous bundle offsets, grid rows and formatted specs per group.
+  let runningBundleOffset = 0;
+  const groups = groupOrder.map((key) => {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const g = groupMap.get(key)!;
+    const bundleRows = chunk(g.bundles, BUNDLES_PER_ROW);
+    const maxPieces = Math.max(1, maxPiecesInItem(g.bundles));
     const bundleOffset = runningBundleOffset;
-    runningBundleOffset += bundles.length;
-
-    if (isTowel) { grandTowelPcs += Math.round(itemMetres); grandPieces += itemPieces; anyTowel = true; }
-    else { grandMetres += itemMetres; grandPieces += itemPieces; }
-    grandBundles += itemBundles;
-
-    return { item, fq, qualityLabel, isTowel, bundles, bundleRows, maxPieces, itemBundles, bundleOffset };
+    runningBundleOffset += g.bundles.length;
+    const fq = g.fq;
+    const reedXpick = fq?.reed && fq?.pick_per_inch
+      ? `${Number(fq.reed)} \u00d7 ${Number(fq.pick_per_inch)}`
+      : '-';
+    const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
+    const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
+    return { ...g, bundleRows, maxPieces, bundleOffset, reedXpick, widthLabel, weightLabel };
   });
 
-  // The consolidated spec block (reed/width/weight) only makes sense when the
-  // whole DC is a single quality — which is the norm for a batch DC. If the DC
-  // mixes qualities we drop the spec column and show totals only.
-  const singleQuality = distinctQualityIds.size === 1
-    ? (itemViews.find((v) => v.fq)?.fq ?? null)
-    : null;
-  const reedXpick = singleQuality?.reed && singleQuality?.pick_per_inch
-    ? `${Number(singleQuality.reed)} \u00d7 ${Number(singleQuality.pick_per_inch)}`
-    : '-';
-  const widthLabel = singleQuality?.width_in ? `${Number(singleQuality.width_in)} INCH` : '-';
-  const weightLabel = singleQuality?.weight_gsm ? `${Number(singleQuality.weight_gsm)} GMS` : '-';
+  // A single-quality DC keeps the classic one-box summary; a mixed DC shows
+  // one summary block per quality (no merged grand total).
+  const singleQuality = groups.length === 1;
 
   return (
     <>
@@ -482,20 +509,20 @@ export default async function DcPrintPage({
           </div>
         </div>
 
-        {/* ───── Items: each batch shows its quality + bundle grid. Bundle
-              numbers run continuously across every batch (1..N). Batch
-              subtotals are omitted here — a single consolidated summary sits
-              below all batches. ───── */}
-        {itemViews.length === 0 ? (
+        {/* ───── Items: one merged grid per quality. Batches of the same
+              quality are combined; different qualities stay separate. Bundle
+              numbers run continuously across the whole DC (1..N), flowing
+              quality group by group. Subtotals live in the summary below. ───── */}
+        {groups.length === 0 ? (
           <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
             No items on this DC.
           </div>
-        ) : itemViews.map(({ item, fq, qualityLabel, bundles, bundleRows, maxPieces, bundleOffset }) => {
+        ) : groups.map(({ key, qualityLabel, hsn, bundleRows, maxPieces, bundleOffset }) => {
           return (
-            <div className="dc-item" key={item.id}>
+            <div className="dc-item" key={key}>
               <div className="qline">
                 <div>QUALITY : {qualityLabel}</div>
-                <div className="agent">HSN : {item.hsn || fq?.hsn || '-'}</div>
+                <div className="agent">HSN : {hsn || '-'}</div>
               </div>
 
               {dc.entry_mode === 'summary' ? (
@@ -556,45 +583,43 @@ export default async function DcPrintPage({
           );
         })}
 
-        {/* ───── Consolidated DC summary: one box for the whole document
-              (spec block shown when the DC is a single quality) instead of a
-              subtotal per batch. ───── */}
-        {itemViews.length > 0 && (
-          <div className="dc-summary">
+        {/* ───── Summary: one block PER QUALITY (spec + that quality's own
+              totals). Qualities are never summed into a single mixed total.
+              A single-quality DC naturally shows exactly one block. ───── */}
+        {groups.map((g) => (
+          <div className="dc-summary" key={`sum-${g.key}`}>
             <div>
-              {singleQuality ? (
-                <table>
-                  <tbody>
-                    <tr><td className="l">REED &times; PICK</td><td className="v">{reedXpick}</td></tr>
-                    <tr><td className="l">FABRIC WIDTH</td><td className="v">{widthLabel}</td></tr>
-                    <tr><td className="l">FABRIC WEIGHT</td><td className="v">{weightLabel}</td></tr>
-                  </tbody>
-                </table>
-              ) : (
-                <table>
-                  <tbody>
-                    <tr><td className="l">QUALITIES</td><td className="v">{distinctQualityIds.size}</td></tr>
-                    <tr><td className="l">BATCHES</td><td className="v">{itemViews.length}</td></tr>
-                  </tbody>
-                </table>
+              {!singleQuality && (
+                <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 4 }}>QUALITY : {g.qualityLabel}</div>
               )}
+              <table>
+                <tbody>
+                  <tr><td className="l">REED &times; PICK</td><td className="v">{g.reedXpick}</td></tr>
+                  <tr><td className="l">FABRIC WIDTH</td><td className="v">{g.widthLabel}</td></tr>
+                  <tr><td className="l">FABRIC WEIGHT</td><td className="v">{g.weightLabel}</td></tr>
+                </tbody>
+              </table>
             </div>
             <div>
               <table>
                 <tbody>
-                  {anyTowel && grandTowelPcs > 0 && (
-                    <tr><td className="l">TOTAL TOWEL PCS</td><td className="v">{grandTowelPcs}</td></tr>
+                  {g.isTowel ? (
+                    <>
+                      <tr><td className="l">TOTAL TOWEL PCS</td><td className="v big">{Math.round(g.totalMetres)}</td></tr>
+                      <tr><td className="l">TOTAL PCS</td><td className="v big">{g.totalPieces}</td></tr>
+                    </>
+                  ) : (
+                    <>
+                      <tr><td className="l">TOTAL METRES</td><td className="v big">{fmtMetres(g.totalMetres)}</td></tr>
+                      <tr><td className="l">TOTAL PIECES</td><td className="v big">{g.totalPieces}</td></tr>
+                    </>
                   )}
-                  {grandMetres > 0 && (
-                    <tr><td className="l">TOTAL METRES</td><td className="v big">{fmtMetres(grandMetres)}</td></tr>
-                  )}
-                  <tr><td className="l">TOTAL PIECES</td><td className="v big">{grandPieces}</td></tr>
-                  <tr><td className="l">TOTAL BUNDLES</td><td className="v big">{grandBundles}</td></tr>
+                  <tr><td className="l">TOTAL BUNDLES</td><td className="v big">{g.totalBundles}</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+        ))}
 
         {/* ───── Bottom block: vehicle + signatures + address + totals.
               Grouped so they sit together at the page bottom on ONE page. ───── */}
@@ -618,8 +643,10 @@ export default async function DcPrintPage({
           </div>
         </div>
 
-        {/* DC-level totals row at the very bottom (small, optional cross-check) */}
-        {(dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
+        {/* DC-level totals row at the very bottom (small, optional cross-check).
+            Only shown for single-quality DCs — a mixed-quality DC has per-quality
+            totals above and must not display a merged grand total. */}
+        {singleQuality && (dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
           <div style={{ marginTop: 6, textAlign: 'right', fontSize: 10, color: '#666' }}>
             DC Totals: {fmtMetres(num(dc.total_metres))} m &nbsp;&middot;&nbsp;
             {dc.total_pieces ?? 0} pcs &nbsp;&middot;&nbsp;

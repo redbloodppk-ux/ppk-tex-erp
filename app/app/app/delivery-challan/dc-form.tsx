@@ -1335,9 +1335,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
+    // A batch DC (any line seeded from a production batch) is a finished
+    // delivery, not a work-in-progress draft — so it goes straight to
+    // 'confirmed'. We only bump a would-be 'draft'; invoiced / cancelled /
+    // already-confirmed statuses are left untouched.
+    const isBatchDc = form.items.some((it) => it.production_batch_id != null);
+    const effectiveStatus = isBatchDc && form.status === 'draft' ? 'confirmed' : form.status;
+
     const headerPayload = {
       dc_date: form.dc_date,
-      status: form.status,
+      status: effectiveStatus,
       production_mode: form.production_mode,
       entry_mode: form.entry_mode,
       sales_order_id: form.sales_order_id === '' ? null : Number(form.sales_order_id),
