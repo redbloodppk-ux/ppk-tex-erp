@@ -1413,6 +1413,12 @@ export default function NewInvoicePage() {
       // straight from the ticked invoices in the picker.
       const creditAmount = totals.total;
       if (creditAmount > 0 && customerId !== '' && creditAllocs.length > 0) {
+        // payment.party_id references the `party` table, NOT `customer`.
+        // Resolve the picked customer to its party.id (by name) first.
+        if (customerPartyId == null) {
+          setBusy(false);
+          return setError(`Credit note ${inv.invoice_no} saved but money side failed: could not resolve customer to a party record.`);
+        }
         const stamp = Date.now().toString().slice(-6);
         const paymentNo = 'CN-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1422,7 +1428,7 @@ export default function NewInvoicePage() {
           .insert({
             payment_no:   paymentNo,
             direction:    'in',
-            party_id:     Number(customerId),
+            party_id:     customerPartyId,
             payment_date: invoiceDate,
             amount:       creditAmount,
             mode:         'credit_note',
