@@ -17,6 +17,7 @@ import { formatRupee } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Archive } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
+import { loadWinderAllocation, type WinderInfo } from '@/lib/wages/winder-allocation-data';
 
 export const metadata = { title: 'Weekly Wage Summary' };
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,7 @@ interface EmployeeRow {
   role: string;
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
   weekly_salary: number | string | null;
+  default_sheds: string[] | null;
 }
 
 interface FyWeekRow {
@@ -75,6 +77,12 @@ interface PerEmployee {
   covered_sheds: string[];
   weaver_absent_count: number;
   expected_shift_sheds: number;
+  /** Rupees moved IN for covering absent winders' sheds. */
+  reallocated_in: number;
+  /** Rupees moved OUT to substitutes because this winder was absent. */
+  reallocated_out: number;
+  /** Count of shed-slots this winder covered for an absent winder. */
+  covered_for_others: number;
   /** Sum of wage_entry rows with kind='settlement' whose period == this week. */
   settlement: number;
   advances: number;
@@ -186,7 +194,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: empRaw } = await (supabase as any)
     .from('employee')
-    .select('id, full_name, code, role, wage_alloc_basis, weekly_salary')
+    .select('id, full_name, code, role, wage_alloc_basis, weekly_salary, default_sheds')
     .eq('status', 'active')
     .order('full_name');
   const allEmployees = (empRaw ?? []) as EmployeeRow[];
@@ -379,29 +387,18 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const fitterIds = employees
     .filter((e) => (e.role ?? '').toLowerCase() === 'fitter')
     .map((e) => e.id);
-  const winderIds = employees
-    .filter((e) => (e.role ?? '').toLowerCase() === 'winder')
-    .map((e) => e.id);
-  // Combined list used to pull attendance coverage for both roles in one go.
-  const coverageEmpIds = Array.from(new Set([...fitterIds, ...winderIds]));
 
-  // --- Winder: covered sheds per winder + weaver-absent / "none" tally
-  //     per shed.
+  // --- Fitter: covered sheds + weaver-absent / "none" tally per shed.
   //
-  //     The winder is on the hook for BOTH shifts of every shed they cover.
+  //     The fitter is on the hook for BOTH shifts of every shed they cover.
   //     Expected = covered_sheds.size * (working shift slots in the week).
   //     A slot only counts as a deduction if there's an EXPLICIT weaver row
-  //     in that slot with status 'absent' or 'none' (i.e. weaver absent or
-  //     "no weaver assigned"). Slots without any weaver attendance row at
-  //     all are not deducted - silence in attendance is treated as "shed
-  //     not in play that shift", not as a winder failure.
-  //
-  //     Holiday shifts (attendance_day.is_working = false) are excluded
-  //     from BOTH expected and the absent-tally.
+  //     in that slot with status 'absent' or 'none'. Holiday shifts
+  //     (attendance_day.is_working = false) are excluded from both.
   const coveredShedsByEmp = new Map<number, Set<string>>();
   const weekShiftSlots = new Set<string>();         // keys: "date:shift"
   const weaverAbsentByShed = new Map<string, number>();
-  if (coverageEmpIds.length > 0) {
+  if (fitterIds.length > 0) {
     // 1) Working shift slots in this week (is_working = true only).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: daysRaw } = await (supabase as any)
@@ -419,9 +416,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       }
     }
 
-    // 2) Each fitter/winder's covered sheds (union of shed_nos across
-    //    their non-absent attendance rows in the week, falling back to all
-    //    rows if every entry was absent).
+    // 2) Each fitter's covered sheds (union of shed_nos across their
+    //    non-absent attendance rows in the week, falling back to all rows
+    //    if every entry was absent).
     type CoverageAttRow = {
       employee_id: number;
       status: string;
@@ -433,7 +430,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     const { data: covAttRaw } = await (supabase as any)
       .from('attendance_entry')
       .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date )')
-      .in('employee_id', coverageEmpIds)
+      .in('employee_id', fitterIds)
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);
     const covAtt = (covAttRaw ?? []) as CoverageAttRow[];
@@ -444,7 +441,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       list.push(r);
       rowsByEmp.set(r.employee_id, list);
     }
-    for (const eid of coverageEmpIds) {
+    for (const eid of fitterIds) {
       const rows = rowsByEmp.get(eid) ?? [];
       const collect = (filterAbsent: boolean): Set<string> => {
         const acc = new Set<string>();
@@ -465,7 +462,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
 
     // 3) Tally weaver attendance rows with status absent / none in working
     //    shifts, grouped by shed. Rows without shed_no aren't attributable
-    //    to any shed and don't penalise any winder.
+    //    to any shed and don't penalise any fitter.
     if (workingDayIds.length > 0) {
       type WeaverGapRow = {
         shed_no: string | null;
@@ -487,6 +484,19 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     }
   }
 
+  // --- Winder: per-slot allocation with substitute reallocation. Money
+  //     moves from an absent winder to whoever covered her sheds that slot.
+  //     Assigned sheds come from employee.default_sheds; the shared loader +
+  //     pure helper own the arithmetic (same source the exports use).
+  const winderEmps = employees.filter((e) => (e.role ?? '').toLowerCase() === 'winder');
+  const winderInfos: WinderInfo[] = winderEmps.map((e) => ({
+    id: e.id,
+    weeklySalary: Number(e.weekly_salary ?? 0),
+    assignedSheds: (Array.isArray(e.default_sheds) ? e.default_sheds : [])
+      .filter((s) => typeof s === 'string' && s.length > 0),
+  }));
+  const winderAlloc = await loadWinderAllocation(supabase, weekStart, weekEnd, winderInfos);
+
   const perEmployee: PerEmployee[] = employees.map((e) => {
     const full = Number(e.weekly_salary ?? 0);
     const role = (e.role ?? '').toLowerCase();
@@ -494,12 +504,11 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     let coveredShedsArr: string[] = [];
     let weaverAbsentCount = 0;
     let expectedShiftSheds = 0;
-    if (role === 'fitter' || role === 'winder') {
-      // Same formula for fitter + winder: expected = covered sheds *
-      // working shift-slots in week (holiday shifts excluded). Deduction
-      // count = weaver attendance rows in covered sheds with status
-      // 'absent' or 'none'. Missing rows (no attendance_entry at all) do
-      // NOT count - only explicit absent/none.
+    let reallocatedIn = 0;
+    let reallocatedOut = 0;
+    let coveredForOthers = 0;
+    let book = full;
+    if (role === 'fitter') {
       const covered = coveredShedsByEmp.get(e.id) ?? new Set<string>();
       coveredShedsArr = Array.from(covered).sort();
       expectedShiftSheds = coveredShedsArr.length * weekShiftSlots.size;
@@ -509,8 +518,23 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       deduction = expectedShiftSheds > 0
         ? (full * weaverAbsentCount) / expectedShiftSheds
         : 0;
+      book = full - deduction;
+    } else if (role === 'winder') {
+      const alloc = winderAlloc.get(e.id);
+      coveredShedsArr = (Array.isArray(e.default_sheds) ? e.default_sheds : [])
+        .filter((s) => typeof s === 'string' && s.length > 0)
+        .slice()
+        .sort();
+      if (alloc) {
+        deduction = alloc.deduction;
+        weaverAbsentCount = alloc.weaverAbsentCount;
+        expectedShiftSheds = alloc.expectedShedSlots;
+        reallocatedIn = alloc.reallocatedIn;
+        reallocatedOut = alloc.reallocatedOut;
+        coveredForOthers = alloc.coveredForOthers;
+        book = alloc.book;
+      }
     }
-    const book = full - deduction;
     const settlement = settlementByEmp.get(e.id) ?? 0;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
@@ -525,6 +549,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       covered_sheds: coveredShedsArr,
       weaver_absent_count: weaverAbsentCount,
       expected_shift_sheds: expectedShiftSheds,
+      reallocated_in: reallocatedIn,
+      reallocated_out: reallocatedOut,
+      covered_for_others: coveredForOthers,
       book_salary: book,
       settlement,
       advances: adv,
@@ -649,7 +676,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       <h2 className="text-sm font-semibold text-ink mb-2">Weekly-basis employees</h2>
       <p className="text-[11px] text-ink-mute mb-2">
         Fitter pro-rate: weekly_salary &times; (7 &minus; absent days) / 7.
-        Winder pro-rate: weekly_salary &times; weaver-absent shifts in covered sheds / (covered sheds &times; 14).
+        Winder pay is per assigned shed &times; working shift-slot. If a winder is
+        absent while the weaver is present, that shed-slot&apos;s money moves to
+        whichever winder actually covered the shed (substitute); if nobody
+        covered, or the weaver was absent, it is docked.
         A weaver marked &quot;none&quot; counts as absent only when a shed is picked.
       </p>
       <div className="card overflow-x-auto mb-6">
@@ -688,6 +718,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                         <span className="num">{p.expected_shift_sheds}</span> expected
                         {p.covered_sheds.length > 0 && (
                           <> &middot; sheds {p.covered_sheds.join(', ')}</>
+                        )}
+                        {isWinder && p.reallocated_in > 0 && (
+                          <div className="text-emerald-700">
+                            +{formatRupee(p.reallocated_in)} covering{' '}
+                            <span className="num">{p.covered_for_others}</span> shed-slots
+                          </div>
+                        )}
+                        {isWinder && p.reallocated_out > 0 && (
+                          <div className="text-rose-700">
+                            &minus;{formatRupee(p.reallocated_out)} moved to substitute
+                          </div>
                         )}
                       </span>
                     ) : (

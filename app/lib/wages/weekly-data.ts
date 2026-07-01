@@ -8,6 +8,7 @@
  * never disagree about totals or pro-ration logic.
  */
 import { createClient } from '@/lib/supabase/server';
+import { loadWinderAllocation, type WinderInfo } from './winder-allocation-data';
 
 export type WageKind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
 
@@ -42,6 +43,7 @@ export interface EmployeeRow {
   role: string;
   wage_alloc_basis: 'metres' | 'loom_shifts' | 'weekly';
   weekly_salary: number | string | null;
+  default_sheds: string[] | null;
 }
 
 interface FyWeekRow {
@@ -62,6 +64,12 @@ export interface PerEmployee {
   covered_sheds: string[];
   weaver_absent_count: number;
   expected_shift_sheds: number;
+  /** Rupees moved IN to this winder for covering absent winders' sheds. */
+  reallocated_in: number;
+  /** Rupees moved OUT to substitutes because this winder was absent. */
+  reallocated_out: number;
+  /** Count of shed-slots this winder covered for an absent winder. */
+  covered_for_others: number;
   book_salary: number;
   advances: number;
   adjustments: number;
@@ -146,7 +154,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: empRaw } = await (supabase as any)
     .from('employee')
-    .select('id, full_name, code, role, wage_alloc_basis, weekly_salary')
+    .select('id, full_name, code, role, wage_alloc_basis, weekly_salary, default_sheds')
     .eq('status', 'active')
     .order('full_name');
   const allEmployees = (empRaw ?? []) as EmployeeRow[];
@@ -310,9 +318,6 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   const fitterIds = weeklyEmps
     .filter((e) => (e.role ?? '').toLowerCase() === 'fitter')
     .map((e) => e.id);
-  const winderIds = weeklyEmps
-    .filter((e) => (e.role ?? '').toLowerCase() === 'winder')
-    .map((e) => e.id);
 
   // Fitter: distinct absent-date count per employee.
   const absentDaysByEmp = new Map<number, number>();
@@ -343,77 +348,18 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     }
   }
 
-  // Winder: covered_sheds per winder + weaver-absence counts per shed.
-  const coveredShedsByWinder = new Map<number, Set<string>>();
-  const weaverAbsentByShed = new Map<string, number>();
-  if (winderIds.length > 0) {
-    type WinderAttRow = {
-      employee_id: number;
-      status: string;
-      shed_no: string | null;
-      shed_nos: string[] | null;
-      attendance_day: { attendance_date: string } | null;
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: winAttRaw } = await (supabase as any)
-      .from('attendance_entry')
-      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date )')
-      .in('employee_id', winderIds)
-      .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd);
-    const winAtt = (winAttRaw ?? []) as WinderAttRow[];
-    const rowsByWinder = new Map<number, WinderAttRow[]>();
-    for (const r of winAtt) {
-      if (!r.attendance_day?.attendance_date) continue;
-      const list = rowsByWinder.get(r.employee_id) ?? [];
-      list.push(r);
-      rowsByWinder.set(r.employee_id, list);
-    }
-    for (const wid of winderIds) {
-      const rows = rowsByWinder.get(wid) ?? [];
-      const collect = (filterAbsent: boolean): Set<string> => {
-        const acc = new Set<string>();
-        for (const r of rows) {
-          if (filterAbsent && r.status === 'absent') continue;
-          const arr = Array.isArray(r.shed_nos) ? r.shed_nos : [];
-          for (const s of arr) {
-            if (typeof s === 'string' && s.length > 0) acc.add(s);
-          }
-          if (arr.length === 0 && r.shed_no) acc.add(r.shed_no);
-        }
-        return acc;
-      };
-      let covered = collect(true);
-      if (covered.size === 0) covered = collect(false);
-      coveredShedsByWinder.set(wid, covered);
-    }
-
-    type WeaverAbsRow = {
-      status: string;
-      shed_no: string | null;
-      employee: { role: string | null } | null;
-      attendance_day: { attendance_date: string } | null;
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: weaverAbsRaw } = await (supabase as any)
-      .from('attendance_entry')
-      .select('status, shed_no, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date )')
-      .eq('status', 'absent')
-      .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd);
-    for (const r of (weaverAbsRaw ?? []) as WeaverAbsRow[]) {
-      if (!r.attendance_day?.attendance_date) continue;
-      const role = (r.employee?.role ?? '').toLowerCase();
-      if (role !== 'weaver') continue;
-      // Only count absences that have an explicit shed_no.
-      // Records without shed_no are not attributable to any specific shed
-      // (e.g. weaver marked absent without a shed assignment that shift),
-      // so they must not inflate any winder's weaver-absent tally.
-      const shed = r.shed_no;
-      if (!shed) continue;
-      weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
-    }
-  }
+  // Winder: per-slot allocation with substitute reallocation. Money moves
+  // from an absent winder to whoever actually covered her sheds that slot.
+  // Assigned sheds come from employee.default_sheds; the shared loader +
+  // pure helper own the arithmetic so screen and exports never diverge.
+  const winderEmps = weeklyEmps.filter((e) => (e.role ?? '').toLowerCase() === 'winder');
+  const winderInfos: WinderInfo[] = winderEmps.map((e) => ({
+    id: e.id,
+    weeklySalary: Number(e.weekly_salary ?? 0),
+    assignedSheds: (Array.isArray(e.default_sheds) ? e.default_sheds : [])
+      .filter((s) => typeof s === 'string' && s.length > 0),
+  }));
+  const winderAlloc = await loadWinderAllocation(supabase, weekStart, weekEnd, winderInfos);
 
   const perEmployee: PerEmployee[] = weeklyEmps.map((e) => {
     const full = Number(e.weekly_salary ?? 0);
@@ -423,21 +369,30 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     let coveredShedsArr: string[] = [];
     let weaverAbsentCount = 0;
     let expectedShiftSheds = 0;
+    let reallocatedIn = 0;
+    let reallocatedOut = 0;
+    let coveredForOthers = 0;
+    let book = full;
     if (role === 'fitter') {
       absent = absentDaysByEmp.get(e.id) ?? 0;
       deduction = (full / 7) * absent;
+      book = full - deduction;
     } else if (role === 'winder') {
-      const covered = coveredShedsByWinder.get(e.id) ?? new Set<string>();
-      coveredShedsArr = Array.from(covered).sort();
-      expectedShiftSheds = coveredShedsArr.length * 14;
-      for (const shed of coveredShedsArr) {
-        weaverAbsentCount += weaverAbsentByShed.get(shed) ?? 0;
+      const alloc = winderAlloc.get(e.id);
+      coveredShedsArr = (Array.isArray(e.default_sheds) ? e.default_sheds : [])
+        .filter((s) => typeof s === 'string' && s.length > 0)
+        .slice()
+        .sort();
+      if (alloc) {
+        deduction = alloc.deduction;
+        weaverAbsentCount = alloc.weaverAbsentCount;
+        expectedShiftSheds = alloc.expectedShedSlots;
+        reallocatedIn = alloc.reallocatedIn;
+        reallocatedOut = alloc.reallocatedOut;
+        coveredForOthers = alloc.coveredForOthers;
+        book = alloc.book;
       }
-      deduction = expectedShiftSheds > 0
-        ? (full * weaverAbsentCount) / expectedShiftSheds
-        : 0;
     }
-    const book = full - deduction;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
     return {
@@ -451,6 +406,9 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       covered_sheds: coveredShedsArr,
       weaver_absent_count: weaverAbsentCount,
       expected_shift_sheds: expectedShiftSheds,
+      reallocated_in: reallocatedIn,
+      reallocated_out: reallocatedOut,
+      covered_for_others: coveredForOthers,
       book_salary: book,
       advances: adv,
       adjustments: adj,

@@ -220,13 +220,23 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
         const wagesPaid = data.wage_entries
           .filter((w) => w.employee_id === p.employee_id && (w.kind === 'settlement' || w.kind === 'same_day'))
           .reduce((acc, w) => acc + Number(w.amount ?? 0), 0);
+        // Deduction cell: gross deduction for absent/weaver-gap, plus a
+        // reallocation credit line for substitutes who covered others.
+        let dedCol: string;
+        if (role === 'winder' && p.reallocated_in > 0) {
+          dedCol = p.absent_deduction > 0
+            ? `-${rs(p.absent_deduction)} / +${rs(p.reallocated_in)}`
+            : '+' + rs(p.reallocated_in);
+        } else {
+          dedCol = p.absent_deduction > 0 ? '-' + rs(p.absent_deduction) : '—';
+        }
         return [
           p.code,
           p.full_name,
           p.role,
           rs(p.full_salary),
           absCol,
-          p.absent_deduction > 0 ? '-' + rs(p.absent_deduction) : '—',
+          dedCol,
           rs(p.book_salary),
           rs(wagesPaid),
           rs(p.advances),
