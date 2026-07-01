@@ -275,7 +275,11 @@ export default async function DcPrintPage({
   }
 
   // Attach continuous bundle offsets, grid rows and formatted specs per group.
+  // globalRowStart lets us number every bundle-row table across the whole DC
+  // (not just within one quality) so we can force a page break after every 2nd
+  // row — each printed page then always shows exactly 2 bundle rows.
   let runningBundleOffset = 0;
+  let runningRowOffset = 0;
   const groups = groupOrder.map((key) => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const g = groupMap.get(key)!;
@@ -283,14 +287,21 @@ export default async function DcPrintPage({
     const maxPieces = Math.max(1, maxPiecesInItem(g.bundles));
     const bundleOffset = runningBundleOffset;
     runningBundleOffset += g.bundles.length;
+    const globalRowStart = runningRowOffset;
+    runningRowOffset += bundleRows.length;
     const fq = g.fq;
     const reedXpick = fq?.reed && fq?.pick_per_inch
       ? `${Number(fq.reed)} \u00d7 ${Number(fq.pick_per_inch)}`
       : '-';
     const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
     const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
-    return { ...g, bundleRows, maxPieces, bundleOffset, reedXpick, widthLabel, weightLabel };
+    return { ...g, bundleRows, maxPieces, bundleOffset, globalRowStart, reedXpick, widthLabel, weightLabel };
   });
+
+  // Total bundle-row tables across the DC — used to avoid a page break after the
+  // very last row (which would orphan the summary onto a blank-ish page).
+  const ROWS_PER_PAGE = 2;
+  const totalBundleRows = runningRowOffset;
 
   // A single-quality DC keeps the classic one-box summary; a mixed DC shows
   // one summary block per quality (no merged grand total).
@@ -341,6 +352,9 @@ export default async function DcPrintPage({
           .dc-item table.bundles { page-break-inside: avoid; }
           .dc-item table.bundles thead { display: table-header-group; }
           .dc-item table.bundles tfoot { display: table-footer-group; }
+          /* Hard page break after every 2nd bundle row so each printed sheet
+             always holds exactly two rows; the 3rd row flows to the next page. */
+          .dc-item table.bundles.break-after { page-break-after: always; break-after: page; }
         }
         body { background: #f3f4f6; }
         /* The sheet is a flex column so .dc-foot (signature block) can
@@ -517,7 +531,7 @@ export default async function DcPrintPage({
           <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
             No items on this DC.
           </div>
-        ) : groups.map(({ key, qualityLabel, hsn, bundleRows, maxPieces, bundleOffset }) => {
+        ) : groups.map(({ key, qualityLabel, hsn, bundleRows, maxPieces, bundleOffset, globalRowStart }) => {
           return (
             <div className="dc-item" key={key}>
               <div className="qline">
@@ -535,8 +549,19 @@ export default async function DcPrintPage({
                 </div>
               ) : bundleRows.map((rowBundles, rowIdx) => {
                 const startBundle = rowIdx * BUNDLES_PER_ROW;
+                // Global row index across the whole DC. Force a page break after
+                // every 2nd row so each printed page always holds exactly two
+                // bundle rows — but never after the final row (would blank-page
+                // the summary).
+                const globalRowIdx = globalRowStart + rowIdx;
+                const breakAfter =
+                  (globalRowIdx + 1) % ROWS_PER_PAGE === 0 &&
+                  globalRowIdx + 1 < totalBundleRows;
                 return (
-                  <table key={rowIdx} className="bundles">
+                  <table
+                    key={rowIdx}
+                    className={breakAfter ? 'bundles break-after' : 'bundles'}
+                  >
                     <thead>
                       <tr>
                         <th className="lbl" style={{ minWidth: 50 }}>BUNDLE</th>
