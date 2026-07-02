@@ -2738,9 +2738,13 @@ async function loadInhouseOpeningStock(
 //   - event_date = received_date
 //   - quantity = received_kg
 //   - column = yarn_count_id
-// Outflows: sizing_job consumption (yarn_used_kg if set, else yarn_sent_kg)
+// Outflows: sizing_job consumption (yarn_used_kg once recorded, else yarn_sent_kg
+//   as a placeholder for jobs still in-flight)
 //   - event_date = date_sent
-//   - quantity = yarn_sent_kg (the moment yarn leaves the sizing warehouse)
+//   - quantity = yarn_used_kg (actual yarn consumed at the sizing mill); falls
+//     back to yarn_sent_kg only when usage hasn't been recorded yet, so the
+//     leftover/wastage (sent - used) stays in the warehouse balance instead of
+//     being shown as permanently gone
 //   - column = yarn_count_id resolved from the linked yarn_lot
 async function loadSizingWarehouse(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2839,7 +2843,9 @@ async function loadSizingWarehouse(
     const lot = lotById.get(j.yarn_lot_id);
     if (!lot) continue; // Only count sizing jobs that draw from sizing-warehouse yarn lots
     const colId = ensureCol(lot.yarn_count_id);
-    const qty = Number(j.yarn_sent_kg ?? j.yarn_used_kg ?? 0);
+    const usedQty = Number(j.yarn_used_kg ?? 0);
+    const sentQty = Number(j.yarn_sent_kg ?? 0);
+    const qty = usedQty > 0 ? usedQty : sentQty;
     if (qty <= 0) continue;
     events.push({
       event_date: j.date_sent ?? '',
@@ -2847,7 +2853,7 @@ async function loadSizingWarehouse(
       direction: 'out',
       quantity: qty,
       reference: j.job_code ?? `Sizing job #${j.id}`,
-      notes: 'Sent to sizing',
+      notes: usedQty > 0 ? 'Used in sizing' : 'Sent to sizing',
     });
   }
 
