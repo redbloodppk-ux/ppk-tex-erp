@@ -120,7 +120,7 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
         <div className="flex gap-2">
           <input
             id="newCategory"
-            className="input flex-1"
+            className="input input-sm flex-1 max-w-xs"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="e.g. Welding, Painting, Transport"
@@ -155,7 +155,7 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
         ) : rows.map((r) => (
           <div key={r.id} className="card p-3">
             <input
-              className="input"
+              className="input input-sm max-w-xs"
               defaultValue={r.name}
               onBlur={(e) => {
                 if (e.target.value.trim() !== r.name) {
@@ -214,7 +214,7 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
               <tr key={r.id} className="border-t border-line/40">
                 <td className="px-4 py-2">
                   <input
-                    className="input"
+                    className="input input-sm max-w-xs"
                     defaultValue={r.name}
                     onBlur={(e) => {
                       if (e.target.value.trim() !== r.name) {
