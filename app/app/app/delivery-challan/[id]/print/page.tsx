@@ -7,6 +7,15 @@
  * run across as columns (1..N), each piece's metres stacks down inside
  * its bundle column, and the column foot shows the bundle total.
  *
+ * Pagination is computed here in JS (not left to the browser's print
+ * reflow): the bundle grid is chunked into ROWS_PER_PAGE-row pages, so we
+ * always know in advance exactly how many physical pages there will be and
+ * which one is first/last. That lets every page carry the right
+ * header/footer variant — full header + Bill To/Ship To on page 1, a slim
+ * one-line header on continuation pages; the full signature/summary
+ * footer only on the last page, a slim address footer on every other page
+ * (so a stray sheet can still be traced back to its DC/party).
+ *
  * Three top toolbar buttons let the user Print, save as PDF, or jump
  * back to the edit screen. The toolbar is hidden when the page actually
  * prints (see @media print rule below).
@@ -135,6 +144,9 @@ function maxPiecesInItem(bundles: BundleJson[]): number {
 }
 
 const BUNDLES_PER_ROW = 7;
+/** Bundle-row tables per printed page — keeps every physical sheet showing
+ *  exactly this many rows so pagination is fully predictable. */
+const ROWS_PER_PAGE = 2;
 
 // ────────────────────────────────────────────────────────────────────────
 // Page
@@ -274,12 +286,10 @@ export default async function DcPrintPage({
     g.isTowel = g.isTowel && isTowel;
   }
 
-  // Attach continuous bundle offsets, grid rows and formatted specs per group.
-  // globalRowStart lets us number every bundle-row table across the whole DC
-  // (not just within one quality) so we can force a page break after every 2nd
-  // row — each printed page then always shows exactly 2 bundle rows.
+  // Attach continuous bundle offsets and formatted specs per group. Bundle
+  // numbers run continuously across the whole DC (not just within one
+  // quality), so the grid always reads 1..N regardless of pagination.
   let runningBundleOffset = 0;
-  let runningRowOffset = 0;
   const groups = groupOrder.map((key) => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const g = groupMap.get(key)!;
@@ -287,25 +297,97 @@ export default async function DcPrintPage({
     const maxPieces = Math.max(1, maxPiecesInItem(g.bundles));
     const bundleOffset = runningBundleOffset;
     runningBundleOffset += g.bundles.length;
-    const globalRowStart = runningRowOffset;
-    runningRowOffset += bundleRows.length;
     const fq = g.fq;
     const reedXpick = fq?.reed && fq?.pick_per_inch
       ? `${Number(fq.reed)} \u00d7 ${Number(fq.pick_per_inch)}`
       : '-';
     const widthLabel = fq?.width_in ? `${Number(fq.width_in)} INCH` : '-';
     const weightLabel = fq?.weight_gsm ? `${Number(fq.weight_gsm)} GMS` : '-';
-    return { ...g, bundleRows, maxPieces, bundleOffset, globalRowStart, reedXpick, widthLabel, weightLabel };
+    return { ...g, bundleRows, maxPieces, bundleOffset, reedXpick, widthLabel, weightLabel };
   });
-
-  // Total bundle-row tables across the DC — used to avoid a page break after the
-  // very last row (which would orphan the summary onto a blank-ish page).
-  const ROWS_PER_PAGE = 2;
-  const totalBundleRows = runningRowOffset;
 
   // A single-quality DC keeps the classic one-box summary; a mixed DC shows
   // one summary block per quality (no merged grand total).
   const singleQuality = groups.length === 1;
+
+  // Detailed-mode groups whose bundle grid came back empty (no bundle
+  // breakdown captured) never contribute a row to the pagination below —
+  // show their "not captured" notice once, up front, on page 1.
+  const emptyDetailGroups = dc.entry_mode !== 'summary'
+    ? groups.filter((g) => g.bundleRows.length === 0)
+    : [];
+
+  // ── Build print pages ──────────────────────────────────────────────
+  // Flatten every group's bundle rows into one ordered list, then chunk
+  // that list into ROWS_PER_PAGE-row pages. Because this happens here in
+  // JS (not via browser reflow), we know in advance exactly how many pages
+  // there are and which is first/last.
+  interface RowUnit {
+    groupKey: string;
+    qualityLabel: string;
+    hsn: string | null;
+    rowBundles: BundleJson[];
+    maxPieces: number;
+    bundleOffset: number;
+    startBundle: number;
+  }
+  interface PageSegment {
+    groupKey: string;
+    qualityLabel: string;
+    hsn: string | null;
+    isContinuation: boolean;
+    rows: RowUnit[];
+  }
+
+  const rowUnits: RowUnit[] = [];
+  if (dc.entry_mode !== 'summary') {
+    for (const g of groups) {
+      g.bundleRows.forEach((rowBundles, rowIdx) => {
+        rowUnits.push({
+          groupKey: g.key,
+          qualityLabel: g.qualityLabel,
+          hsn: g.hsn,
+          rowBundles,
+          maxPieces: g.maxPieces,
+          bundleOffset: g.bundleOffset,
+          startBundle: rowIdx * BUNDLES_PER_ROW,
+        });
+      });
+    }
+  }
+
+  const rowPages: RowUnit[][] = rowUnits.length > 0
+    ? Array.from(
+        { length: Math.ceil(rowUnits.length / ROWS_PER_PAGE) },
+        (_, i) => rowUnits.slice(i * ROWS_PER_PAGE, (i + 1) * ROWS_PER_PAGE),
+      )
+    : [[]];
+  const pageCount = rowPages.length;
+
+  // Group each page's rows into contiguous same-quality segments, tracking
+  // whether a group's "QUALITY :" line already appeared on an earlier page
+  // (continuation pages label it "(Contd.)" instead of repeating cold).
+  const seenGroupKeys = new Set<string>();
+  const pages: PageSegment[][] = rowPages.map((rows) => {
+    const segments: PageSegment[] = [];
+    for (const row of rows) {
+      const lastSeg = segments[segments.length - 1];
+      if (lastSeg && lastSeg.groupKey === row.groupKey) {
+        lastSeg.rows.push(row);
+        continue;
+      }
+      const isContinuation = seenGroupKeys.has(row.groupKey);
+      seenGroupKeys.add(row.groupKey);
+      segments.push({
+        groupKey: row.groupKey,
+        qualityLabel: row.qualityLabel,
+        hsn: row.hsn,
+        isContinuation,
+        rows: [row],
+      });
+    }
+    return segments;
+  });
 
   return (
     <>
@@ -315,17 +397,19 @@ export default async function DcPrintPage({
         loaded or whether tailwind purges these classes.
       */}
       <style>{`
-        /* ── Multi-page print: slim header + footer repeat on every page ──
-           When a single DC's bundle grid is long enough to spill onto a
-           second sheet, Chrome's print engine clones .dc-print-header
-           (top) and .dc-print-footer (bottom) onto each printed page
-           because they're position: fixed. The @page margin boxes inject
-           the "Page N of M" counter. On-screen these elements are hidden
-           so the live preview stays clean. */
+        /* ── Multi-page print: header/footer repeat on every printed page ──
+           Pagination is decided in JS above (ROWS_PER_PAGE bundle rows per
+           .dc-page), so each page here is a real, separate DOM block with a
+           hard page-break between them — not a single flowing column relying
+           on the browser to guess where to cut. Page 1 carries the full
+           header (company + DC meta + Bill To/Ship To); continuation pages
+           get a slim one-line header instead. The full signature/summary
+           footer only ever appears on the last page; every other page gets
+           a slim address footer. The @page rule injects the "Page N of M"
+           counter at the bottom of every sheet. */
         @page {
           size: A4;
           margin: 7mm 8mm 8mm 8mm;
-          /* Bottom-centre page counter — rendered by Chrome's print engine. */
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
             font-family: 'Calibri', Arial, sans-serif;
@@ -334,43 +418,36 @@ export default async function DcPrintPage({
             color: #222;
           }
         }
-        /* Hide the fixed header/footer on screen — they're print-only. */
-        .dc-print-header, .dc-print-footer { display: none; }
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; }
-          /* Critical: keep .dc-sheet full-printable-page tall so the
-             flex column actually stretches and 'margin-top:auto' on
-             .dc-foot pushes the signatures to the page bottom. With
-             min-height:0 the column collapsed to content size and
-             everything appeared "shrunken" on the printout vs. the
-             preview. 100vh in print mode = the printable area height
-             between the @page margins. */
-          .dc-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
-          /* Tighten page breaks: don't split an item's bundle table across
-             two pages if it can be avoided, and never orphan a header row. */
+          .dc-sheet { display: block !important; margin: 0 !important; }
+          /* Critical: keep each .dc-page full-printable-page tall so the
+             flex column actually stretches and 'margin-top:auto' on the
+             footer pushes it to the bottom of that page. 100vh in print
+             mode = the printable area height between the @page margins. */
+          .dc-page { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 100vh !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
+          .dc-page + .dc-page { break-before: page; page-break-before: always; }
+          /* Tighten page breaks: don't split a bundle table across two
+             pages if it can be avoided, and never orphan a header row. */
           .dc-item table.bundles { page-break-inside: avoid; }
           .dc-item table.bundles thead { display: table-header-group; }
           .dc-item table.bundles tfoot { display: table-footer-group; }
-          /* Hard page break after every 2nd bundle row so each printed sheet
-             always holds exactly two rows; the 3rd row flows to the next page. */
-          .dc-item table.bundles.break-after { page-break-after: always; break-after: page; }
         }
         body { background: #f3f4f6; }
-        /* The sheet is a flex column so .dc-foot (signature block) can
-           use margin-top: auto and stick to the bottom of the page even
-           when the bundle grid is short. */
-        .dc-sheet {
+        .dc-sheet { display: flex; flex-direction: column; align-items: center; margin: 16px auto; }
+        /* Each .dc-page is one physical A4 sheet — a flex column so the
+           footer block (full or slim) can use margin-top: auto and stick to
+           the bottom of that page even when its content is short. */
+        .dc-page {
           width: 210mm;
           min-height: 297mm;
-          margin: 16px auto;
+          margin-bottom: 16px;
           background: #fff;
           color: #111;
           padding: 10mm 12mm;
           box-sizing: border-box;
           font-family: 'Calibri', Arial, sans-serif;
-          /* Bumped again for printed readability — base 15.5px,
-             everything below scales proportionally. */
           font-size: 12px;
           font-weight: 600;
           line-height: 1.4;
@@ -378,7 +455,9 @@ export default async function DcPrintPage({
           box-shadow: 0 4px 24px rgba(0,0,0,0.08);
           display: flex;
           flex-direction: column;
+          position: relative;
         }
+        .dc-page:last-child { margin-bottom: 0; }
         .dc-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 8px; border-bottom: 2px solid #000; padding-bottom: 8px; }
         .dc-head .brandwrap { display: flex; align-items: center; gap: 12px; }
         .dc-head .brand { font-size: 32px; font-weight: 900; letter-spacing: 1px; color: #111; line-height: 1; }
@@ -400,6 +479,10 @@ export default async function DcPrintPage({
         .dc-billship .party { font-weight: 800; font-size: 13px; margin-bottom: 4px; }
         .dc-billship .addr { font-size: 12px; font-weight: 600; color: #111; }
         .dc-billship .ps { font-size: 11px; color: #222; margin-top: 6px; font-weight: 700; letter-spacing: 0.3px; }
+        /* Slim one-line header for continuation pages (page 2+) — just
+           enough to identify the DC/party if a sheet gets separated. */
+        .dc-slimhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1.4px solid #000; font-size: 11px; font-weight: 700; color: #333; }
+        .dc-slimhead .name { font-weight: 900; font-size: 13px; color: #111; }
         .dc-item { border: 1px solid #000; border-top: none; }
         .dc-item .qline { display: grid; grid-template-columns: 1fr 1fr; padding: 5px 12px; font-size: 12px; font-weight: 800; background: #fafafa; border-bottom: 0.5px solid #000; }
         .dc-item .qline .agent { text-align: right; }
@@ -426,15 +509,10 @@ export default async function DcPrintPage({
         .dc-summary td.v { text-align: right; font-weight: 800; font-size: 13px; }
         .dc-summary td.v.big { font-size: 15px; }
         .notforsale { font-size: 13px; font-weight: 900; color: #000; letter-spacing: 1.5px; border: 1.6px solid #000; padding: 1px 9px; white-space: nowrap; }
-        /* Signature footer block — margin-top:auto pushes it to the
-           bottom of the dc-sheet flex column, so it sits at the bottom
-           of the last printed page even when bundle content is short.
-           The top border stays solid because the auto-margin can leave
-           visible whitespace between .dc-vehicle and .dc-foot. */
-        /* The whole bottom block (vehicle + signatures + address + totals)
-           is pushed to the page bottom as ONE unit via margin-top:auto.
-           Keeping them grouped stops the address/totals from being shoved
-           onto a second page. page-break-inside:avoid keeps the unit whole. */
+        /* Signature footer block — margin-top:auto pushes it to the bottom
+           of the LAST .dc-page's flex column. The whole bottom block
+           (vehicle + signatures + address + totals) is pushed down as ONE
+           unit so the address/totals never get shoved onto their own page. */
         .dc-bottom { margin-top: auto; }
         .dc-foot { border: 1px solid #000; display: grid; grid-template-columns: 1fr 1fr; min-height: 100px; }
         .dc-foot > div { padding: 9px 12px; font-size: 12px; font-weight: 700; }
@@ -444,241 +522,268 @@ export default async function DcPrintPage({
         .dc-foot .seal { color: #333; font-weight: 700; letter-spacing: 0.5px; margin-top: 6px; text-align: center; font-size: 11px; }
         .dc-addrfoot { margin-top: 6px; padding-top: 6px; border-top: 1px solid #000; text-align: center; font-size: 11px; font-weight: 700; line-height: 1.55; }
         .dc-addrfoot .small { font-weight: 600; font-size: 10px; }
+        /* Slim address-only footer for every page except the last. */
+        .dc-slimfoot { margin-top: auto; padding-top: 6px; border-top: 1px solid #999; text-align: center; font-size: 10px; font-weight: 700; color: #555; }
         .dc-watermark { position: relative; }
         /* DRAFT watermark removed per operator request — draft DCs print
            clean. The CANCELLED watermark is retained because it's a
            safety signal (prevents an old cancelled DC being mistaken
-           for a live one). */
+           for a live one). Applied per-page so it shows on every sheet. */
         .dc-status-cancelled::before { content: 'CANCELLED'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 62px; color: rgba(220, 38, 38, 0.15); font-weight: 900; letter-spacing: 8px; pointer-events: none; transform: rotate(-30deg); }
       `}</style>
 
       <PrintActions dcId={dc.id} dcCode={dcDisplayCode} partyName={dc.bill_to_name} dcDate={dc.dc_date} />
 
-      <div
-        className={'dc-sheet dc-watermark ' +
-          (dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
-      >
-        {/* ───── Header band: logo + brand on the left, "DELIVERY CHELLAN" on the right ───── */}
-        <div className="dc-head">
-          <div className="brandwrap">
-            <BrandLogo variant="mark" height={52} />
-            <span className="brand">{COMPANY.name}</span>
-          </div>
-          <div className="doctype">DELIVERY CHELLAN</div>
-        </div>
-
-        <div className="dc-orig">{dc.status === 'invoiced' ? 'ORIGINAL COPY' : 'ORIGINAL COPY'}</div>
-
-        {/* ───── Meta strip ───── */}
-        <div className="dc-meta">
-          <div><div className="lbl">CHELLAN DATE</div><div className="val">{fmtDc(dc.dc_date)}</div></div>
-          <div><div className="lbl">CHELLAN #</div><div className="val">{dcDisplayCode}</div></div>
-          <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
-          <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
-        </div>
-
-        {/* ───── Delivery Details section ───── */}
-        <div className="dc-secbar">DELIVERY DETAILS :</div>
-        <div className="dc-deliv">
-          <div style={{ fontSize: 12, color: '#555' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span>Mode: <span style={{ fontWeight: 700, color: '#111', textTransform: 'capitalize' }}>{dc.production_mode}</span></span>
-              {dc.production_mode === 'jobwork' && (
-                <span className="notforsale">NOT FOR SALES</span>
-              )}
-            </div>
-            <div style={{ marginTop: 6 }}>
-              Vehicle No: <span style={{ fontWeight: 700, color: '#111' }}>{dc.vehicle_no || '-'}</span>
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="for">FOR, {COMPANY.name}</div>
-            <div>STATE CODE : {COMPANY.stateCode}</div>
-          </div>
-        </div>
-
-        {/* ───── Bill To / Ship To ───── */}
-        <div className="dc-billship">
-          <div>
-            <div className="tag">BILL TO</div>
-            <div className="gst">GSTIN : {dc.bill_to_gstin || '-'}</div>
-            <div className="party">{dc.bill_to_name || '-'}</div>
-            <div className="addr">{(dc.bill_to_address || '').split('\n').map((line, i) => (
-              <div key={i}>{line}</div>
-            ))}</div>
-            <div className="ps">
-              PLACE OF SUPPLY : {dc.bill_to_state || '-'} &nbsp;&middot;&nbsp; STATE CODE : {dc.bill_to_state_code || '-'}
-            </div>
-          </div>
-          <div>
-            <div className="tag">SHIP TO</div>
-            <div className="gst">GSTIN : {shipToGstin || '-'}</div>
-            <div className="party">{shipToName || '-'}</div>
-            <div className="addr">{(shipToAddress || '').split('\n').map((line, i) => (
-              <div key={i}>{line}</div>
-            ))}</div>
-            <div className="ps">
-              PLACE OF SUPPLY : {shipToState || '-'} &nbsp;&middot;&nbsp; STATE CODE : {shipToCode || '-'}
-            </div>
-          </div>
-        </div>
-
-        {/* ───── Items: one merged grid per quality. Batches of the same
-              quality are combined; different qualities stay separate. Bundle
-              numbers run continuously across the whole DC (1..N), flowing
-              quality group by group. Subtotals live in the summary below. ───── */}
-        {groups.length === 0 ? (
-          <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
-            No items on this DC.
-          </div>
-        ) : groups.map(({ key, qualityLabel, hsn, bundleRows, maxPieces, bundleOffset, globalRowStart }) => {
+      <div className="dc-sheet">
+        {pages.map((segments, pageIdx) => {
+          const isFirstPage = pageIdx === 0;
+          const isLastPage = pageIdx === pageCount - 1;
           return (
-            <div className="dc-item" key={key}>
-              <div className="qline">
-                <div>QUALITY : {qualityLabel}</div>
-                <div className="agent">HSN : {hsn || '-'}</div>
-              </div>
+            <div
+              key={pageIdx}
+              className={'dc-page dc-watermark ' + (dc.status === 'cancelled' ? 'dc-status-cancelled' : '')}
+            >
+              {isFirstPage ? (
+                <>
+                  {/* ───── Header band: logo + brand on the left, "DELIVERY CHELLAN" on the right ───── */}
+                  <div className="dc-head">
+                    <div className="brandwrap">
+                      <BrandLogo variant="mark" height={52} />
+                      <span className="brand">{COMPANY.name}</span>
+                    </div>
+                    <div className="doctype">DELIVERY CHELLAN</div>
+                  </div>
 
-              {dc.entry_mode === 'summary' ? (
-                <div style={{ padding: '8px 10px', fontSize: 11, color: '#555', fontStyle: 'italic', background: '#fafafa', borderBottom: '0.5px solid #000' }}>
-                  Summary entry &mdash; bundle-wise piece breakdown not captured for this DC.
+                  <div className="dc-orig">{dc.status === 'invoiced' ? 'ORIGINAL COPY' : 'ORIGINAL COPY'}</div>
+
+                  {/* ───── Meta strip ───── */}
+                  <div className="dc-meta">
+                    <div><div className="lbl">CHELLAN DATE</div><div className="val">{fmtDc(dc.dc_date)}</div></div>
+                    <div><div className="lbl">CHELLAN #</div><div className="val">{dcDisplayCode}</div></div>
+                    <div><div className="lbl">GSTIN</div><div className="val">{COMPANY.gstin}</div></div>
+                    <div><div className="lbl">STATE / CODE</div><div className="val">{COMPANY.state} / {COMPANY.stateCode}</div></div>
+                  </div>
+
+                  {/* ───── Delivery Details section ───── */}
+                  <div className="dc-secbar">DELIVERY DETAILS :</div>
+                  <div className="dc-deliv">
+                    <div style={{ fontSize: 12, color: '#555' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span>Mode: <span style={{ fontWeight: 700, color: '#111', textTransform: 'capitalize' }}>{dc.production_mode}</span></span>
+                        {dc.production_mode === 'jobwork' && (
+                          <span className="notforsale">NOT FOR SALES</span>
+                        )}
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        Vehicle No: <span style={{ fontWeight: 700, color: '#111' }}>{dc.vehicle_no || '-'}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="for">FOR, {COMPANY.name}</div>
+                      <div>STATE CODE : {COMPANY.stateCode}</div>
+                    </div>
+                  </div>
+
+                  {/* ───── Bill To / Ship To ───── */}
+                  <div className="dc-billship">
+                    <div>
+                      <div className="tag">BILL TO</div>
+                      <div className="gst">GSTIN : {dc.bill_to_gstin || '-'}</div>
+                      <div className="party">{dc.bill_to_name || '-'}</div>
+                      <div className="addr">{(dc.bill_to_address || '').split('\n').map((line, i) => (
+                        <div key={i}>{line}</div>
+                      ))}</div>
+                      <div className="ps">
+                        PLACE OF SUPPLY : {dc.bill_to_state || '-'} &nbsp;&middot;&nbsp; STATE CODE : {dc.bill_to_state_code || '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="tag">SHIP TO</div>
+                      <div className="gst">GSTIN : {shipToGstin || '-'}</div>
+                      <div className="party">{shipToName || '-'}</div>
+                      <div className="addr">{(shipToAddress || '').split('\n').map((line, i) => (
+                        <div key={i}>{line}</div>
+                      ))}</div>
+                      <div className="ps">
+                        PLACE OF SUPPLY : {shipToState || '-'} &nbsp;&middot;&nbsp; STATE CODE : {shipToCode || '-'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {emptyDetailGroups.map((g) => (
+                    <div className="dc-item" key={`empty-${g.key}`}>
+                      <div className="qline">
+                        <div>QUALITY : {g.qualityLabel}</div>
+                        <div className="agent">HSN : {g.hsn || '-'}</div>
+                      </div>
+                      <div style={{ padding: 12, textAlign: 'center', color: '#888', fontSize: 11 }}>
+                        No bundle breakdown captured.
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="dc-slimhead">
+                  <span className="name">{COMPANY.name}</span>
+                  <span>CHELLAN # {dcDisplayCode}</span>
+                  <span>{fmtDc(dc.dc_date)}</span>
+                  <span>{dc.bill_to_name || '-'}</span>
+                  <span>DELIVERY CHELLAN (Contd.)</span>
                 </div>
-              ) : bundleRows.length === 0 ? (
-                <div style={{ padding: 12, textAlign: 'center', color: '#888', fontSize: 11 }}>
-                  No bundle breakdown captured.
+              )}
+
+              {/* ───── Items: one merged grid per quality. Batches of the same
+                    quality are combined; different qualities stay separate. Bundle
+                    numbers run continuously across the whole DC (1..N). ───── */}
+              {groups.length === 0 ? (
+                <div style={{ border: '1px solid #000', borderTop: 'none', padding: 14, textAlign: 'center', color: '#888' }}>
+                  No items on this DC.
                 </div>
-              ) : bundleRows.map((rowBundles, rowIdx) => {
-                const startBundle = rowIdx * BUNDLES_PER_ROW;
-                // Global row index across the whole DC. Force a page break after
-                // every 2nd row so each printed page always holds exactly two
-                // bundle rows — but never after the final row (would blank-page
-                // the summary).
-                const globalRowIdx = globalRowStart + rowIdx;
-                const breakAfter =
-                  (globalRowIdx + 1) % ROWS_PER_PAGE === 0 &&
-                  globalRowIdx + 1 < totalBundleRows;
-                return (
-                  <table
-                    key={rowIdx}
-                    className={breakAfter ? 'bundles break-after' : 'bundles'}
-                  >
-                    <thead>
-                      <tr>
-                        <th className="lbl" style={{ minWidth: 50 }}>BUNDLE</th>
-                        {Array.from({ length: BUNDLES_PER_ROW }).map((_, i) => {
-                          const b = rowBundles[i];
-                          // Continuous number = prior batches' bundles + this
-                          // row's start + column index. Empty trailing cells
-                          // stay blank (no phantom numbers).
-                          const label = b ? (bundleOffset + startBundle + i + 1) : '';
-                          return <th key={i}>{label}</th>;
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from({ length: maxPieces }).map((_, pIdx) => (
-                        <tr key={pIdx}>
-                          <td className="lbl">Pc {pIdx + 1}</td>
-                          {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
-                            const b = rowBundles[bIdx];
-                            const v = b?.pieces?.[pIdx];
-                            const n = num(v);
-                            return (
-                              <td key={bIdx} className={n > 0 ? '' : 'empty'}>
-                                {n > 0 ? fmtPiece(n) : '-'}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                      <tr className="total">
-                        <td className="lbl">TOTAL</td>
-                        {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
-                          const b = rowBundles[bIdx];
-                          if (!b) return <td key={bIdx}>0.00</td>;
-                          const t = (b.pieces ?? []).reduce<number>((s, p) => s + num(p), 0);
-                          return <td key={bIdx}>{fmtMetres(t)}</td>;
-                        })}
-                      </tr>
-                    </tbody>
-                  </table>
-                );
-              })}
+              ) : dc.entry_mode === 'summary' ? (
+                groups.map((g) => (
+                  <div className="dc-item" key={g.key}>
+                    <div className="qline">
+                      <div>QUALITY : {g.qualityLabel}</div>
+                      <div className="agent">HSN : {g.hsn || '-'}</div>
+                    </div>
+                    <div style={{ padding: '8px 10px', fontSize: 11, color: '#555', fontStyle: 'italic', background: '#fafafa', borderBottom: '0.5px solid #000' }}>
+                      Summary entry &mdash; bundle-wise piece breakdown not captured for this DC.
+                    </div>
+                  </div>
+                ))
+              ) : (
+                segments.map((seg) => (
+                  <div className="dc-item" key={`${seg.groupKey}-${pageIdx}`}>
+                    <div className="qline">
+                      <div>QUALITY : {seg.qualityLabel}{seg.isContinuation ? ' (Contd.)' : ''}</div>
+                      <div className="agent">HSN : {seg.hsn || '-'}</div>
+                    </div>
+                    {seg.rows.map((row, rowIdx) => (
+                      <table className="bundles" key={rowIdx}>
+                        <thead>
+                          <tr>
+                            <th className="lbl" style={{ minWidth: 50 }}>BUNDLE</th>
+                            {Array.from({ length: BUNDLES_PER_ROW }).map((_, i) => {
+                              const b = row.rowBundles[i];
+                              const label = b ? (row.bundleOffset + row.startBundle + i + 1) : '';
+                              return <th key={i}>{label}</th>;
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: row.maxPieces }).map((_, pIdx) => (
+                            <tr key={pIdx}>
+                              <td className="lbl">Pc {pIdx + 1}</td>
+                              {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
+                                const b = row.rowBundles[bIdx];
+                                const v = b?.pieces?.[pIdx];
+                                const n = num(v);
+                                return (
+                                  <td key={bIdx} className={n > 0 ? '' : 'empty'}>
+                                    {n > 0 ? fmtPiece(n) : '-'}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                          <tr className="total">
+                            <td className="lbl">TOTAL</td>
+                            {Array.from({ length: BUNDLES_PER_ROW }).map((_, bIdx) => {
+                              const b = row.rowBundles[bIdx];
+                              if (!b) return <td key={bIdx}>0.00</td>;
+                              const t = (b.pieces ?? []).reduce<number>((s, p) => s + num(p), 0);
+                              return <td key={bIdx}>{fmtMetres(t)}</td>;
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    ))}
+                  </div>
+                ))
+              )}
+
+              {isLastPage ? (
+                <>
+                  {/* ───── Summary: one block PER QUALITY (spec + that quality's own
+                        totals). Qualities are never summed into a single mixed total.
+                        A single-quality DC naturally shows exactly one block. ───── */}
+                  {groups.map((g) => (
+                    <div className="dc-summary" key={`sum-${g.key}`}>
+                      <div>
+                        {!singleQuality && (
+                          <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 4 }}>QUALITY : {g.qualityLabel}</div>
+                        )}
+                        <table>
+                          <tbody>
+                            <tr><td className="l">REED &times; PICK</td><td className="v">{g.reedXpick}</td></tr>
+                            <tr><td className="l">FABRIC WIDTH</td><td className="v">{g.widthLabel}</td></tr>
+                            <tr><td className="l">FABRIC WEIGHT</td><td className="v">{g.weightLabel}</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div>
+                        <table>
+                          <tbody>
+                            {g.isTowel ? (
+                              <>
+                                <tr><td className="l">TOTAL TOWEL PCS</td><td className="v big">{Math.round(g.totalMetres)}</td></tr>
+                                <tr><td className="l">TOTAL PCS</td><td className="v big">{g.totalPieces}</td></tr>
+                              </>
+                            ) : (
+                              <>
+                                <tr><td className="l">TOTAL METRES</td><td className="v big">{fmtMetres(g.totalMetres)}</td></tr>
+                                <tr><td className="l">TOTAL PIECES</td><td className="v big">{g.totalPieces}</td></tr>
+                              </>
+                            )}
+                            <tr><td className="l">TOTAL BUNDLES</td><td className="v big">{g.totalBundles}</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* ───── Bottom block: vehicle + signatures + address + totals.
+                        Grouped so they sit together at the page bottom on ONE page. ───── */}
+                  <div className="dc-bottom">
+                    <div className="dc-foot">
+                      <div>
+                        <div className="sig">RECEIVER&apos;S SIGNATURE &amp; DATE</div>
+                        <div className="seal">COMMON SEAL</div>
+                      </div>
+                      <div>
+                        <div style={{ marginBottom: 34 }}>FOR, {COMPANY.name}</div>
+                        <div className="auth">AUTHORISED SIGNATORY</div>
+                      </div>
+                    </div>
+
+                    {/* ───── Address footer ───── */}
+                    <div className="dc-addrfoot">
+                      <div>{COMPANY.address}</div>
+                      <div className="small">
+                        MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
+                      </div>
+                    </div>
+
+                    {/* DC-level totals row at the very bottom (small, optional cross-check).
+                        Only shown for single-quality DCs — a mixed-quality DC has per-quality
+                        totals above and must not display a merged grand total. */}
+                    {singleQuality && (dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
+                      <div style={{ marginTop: 6, textAlign: 'right', fontSize: 10, color: '#666' }}>
+                        DC Totals: {fmtMetres(num(dc.total_metres))} m &nbsp;&middot;&nbsp;
+                        {dc.total_pieces ?? 0} pcs &nbsp;&middot;&nbsp;
+                        {dc.total_bundles ?? 0} bundles
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="dc-slimfoot">
+                  {COMPANY.address} &nbsp;&middot;&nbsp; MOB: {COMPANY.phones[0] ?? ''} &nbsp;&middot;&nbsp; Continued on next page&hellip;
+                </div>
+              )}
             </div>
           );
         })}
-
-        {/* ───── Summary: one block PER QUALITY (spec + that quality's own
-              totals). Qualities are never summed into a single mixed total.
-              A single-quality DC naturally shows exactly one block. ───── */}
-        {groups.map((g) => (
-          <div className="dc-summary" key={`sum-${g.key}`}>
-            <div>
-              {!singleQuality && (
-                <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 4 }}>QUALITY : {g.qualityLabel}</div>
-              )}
-              <table>
-                <tbody>
-                  <tr><td className="l">REED &times; PICK</td><td className="v">{g.reedXpick}</td></tr>
-                  <tr><td className="l">FABRIC WIDTH</td><td className="v">{g.widthLabel}</td></tr>
-                  <tr><td className="l">FABRIC WEIGHT</td><td className="v">{g.weightLabel}</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <table>
-                <tbody>
-                  {g.isTowel ? (
-                    <>
-                      <tr><td className="l">TOTAL TOWEL PCS</td><td className="v big">{Math.round(g.totalMetres)}</td></tr>
-                      <tr><td className="l">TOTAL PCS</td><td className="v big">{g.totalPieces}</td></tr>
-                    </>
-                  ) : (
-                    <>
-                      <tr><td className="l">TOTAL METRES</td><td className="v big">{fmtMetres(g.totalMetres)}</td></tr>
-                      <tr><td className="l">TOTAL PIECES</td><td className="v big">{g.totalPieces}</td></tr>
-                    </>
-                  )}
-                  <tr><td className="l">TOTAL BUNDLES</td><td className="v big">{g.totalBundles}</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
-
-        {/* ───── Bottom block: vehicle + signatures + address + totals.
-              Grouped so they sit together at the page bottom on ONE page. ───── */}
-        <div className="dc-bottom">
-        <div className="dc-foot">
-          <div>
-            <div className="sig">RECEIVER&apos;S SIGNATURE &amp; DATE</div>
-            <div className="seal">COMMON SEAL</div>
-          </div>
-          <div>
-            <div style={{ marginBottom: 34 }}>FOR, {COMPANY.name}</div>
-            <div className="auth">AUTHORISED SIGNATORY</div>
-          </div>
-        </div>
-
-        {/* ───── Address footer ───── */}
-        <div className="dc-addrfoot">
-          <div>{COMPANY.address}</div>
-          <div className="small">
-            MOB: {COMPANY.phones.join(' \u00b7  MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
-          </div>
-        </div>
-
-        {/* DC-level totals row at the very bottom (small, optional cross-check).
-            Only shown for single-quality DCs — a mixed-quality DC has per-quality
-            totals above and must not display a merged grand total. */}
-        {singleQuality && (dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
-          <div style={{ marginTop: 6, textAlign: 'right', fontSize: 10, color: '#666' }}>
-            DC Totals: {fmtMetres(num(dc.total_metres))} m &nbsp;&middot;&nbsp;
-            {dc.total_pieces ?? 0} pcs &nbsp;&middot;&nbsp;
-            {dc.total_bundles ?? 0} bundles
-          </div>
-        )}
-        </div>
       </div>
     </>
   );
