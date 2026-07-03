@@ -14,10 +14,16 @@
  *     operator workflow makes race conditions vanishingly rare).
  *
  * Beam (pavu) sync:
- *   - The simplest correct approach is to DELETE all existing pavu
- *     rows for this job and INSERT the new set. Loom assignments on
- *     pavu rows that move are wiped, which is the expected behaviour
- *     when restructuring beams.
+ *   - Beams are reconciled rather than wiped: existing beams (those
+ *     with a pavu_id) are UPDATEd in place so their id — and any
+ *     pavu_assign history/FK referencing it — survives untouched.
+ *     Newly-added beams are INSERTed. Beams the operator actually
+ *     removed are DELETEd; if one of those still has a loom
+ *     assignment on record, Postgres blocks the delete (FK) and we
+ *     surface a friendly message instead of wiping the whole job's
+ *     beams (the old delete-all-then-reinsert approach failed the
+ *     entire save whenever *any* beam in the job had ever been
+ *     mounted on a loom).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -452,29 +458,68 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
     }
 
     // ── Sync pavu rows ──
-    // Drop everything, re-insert the new set. Loom assignments on
-    // edited beams are intentionally cleared (changing a beam's
-    // identity requires reassigning to a loom anyway).
-    const { error: delErr } = await sb.from('pavu').delete().eq('sizing_job_id', seed.id);
-    if (delErr) {
-      setBusy(false);
-      setError(`Job updated but beams failed to reset: ${delErr.message}`);
-      return;
+    // Reconcile instead of wipe-and-reinsert (see file-header comment):
+    // kept beams are UPDATEd by id, new beams are INSERTed, and only
+    // beams the operator actually removed are DELETEd.
+    const survivingIds = new Set(
+      allBeams.map((b) => b.pavu_id).filter((id): id is number => id !== null)
+    );
+    const removedIds = seed.beams
+      .map((b) => b.pavu_id)
+      .filter((id) => !survivingIds.has(id));
+
+    if (removedIds.length > 0) {
+      const { error: delErr } = await sb.from('pavu').delete().in('id', removedIds);
+      if (delErr) {
+        setBusy(false);
+        setError(
+          delErr.message.toLowerCase().includes('foreign key')
+            ? "Job updated, but a removed beam already has a loom assignment on record and can't be deleted. Unmount it from the loom first (Pavu Assignment page), then remove the beam here."
+            : `Job updated but beam removal failed: ${delErr.message}`
+        );
+        return;
+      }
     }
-    const beamRows = allBeams.map((b) => ({
-      sizing_job_id:       seed.id,
-      beam_no:             b.beam_no.trim(),
-      ends:                Number(b.ends),
-      meters:              Number(b.meters),
-      production_mode:     b.production_mode,
-      outsource_ledger_id: b.production_mode === 'outsource' && b.outsource_vendor_id
-                             ? Number(b.outsource_vendor_id) : null,
-    }));
-    const { error: insErr } = await sb.from('pavu').insert(beamRows as PavuInsert[]);
-    if (insErr) {
-      setBusy(false);
-      setError(`Job updated but beam re-insert failed: ${insErr.message}`);
-      return;
+
+    const keepRows = allBeams
+      .filter((b) => b.pavu_id !== null)
+      .map((b) => ({
+        id:                  b.pavu_id as number,
+        sizing_job_id:       seed.id,
+        beam_no:             b.beam_no.trim(),
+        ends:                Number(b.ends),
+        meters:              Number(b.meters),
+        production_mode:     b.production_mode,
+        outsource_ledger_id: b.production_mode === 'outsource' && b.outsource_vendor_id
+                               ? Number(b.outsource_vendor_id) : null,
+      }));
+    if (keepRows.length > 0) {
+      const { error: updBeamsErr } = await sb.from('pavu').upsert(keepRows as PavuInsert[], { onConflict: 'id' });
+      if (updBeamsErr) {
+        setBusy(false);
+        setError(`Job updated but beams failed to update: ${updBeamsErr.message}`);
+        return;
+      }
+    }
+
+    const newRows = allBeams
+      .filter((b) => b.pavu_id === null)
+      .map((b) => ({
+        sizing_job_id:       seed.id,
+        beam_no:             b.beam_no.trim(),
+        ends:                Number(b.ends),
+        meters:              Number(b.meters),
+        production_mode:     b.production_mode,
+        outsource_ledger_id: b.production_mode === 'outsource' && b.outsource_vendor_id
+                               ? Number(b.outsource_vendor_id) : null,
+      }));
+    if (newRows.length > 0) {
+      const { error: insErr } = await sb.from('pavu').insert(newRows as PavuInsert[]);
+      if (insErr) {
+        setBusy(false);
+        setError(`Job updated but new beam insert failed: ${insErr.message}`);
+        return;
+      }
     }
 
     router.push('/app/sizing?tab=jobs');
