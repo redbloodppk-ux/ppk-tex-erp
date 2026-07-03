@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 /**
- * /app/jobwork â€” Job Work command centre with five tabs.
+ * /app/jobwork — Job Work command centre with five tabs.
  *
  * 1. Bobbin given    : read-only list of bobbin rows tagged jobwork; Restock
  *                      clones the row with fresh date/qty/supplier.
@@ -17,7 +17,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock } from 'lucide-react';
 
 // This page services TWO routes: /app/jobwork and /app/outsource. The
-// only difference is which `jobwork_party.kind` rows it filters to â€”
+// only difference is which `jobwork_party.kind` rows it filters to —
 // 'jobwork' for Job Work parties, 'outsource' for Outsource Weavers
 // (migration 113 added the `kind` column + sync trigger). Page title,
 // subtitle, and the "Manage" link all switch accordingly.
@@ -29,7 +29,7 @@ interface PageVariant {
   manageHref: string;
   manageLabel: string;
   /** Label used wherever the form / table needs to refer to the party
-   *  this page targets â€” "Jobwork Party" on /app/jobwork,
+   *  this page targets — "Jobwork Party" on /app/jobwork,
    *  "Outsourcing party" on /app/outsource. */
   partyLabel: string;
   /** Used in invoice / DC text (e.g. "Weaving Bill" vs "Job Work Bill"). */
@@ -110,7 +110,7 @@ interface WarpBeamRow {
   /** Original issued metres preserved from migration 090. Used on the
    *  history list so reductions don't shrink the display. */
   original_metres: number | null;
-  /** Pavu link â€” singular FK on 1-to-1 mirror rows created by the
+  /** Pavu link — singular FK on 1-to-1 mirror rows created by the
    *  Pavu Master sync; null on aggregate rows. */
   pavu_id: number | null;
   /** Pavu ids on aggregate rows created by the Add warp beam given
@@ -226,7 +226,7 @@ export default function JobworkPage(): React.ReactElement {
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
       // Bobbin Given = events from jobwork_bobbin_issue (migration 141).
       // The bobbin master is joined so the row still carries
-      // ends_per_bobbin / bobbin_metre / code / is_lurex for display â€”
+      // ends_per_bobbin / bobbin_metre / code / is_lurex for display —
       // those properties belong to the bobbin master, not the issue
       // event. We reshape the result into BobbinRow below so the
       // existing BobbinTab UI keeps working.
@@ -243,10 +243,10 @@ export default function JobworkPage(): React.ReactElement {
       // 142 makes bobbin one row per (ends, mode), so the same page can
       // service both flows by just changing the eq below.
       sb.from('bobbin').select('id, code, ends_per_bobbin, bobbin_metre, is_lurex').eq('production_mode', variant.kind).neq('status', 'archived').order('ends_per_bobbin'),
-      // Ends master â€” populates the Ends spec dropdown on the Warp Yarn
+      // Ends master — populates the Ends spec dropdown on the Warp Yarn
       // tab. Same shape used by the Fabric Quality form.
       sb.from('ends_master').select('id, code, name').eq('active', true).order('ends_count'),
-      // Warp yarn (sizing) given â€” parallels jobwork_warp_beam /
+      // Warp yarn (sizing) given — parallels jobwork_warp_beam /
       // jobwork_weft_bag. Filtered to active rows only.
       sb.from('jobwork_warp_yarn').select('id, jobwork_party_id, fabric_quality_id, ends_id, warp_count_id, given_date, total_kg, sizing_rate_per_kg, total_cost, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
     ]);
@@ -351,7 +351,7 @@ export default function JobworkPage(): React.ReactElement {
         }
       />
 
-      {/* Warp beam given is OUTSOURCE-ONLY now â€” jobwork parties no
+      {/* Warp beam given is OUTSOURCE-ONLY now — jobwork parties no
           longer receive warp beams. The tab is suppressed when
           variant.kind === 'jobwork', and we redirect the active tab
           off it if the operator was already viewing it. */}
@@ -443,11 +443,11 @@ function TabButton({ active, onClick, children }: {
   );
 }
 
-/* ===== Weavers tab â€” read-only directory of Outsource Weaver parties =====
+/* ===== Weavers tab — read-only directory of Outsource Weaver parties =====
  *
  * The `parties` prop on this page comes from the `jobwork_party` table
  * (filtered by `kind='outsource'`), not the unified `party` master, so
- * row links go to the jobwork-parties routes â€” /app/parties/[id] would
+ * row links go to the jobwork-parties routes — /app/parties/[id] would
  * 404 because the ids don't exist on `party`.
  *
  * We also fetch each row's extra columns (gstin / phone / city) from
@@ -482,7 +482,7 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-sm text-ink-mute">
-          Outsource Weaver parties â€” {parties.length} total. Edit a row to manage GSTIN, address, and contact info.
+          Outsource Weaver parties — {parties.length} total. Edit a row to manage GSTIN, address, and contact info.
         </p>
         <Link href="/app/jobwork-parties/new?kind=outsource" className="btn-primary text-xs">
           <Plus className="w-3.5 h-3.5" /> Add weaver
@@ -569,9 +569,9 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
                   <td className="px-4 py-3 font-semibold">
                     <Link href={`/app/jobwork-parties/${p.id}`} className="text-ink hover:text-indigo">{p.name}</Link>
                   </td>
-                  <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{x?.gstin ?? 'â€”'}</td>
-                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.phone ?? 'â€”'}</td>
-                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.city ?? 'â€”'}</td>
+                  <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{x?.gstin ?? '—'}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.phone ?? '—'}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell text-ink-soft text-xs">{x?.city ?? '—'}</td>
                   <td className="px-4 py-3 text-right">
                     <Link
                       href={`/app/jobwork-parties/${p.id}`}
@@ -650,7 +650,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
    *  ends / metres / price every time. */
   bobbinMasters: BobbinMasterOpt[];
   /** Label for the dropdown that picks which party to give the bobbin
-   *  to â€” "Jobwork Party" on /app/jobwork, "Outsourcing party" on
+   *  to — "Jobwork Party" on /app/jobwork, "Outsourcing party" on
    *  /app/outsource. */
   partyLabel: string;
   onChanged: () => void;
@@ -686,7 +686,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     /** Metres per piece. Prefills from the bobbin master when a bobbin
      *  is picked, but the operator can override (partial bobbin /
      *  short piece / typo correction). Used only for the in-form
-     *  Total m calculation â€” the bobbin master's m/pc is the canonical
+     *  Total m calculation — the bobbin master's m/pc is the canonical
      *  value and is not changed by editing this field. */
     metre_per_pc: string;
   }
@@ -755,7 +755,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       window.alert('Pick a bobbin and enter a positive quantity for at least one line.');
       return;
     }
-    // Cross-check: any line with bobbin picked but qty <= 0 â€” surface
+    // Cross-check: any line with bobbin picked but qty <= 0 — surface
     // the row number so the operator can fix it.
     const badIdx = addForm.items.findIndex((it) => it.bobbin_id !== '' && !(Number(it.qty) > 0));
     if (badIdx !== -1) {
@@ -776,7 +776,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
       status: 'active',
     }));
-    // Single INSERT with the array â€” Postgres processes it as one
+    // Single INSERT with the array — Postgres processes it as one
     // statement, all-or-nothing.
     const { error } = await sb.from('jobwork_bobbin_issue').insert(payloads);
     setAddBusy(false);
@@ -819,7 +819,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     // Editing the issued qty resets BOTH original_pieces (the history
     // value) and pieces_issued (the live balance). The bobbin master
     // properties (ends, metre, lurex) live on the bobbin master and are
-    // not editable from this form â€” they belong to a different concern.
+    // not editable from this form — they belong to a different concern.
     const editedQty = Number(editForm.original_quantity ?? editForm.quantity ?? 0);
     const payload = {
       jobwork_party_id: editForm.jobwork_party_id,
@@ -878,7 +878,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         </button>
       </div>
 
-      {/* Inline add form â€” multi-item. Party + date + supplier picked
+      {/* Inline add form — multi-item. Party + date + supplier picked
           once at the top, then a list of line items (bobbin + qty,
           with ends and m/pc + total metres auto-filled from the
           master). One Save inserts N rows into jobwork_bobbin_issue. */}
@@ -942,7 +942,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           {/* Line items: one row per bobbin spec being issued. Column
-              order Bobbin â†’ Qty â†’ M/pc â†’ Total m so the operator
+              order Bobbin → Qty → M/pc → Total m so the operator
               reads the same way they think: "BB-JW-36, 10 pcs of
               2000 m/pc = 20,000 m". M/pc prefills from the master but
               is editable so partial bobbins / short pieces can be
@@ -988,7 +988,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                           <option value="">--- pick ---</option>
                           {bobbinMasters.map((b) => (
                             <option key={b.id} value={b.id}>
-                              {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' Â· lurex' : ''})
+                              {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
                             </option>
                           ))}
                         </select>
@@ -1014,7 +1014,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         />
                       </td>
                       <td className="px-2 py-1.5 text-right num text-xs font-semibold">
-                        {totalM > 0 ? totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : 'â€”'}
+                        {totalM > 0 ? totalM.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
                       </td>
                       <td className="px-1 py-1.5 text-center">
                         <button
@@ -1049,7 +1049,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         const perPc = Number(it.metre_per_pc || 0);
                         return s + (qtyN > 0 && perPc > 0 ? qtyN * perPc : 0);
                       }, 0);
-                      return grand > 0 ? grand.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' m' : 'â€”';
+                      return grand > 0 ? grand.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' m' : '—';
                     })()}
                   </td>
                   <td />
@@ -1059,7 +1059,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           <p className="text-[10px] text-ink-mute">
-            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces â€” the master value is not changed.
+            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces — the master value is not changed.
           </p>
 
           <div className="flex items-center justify-end gap-2">
@@ -1078,7 +1078,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
         </div>
       )}
-      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      {/* Mobile card view — mirrors the table below on small screens. */}
       <div className="md:hidden space-y-2 mb-3">
         {rows.length === 0 ? (
           <div className="card p-4 text-center text-ink-soft text-sm">No jobwork bobbin entries yet.</div>
@@ -1162,7 +1162,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               {/* Date is the leftmost column so each transaction's
-                  given-date is immediately visible â€” matches the Warp
+                  given-date is immediately visible — matches the Warp
                   Beam / Weft Bag tabs. */}
               <th className="text-left px-3 py-3">Date</th>
               <th className="text-left px-3 py-3">Code</th>
@@ -1402,16 +1402,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
   // Routing relationships between outsource parties and sizing
   // parties / jobs. Loaded once when the form opens; the cascading
-  // dropdowns (party â†’ sizing party â†’ sizing job) read from this.
+  // dropdowns (party → sizing party → sizing job) read from this.
   const [outsourceRoutings,    setOutsourceRoutings]    = useState<OutsourceRouting[]>([]);
   const [outsourcePartyLedger, setOutsourcePartyLedger] = useState<Map<number, number>>(new Map());
-  // Sizing vendor ledger directory â€” keyed by ledger_id. We source
+  // Sizing vendor ledger directory — keyed by ledger_id. We source
   // the sizing-party dropdown from this instead of the sizingParties
   // prop because sizing_job.sizing_ledger_id is a ledger id, not a
   // party id, and there's no reliable bridge to "Sizing Party" type
   // parties.
   const [sizingVendorLedgerName, setSizingVendorLedgerName] = useState<Map<number, string>>(new Map());
-  // Reverse lookup ledger_id â†’ party_id so we can still populate the
+  // Reverse lookup ledger_id → party_id so we can still populate the
   // supplier_party_id FK on save when a Sizing Party party exists
   // for the selected ledger.
   const [sizingPartyByLedger,    setSizingPartyByLedger]    = useState<Map<number, number>>(new Map());
@@ -1422,11 +1422,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // job's sizing_ledger_id), and the ledger_id of every party (outsource
   // weaver or jobwork party) and sizing party in the dropdown lists.
   // Shared by both /app/outsource (kind='outsource') and /app/jobwork
-  // (kind='jobwork') â€” the only difference is which pavu ledger column
+  // (kind='jobwork') — the only difference is which pavu ledger column
   // and production_mode value the query targets. Cascading filter:
-  //   1. Pick the party â†’ narrows Sizing party dropdown to those whose
+  //   1. Pick the party → narrows Sizing party dropdown to those whose
   //      ledger matches a sizing_job that has pavus routed to this party.
-  //   2. Pick Sizing party â†’ narrows Sizing job dropdown to jobs from
+  //   2. Pick Sizing party → narrows Sizing job dropdown to jobs from
   //      that sizing party + going to this party.
   useEffect(() => {
     if (!showAdd || (kind !== 'outsource' && kind !== 'jobwork')) return;
@@ -1447,7 +1447,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           .eq('production_mode', kind)
           .not('sizing_job_id', 'is', null),
         // `parties` is sourced from `jobwork_party` (kind matching this
-        // page) by the parent â€” not the `party` master â€” so we resolve
+        // page) by the parent — not the `party` master — so we resolve
         // the ledger map from the same table. Querying `party` with
         // these ids returns nothing (different id namespaces) and the
         // strict cascade collapses to an empty sizing-vendor list.
@@ -1459,7 +1459,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       const routings = ((pavuRes.data ?? []) as OutsourceRouting[]);
       setOutsourceRoutings(routings);
 
-      // Sizing job lookup â€” only the jobs referenced by an outsource
+      // Sizing job lookup — only the jobs referenced by an outsource
       // routing, with their sizing_ledger_id so the cascade can
       // group by sizing vendor.
       const jobIds = Array.from(new Set(routings.map((r) => r.sizing_job_id).filter((x): x is number => x != null)));
@@ -1529,7 +1529,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return out;
   }, [outsourceRoutings, selectedOutsourceLedgerId]);
 
-  // Sizing vendors eligible for the dropdown â€” strict cascade.
+  // Sizing vendors eligible for the dropdown — strict cascade.
   //
   // With Pavu Master now sourcing outsource parties from
   // `jobwork_party` (kind='outsource') and migration 121 having
@@ -1551,7 +1551,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return out;
   }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, sizingVendorLedgerName, selectedOutsourceLedgerId]);
 
-  // Sizing jobs eligible for the dropdown â€” strict cascade
+  // Sizing jobs eligible for the dropdown — strict cascade
   // by outsource party AND (when set) sizing vendor.
   const eligibleSizingJobs = useMemo(() => {
     if (form.jobwork_party_id === '' || selectedOutsourceLedgerId == null) return [];
@@ -1565,7 +1565,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   // When the party changes, clear stale sizing-party and sizing-job
   // selections so the cascade doesn't get confused. Shared by both
-  // variants â€” each runs the same party â†’ sizing party â†’ sizing job
+  // variants — each runs the same party → sizing party → sizing job
   // cascade now.
   useEffect(() => {
     setForm((f) => ({ ...f, supplier_party_id: '', sizing_job_id: '' }));
@@ -1580,7 +1580,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   // Load pavu rows when the sizing job picker changes. Warp-given is,
   // by definition, only about beams already routed to this page's mode
-  // (outsource or jobwork) â€” in-house beams of the same sizing set, or
+  // (outsource or jobwork) — in-house beams of the same sizing set, or
   // beams routed to the other mode, don't belong in this form.
   useEffect(() => {
     if (form.sizing_job_id === '') { setPavusForJob([]); setSelectedPavuIds(new Set()); return; }
@@ -1611,7 +1611,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
   // Auto-totals derived from the selected pavu rows. These drive the
   // read-only "auto" fields on the form; the operator can't override
-  // them â€” to change the figure they pick / unpick a beam.
+  // them — to change the figure they pick / unpick a beam.
   const selectedPavus = pavusForJob.filter((p) => selectedPavuIds.has(p.id));
   const autoBeamCount = selectedPavus.length;
   const autoTotalMetres = selectedPavus.reduce((s, p) => s + Number(p.meters ?? 0), 0);
@@ -1623,7 +1623,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     const job = sizingJobs.find((j) => j.id === Number(form.sizing_job_id));
     return job?.warp_count_id ?? null;
   })();
-  const autoWarpCountLabel = autoWarpCountId != null ? countById.get(autoWarpCountId)?.display_name ?? `#${autoWarpCountId}` : 'â€”';
+  const autoWarpCountLabel = autoWarpCountId != null ? countById.get(autoWarpCountId)?.display_name ?? `#${autoWarpCountId}` : '—';
 
   // Fabric quality dropdown is narrowed to qualities whose master ends
   // value matches the selected pavus' ends. When the operator ticks
@@ -1699,7 +1699,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     // Resolve the selected party's ledger_id so we can update the pavu
     // rows with the correct foreign key. The party dropdown is sourced
     // from `jobwork_party` (kind matching this page), NOT the `party`
-    // master â€” querying `party` with this id was the source of the
+    // master — querying `party` with this id was the source of the
     // "Selected party has no linked ledger" error even after migration
     // 121 had linked the jobwork_party row.
     const { data: party } = await sb
@@ -1715,7 +1715,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     const newLedgerId = Number(party.ledger_id);
 
     // Auto totals are derived from the picked beams. We send the
-    // numeric values into the table â€” the operator never touches
+    // numeric values into the table — the operator never touches
     // these fields, so there's no validation to do beyond > 0.
     const beamIds = Array.from(selectedPavuIds);
     // form.supplier_party_id now stores the picked sizing-vendor
@@ -1740,10 +1740,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no:      form.reference_no.trim() || null,
       notes:             form.notes.trim() || null,
       supplier_party_id: supplierPartyId,
-      // Aggregate row â€” no single pavu link. pavu_ids records the
+      // Aggregate row — no single pavu link. pavu_ids records the
       // exact set of pavus this row represents so the Release
       // action can revert just those beams. total_metres above is the
-      // sole stock-outflow figure the warehouse view reads â€” the
+      // sole stock-outflow figure the warehouse view reads — the
       // individual beam metres are never separately counted.
       pavu_id:           null,
       pavu_ids:          beamIds,
@@ -1751,7 +1751,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
     if (insErr) { setBusy(false); setErr(insErr.message); return; }
 
-    // Update each selected pavu â€” flip routing AND mark assigned so
+    // Update each selected pavu — flip routing AND mark assigned so
     // the Pavu Master editor locks them out. Which ledger column gets
     // the new ledger id depends on this page's mode.
     const pavuUpdate = kind === 'jobwork'
@@ -1763,7 +1763,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       .in('id', beamIds);
     if (pavuErr) { setBusy(false); setErr(`Warp-given saved but pavu update failed: ${pavuErr.message}`); return; }
 
-    // Drop any 1-to-1 mirror rows for the selected pavus â€” they're
+    // Drop any 1-to-1 mirror rows for the selected pavus — they're
     // represented by the aggregate row now.
     await sb.from('jobwork_warp_beam').delete().in('pavu_id', beamIds);
 
@@ -1795,7 +1795,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   //
   // Behaviour: we only flip status back to 'in_stock'. The pavu's
   // production_mode and outsource_ledger_id are preserved so the beam
-  // stays on the same outsource weaver's side of Pavu Master â€” the
+  // stays on the same outsource weaver's side of Pavu Master — the
   // user is undoing the DC, not the routing decision. To fully unroute
   // (back to in-house stock), edit the pavu in Pavu Master afterwards.
   async function release(r: WarpBeamRow) {
@@ -1809,7 +1809,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (!window.confirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? They stay on the same outsource weaver and become editable again in Pavu Master.`)) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Revert the pavu rows â€” only the status flips. The
+    // Revert the pavu rows — only the status flips. The
     // production_mode + outsource_ledger_id stay so the beam remains
     // on the same outsource weaver in Pavu Master.
     const { error: pavuErr } = await sb
@@ -1871,8 +1871,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
-  // Both variants now run through the same pavu cascade (party â†’
-  // sizing party â†’ sizing job â†’ beam checklist); only the wording
+  // Both variants now run through the same pavu cascade (party →
+  // sizing party → sizing job → beam checklist); only the wording
   // differs.
   const tabBlurb = kind === 'jobwork'
     ? 'Warp beams sent to jobwork parties. Pick the party, sizing party and sizing job, then tick the beams to send \u2014 totals are auto-derived.'
@@ -1888,7 +1888,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         </button>
       </div>
 
-{/* The "From Pavu Master" preview block was removed â€” the operator
+{/* The "From Pavu Master" preview block was removed — the operator
           asked for the warp-given table to reflect only what's been
           logged via the Add warp beam given form. Pavu Master's
           routing assignments live on the pavu rows themselves and
@@ -1898,9 +1898,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       <div className="card p-4 mb-4 space-y-4">
         <h3 className="font-display font-bold text-sm">Add warp beam given</h3>
 
-        {/* Step 1 â€” pick date, party, sizing party, sizing job. The
-            cascade is: party â†’ narrows Sizing party â†’ narrows Sizing
-            job â†’ drives the pavu list below. The totals downstream are
+        {/* Step 1 — pick date, party, sizing party, sizing job. The
+            cascade is: party → narrows Sizing party → narrows Sizing
+            job → drives the pavu list below. The totals downstream are
             auto-derived from whichever pavu beams the operator ticks.
             Shared by both /app/outsource and /app/jobwork. */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -1923,7 +1923,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             >
               <option value="">
                 {form.jobwork_party_id === ''
-                  ? `Pick ${partyLabel.toLowerCase()} firstâ€¦`
+                  ? `Pick ${partyLabel.toLowerCase()} first…`
                   : eligibleSizingVendors.length === 0
                     ? 'No sizing vendors used for this party'
                     : '--- pick ---'}
@@ -1941,20 +1941,20 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             >
               <option value="">
                 {form.jobwork_party_id === ''
-                  ? `Pick ${partyLabel.toLowerCase()} firstâ€¦`
+                  ? `Pick ${partyLabel.toLowerCase()} first…`
                   : form.supplier_party_id === ''
-                    ? 'Pick sizing party firstâ€¦'
+                    ? 'Pick sizing party first…'
                     : eligibleSizingJobs.length === 0
                       ? 'No sizing sets for this pair'
                       : '--- pick ---'}
               </option>
               {eligibleSizingJobs.map((j) => (
-                <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' Â· Set ' + j.set_no : ''}</option>
+                <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' · Set ' + j.set_no : ''}</option>
               ))}
             </select></div>
         </div>
 
-        {/* Step 2 â€” pavu beam checklist. Visible once a sizing job is
+        {/* Step 2 — pavu beam checklist. Visible once a sizing job is
             picked. Each row tells the operator the beam no, ends and
             metres so they can confirm before ticking; the per-beam
             current routing pill is shown on the right. */}
@@ -2020,7 +2020,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </div>
         )}
 
-        {/* Step 3 â€” auto fields. Read-only; values change only when
+        {/* Step 3 — auto fields. Read-only; values change only when
             the operator picks / unpicks beams above. */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><label className="label text-xs">Warp count <span className="text-ink-mute">(auto)</span></label>
@@ -2030,17 +2030,17 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <div className="input num bg-cloud/40 text-ink-mute select-none">{autoBeamCount}</div>
           </div>
           <div><label className="label text-xs">Total ends <span className="text-ink-mute">(auto)</span></label>
-            <div className="input num bg-cloud/40 text-ink-mute select-none">{autoEndsDisplay || 'â€”'}</div>
+            <div className="input num bg-cloud/40 text-ink-mute select-none">{autoEndsDisplay || '—'}</div>
           </div>
           <div><label className="label text-xs">Total metres <span className="text-ink-mute">(auto)</span></label>
             <div className="input num bg-cloud/40 text-ink-mute select-none">
-              {autoTotalMetres > 0 ? autoTotalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : 'â€”'}
+              {autoTotalMetres > 0 ? autoTotalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
             </div>
           </div>
         </div>
 
         {/* Optional extras. Fabric quality replaces the old "Reference
-            / DC no" field â€” the operator assigns the warp metres to a
+            / DC no" field — the operator assigns the warp metres to a
             specific fabric quality, which is then stored on the
             warp-given row. */}
         <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
@@ -2072,7 +2072,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       </div>
       )}
 
-      {/* Filter bar â€” narrows the table + footer totals down to a single
+      {/* Filter bar — narrows the table + footer totals down to a single
           fabric quality and / or jobwork party. Empty selection = All. */}
       <div className="card p-3 mb-3 flex flex-wrap items-end gap-3">
         <div>
@@ -2115,7 +2115,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         </div>
       </div>
 
-      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      {/* Mobile card view — mirrors the table below on small screens. */}
       <div className="md:hidden space-y-2 mb-3">
         {filteredRows.length === 0 ? (
           <div className="card p-4 text-center text-ink-soft text-sm">
@@ -2143,7 +2143,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     <div><label className="label text-[10px]">Beams</label><input type="number" min={1} className="input num h-8 text-xs" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></div>
                     <div><label className="label text-[10px]">Metres</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></div>
                     <div className="col-span-2"><label className="label text-[10px]">Sizing party</label><select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
-                    <div className="col-span-2 text-[10px] text-ink-mute">Warp count {ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'} Â· Ends {ef.total_ends ?? '-'} (auto from quality)</div>
+                    <div className="col-span-2 text-[10px] text-ink-mute">Warp count {ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'} · Ends {ef.total_ends ?? '-'} (auto from quality)</div>
                   </div>
                 </div>
               ) : (
@@ -2214,12 +2214,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   <tr className="border-t border-line/40">
                     {isEditing ? (
                       <>
-                        {/* ID â€” auto-issued, never editable. */}
+                        {/* ID — auto-issued, never editable. */}
                         <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                         <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
                         <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
-                        {/* Auto-populated from fabric quality â€” read-only in edit. */}
+                        {/* Auto-populated from fabric quality — read-only in edit. */}
                         <td className="px-3 py-2 text-ink-mute italic">{ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'}</td>
                         <td className="px-3 py-2 text-right num text-ink-mute italic">{ef.total_ends ?? '-'}</td>
                         <td className="px-2 py-2"><input type="number" min={1} className="input num h-8 text-xs w-16" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></td>
@@ -2238,7 +2238,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     ) : (
                       <>
                         {/* Auto-issued ID derived from the row's
-                            numeric primary key â€” short, sortable, and
+                            numeric primary key — short, sortable, and
                             unique without a schema change. */}
                         <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                         <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
@@ -2252,7 +2252,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
-                          {/* Release â€” only meaningful when this row
+                          {/* Release — only meaningful when this row
                               has a pavu link; reverts the linked
                               pavus to in-stock so Pavu Master can
                               edit them again, then deletes the row. */}
@@ -2429,7 +2429,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
       </div>
       )}
 
-      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      {/* Mobile card view — mirrors the table below on small screens. */}
       <div className="md:hidden space-y-2 mb-3">
         {rows.length === 0 ? (
           <div className="card p-4 text-center text-ink-soft text-sm">No weft bags issued yet.</div>
@@ -2713,7 +2713,7 @@ function WarpYarnTab({
       </div>
       )}
 
-      {/* Mobile card view â€” mirrors the table below on small screens. */}
+      {/* Mobile card view — mirrors the table below on small screens. */}
       <div className="md:hidden space-y-2 mb-3">
         {rows.length === 0 ? (
           <div className="card p-4 text-center text-ink-soft text-sm">No warp yarn issued yet.</div>
