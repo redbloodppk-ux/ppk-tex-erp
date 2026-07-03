@@ -190,7 +190,6 @@ export default async function SizingListPage({ searchParams }: PageProps) {
               job as a tap-friendly card. The table below is hidden on mobile. */}
           <CardFilter placeholder="Search sizing jobs…">
             {jobsRes.data?.length ? jobsRes.data.map((j: any) => {
-              const balance = Number(j.yarn_sent_kg) - Number(j.yarn_used_kg);
               return (
                 <div key={j.id} className="card p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -216,14 +215,6 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                     <span className="text-ink-mute">Beams: </span><span className="num">{j.no_of_paavu}</span>
                     <span className="text-ink-mute"> · Total Warp (m): </span>
                     <span className="num">{(warpMetresByJob.get(j.id) ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="text-xs text-ink-soft mt-1">
-                    <span className="text-ink-mute">Yarn (sent → bal): </span>
-                    <span className="num">{Number(j.yarn_sent_kg).toFixed(1)}</span>
-                    <span className="text-ink-mute"> → </span>
-                    <span className={'num ' + (balance < 0 ? 'text-rose-600 font-semibold' : 'text-emerald-700 font-semibold')}>
-                      {balance.toFixed(1)}
-                    </span>
                   </div>
                   {j.date_received && (
                     <div className="text-xs text-ink-soft mt-1">
@@ -270,7 +261,6 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Count</th>
                   <th className="text-right px-4 py-3">Beams</th>
                   <th className="text-right px-4 py-3">Total Warp (m)</th>
-                  <th className="text-right px-4 py-3">Yarn (sent → bal)</th>
                   <th className="text-left  px-4 py-3 hidden lg:table-cell">Recv</th>
                   <th className="text-left  px-4 py-3">Status</th>
                   <th className="text-right px-4 py-3 w-24">Actions</th>
@@ -278,7 +268,6 @@ export default async function SizingListPage({ searchParams }: PageProps) {
               </thead>
               <tbody>
                 {jobsRes.data?.length ? jobsRes.data.map((j: any) => {
-                  const balance = Number(j.yarn_sent_kg) - Number(j.yarn_used_kg);
                   return (
                     <tr key={j.id} className="border-t border-line/40 hover:bg-haze/60">
                       <td className="px-4 py-3 font-mono text-xs">
@@ -299,13 +288,6 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                       <td className="px-4 py-3 text-right num">{j.no_of_paavu}</td>
                       <td className="px-4 py-3 text-right num">
                         {(warpMetresByJob.get(j.id) ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-right num text-xs">
-                        {Number(j.yarn_sent_kg).toFixed(1)}
-                        <span className="text-ink-mute"> → </span>
-                        <span className={balance < 0 ? 'text-rose-600 font-semibold' : 'text-emerald-700 font-semibold'}>
-                          {balance.toFixed(1)}
-                        </span>
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">
                         {j.date_received ?? '—'}
@@ -335,7 +317,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-ink-soft">
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
                       No sizing jobs yet.{' '}
                       <Link href="/app/sizing/new" className="text-indigo font-semibold">
                         Create the first one →
