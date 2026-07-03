@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock, Scissors } from 'lucide-react';
 
 // This page services TWO routes: /app/jobwork and /app/outsource. The
 // only difference is which `jobwork_party.kind` rows it filters to —
@@ -117,6 +117,9 @@ interface WarpBeamRow {
    *  form; null on mirror rows. The Release action reverts whichever
    *  set is non-null. */
   pavu_ids: number[] | null;
+  /** Sizing job this warp was sourced from (migration 187) — set on
+   *  manual jobwork entries, null on outsource's pavu-driven rows. */
+  sizing_job_id: number | null;
 }
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
@@ -232,7 +235,7 @@ export default function JobworkPage(): React.ReactElement {
       // existing BobbinTab UI keeps working.
       sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, supplier_party_id, reference_no, notes,
               bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
-      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
@@ -635,6 +638,55 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
         }} className="btn-primary h-8 text-xs whitespace-nowrap">
           {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Restock
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Split-into-beams mini-form (popover under a warp beam row) =====
+   Lets the operator break one existing manual jobwork_warp_beam row
+   into several beam-wise rows (ends + metres typed per beam), same
+   idea as the Add form's beam list. Pre-filled from the parent row so
+   there's less retyping; the operator adjusts before saving. */
+function SplitBeamsPanel({ initialRows, onCancel, onSave }: {
+  initialRows: { beamNo: string; ends: string; metres: string }[];
+  onCancel: () => void;
+  onSave: (rows: { beamNo: string; ends: string; metres: string }[]) => Promise<void>;
+}) {
+  const [rows, setRows] = useState(initialRows);
+  const [busy, setBusy] = useState(false);
+  function addRow(): void {
+    setRows((r) => [...r, { beamNo: '', ends: '', metres: '' }]);
+  }
+  function removeRow(idx: number): void {
+    setRows((r) => (r.length <= 1 ? r : r.filter((_, i) => i !== idx)));
+  }
+  function updateRow(idx: number, field: 'beamNo' | 'ends' | 'metres', value: string): void {
+    setRows((r) => r.map((row, i) => (i === idx ? { ...row, [field]: value } : row)));
+  }
+  return (
+    <div className="p-3 bg-sky-50/40 border-y border-sky-200 space-y-2">
+      <div className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Split into beams</div>
+      {rows.map((row, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <input placeholder="Beam no" className="input w-20 shrink-0 h-8 text-xs" value={row.beamNo} onChange={(e) => updateRow(idx, 'beamNo', e.target.value)} />
+          <input type="number" placeholder="Ends" className="input num h-8 text-xs" value={row.ends} onChange={(e) => updateRow(idx, 'ends', e.target.value)} />
+          <input type="number" step={0.01} placeholder="Metres" className="input num h-8 text-xs" value={row.metres} onChange={(e) => updateRow(idx, 'metres', e.target.value)} />
+          <button type="button" className="text-err text-xs px-2 disabled:opacity-30" onClick={() => removeRow(idx)} disabled={rows.length <= 1}>×</button>
+        </div>
+      ))}
+      <div className="flex items-center justify-between">
+        <button type="button" className="text-indigo underline text-xs" onClick={addRow}>+ Add beam</button>
+        <span className="flex gap-1.5">
+          <button type="button" onClick={onCancel} className="btn-ghost h-8 text-xs">Cancel</button>
+          <button type="button" disabled={busy} className="btn-primary h-8 text-xs whitespace-nowrap" onClick={async () => {
+            setBusy(true);
+            await onSave(rows);
+            setBusy(false);
+          }}>
+            {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save split
+          </button>
+        </span>
       </div>
     </div>
   );
@@ -1364,10 +1416,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // metres typed per beam). Each beam becomes its own jobwork_warp_beam
   // row on save — the table has no beam-number column, so the beam
   // number is folded into that row's notes instead.
-  interface BeamRow { ends: string; metres: string; }
-  const [beamRows, setBeamRows] = useState<BeamRow[]>([{ ends: '', metres: '' }]);
+  interface BeamRow { beamNo: string; ends: string; metres: string; }
+  const [beamRows, setBeamRows] = useState<BeamRow[]>([{ beamNo: '', ends: '', metres: '' }]);
   function addBeamRow(): void {
-    setBeamRows((rows) => [...rows, { ends: '', metres: '' }]);
+    setBeamRows((rows) => [...rows, { beamNo: '', ends: '', metres: '' }]);
   }
   function removeBeamRow(idx: number): void {
     setBeamRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
@@ -1380,6 +1432,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<WarpBeamRow | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
+  // Row id currently showing the "Split into beams" popover (jobwork
+  // manual entries only — pavu-linked outsource rows are excluded so
+  // Release/pavu-tracking semantics stay intact).
+  const [splitId, setSplitId] = useState<number | null>(null);
   // Toggle for the inline add form. Mirrors the BobbinTab pattern so
   // the page loads with the form hidden and the table front-and-centre.
   const [showAdd, setShowAdd] = useState<boolean>(false);
@@ -1725,10 +1781,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       // the form's fields; the beam number is folded into notes since
       // the table has no beam-number column.
       const beams = beamRows
-        .map((b, idx) => ({ idx, ends: b.ends, metres: b.metres }))
-        .filter((b) => b.ends !== '' && b.metres !== '');
+        .map((b) => ({ beamNo: b.beamNo.trim(), ends: b.ends, metres: b.metres }))
+        .filter((b) => b.beamNo !== '' && b.ends !== '' && b.metres !== '');
       if (beams.length === 0) {
-        setErr('Enter ends and metres for at least one beam.');
+        setErr('Enter the beam no., ends and metres for at least one beam.');
         return;
       }
       setBusy(true);
@@ -1748,7 +1804,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       };
       const payloads = beams.map((b) => {
         const metres = Number(b.metres);
-        const beamNote = `Beam ${b.idx + 1}`;
+        const beamNote = `Beam No ${b.beamNo}`;
         return {
           ...basePayload,
           total_ends:      Number(b.ends),
@@ -1766,7 +1822,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
         sizing_job_id: '',
       });
-      setBeamRows([{ ends: '', metres: '' }]);
+      setBeamRows([{ beamNo: '', ends: '', metres: '' }]);
       setShowAdd(false);
       onChanged();
       return;
@@ -1956,6 +2012,63 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
+  // Pre-fills the split popover from an existing aggregate row: one row
+  // per beam, ends copied as-is, metres divided evenly (the operator
+  // adjusts before saving since real beams rarely split exactly even).
+  function splitInitialRowsFor(r: WarpBeamRow): BeamRow[] {
+    const n = Math.max(1, Number(r.beam_count) || 1);
+    const evenMetres = r.total_metres != null ? (Number(r.total_metres) / n).toFixed(2) : '';
+    const ends = r.total_ends != null ? String(r.total_ends) : '';
+    return Array.from({ length: n }, () => ({ beamNo: '', ends, metres: evenMetres }));
+  }
+
+  // Breaks one saved aggregate jobwork_warp_beam row into several
+  // beam-wise rows: inserts a new row per beam (sharing the parent's
+  // party/quality/count/date/reference/sizing fields), then deletes the
+  // original row. No schema change — same shape as the Add form's
+  // beam-wise entry.
+  async function saveSplit(parent: WarpBeamRow, rowsIn: BeamRow[]) {
+    const beams = rowsIn
+      .map((b) => ({ beamNo: b.beamNo.trim(), ends: b.ends, metres: b.metres }))
+      .filter((b) => b.beamNo !== '' && b.ends !== '' && b.metres !== '');
+    if (beams.length === 0) {
+      window.alert('Enter the beam no., ends and metres for at least one beam.');
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const notesTrimmed = (parent.notes ?? '').trim();
+    const basePayload = {
+      jobwork_party_id: parent.jobwork_party_id,
+      fabric_quality_id: parent.fabric_quality_id,
+      warp_count_id: parent.warp_count_id,
+      given_date: parent.given_date,
+      reference_no: parent.reference_no,
+      supplier_party_id: parent.supplier_party_id,
+      sizing_job_id: parent.sizing_job_id,
+      pavu_id: null,
+      pavu_ids: null,
+    };
+    const payloads = beams.map((b) => {
+      const metres = Number(b.metres);
+      const beamNote = `Beam No ${b.beamNo}`;
+      return {
+        ...basePayload,
+        total_ends: Number(b.ends),
+        beam_count: 1,
+        total_metres: metres,
+        original_metres: metres,
+        notes: notesTrimmed ? `${beamNote} \u2014 ${notesTrimmed}` : beamNote,
+      };
+    });
+    const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payloads);
+    if (insErr) { window.alert('Split failed: ' + insErr.message); return; }
+    const { error: delErr } = await sb.from('jobwork_warp_beam').delete().eq('id', parent.id);
+    if (delErr) { window.alert('Beams created but the original row could not be removed: ' + delErr.message); }
+    setSplitId(null);
+    onChanged();
+  }
+
   // Jobwork is a flat, manual entry — no beam picker. Outsource keeps
   // the pavu cascade (party → sizing party → sizing job → checklist).
   const tabBlurb = kind === 'jobwork'
@@ -2020,14 +2133,19 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
 
-        {/* Beam-wise entry — ends + metres typed per beam. Each row
-            becomes its own jobwork_warp_beam row on save. */}
+        {/* Beam-wise entry — beam no. + ends + metres typed per beam.
+            Each row becomes its own jobwork_warp_beam row on save. */}
         <div>
           <label className="label text-xs">Beams *</label>
           <div className="space-y-2">
             {beamRows.map((b, idx) => (
               <div key={idx} className="flex items-center gap-2">
-                <span className="text-xs text-ink-mute w-16 shrink-0">Beam {idx + 1}</span>
+                <input
+                  placeholder="Beam no"
+                  className="input w-24 shrink-0"
+                  value={b.beamNo}
+                  onChange={(e) => updateBeamRow(idx, 'beamNo', e.target.value)}
+                />
                 <input
                   type="number"
                   placeholder="Ends"
@@ -2320,6 +2438,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     <span className="whitespace-nowrap shrink-0">
                       <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                       <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      {!hasPavu && (
+                        <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 mr-3" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
+                      )}
                       {hasPavu && (
                         <button onClick={() => void release(r)} className="text-amber-700 mr-3" title="Release pavus back to in-stock"><Unlock className="w-4 h-4 inline" /></button>
                       )}
@@ -2343,6 +2464,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
                     onCancel={() => setRestockId(null)}
                     onSave={(data) => restock(r, data)} />
+                </div>
+              )}
+              {splitId === r.id && !isEditing && (
+                <div className="mt-2">
+                  <SplitBeamsPanel
+                    initialRows={splitInitialRowsFor(r)}
+                    onCancel={() => setSplitId(null)}
+                    onSave={(rows) => saveSplit(r, rows)} />
                 </div>
               )}
             </div>
@@ -2373,6 +2502,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             ) : filteredRows.map((r) => {
               const isEditing = editingId === r.id;
               const ef = editForm ?? r;
+              const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
               return (
                 <React.Fragment key={r.id}>
                   <tr className="border-t border-line/40">
@@ -2416,11 +2546,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
                           <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                          {!hasPavu && (
+                            <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 hover:text-sky-900 mr-2" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
+                          )}
                           {/* Release — only meaningful when this row
                               has a pavu link; reverts the linked
                               pavus to in-stock so Pavu Master can
                               edit them again, then deletes the row. */}
-                          {(r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0)) && (
+                          {hasPavu && (
                             <button
                               onClick={() => void release(r)}
                               className="text-amber-700 hover:text-amber-900 mr-2"
@@ -2440,6 +2573,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                         qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
                         onCancel={() => setRestockId(null)}
                         onSave={(data) => restock(r, data)} />
+                    </td></tr>
+                  )}
+                  {splitId === r.id && !isEditing && (
+                    <tr><td colSpan={10} className="p-0">
+                      <SplitBeamsPanel
+                        initialRows={splitInitialRowsFor(r)}
+                        onCancel={() => setSplitId(null)}
+                        onSave={(rows) => saveSplit(r, rows)} />
                     </td></tr>
                   )}
                 </React.Fragment>
