@@ -857,7 +857,17 @@ function ShedCard({
           </button>
         </div>
         <div className="flex flex-wrap gap-3">
-          {shed.weavers.map((empId, slotIdx) => (
+          {shed.weavers.map((empId, slotIdx) => {
+            // Hide weavers already picked in another slot of this shed so
+            // the same person can't be selected twice — but keep this
+            // slot's own current value in its own list.
+            const takenElsewhere = new Set(
+              shed.weavers.filter((_, i) => i !== slotIdx && shed.weavers[i] !== ''),
+            );
+            const availableOptions = weaverOptions.filter(
+              (opt) => String(opt.id) === empId || !takenElsewhere.has(String(opt.id)),
+            );
+            return (
             <div key={slotIdx} className="flex items-center gap-1.5">
               <span className="text-xs text-ink-mute w-16">Weaver {slotIdx + 1}</span>
               <select
@@ -866,7 +876,7 @@ function ShedCard({
                 onChange={(e) => onWeaverChange(slotIdx, e.target.value)}
               >
                 <option value="">- pick weaver -</option>
-                {weaverOptions.map((opt) => (
+                {availableOptions.map((opt) => (
                   <option key={opt.id} value={String(opt.id)}>
                     {opt.full_name}
                     {opt.code ? ` (${opt.code})` : ''}
@@ -882,7 +892,8 @@ function ShedCard({
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
