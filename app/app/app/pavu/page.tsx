@@ -8,7 +8,7 @@ import { PavuListEditor, type PavuRow } from './pavu-list-editor';
 export const metadata = { title: 'Pavu Master' };
 export const dynamic = 'force-dynamic';
 
-type Tab = 'inhouse' | 'outsource';
+type Tab = 'inhouse' | 'outsource' | 'jobwork';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string; bulk?: string }>;
@@ -16,7 +16,7 @@ interface PageProps {
 
 export default async function PavuListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const tab: Tab = sp.tab === 'outsource' ? 'outsource' : 'inhouse';
+  const tab: Tab = sp.tab === 'outsource' ? 'outsource' : sp.tab === 'jobwork' ? 'jobwork' : 'inhouse';
   // The bulk-routing form is hidden by default and toggled via a
   // header button. We use a URL search param so the toggle survives
   // page refreshes and back/forward navigation.
@@ -37,15 +37,16 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   // reads. The legacy party-master route (Outsource Weaver type)
   // used a different ledger and broke the cascade.
 
-  const [pavusRes, jobsRes, partiesRes] = await Promise.all([
+  const [pavusRes, jobsRes, partiesRes, jobworkPartiesRes] = await Promise.all([
     sb.from('pavu').select(`
       id, pavu_code, beam_no, ends, meters, status, production_mode,
-      outsource_ledger_id,
+      outsource_ledger_id, jobwork_ledger_id,
       sizing_job:sizing_job_id (
         job_code, set_no,
         warp_count:warp_count_id ( code )
       ),
-      outsource_vendor:outsource_ledger_id ( name )
+      outsource_vendor:outsource_ledger_id ( name ),
+      jobwork_vendor:jobwork_ledger_id ( name )
     `).order('created_at', { ascending: false }).limit(300),
     sb.from('sizing_job').select(`
       id, job_code, set_no,
@@ -60,13 +61,22 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       .eq('kind', 'outsource')
       .eq('status', 'active')
       .order('name'),
+    sb.from('jobwork_party')
+      .select('id, name, ledger_id')
+      .eq('kind', 'jobwork')
+      .eq('status', 'active')
+      .order('name'),
   ]);
 
-  // ── Vendor list ──
+  // ── Vendor / Jobwork party lists ──
   // Value = jobwork_party.ledger_id (created/linked by migration
   // 121's trigger). Parties without a linked ledger are dropped
-  // because the FK on pavu.outsource_ledger_id would reject them.
+  // because the FK on pavu.outsource_ledger_id / jobwork_ledger_id
+  // would reject them.
   const vendors = ((partiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
+    .filter((p) => p.ledger_id != null)
+    .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
+  const jobworkParties = ((jobworkPartiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
     .filter((p) => p.ledger_id != null)
     .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
 
@@ -75,10 +85,12 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     id: number; pavu_code: string; beam_no: string;
     ends: number; meters: number | string;
     status: string;
-    production_mode: 'in_house' | 'outsource';
+    production_mode: 'in_house' | 'outsource' | 'jobwork';
     outsource_ledger_id: number | null;
+    jobwork_ledger_id: number | null;
     sizing_job: { job_code: string | null; warp_count: { code: string | null } | null } | null;
     outsource_vendor: { name: string } | null;
+    jobwork_vendor: { name: string } | null;
   }>);
   const pavus: PavuRow[] = allPavus.map((p) => ({
     id: p.id,
@@ -89,13 +101,17 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     status: p.status,
     production_mode: p.production_mode,
     outsource_ledger_id: p.outsource_ledger_id,
+    jobwork_ledger_id: p.jobwork_ledger_id,
     sizing_job_code: p.sizing_job?.job_code ?? null,
     warp_count_code: p.sizing_job?.warp_count?.code ?? null,
     outsource_vendor_name: p.outsource_vendor?.name ?? null,
+    jobwork_vendor_name: p.jobwork_vendor?.name ?? null,
   }));
-  const tabPavus = pavus.filter((p) =>
-    tab === 'inhouse' ? p.production_mode === 'in_house' : p.production_mode === 'outsource',
-  );
+  const tabPavus = pavus.filter((p) => {
+    if (tab === 'inhouse') return p.production_mode === 'in_house';
+    if (tab === 'outsource') return p.production_mode === 'outsource';
+    return p.production_mode === 'jobwork';
+  });
 
   // ── Bulk routing rows (Outsource tab only) ──
   const rawJobs = (jobsRes.data ?? []) as Array<{
@@ -216,6 +232,17 @@ export default async function PavuListPage({ searchParams }: PageProps) {
         >
           Outsource ({pavus.filter((p) => p.production_mode === 'outsource').length})
         </Link>
+        <Link
+          href={tabLink('jobwork')}
+          className={
+            'px-4 py-2 text-sm font-medium rounded-t -mb-px border-b-2 transition ' +
+            (tab === 'jobwork'
+              ? 'border-indigo text-indigo bg-indigo-50/60'
+              : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze/60')
+          }
+        >
+          Jobwork ({pavus.filter((p) => p.production_mode === 'jobwork').length})
+        </Link>
       </div>
 
       {/* Bulk routing form — visible on either tab whenever the
@@ -245,8 +272,8 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       {/* Pavu list — editable per row, scoped to the active tab */}
       <section>
         <h2 className="font-display font-bold text-sm mb-2">
-          {tab === 'inhouse' ? 'In-house pavu' : 'Outsource pavu'}{' '}
-          <span className="text-ink-mute">· edit Mode &amp; Weaver per row</span>
+          {tab === 'inhouse' ? 'In-house pavu' : tab === 'outsource' ? 'Outsource pavu' : 'Jobwork pavu'}{' '}
+          <span className="text-ink-mute">· edit Mode &amp; Party per row</span>
         </h2>
 
         {pavusRes.error && (
@@ -255,7 +282,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
           </div>
         )}
 
-        <PavuListEditor rows={tabPavus} vendors={vendors} scope={tab} />
+        <PavuListEditor rows={tabPavus} vendors={vendors} jobworkParties={jobworkParties} scope={tab} />
       </section>
     </div>
   );

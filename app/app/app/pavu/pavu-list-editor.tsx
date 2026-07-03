@@ -1,14 +1,14 @@
 'use client';
 /**
- * Pavu list — editable per-row Mode + Weaver.
+ * Pavu list — editable per-row Mode + Weaver/Jobwork Party.
  *
- * The Pavu Master page renders this component twice (once per tab) so
- * the operator sees only In-house or only Outsource pavu rows at a
- * time. Each row carries inline controls to flip its Mode and pick an
- * Outsource Weaver. Saving the row UPDATEs the pavu and runs the
- * warp-beam-given sync helper, so the corresponding entry on
- * /app/outsource → Warp Beam Given is created / updated / deleted to
- * match.
+ * The Pavu Master page renders this component three times (once per
+ * tab) so the operator sees only In-house, only Outsource, or only
+ * Jobwork pavu rows at a time. Each row carries inline controls to
+ * flip its Mode and pick an Outsource Weaver or Jobwork Party. Saving
+ * the row UPDATEs the pavu and runs the warp-beam-given sync helper,
+ * so the corresponding entry on /app/outsource or /app/jobwork →
+ * Warp Beam Given is created / updated / deleted to match.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -16,7 +16,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Lock } from 'lucide-react';
 import { syncWarpBeamFromPavu } from './sync-warp-beam';
 
-type ProdMode = 'in_house' | 'outsource';
+type ProdMode = 'in_house' | 'outsource' | 'jobwork';
 
 export interface PavuRow {
   id: number;
@@ -27,9 +27,11 @@ export interface PavuRow {
   status: string;
   production_mode: ProdMode;
   outsource_ledger_id: number | null;
+  jobwork_ledger_id: number | null;
   sizing_job_code: string | null;
   warp_count_code: string | null;
   outsource_vendor_name: string | null;
+  jobwork_vendor_name: string | null;
 }
 
 export interface WeavingVendor {
@@ -38,16 +40,18 @@ export interface WeavingVendor {
 }
 
 interface Props {
-  rows:    ReadonlyArray<PavuRow>;
-  vendors: ReadonlyArray<WeavingVendor>;
+  rows:           ReadonlyArray<PavuRow>;
+  vendors:        ReadonlyArray<WeavingVendor>;
+  jobworkParties: ReadonlyArray<WeavingVendor>;
   /** Which tab this list belongs to — drives the empty-state text
    *  and the row-mode header pill. */
-  scope:   'inhouse' | 'outsource';
+  scope:   'inhouse' | 'outsource' | 'jobwork';
 }
 
 interface RowState {
-  mode:     ProdMode;
-  vendorId: string;
+  mode:          ProdMode;
+  vendorId:      string;
+  jobworkPartyId: string;
   saving:   boolean;
   error:    string | null;
   saved:    boolean;
@@ -66,8 +70,9 @@ const STATUS_STYLE: Record<string, string> = {
 // useState initializer runs, regardless of hoisting subtleties.
 function defaultStateFor(r: PavuRow): RowState {
   return {
-    mode:     r.production_mode,
-    vendorId: r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
+    mode:           r.production_mode,
+    vendorId:       r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
+    jobworkPartyId: r.jobwork_ledger_id   != null ? String(r.jobwork_ledger_id)   : '',
     saving:   false,
     error:    null,
     saved:    false,
@@ -75,7 +80,7 @@ function defaultStateFor(r: PavuRow): RowState {
   };
 }
 
-export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElement {
+export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
@@ -91,8 +96,8 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
     setState((prev) => {
       const base = prev[rowId] ?? defaultStateFor(rows.find((x) => x.id === rowId) ?? {
         id: rowId, pavu_code: '', beam_no: '', ends: 0, meters: 0, status: '',
-        production_mode: 'in_house', outsource_ledger_id: null,
-        sizing_job_code: null, warp_count_code: null, outsource_vendor_name: null,
+        production_mode: 'in_house', outsource_ledger_id: null, jobwork_ledger_id: null,
+        sizing_job_code: null, warp_count_code: null, outsource_vendor_name: null, jobwork_vendor_name: null,
       });
       return { ...prev, [rowId]: { ...base, ...patch } };
     });
@@ -105,20 +110,26 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
       patch(row.id, { error: 'Pick an outsource weaver (or switch to In-house).' });
       return;
     }
+    if (s.mode === 'jobwork' && !s.jobworkPartyId) {
+      patch(row.id, { error: 'Pick a jobwork party (or switch to In-house).' });
+      return;
+    }
 
     patch(row.id, { saving: true, error: null, saved: false });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
     // 1. Update the pavu row first.
-    // Setting a routing on either side flips status to 'assigned' —
-    // the operator has now committed to in-house or outsource. The
-    // sync helper below also sets it for outsource, but for in-house
-    // we need to handle it here because the helper deletes the
-    // mirror row and returns without touching pavu.status.
+    // Setting a routing on any side flips status to 'assigned' — the
+    // operator has now committed to in-house, outsource, or jobwork.
+    // The sync helper below also sets it for outsource/jobwork, but
+    // for in-house we need to handle it here because the helper
+    // deletes the mirror row and returns without touching pavu.status.
     const payload = s.mode === 'in_house'
-      ? { production_mode: 'in_house',  outsource_ledger_id: null,            status: 'assigned' }
-      : { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId), status: 'assigned' };
+      ? { production_mode: 'in_house',  outsource_ledger_id: null,              jobwork_ledger_id: null,               status: 'assigned' }
+      : s.mode === 'outsource'
+      ? { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId), jobwork_ledger_id: null,               status: 'assigned' }
+      : { production_mode: 'jobwork',   outsource_ledger_id: null,              jobwork_ledger_id: Number(s.jobworkPartyId), status: 'assigned' };
     const { error: updErr } = await sb.from('pavu').update(payload).eq('id', row.id);
     if (updErr) { patch(row.id, { saving: false, error: updErr.message }); return; }
 
@@ -138,7 +149,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
   if (rows.length === 0) {
     return (
       <div className="card p-10 text-center text-ink-soft text-sm">
-        No {scope === 'inhouse' ? 'in-house' : 'outsource'} pavu rows yet.
+        No {scope === 'inhouse' ? 'in-house' : scope === 'outsource' ? 'outsource' : 'jobwork'} pavu rows yet.
       </div>
     );
   }
@@ -156,6 +167,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
             <th className="text-right px-4 py-3">Metres</th>
             <th className="text-left  px-4 py-3">Mode</th>
             {scope === 'outsource' && <th className="text-left px-4 py-3">Weaver</th>}
+            {scope === 'jobwork' && <th className="text-left px-4 py-3">Jobwork Party</th>}
             <th className="text-left  px-4 py-3">Status</th>
             <th className="text-right px-4 py-3 w-24"></th>
           </tr>
@@ -163,12 +175,13 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
         <tbody>
           {rows.map((r) => {
             const s = state[r.id] ?? defaultStateFor(r);
-            // Outsource-assigned pavus are locked: the routing
-            // decision has already gone out to the weaver and
+            // Outsource/Jobwork-assigned pavus are locked: the routing
+            // decision has already gone out to the weaver/party and
             // reversing it has to happen through a release on the
-            // Outsource → Warp Beam Given page so the audit trail
-            // (and the warp-given table) stay consistent.
-            const isLocked = r.production_mode === 'outsource' && r.status === 'assigned';
+            // matching Warp Beam Given page so the audit trail (and
+            // the warp-given table) stay consistent.
+            const isLocked =
+              (r.production_mode === 'outsource' || r.production_mode === 'jobwork') && r.status === 'assigned';
             return (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60 align-middle">
                 <td className="px-4 py-2 font-mono text-xs font-semibold text-ink">{r.pavu_code}</td>
@@ -180,7 +193,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                 <td className="px-4 py-2">
                   {isLocked ? (
                     <div className="input py-1 text-xs min-w-[110px] bg-cloud/40 text-ink-mute select-none flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Outsource
+                      <Lock className="w-3 h-3" /> {r.production_mode === 'outsource' ? 'Outsource' : 'Jobwork'}
                     </div>
                   ) : (
                     <select
@@ -188,6 +201,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                       onChange={(e) => patch(r.id, {
                         mode: e.target.value as ProdMode,
                         vendorId: e.target.value === 'outsource' ? s.vendorId : '',
+                        jobworkPartyId: e.target.value === 'jobwork' ? s.jobworkPartyId : '',
                         saved: false,
                         dirty: true,
                       })}
@@ -195,6 +209,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                     >
                       <option value="in_house">In-house</option>
                       <option value="outsource">Outsource</option>
+                      <option value="jobwork">Jobwork</option>
                     </select>
                   )}
                 </td>
@@ -218,6 +233,26 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                     )}
                   </td>
                 )}
+                {scope === 'jobwork' && (
+                  <td className="px-4 py-2">
+                    {isLocked ? (
+                      <div className="input py-1 text-xs min-w-[160px] bg-cloud/40 text-ink-mute select-none">
+                        {r.jobwork_vendor_name ?? '—'}
+                      </div>
+                    ) : s.mode === 'jobwork' ? (
+                      <select
+                        value={s.jobworkPartyId}
+                        onChange={(e) => patch(r.id, { jobworkPartyId: e.target.value, saved: false, dirty: true })}
+                        className="input py-1 text-xs min-w-[160px]"
+                      >
+                        <option value="">Select jobwork party…</option>
+                        {jobworkParties.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-ink-mute text-xs">—</span>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-2">
                   <span className={`pill ${STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
                     {r.status.replace('_', ' ')}
@@ -227,7 +262,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   {isLocked ? (
                     <span
                       className="text-[10px] text-ink-mute inline-flex items-center gap-1"
-                      title="Release this beam from /app/outsource → Warp Beam Given before editing"
+                      title={`Release this beam from /app/${r.production_mode === 'outsource' ? 'outsource' : 'jobwork'} → Warp Beam Given before editing`}
                     >
                       <Lock className="w-3 h-3" /> Locked
                     </span>

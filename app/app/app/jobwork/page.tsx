@@ -1389,18 +1389,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     beam_no: string;
     ends: number;
     meters: number;
-    production_mode: 'in_house' | 'outsource' | null;
+    production_mode: 'in_house' | 'outsource' | 'jobwork' | null;
     outsource_ledger_id: number | null;
+    jobwork_ledger_id: number | null;
   }
   interface OutsourceRouting {
     outsource_ledger_id: number | null;
     sizing_job_id: number | null;
   }
   const [sizingJobs,       setSizingJobs]       = useState<SizingJobOpt[]>([]);
-  // Jobwork-variant only: an unfiltered list of every active sizing
-  // job for the manual sizing-job dropdown. Kept separate from
-  // `sizingJobs` (which is narrowed to outsource-routed pavus only).
-  const [allSizingJobs,    setAllSizingJobs]    = useState<SizingJobOpt[]>([]);
   const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
   // Routing relationships between outsource parties and sizing
@@ -1419,31 +1416,40 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // for the selected ledger.
   const [sizingPartyByLedger,    setSizingPartyByLedger]    = useState<Map<number, number>>(new Map());
 
-  // Load every piece of routing context the cascading dropdowns
-  // need: outsource-routed pavu rows (with their outsource_ledger_id
+  // Load every piece of routing context the cascading dropdowns need:
+  // pavu rows already routed to this page's mode (with their ledger id
   // and sizing_job_id), the sizing jobs they belong to (with each
-  // job's sizing_ledger_id), and the ledger_id of every outsource
-  // party and sizing party in the dropdown lists. Cascading filter:
-  //   1. Pick Outsourcing party â†’ narrows Sizing party dropdown to
-  //      those whose ledger matches a sizing_job that has pavus
-  //      routed to this outsource party.
-  //   2. Pick Sizing party â†’ narrows Sizing job dropdown to jobs
-  //      from that sizing party + going to this outsource party.
+  // job's sizing_ledger_id), and the ledger_id of every party (outsource
+  // weaver or jobwork party) and sizing party in the dropdown lists.
+  // Shared by both /app/outsource (kind='outsource') and /app/jobwork
+  // (kind='jobwork') â€” the only difference is which pavu ledger column
+  // and production_mode value the query targets. Cascading filter:
+  //   1. Pick the party â†’ narrows Sizing party dropdown to those whose
+  //      ledger matches a sizing_job that has pavus routed to this party.
+  //   2. Pick Sizing party â†’ narrows Sizing job dropdown to jobs from
+  //      that sizing party + going to this party.
   useEffect(() => {
-    if (!showAdd || kind !== 'outsource') return;
+    if (!showAdd || (kind !== 'outsource' && kind !== 'jobwork')) return;
     let cancelled = false;
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
+      // Jobwork mode reads jobwork_ledger_id instead of
+      // outsource_ledger_id, aliased back to the same field name so the
+      // rest of this effect (and the downstream cascade memos) stay
+      // mode-agnostic.
+      const ledgerSelect = kind === 'jobwork'
+        ? 'outsource_ledger_id:jobwork_ledger_id, sizing_job_id'
+        : 'outsource_ledger_id, sizing_job_id';
       const [pavuRes, outsourcePartyLedgerRes] = await Promise.all([
         sb.from('pavu')
-          .select('outsource_ledger_id, sizing_job_id')
-          .eq('production_mode', 'outsource')
+          .select(ledgerSelect)
+          .eq('production_mode', kind)
           .not('sizing_job_id', 'is', null),
-        // `parties` is sourced from `jobwork_party` (kind='outsource')
-        // by the parent â€” not the `party` master â€” so we resolve the
-        // ledger map from the same table. Querying `party` with these
-        // ids returns nothing (different id namespaces) and the
+        // `parties` is sourced from `jobwork_party` (kind matching this
+        // page) by the parent â€” not the `party` master â€” so we resolve
+        // the ledger map from the same table. Querying `party` with
+        // these ids returns nothing (different id namespaces) and the
         // strict cascade collapses to an empty sizing-vendor list.
         parties.length > 0
           ? sb.from('jobwork_party').select('id, ledger_id').in('id', parties.map((p) => p.id))
@@ -1504,27 +1510,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return () => { cancelled = true; };
   }, [showAdd, kind, supabase, parties]);
 
-  // Jobwork variant: load every active sizing job for the manual
-  // dropdown. No cascade â€” the operator picks freely, then types in
-  // the totals (or auto-fills from a fabric quality).
-  useEffect(() => {
-    if (!showAdd || kind !== 'jobwork') return;
-    let cancelled = false;
-    void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const { data } = await sb
-        .from('sizing_job')
-        .select('id, job_code, set_no, warp_count_id, sizing_ledger_id')
-        .not('status', 'in', '(draft,cancelled)')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (cancelled) return;
-      setAllSizingJobs((data ?? []) as SizingJobOpt[]);
-    })();
-    return () => { cancelled = true; };
-  }, [showAdd, kind, supabase]);
-
   // â”€â”€ Cascade memos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectedOutsourceLedgerId = form.jobwork_party_id === ''
     ? null
@@ -1578,28 +1563,25 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     });
   }, [form.jobwork_party_id, sizingJobs, sizingJobIdsForOutsource, form.supplier_party_id, selectedOutsourceLedgerId]);
 
-  // When the outsource party changes, clear stale sizing-party and
-  // sizing-job selections so the cascade doesn't get confused. Only
-  // applies to the outsource variant â€” the jobwork variant uses
-  // independent manual dropdowns.
+  // When the party changes, clear stale sizing-party and sizing-job
+  // selections so the cascade doesn't get confused. Shared by both
+  // variants â€” each runs the same party â†’ sizing party â†’ sizing job
+  // cascade now.
   useEffect(() => {
-    if (kind !== 'outsource') return;
     setForm((f) => ({ ...f, supplier_party_id: '', sizing_job_id: '' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.jobwork_party_id, kind]);
+  }, [form.jobwork_party_id]);
 
-  // When the sizing party changes, clear the sizing-job selection
-  // (outsource cascade only).
+  // When the sizing party changes, clear the sizing-job selection.
   useEffect(() => {
-    if (kind !== 'outsource') return;
     setForm((f) => ({ ...f, sizing_job_id: '' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.supplier_party_id, kind]);
+  }, [form.supplier_party_id]);
 
-  // Load pavu rows when the sizing job picker changes. Outsource
-  // warp-given is, by definition, only about outsource-routed beams,
-  // so the checklist is filtered to production_mode='outsource' â€”
-  // in-house beams of the same sizing set don't belong in this form.
+  // Load pavu rows when the sizing job picker changes. Warp-given is,
+  // by definition, only about beams already routed to this page's mode
+  // (outsource or jobwork) â€” in-house beams of the same sizing set, or
+  // beams routed to the other mode, don't belong in this form.
   useEffect(() => {
     if (form.sizing_job_id === '') { setPavusForJob([]); setSelectedPavuIds(new Set()); return; }
     let cancelled = false;
@@ -1608,16 +1590,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       const sb = supabase as any;
       const { data } = await sb
         .from('pavu')
-        .select('id, pavu_code, beam_no, ends, meters, production_mode, outsource_ledger_id')
+        .select('id, pavu_code, beam_no, ends, meters, production_mode, outsource_ledger_id, jobwork_ledger_id')
         .eq('sizing_job_id', Number(form.sizing_job_id))
-        .eq('production_mode', 'outsource')
+        .eq('production_mode', kind)
         .order('beam_no');
       if (cancelled) return;
       setPavusForJob((data ?? []) as PavuOpt[]);
       setSelectedPavuIds(new Set());
     })();
     return () => { cancelled = true; };
-  }, [form.sizing_job_id, supabase]);
+  }, [form.sizing_job_id, kind, supabase]);
 
   function toggleSelectedPavu(id: number) {
     setSelectedPavuIds((prev) => {
@@ -1703,122 +1685,96 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   async function add() {
     setErr(null);
     if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
-    if (kind === 'outsource') {
-      // Pavu-driven flow on the outsource page. Cascading dropdowns
-      // and the pavu checklist are all required; the totals are
-      // auto-derived from the picked beams, never typed.
-      if (form.supplier_party_id === '') { setErr('Pick a sizing party.'); return; }
-      if (form.sizing_job_id === '')     { setErr('Pick a sizing job.'); return; }
-      if (form.fabric_quality_id === '') { setErr('Pick a fabric quality to assign the metres to.'); return; }
-      if (selectedPavuIds.size === 0)    { setErr('Select at least one pavu beam.'); return; }
-    }
+    // Both variants run through the same pavu-driven cascade now.
+    // Cascading dropdowns and the pavu checklist are all required; the
+    // totals are auto-derived from the picked beams, never typed.
+    if (form.supplier_party_id === '') { setErr('Pick a sizing party.'); return; }
+    if (form.sizing_job_id === '')     { setErr('Pick a sizing job.'); return; }
+    if (form.fabric_quality_id === '') { setErr('Pick a fabric quality to assign the metres to.'); return; }
+    if (selectedPavuIds.size === 0)    { setErr('Select at least one pavu beam.'); return; }
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    if (kind === 'outsource') {
-      // Resolve the selected outsource party's ledger_id so we can
-      // update the pavu rows with the correct foreign key. The party
-      // dropdown is sourced from `jobwork_party` (kind='outsource'),
-      // NOT the `party` master â€” querying `party` with this id was
-      // the source of the "Selected party has no linked ledger" error
-      // even after migration 121 had linked the jobwork_party row.
-      const { data: party } = await sb
-        .from('jobwork_party')
-        .select('ledger_id')
-        .eq('id', Number(form.jobwork_party_id))
-        .maybeSingle();
-      if (!party?.ledger_id) {
-        setBusy(false);
-        setErr('Selected party has no linked ledger. Set it up on the party form first.');
-        return;
-      }
-      const newLedgerId = Number(party.ledger_id);
-
-      // Auto totals are derived from the picked beams. We send the
-      // numeric values into the table â€” the operator never touches
-      // these fields, so there's no validation to do beyond > 0.
-      const beamIds = Array.from(selectedPavuIds);
-      // form.supplier_party_id now stores the picked sizing-vendor
-      // ledger_id (the dropdown is ledger-backed). Translate back to
-      // a party_id when a matching "Sizing Party" party exists for
-      // that ledger; otherwise leave the FK null. The warp-given row
-      // still records the sizing vendor through its linked sizing
-      // job, so no info is lost on the receipt side.
-      const supplierLedgerId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
-      const supplierPartyId  = supplierLedgerId != null
-        ? sizingPartyByLedger.get(supplierLedgerId) ?? null
-        : null;
-      const payload = {
-        jobwork_party_id:  Number(form.jobwork_party_id),
-        fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
-        warp_count_id:     autoWarpCountId,
-        given_date:        form.given_date,
-        total_ends:        autoEndsValues.length === 1 ? autoEndsValues[0] : null,
-        beam_count:        autoBeamCount,
-        total_metres:      autoTotalMetres > 0 ? autoTotalMetres : null,
-        original_metres:   autoTotalMetres > 0 ? autoTotalMetres : null,
-        reference_no:      form.reference_no.trim() || null,
-        notes:             form.notes.trim() || null,
-        supplier_party_id: supplierPartyId,
-        // Aggregate row â€” no single pavu link. pavu_ids records the
-        // exact set of pavus this row represents so the Release
-        // action can revert just those beams.
-        pavu_id:           null,
-        pavu_ids:          beamIds,
-      };
-      const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
-      if (insErr) { setBusy(false); setErr(insErr.message); return; }
-
-      // Update each selected pavu â€” flip routing AND mark assigned
-      // so the Pavu Master editor locks them out.
-      const { error: pavuErr } = await sb
-        .from('pavu')
-        .update({ production_mode: 'outsource', outsource_ledger_id: newLedgerId, status: 'assigned' })
-        .in('id', beamIds);
-      if (pavuErr) { setBusy(false); setErr(`Warp-given saved but pavu update failed: ${pavuErr.message}`); return; }
-
-      // Drop any 1-to-1 mirror rows for the selected pavus â€” they're
-      // represented by the aggregate row now.
-      await sb.from('jobwork_warp_beam').delete().in('pavu_id', beamIds);
-
+    // Resolve the selected party's ledger_id so we can update the pavu
+    // rows with the correct foreign key. The party dropdown is sourced
+    // from `jobwork_party` (kind matching this page), NOT the `party`
+    // master â€” querying `party` with this id was the source of the
+    // "Selected party has no linked ledger" error even after migration
+    // 121 had linked the jobwork_party row.
+    const { data: party } = await sb
+      .from('jobwork_party')
+      .select('ledger_id')
+      .eq('id', Number(form.jobwork_party_id))
+      .maybeSingle();
+    if (!party?.ledger_id) {
       setBusy(false);
-      setForm({
-        given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
-        total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
-        sizing_job_id: '',
-      });
-      setSelectedPavuIds(new Set());
-      setPavusForJob([]);
-      setShowAdd(false);
-      onChanged();
+      setErr('Selected party has no linked ledger. Set it up on the party form first.');
       return;
     }
+    const newLedgerId = Number(party.ledger_id);
 
-    // Legacy flat-form path (jobwork variant â€” simpler manual form
-    // re-introduced on /app/jobwork). Sizing party + sizing job are
-    // both optional FK references that just tag the warp-given row.
+    // Auto totals are derived from the picked beams. We send the
+    // numeric values into the table â€” the operator never touches
+    // these fields, so there's no validation to do beyond > 0.
+    const beamIds = Array.from(selectedPavuIds);
+    // form.supplier_party_id now stores the picked sizing-vendor
+    // ledger_id (the dropdown is ledger-backed). Translate back to
+    // a party_id when a matching "Sizing Party" party exists for
+    // that ledger; otherwise leave the FK null. The warp-given row
+    // still records the sizing vendor through its linked sizing
+    // job, so no info is lost on the receipt side.
+    const supplierLedgerId = form.supplier_party_id === '' ? null : Number(form.supplier_party_id);
+    const supplierPartyId  = supplierLedgerId != null
+      ? sizingPartyByLedger.get(supplierLedgerId) ?? null
+      : null;
     const payload = {
-      jobwork_party_id: Number(form.jobwork_party_id),
+      jobwork_party_id:  Number(form.jobwork_party_id),
       fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
-      warp_count_id: form.warp_count_id === '' ? null : Number(form.warp_count_id),
-      given_date: form.given_date,
-      total_ends: form.total_ends === '' ? null : Number(form.total_ends),
-      beam_count: form.beam_count === '' ? 1 : Number(form.beam_count),
-      total_metres: form.total_metres === '' ? null : Number(form.total_metres),
-      reference_no: form.reference_no.trim() || null,
-      notes: form.notes.trim() || null,
-      supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
-      sizing_job_id: form.sizing_job_id === '' ? null : Number(form.sizing_job_id),
+      warp_count_id:     autoWarpCountId,
+      given_date:        form.given_date,
+      total_ends:        autoEndsValues.length === 1 ? autoEndsValues[0] : null,
+      beam_count:        autoBeamCount,
+      total_metres:      autoTotalMetres > 0 ? autoTotalMetres : null,
+      original_metres:   autoTotalMetres > 0 ? autoTotalMetres : null,
+      reference_no:      form.reference_no.trim() || null,
+      notes:             form.notes.trim() || null,
+      supplier_party_id: supplierPartyId,
+      // Aggregate row â€” no single pavu link. pavu_ids records the
+      // exact set of pavus this row represents so the Release
+      // action can revert just those beams. total_metres above is the
+      // sole stock-outflow figure the warehouse view reads â€” the
+      // individual beam metres are never separately counted.
+      pavu_id:           null,
+      pavu_ids:          beamIds,
     };
-    const { error } = await sb.from('jobwork_warp_beam').insert(payload);
+    const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
+    if (insErr) { setBusy(false); setErr(insErr.message); return; }
+
+    // Update each selected pavu â€” flip routing AND mark assigned so
+    // the Pavu Master editor locks them out. Which ledger column gets
+    // the new ledger id depends on this page's mode.
+    const pavuUpdate = kind === 'jobwork'
+      ? { production_mode: 'jobwork',   jobwork_ledger_id: newLedgerId, status: 'assigned' }
+      : { production_mode: 'outsource', outsource_ledger_id: newLedgerId, status: 'assigned' };
+    const { error: pavuErr } = await sb
+      .from('pavu')
+      .update(pavuUpdate)
+      .in('id', beamIds);
+    if (pavuErr) { setBusy(false); setErr(`Warp-given saved but pavu update failed: ${pavuErr.message}`); return; }
+
+    // Drop any 1-to-1 mirror rows for the selected pavus â€” they're
+    // represented by the aggregate row now.
+    await sb.from('jobwork_warp_beam').delete().in('pavu_id', beamIds);
+
     setBusy(false);
-    if (error) { setErr(error.message); return; }
     setForm({
       given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
       total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
       sizing_job_id: '',
     });
+    setSelectedPavuIds(new Set());
+    setPavusForJob([]);
     setShowAdd(false);
     onChanged();
   }
@@ -1915,11 +1871,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     onChanged();
   }
 
-  // Blurb adapts to the variant â€” the jobwork form is a simple
-  // manual entry, the outsource form runs through the pavu cascade.
+  // Both variants now run through the same pavu cascade (party â†’
+  // sizing party â†’ sizing job â†’ beam checklist); only the wording
+  // differs.
   const tabBlurb = kind === 'jobwork'
-    ? 'Warp beams sent to jobwork parties. Pick sizing party + sizing job, then assign the metres to a fabric quality.'
-    : 'Warp beams sent to outsource weavers. Add captures each issue; the table reflects only what\u2019s been logged here.';
+    ? 'Warp beams sent to jobwork parties. Pick the party, sizing party and sizing job, then tick the beams to send \u2014 totals are auto-derived.'
+    : 'Warp beams sent to outsource weavers. Pick the party, sizing party and sizing job, then tick the beams to send \u2014 totals are auto-derived.';
 
   return (
     <div>
@@ -1941,99 +1898,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       <div className="card p-4 mb-4 space-y-4">
         <h3 className="font-display font-bold text-sm">Add warp beam given</h3>
 
-        {kind === 'jobwork' ? (
-        <>
-          {/* Step 1 â€” Date, Jobwork Party, Sizing party. All manual;
-              no cascade. Sizing job removed per operator request â€”
-              jobwork warp beams are tracked at the party level only. */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div><label className="label text-xs">ID</label>
-              <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
-            </div>
-            <div><label className="label text-xs">Date *</label>
-              <input type="date" className="input" value={form.given_date}
-                onChange={(e) => setForm({ ...form, given_date: e.target.value })} />
-            </div>
-            <div><label className="label text-xs">{partyLabel} *</label>
-              <select className="input" value={form.jobwork_party_id}
-                onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
-                <option value="">--- pick ---</option>
-                {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-              </select>
-            </div>
-            <div><label className="label text-xs">Sizing party</label>
-              <select className="input" value={form.supplier_party_id}
-                onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
-                <option value="">--- pick ---</option>
-                {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
-            <div><label className="label text-xs">Fabric quality *</label>
-              <select className="input" value={form.fabric_quality_id}
-                onChange={(e) => onFabricChange(e.target.value)}>
-                <option value="">--- pick ---</option>
-                {/* Job Work variant: show ONLY qualities tagged
-                    production_mode='job_work' on the fabric_quality
-                    master. The other modes (inhouse / outsourcing) are
-                    reserved for the parent flow and shouldn't appear
-                    here. */}
-                {qualities.filter((q) => q.production_mode === 'job_work')
-                  .map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
-              </select>
-              <p className="text-[10px] text-ink-mute mt-0.5">Picking a quality fills warp count + total ends; you can still edit them. List filtered to Job Work qualities only.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div><label className="label text-xs">Warp count</label>
-              <select className="input" value={form.warp_count_id}
-                onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
-                <option value="">---</option>
-                {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
-              </select>
-            </div>
-            <div><label className="label text-xs">Total ends</label>
-              <input type="number" className="input num" value={form.total_ends}
-                onChange={(e) => setForm({ ...form, total_ends: e.target.value })} />
-            </div>
-            <div><label className="label text-xs">No. of beams</label>
-              <input type="number" className="input num" value={form.beam_count}
-                onChange={(e) => setForm({ ...form, beam_count: e.target.value })} />
-            </div>
-            <div><label className="label text-xs">Total metres</label>
-              <input type="number" step={0.01} className="input num" value={form.total_metres}
-                onChange={(e) => setForm({ ...form, total_metres: e.target.value })} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="label text-xs">Reference / DC no</label>
-              <input className="input" value={form.reference_no}
-                onChange={(e) => setForm({ ...form, reference_no: e.target.value })} />
-            </div>
-            <div><label className="label text-xs">Notes</label>
-              <input className="input" value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            </div>
-          </div>
-
-          {err && <div className="text-sm text-err">{err}</div>}
-          <div className="flex justify-end">
-            <button type="button" onClick={add} disabled={busy} className="btn-primary">
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp beam
-            </button>
-          </div>
-        </>
-        ) : (
-        <>
         {/* Step 1 â€” pick date, party, sizing party, sizing job. The
-            cascade is: Outsourcing party â†’ narrows Sizing party â†’
-            narrows Sizing job â†’ drives the pavu list below. The
-            totals downstream are auto-derived from whichever pavu
-            beams the operator ticks. */}
+            cascade is: party â†’ narrows Sizing party â†’ narrows Sizing
+            job â†’ drives the pavu list below. The totals downstream are
+            auto-derived from whichever pavu beams the operator ticks.
+            Shared by both /app/outsource and /app/jobwork. */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div><label className="label text-xs">ID</label>
             <div className="input bg-cloud/40 text-ink-mute select-none">Auto (WBG-NNNN)</div>
@@ -2054,7 +1923,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             >
               <option value="">
                 {form.jobwork_party_id === ''
-                  ? 'Pick outsource party firstâ€¦'
+                  ? `Pick ${partyLabel.toLowerCase()} firstâ€¦`
                   : eligibleSizingVendors.length === 0
                     ? 'No sizing vendors used for this party'
                     : '--- pick ---'}
@@ -2072,7 +1941,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             >
               <option value="">
                 {form.jobwork_party_id === ''
-                  ? 'Pick outsource party firstâ€¦'
+                  ? `Pick ${partyLabel.toLowerCase()} firstâ€¦`
                   : form.supplier_party_id === ''
                     ? 'Pick sizing party firstâ€¦'
                     : eligibleSizingJobs.length === 0
@@ -2118,7 +1987,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <ul className="space-y-1">
                 {pavusForJob.map((p) => {
                   const checked = selectedPavuIds.has(p.id);
-                  const isOutsource = p.production_mode === 'outsource';
+                  const pillClass = p.production_mode === 'outsource'
+                    ? 'bg-amber-50 text-amber-700'
+                    : p.production_mode === 'jobwork'
+                      ? 'bg-sky-50 text-sky-700'
+                      : 'bg-indigo-50 text-indigo-700';
+                  const pillLabel = p.production_mode === 'outsource'
+                    ? 'Outsource'
+                    : p.production_mode === 'jobwork'
+                      ? 'Jobwork'
+                      : 'In-house';
                   return (
                     <li key={p.id} className="flex items-center gap-3 text-xs">
                       <input
@@ -2131,11 +2009,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                       <span className="font-mono w-16 inline-block">#{p.beam_no}</span>
                       <span className="text-ink-mute w-24 inline-block">{p.ends} ends</span>
                       <span className="text-ink-mute w-24 inline-block">{Number(p.meters).toFixed(0)} m</span>
-                      <span className={
-                        'ml-auto pill text-[10px] ' +
-                        (isOutsource ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700')
-                      }>
-                        {isOutsource ? 'Outsource' : 'In-house'}
+                      <span className={'ml-auto pill text-[10px] ' + pillClass}>
+                        {pillLabel}
                       </span>
                     </li>
                   );
@@ -2194,8 +2069,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add warp beam
           </button>
         </div>
-        </>
-        )}
       </div>
       )}
 

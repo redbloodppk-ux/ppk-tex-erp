@@ -1,0 +1,13 @@
+-- 230_jobwork_warp_beam_details.sql — SUPERSEDED, DO NOT APPLY.
+--
+-- This file originally added a jsonb beam_details column for a
+-- Jobwork-page-only design. That design was replaced before anything
+-- was applied to the database: beam-wise entry for Jobwork is now
+-- built as a real third mode in Pavu Master (mirroring Outsource),
+-- not a jsonb blob on jobwork_warp_beam.
+--
+-- See 230_pavu_jobwork_mode.sql for the migration that actually ships.
+-- This file is intentionally left as a no-op so the 230 sequence slot
+-- isn't reused with conflicting content.
+
+-- (intentionally empty — no SQL to run)
