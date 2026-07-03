@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock, Scissors } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw, ArrowLeft, Unlock, Scissors, ChevronDown, ChevronRight } from 'lucide-react';
 
 // This page services TWO routes: /app/jobwork and /app/outsource. The
 // only difference is which `jobwork_party.kind` rows it filters to —
@@ -121,6 +121,67 @@ interface WarpBeamRow {
    *  manual jobwork entries, null on outsource's pavu-driven rows. */
   sizing_job_id: number | null;
 }
+
+/** A cluster of single-beam rows (beam_count === 1) that were entered
+ *  together as one batch — either via the Add form's beam list or via
+ *  "Split into beams". Display-only: the underlying rows stay separate
+ *  in the database, this just rolls them into one summary line with an
+ *  expand toggle so the history list isn't cluttered with one row per
+ *  beam. */
+interface WarpBeamGroup {
+  key: string;
+  rows: WarpBeamRow[];
+  totalBeams: number;
+  totalMetres: number;
+}
+type WarpBeamItem =
+  | { kind: 'single'; row: WarpBeamRow }
+  | { kind: 'group'; group: WarpBeamGroup };
+
+/** Groups consecutive-in-list single-beam rows that share the same
+ *  party/quality/count/date/reference/sizing-source. Rows with
+ *  beam_count !== 1 (already-aggregate entries) or that don't share a
+ *  key with any sibling are left as standalone items. */
+function groupWarpBeamRows(list: WarpBeamRow[]): WarpBeamItem[] {
+  const keyOf = (r: WarpBeamRow): string => [
+    r.jobwork_party_id, r.fabric_quality_id, r.warp_count_id, r.given_date,
+    r.reference_no, r.supplier_party_id, r.sizing_job_id,
+  ].join('|');
+  const rowsByKey = new Map<string, WarpBeamRow[]>();
+  for (const r of list) {
+    if (r.beam_count !== 1) continue;
+    const key = keyOf(r);
+    const bucket = rowsByKey.get(key);
+    if (bucket) bucket.push(r); else rowsByKey.set(key, [r]);
+  }
+  const items: WarpBeamItem[] = [];
+  const emitted = new Set<string>();
+  for (const r of list) {
+    if (r.beam_count !== 1) {
+      items.push({ kind: 'single', row: r });
+      continue;
+    }
+    const key = keyOf(r);
+    const bucket = rowsByKey.get(key) ?? [r];
+    if (bucket.length <= 1) {
+      items.push({ kind: 'single', row: r });
+      continue;
+    }
+    if (emitted.has(key)) continue;
+    emitted.add(key);
+    items.push({
+      kind: 'group',
+      group: {
+        key,
+        rows: bucket,
+        totalBeams: bucket.length,
+        totalMetres: bucket.reduce((s, x) => s + Number((x.original_metres ?? x.total_metres) ?? 0), 0),
+      },
+    });
+  }
+  return items;
+}
+
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
   yarn_count_id: number | null; given_date: string;
@@ -1436,6 +1497,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // manual entries only — pavu-linked outsource rows are excluded so
   // Release/pavu-tracking semantics stay intact).
   const [splitId, setSplitId] = useState<number | null>(null);
+  // Group keys currently expanded to show their individual beam rows
+  // (see groupWarpBeamRows — merged summary rows are collapsed by default).
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  function toggleGroup(key: string): void {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
   // Toggle for the inline add form. Mirrors the BobbinTab pattern so
   // the page loads with the form hidden and the table front-and-centre.
   const [showAdd, setShowAdd] = useState<boolean>(false);
@@ -1746,6 +1817,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (filterPartyId   !== '' && String(r.jobwork_party_id)         !== filterPartyId)   return false;
     return true;
   });
+  // Same-batch single-beam rows rolled up into one summary line each —
+  // see groupWarpBeamRows. Purely a display grouping; totals below still
+  // sum over filteredRows so they're unaffected.
+  const displayItems = groupWarpBeamRows(filteredRows);
 
   // When the user picks a Fabric Quality, auto-fill warp count + total ends
   // from the fabric_quality_warp_count / fabric_quality_ends child tables
@@ -2075,6 +2150,185 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     ? 'Warp beams sent to jobwork parties. Type in each beam\u2019s ends and metres \u2014 no picking from Pavu/Sizing.'
     : 'Warp beams sent to outsource weavers. Pick the party, sizing party and sizing job, then tick the beams to send \u2014 totals are auto-derived.';
 
+  // One card per row (mobile view). Shared by standalone rows and by
+  // the individual beams underneath an expanded merged-batch group.
+  function renderMobileCard(r: WarpBeamRow, opts?: { indent?: boolean }): React.JSX.Element {
+    const isEditing = editingId === r.id;
+    const ef = editForm ?? r;
+    const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
+    return (
+      <div key={r.id} className={`card p-3${opts?.indent ? ' bg-sky-50/20' : ''}`}>
+        {isEditing ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</span>
+              <span className="whitespace-nowrap">
+                <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
+                <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></div>
+              <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div className="col-span-2"><label className="label text-[10px]">Quality</label><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
+              <div><label className="label text-[10px]">Beams</label><input type="number" min={1} className="input num h-8 text-xs" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></div>
+              <div><label className="label text-[10px]">Metres</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+              <div className="col-span-2"><label className="label text-[10px]">Sizing party</label><select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
+              <div className="col-span-2 text-[10px] text-ink-mute">Warp count {ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'} · Ends {ef.total_ends ?? '-'} (auto from quality)</div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</div>
+                <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
+              </div>
+              <span className="whitespace-nowrap shrink-0">
+                <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                {!hasPavu && (
+                  <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 mr-3" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
+                )}
+                {hasPavu && (
+                  <button onClick={() => void release(r)} className="text-amber-700 mr-3" title="Release pavus back to in-stock"><Unlock className="w-4 h-4 inline" /></button>
+                )}
+                <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+              </span>
+            </div>
+            <div className="mt-1 text-sm">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</div>
+            <div className="text-xs text-ink-soft">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div><div className="text-ink-mute">Warp count</div><div>{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+              <div><div className="text-ink-mute">Ends</div><div className="num">{r.total_ends ?? '-'}</div></div>
+              <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{r.beam_count}</div></div>
+              <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{(r.original_metres ?? r.total_metres) ?? '-'}</div></div>
+              <div className="col-span-2"><div className="text-ink-mute">Sizing party</div><div>{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</div></div>
+            </div>
+          </>
+        )}
+        {restockId === r.id && !isEditing && (
+          <div className="mt-2">
+            <RestockForm parties={sizingParties}
+              qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
+              onCancel={() => setRestockId(null)}
+              onSave={(data) => restock(r, data)} />
+          </div>
+        )}
+        {splitId === r.id && !isEditing && (
+          <div className="mt-2">
+            <SplitBeamsPanel
+              initialRows={splitInitialRowsFor(r)}
+              onCancel={() => setSplitId(null)}
+              onSave={(rows) => saveSplit(r, rows)} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // One <tr> (+ its Restock/Split sub-rows) per row (desktop table).
+  // Shared by standalone rows and by the individual beams underneath an
+  // expanded merged-batch group; `opts.indent` tints those child rows so
+  // they read as belonging to the summary row above them.
+  function renderDesktopRow(r: WarpBeamRow, opts?: { indent?: boolean }): React.JSX.Element {
+    const isEditing = editingId === r.id;
+    const ef = editForm ?? r;
+    const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
+    return (
+      <React.Fragment key={r.id}>
+        <tr className={`border-t border-line/40${opts?.indent ? ' bg-sky-50/20' : ''}`}>
+          {isEditing ? (
+            <>
+              {/* ID — auto-issued, never editable. */}
+              <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
+              <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
+              <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
+              <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
+              {/* Auto-populated from fabric quality — read-only in edit. */}
+              <td className="px-3 py-2 text-ink-mute italic">{ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'}</td>
+              <td className="px-3 py-2 text-right num text-ink-mute italic">{ef.total_ends ?? '-'}</td>
+              <td className="px-2 py-2"><input type="number" min={1} className="input num h-8 text-xs w-16" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></td>
+              <td className="px-2 py-2"><input type="number" step={0.01} className="input num h-8 text-xs w-20" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+              <td className="px-2 py-2">
+                <select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}>
+                  <option value="">---</option>
+                  {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+                </select>
+              </td>
+              <td className="px-2 py-2 text-right whitespace-nowrap">
+                <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
+                <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
+              </td>
+            </>
+          ) : (
+            <>
+              {/* Auto-issued ID derived from the row's
+                  numeric primary key — short, sortable, and
+                  unique without a schema change. */}
+              <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
+              <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
+              <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
+              <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
+              <td className="px-3 py-2">{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</td>
+              <td className="px-3 py-2 text-right num">{r.total_ends ?? '-'}</td>
+              <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
+              <td className="px-3 py-2 text-right num">{(r.original_metres ?? r.total_metres) ?? '-'}</td>
+              <td className="px-3 py-2 text-ink-soft">{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
+                <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                {!hasPavu && (
+                  <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 hover:text-sky-900 mr-2" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
+                )}
+                {/* Release — only meaningful when this row
+                    has a pavu link; reverts the linked
+                    pavus to in-stock so Pavu Master can
+                    edit them again, then deletes the row. */}
+                {hasPavu && (
+                  <button
+                    onClick={() => void release(r)}
+                    className="text-amber-700 hover:text-amber-900 mr-2"
+                    title="Release pavus back to in-stock"
+                  >
+                    <Unlock className="w-4 h-4 inline" />
+                  </button>
+                )}
+                <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+              </td>
+            </>
+          )}
+        </tr>
+        {restockId === r.id && !isEditing && (
+          <tr><td colSpan={10} className="p-0">
+            <RestockForm parties={sizingParties}
+              qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
+              onCancel={() => setRestockId(null)}
+              onSave={(data) => restock(r, data)} />
+          </td></tr>
+        )}
+        {splitId === r.id && !isEditing && (
+          <tr><td colSpan={10} className="p-0">
+            <SplitBeamsPanel
+              initialRows={splitInitialRowsFor(r)}
+              onCancel={() => setSplitId(null)}
+              onSave={(rows) => saveSplit(r, rows)} />
+          </td></tr>
+        )}
+      </React.Fragment>
+    );
+  }
+
+  // Short label for a merged group's ID column — the id range covered
+  // by its underlying beam rows, e.g. "WBG-0023…0029".
+  function groupIdLabel(g: WarpBeamGroup): string {
+    const ids = g.rows.map((x) => x.id).sort((a, b) => a - b);
+    const pad = (n: number) => String(n).padStart(4, '0');
+    const first = ids[0] ?? 0;
+    const last = ids[ids.length - 1] ?? first;
+    return ids.length === 1 ? `WBG-${pad(first)}` : `WBG-${pad(first)}\u2026${pad(last)}`;
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
@@ -2403,75 +2657,36 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div className="card p-4 text-center text-ink-soft text-sm">
             {rows.length === 0 ? 'No warp beams issued yet.' : 'No warp beams match the current filters.'}
           </div>
-        ) : filteredRows.map((r) => {
-          const isEditing = editingId === r.id;
-          const ef = editForm ?? r;
-          const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
+        ) : displayItems.map((item) => {
+          if (item.kind === 'single') return renderMobileCard(item.row);
+          const g = item.group;
+          const first = g.rows[0];
+          if (!first) return null;
+          const isOpen = expandedGroups.has(g.key);
           return (
-            <div key={r.id} className="card p-3">
-              {isEditing ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</span>
-                    <span className="whitespace-nowrap">
-                      <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
-                      <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></div>
-                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div className="col-span-2"><label className="label text-[10px]">Quality</label><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
-                    <div><label className="label text-[10px]">Beams</label><input type="number" min={1} className="input num h-8 text-xs" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></div>
-                    <div><label className="label text-[10px]">Metres</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></div>
-                    <div className="col-span-2"><label className="label text-[10px]">Sizing party</label><select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
-                    <div className="col-span-2 text-[10px] text-ink-mute">Warp count {ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'} · Ends {ef.total_ends ?? '-'} (auto from quality)</div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-start justify-between gap-2">
+            <div key={g.key}>
+              <div className="card p-3 bg-cloud/40">
+                <div className="flex items-start justify-between gap-2">
+                  <button type="button" onClick={() => toggleGroup(g.key)} className="flex items-start gap-2 text-left">
+                    {isOpen ? <ChevronDown className="w-4 h-4 mt-0.5 shrink-0" /> : <ChevronRight className="w-4 h-4 mt-0.5 shrink-0" />}
                     <div>
-                      <div className="font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</div>
-                      <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
+                      <div className="font-mono text-xs font-semibold">{groupIdLabel(g)}</div>
+                      <div className="text-xs text-ink-soft">{fmtDate(first.given_date)}</div>
                     </div>
-                    <span className="whitespace-nowrap shrink-0">
-                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
-                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
-                      {!hasPavu && (
-                        <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 mr-3" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
-                      )}
-                      {hasPavu && (
-                        <button onClick={() => void release(r)} className="text-amber-700 mr-3" title="Release pavus back to in-stock"><Unlock className="w-4 h-4 inline" /></button>
-                      )}
-                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</div>
-                  <div className="text-xs text-ink-soft">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div><div className="text-ink-mute">Warp count</div><div>{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
-                    <div><div className="text-ink-mute">Ends</div><div className="num">{r.total_ends ?? '-'}</div></div>
-                    <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{r.beam_count}</div></div>
-                    <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{(r.original_metres ?? r.total_metres) ?? '-'}</div></div>
-                    <div className="col-span-2"><div className="text-ink-mute">Sizing party</div><div>{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</div></div>
-                  </div>
-                </>
-              )}
-              {restockId === r.id && !isEditing && (
-                <div className="mt-2">
-                  <RestockForm parties={sizingParties}
-                    qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
-                    onCancel={() => setRestockId(null)}
-                    onSave={(data) => restock(r, data)} />
+                  </button>
                 </div>
-              )}
-              {splitId === r.id && !isEditing && (
-                <div className="mt-2">
-                  <SplitBeamsPanel
-                    initialRows={splitInitialRowsFor(r)}
-                    onCancel={() => setSplitId(null)}
-                    onSave={(rows) => saveSplit(r, rows)} />
+                <div className="mt-1 text-sm">{partyById.get(first.jobwork_party_id)?.name ?? '-'}</div>
+                <div className="text-xs text-ink-soft">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <div><div className="text-ink-mute">Warp count</div><div>{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+                  <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{g.totalBeams}</div></div>
+                  <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{g.totalMetres}</div></div>
+                  <div className="col-span-2"><div className="text-ink-mute">Sizing party</div><div>{first.supplier_party_id ? sizingParties.find((p) => p.id === first.supplier_party_id)?.name ?? '#' + first.supplier_party_id : '-'}</div></div>
+                </div>
+              </div>
+              {isOpen && (
+                <div className="pl-3 space-y-2 mt-2">
+                  {g.rows.map((gr) => renderMobileCard(gr, { indent: true }))}
                 </div>
               )}
             </div>
@@ -2499,90 +2714,32 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <tr><td colSpan={10} className="px-3 py-8 text-center text-ink-soft">
                 {rows.length === 0 ? 'No warp beams issued yet.' : 'No warp beams match the current filters.'}
               </td></tr>
-            ) : filteredRows.map((r) => {
-              const isEditing = editingId === r.id;
-              const ef = editForm ?? r;
-              const hasPavu = r.pavu_id != null || (Array.isArray(r.pavu_ids) && r.pavu_ids.length > 0);
+            ) : displayItems.map((item) => {
+              if (item.kind === 'single') return renderDesktopRow(item.row);
+              const g = item.group;
+              const first = g.rows[0];
+              if (!first) return null;
+              const isOpen = expandedGroups.has(g.key);
               return (
-                <React.Fragment key={r.id}>
-                  <tr className="border-t border-line/40">
-                    {isEditing ? (
-                      <>
-                        {/* ID — auto-issued, never editable. */}
-                        <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
-                        <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
-                        <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                        <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
-                        {/* Auto-populated from fabric quality — read-only in edit. */}
-                        <td className="px-3 py-2 text-ink-mute italic">{ef.warp_count_id ? countById.get(ef.warp_count_id)?.display_name ?? '-' : '-'}</td>
-                        <td className="px-3 py-2 text-right num text-ink-mute italic">{ef.total_ends ?? '-'}</td>
-                        <td className="px-2 py-2"><input type="number" min={1} className="input num h-8 text-xs w-16" value={ef.beam_count} onChange={(e) => setEditForm({ ...ef, beam_count: Number(e.target.value) })} /></td>
-                        <td className="px-2 py-2"><input type="number" step={0.01} className="input num h-8 text-xs w-20" value={ef.total_metres ?? ''} onChange={(e) => setEditForm({ ...ef, total_metres: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-                        <td className="px-2 py-2">
-                          <select className="input h-8 text-xs" value={ef.supplier_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, supplier_party_id: e.target.value === '' ? null : Number(e.target.value) })}>
-                            <option value="">---</option>
-                            {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-2 py-2 text-right whitespace-nowrap">
-                          <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
-                          <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        {/* Auto-issued ID derived from the row's
-                            numeric primary key — short, sortable, and
-                            unique without a schema change. */}
-                        <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
-                        <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
-                        <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
-                        <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
-                        <td className="px-3 py-2">{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</td>
-                        <td className="px-3 py-2 text-right num">{r.total_ends ?? '-'}</td>
-                        <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
-                        <td className="px-3 py-2 text-right num">{(r.original_metres ?? r.total_metres) ?? '-'}</td>
-                        <td className="px-3 py-2 text-ink-soft">{r.supplier_party_id ? sizingParties.find((p) => p.id === r.supplier_party_id)?.name ?? '#' + r.supplier_party_id : '-'}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
-                          <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
-                          {!hasPavu && (
-                            <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 hover:text-sky-900 mr-2" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
-                          )}
-                          {/* Release — only meaningful when this row
-                              has a pavu link; reverts the linked
-                              pavus to in-stock so Pavu Master can
-                              edit them again, then deletes the row. */}
-                          {hasPavu && (
-                            <button
-                              onClick={() => void release(r)}
-                              className="text-amber-700 hover:text-amber-900 mr-2"
-                              title="Release pavus back to in-stock"
-                            >
-                              <Unlock className="w-4 h-4 inline" />
-                            </button>
-                          )}
-                          <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
-                        </td>
-                      </>
-                    )}
+                <React.Fragment key={g.key}>
+                  <tr className="border-t border-line/40 bg-cloud/40">
+                    <td className="px-3 py-2 font-mono text-xs font-semibold">
+                      <button type="button" onClick={() => toggleGroup(g.key)} className="flex items-center gap-1">
+                        {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        {groupIdLabel(g)}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-ink-soft">{fmtDate(first.given_date)}</td>
+                    <td className="px-3 py-2">{partyById.get(first.jobwork_party_id)?.name ?? '-'}</td>
+                    <td className="px-3 py-2">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</td>
+                    <td className="px-3 py-2">{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</td>
+                    <td className="px-3 py-2 text-right num text-ink-mute">&mdash;</td>
+                    <td className="px-3 py-2 text-right num font-semibold">{g.totalBeams}</td>
+                    <td className="px-3 py-2 text-right num font-semibold text-indigo-700">{g.totalMetres}</td>
+                    <td className="px-3 py-2 text-ink-soft">{first.supplier_party_id ? sizingParties.find((p) => p.id === first.supplier_party_id)?.name ?? '#' + first.supplier_party_id : '-'}</td>
+                    <td className="px-3 py-2 text-right text-[11px] text-ink-mute">{g.rows.length} beams</td>
                   </tr>
-                  {restockId === r.id && !isEditing && (
-                    <tr><td colSpan={10} className="p-0">
-                      <RestockForm parties={sizingParties}
-                        qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
-                        onCancel={() => setRestockId(null)}
-                        onSave={(data) => restock(r, data)} />
-                    </td></tr>
-                  )}
-                  {splitId === r.id && !isEditing && (
-                    <tr><td colSpan={10} className="p-0">
-                      <SplitBeamsPanel
-                        initialRows={splitInitialRowsFor(r)}
-                        onCancel={() => setSplitId(null)}
-                        onSave={(rows) => saveSplit(r, rows)} />
-                    </td></tr>
-                  )}
+                  {isOpen && g.rows.map((gr) => renderDesktopRow(gr, { indent: true }))}
                 </React.Fragment>
               );
             })}
