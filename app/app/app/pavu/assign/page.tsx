@@ -26,6 +26,7 @@ interface ActiveAssignment {
   status: string;
   metres_produced: number;
   start_date: string | null;
+  metres_start_date: string | null;
   pavu: {
     id: number; pavu_code: string; beam_no: string; ends: number; meters: number;
     sizing_job?: { warp_count?: { code: string } | null } | null;
@@ -55,6 +56,13 @@ const STATUS_STYLE: Record<string, string> = {
   breakdown:  'bg-rose-50 text-rose-700',
 };
 
+/** Adds one day to a yyyy-mm-dd date string, returning the same format. */
+function addOneDay(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function PavuAssignPage() {
   const supabase = createClient();
   const [looms, setLooms]             = useState<Loom[]>([]);
@@ -79,7 +87,7 @@ export default function PavuAssignPage() {
         .order('loom_code'),
       supabase.from('pavu_assign')
         .select(`
-          id, loom_id, status, metres_produced, start_date,
+          id, loom_id, status, metres_produced, start_date, metres_start_date,
           pavu:pavu_id (
             id, pavu_code, beam_no, ends, meters,
             sizing_job:sizing_job_id ( warp_count:warp_count_id ( code ) )
@@ -219,6 +227,11 @@ export default function PavuAssignPage() {
                         Mounted: <span className="font-semibold">{cur.start_date}</span>
                       </div>
                     )}
+                    {cur.metres_start_date && (
+                      <div className="text-xs text-ink-soft">
+                        Counting from: <span className="font-semibold">{cur.metres_start_date}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-[11px] uppercase tracking-wide text-ink-mute">{cur.status}</span>
                       <span className="text-xs num">
@@ -298,8 +311,18 @@ function AssignModal({
   const [costingId, setCostingId] = useState('');
   const [status, setStatus] = useState<'queued' | 'mounted' | 'running'>('mounted');
   const [mountedDate, setMountedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [metresStartDate, setMetresStartDate] = useState(() => addOneDay(new Date().toISOString().slice(0, 10)));
+  const [metresStartTouched, setMetresStartTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Keep the metres-count start date defaulted to mounted date + 1 day,
+  // unless the user has manually edited it — shift logs are sometimes
+  // entered late, so this should stay independently editable.
+  function onMountedDateChange(value: string): void {
+    setMountedDate(value);
+    if (!metresStartTouched) setMetresStartDate(addOneDay(value));
+  }
 
   // Distinct SET NO values present in the in-stock pavu list, so the
   // operator can narrow the (potentially long) pavu dropdown down to one
@@ -333,6 +356,7 @@ function AssignModal({
       costing_id:    costingId ? Number(costingId) : null,
       assigned_date: new Date().toISOString().slice(0, 10),
       start_date:    status === 'running' || status === 'mounted' ? mountedDate : null,
+      metres_start_date: status === 'running' || status === 'mounted' ? metresStartDate : null,
       status,
     };
     const { error } = await supabase.from('pavu_assign').insert(payload);
@@ -421,9 +445,24 @@ function AssignModal({
               <input
                 type="date"
                 value={mountedDate}
-                onChange={e => setMountedDate(e.target.value)}
+                onChange={e => onMountedDateChange(e.target.value)}
                 className="input"
               />
+            </div>
+          )}
+
+          {(status === 'mounted' || status === 'running') && (
+            <div>
+              <label className="label">Count metres from</label>
+              <input
+                type="date"
+                value={metresStartDate}
+                onChange={e => { setMetresStartDate(e.target.value); setMetresStartTouched(true); }}
+                className="input"
+              />
+              <p className="text-xs text-ink-mute mt-1">
+                Defaults to mounted date + 1 day. Change this if shift logs for this beam actually started on a different date.
+              </p>
             </div>
           )}
 
@@ -456,6 +495,7 @@ function EditAssignmentModal({
   const supabase = createClient();
   const [costingId, setCostingId] = useState(assignment.costing?.id ? String(assignment.costing.id) : '');
   const [mountedDate, setMountedDate] = useState(assignment.start_date ?? '');
+  const [metresStartDate, setMetresStartDate] = useState(assignment.metres_start_date ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -467,6 +507,7 @@ function EditAssignmentModal({
       .update({
         costing_id: costingId ? Number(costingId) : null,
         start_date: mountedDate || null,
+        metres_start_date: metresStartDate || null,
       })
       .eq('id', assignment.id);
     if (error) { setBusy(false); setErr(error.message); return; }
@@ -508,6 +549,19 @@ function EditAssignmentModal({
               onChange={e => setMountedDate(e.target.value)}
               className="input"
             />
+          </div>
+
+          <div>
+            <label className="label">Count metres from</label>
+            <input
+              type="date"
+              value={metresStartDate}
+              onChange={e => setMetresStartDate(e.target.value)}
+              className="input"
+            />
+            <p className="text-xs text-ink-mute mt-1">
+              Shift log entries from this date onward count toward this beam's finished metres.
+            </p>
           </div>
 
           {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}

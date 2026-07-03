@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Factory, Shuffle, X } from 'lucide-react';
+import { Factory, Shuffle, X, ClipboardList } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { BulkRoutingForm, type BulkJobRow, type WeavingVendor } from './bulk-routing-form';
@@ -184,6 +184,9 @@ export default async function PavuListPage({ searchParams }: PageProps) {
             </Link>
             <Link href="/app/pavu/assign" className="btn-ghost">
               <Factory className="w-4 h-4" /> Loom View
+            </Link>
+            <Link href="/app/pavu/report" className="btn-ghost">
+              <ClipboardList className="w-4 h-4" /> Stock Report
             </Link>
           </div>
         }

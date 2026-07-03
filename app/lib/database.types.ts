@@ -2940,6 +2940,7 @@ export type Database = {
           id: number
           loom_id: number
           metres_produced: number
+          metres_start_date: string | null
           notes: string | null
           pavu_id: number
           start_date: string | null
@@ -2956,6 +2957,7 @@ export type Database = {
           id?: number
           loom_id: number
           metres_produced?: number
+          metres_start_date?: string | null
           notes?: string | null
           pavu_id: number
           start_date?: string | null
@@ -2972,6 +2974,7 @@ export type Database = {
           id?: number
           loom_id?: number
           metres_produced?: number
+          metres_start_date?: string | null
           notes?: string | null
           pavu_id?: number
           start_date?: string | null
@@ -5536,6 +5539,22 @@ export type Database = {
         Returns: Database["public"]["Enums"]["user_role"]
       }
       fn_next_doc_no: { Args: { p_doc_type: string }; Returns: string }
+      fn_pavu_stock_report: {
+        Args: { p_as_of: string }
+        Returns: {
+          pavu_id: number
+          pavu_code: string
+          beam_no: string
+          ends: number
+          yarn_count: string | null
+          set_no: string | null
+          loaded_metre: number
+          finished_metre: number
+          status_as_of: string
+          mounted_date: string | null
+          finished_date: string | null
+        }[]
+      }
       fn_recompute_pavu_assign_metres: {
         Args: { p_loom_id: number }
         Returns: undefined
