@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { BulkRoutingForm, type BulkJobRow, type WeavingVendor } from './bulk-routing-form';
 import { PavuListEditor, type PavuRow } from './pavu-list-editor';
+import { JobworkBeamsTable, type JobworkBeamRow } from './jobwork-beams-table';
 
 export const metadata = { title: 'Pavu Master' };
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   // reads. The legacy party-master route (Outsource Weaver type)
   // used a different ledger and broke the cascade.
 
-  const [pavusRes, jobsRes, partiesRes, jobworkPartiesRes] = await Promise.all([
+  const [pavusRes, jobsRes, partiesRes, jobworkPartiesRes, jobworkBeamsRes, fabricQualityRes, yarnCountRes] = await Promise.all([
     sb.from('pavu').select(`
       id, pavu_code, beam_no, ends, meters, status, production_mode,
       outsource_ledger_id, jobwork_ledger_id,
@@ -66,6 +67,17 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       .eq('kind', 'jobwork')
       .eq('status', 'active')
       .order('name'),
+    // All beams given to jobwork parties (see /app/jobwork → Warp beam
+    // given) — both manual entries and any pavu-routed mirror rows.
+    // Filtered to jobwork-kind parties below in JS, the same way
+    // jobwork/page.tsx does it (partyById.has(...)), so we don't need
+    // the FK-relationship name for an embedded-resource filter here.
+    sb.from('jobwork_warp_beam')
+      .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, beam_count, total_metres, original_metres, pavu_id, pavu_ids')
+      .eq('status', 'active')
+      .order('given_date', { ascending: false }),
+    sb.from('fabric_quality').select('id, name'),
+    sb.from('yarn_count').select('id, display_name'),
   ]);
 
   // ── Vendor / Jobwork party lists ──
@@ -79,6 +91,54 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   const jobworkParties = ((jobworkPartiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
     .filter((p) => p.ledger_id != null)
     .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
+
+  // ── Jobwork beams (Jobwork tab) ──
+  // jobwork_warp_beam.jobwork_party_id is a FK to jobwork_party.id
+  // directly (not ledger_id) — mirrors the filter used in
+  // /app/jobwork's WarpBeamTab (partyById.has(w.jobwork_party_id)).
+  const jobworkPartyRows = (jobworkPartiesRes.data ?? []) as Array<{ id: number; name: string }>;
+  const jobworkPartyNameById = new Map(jobworkPartyRows.map((p) => [p.id, p.name]));
+  const fabricQualityNameById = new Map(
+    ((fabricQualityRes.data ?? []) as Array<{ id: number; name: string }>).map((q) => [q.id, q.name])
+  );
+  const warpCountDisplayById = new Map(
+    ((yarnCountRes.data ?? []) as Array<{ id: number; display_name: string }>).map((c) => [c.id, c.display_name])
+  );
+  const rawJobworkBeams = ((jobworkBeamsRes.data ?? []) as Array<{
+    id: number; jobwork_party_id: number;
+    fabric_quality_id: number | null; warp_count_id: number | null;
+    given_date: string; total_ends: number | null; beam_count: number;
+    total_metres: number | null; original_metres: number | null;
+    pavu_id: number | null; pavu_ids: number[] | null;
+  }>).filter((w) => jobworkPartyNameById.has(w.jobwork_party_id));
+
+  // Resolve Pavu codes for any linked rows (pavu_id / pavu_ids) —
+  // manual entries from the Add form have neither and show "—".
+  const linkedPavuIds = Array.from(new Set(
+    rawJobworkBeams.flatMap((w) => [w.pavu_id, ...(w.pavu_ids ?? [])]).filter((id): id is number => id != null)
+  ));
+  const pavuCodeById = new Map<number, string>();
+  if (linkedPavuIds.length > 0) {
+    const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code').in('id', linkedPavuIds);
+    for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string }>) {
+      pavuCodeById.set(row.id, row.pavu_code);
+    }
+  }
+  const jobworkBeams: JobworkBeamRow[] = rawJobworkBeams.map((w) => {
+    const ids = [w.pavu_id, ...(w.pavu_ids ?? [])].filter((id): id is number => id != null);
+    const codes = ids.map((id) => pavuCodeById.get(id)).filter((c): c is string => c != null);
+    return {
+      id: w.id,
+      given_date: w.given_date,
+      party_name: jobworkPartyNameById.get(w.jobwork_party_id) ?? '-',
+      quality_name: w.fabric_quality_id != null ? fabricQualityNameById.get(w.fabric_quality_id) ?? null : null,
+      warp_count_display: w.warp_count_id != null ? warpCountDisplayById.get(w.warp_count_id) ?? null : null,
+      total_ends: w.total_ends,
+      beam_count: w.beam_count,
+      metres: Number((w.original_metres ?? w.total_metres) ?? 0),
+      pavu_codes: codes,
+    };
+  });
 
   // ── Pavu rows for the active tab ──
   const allPavus = ((pavusRes.data ?? []) as Array<{
@@ -241,7 +301,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
               : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze/60')
           }
         >
-          Jobwork ({pavus.filter((p) => p.production_mode === 'jobwork').length})
+          Jobwork ({jobworkBeams.length})
         </Link>
       </div>
 
@@ -271,18 +331,34 @@ export default async function PavuListPage({ searchParams }: PageProps) {
 
       {/* Pavu list — editable per row, scoped to the active tab */}
       <section>
-        <h2 className="font-display font-bold text-sm mb-2">
-          {tab === 'inhouse' ? 'In-house pavu' : tab === 'outsource' ? 'Outsource pavu' : 'Jobwork pavu'}{' '}
-          <span className="text-ink-mute">· edit Mode &amp; Party per row</span>
-        </h2>
+        {tab === 'jobwork' ? (
+          <>
+            <h2 className="font-display font-bold text-sm mb-2">
+              Jobwork beams <span className="text-ink-mute">· all beams given to jobwork parties, with Pavu code where linked</span>
+            </h2>
+            {jobworkBeamsRes.error && (
+              <div className="card p-4 text-sm text-err mb-4">
+                Could not load jobwork beams: {jobworkBeamsRes.error.message}
+              </div>
+            )}
+            <JobworkBeamsTable rows={jobworkBeams} />
+          </>
+        ) : (
+          <>
+            <h2 className="font-display font-bold text-sm mb-2">
+              {tab === 'inhouse' ? 'In-house pavu' : 'Outsource pavu'}{' '}
+              <span className="text-ink-mute">· edit Mode &amp; Party per row</span>
+            </h2>
 
-        {pavusRes.error && (
-          <div className="card p-4 text-sm text-err mb-4">
-            Could not load pavu: {pavusRes.error.message}
-          </div>
+            {pavusRes.error && (
+              <div className="card p-4 text-sm text-err mb-4">
+                Could not load pavu: {pavusRes.error.message}
+              </div>
+            )}
+
+            <PavuListEditor rows={tabPavus} vendors={vendors} jobworkParties={jobworkParties} scope={tab} />
+          </>
         )}
-
-        <PavuListEditor rows={tabPavus} vendors={vendors} jobworkParties={jobworkParties} scope={tab} />
       </section>
     </div>
   );
