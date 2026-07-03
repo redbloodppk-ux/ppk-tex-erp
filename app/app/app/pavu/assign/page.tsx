@@ -127,6 +127,7 @@ export default function PavuAssignPage() {
       .eq('id', a.id);
     setRemoving(null);
     if (rmErr) { setError(rmErr.message); return; }
+    await supabase.rpc('fn_recompute_pavu_assign_metres', { p_loom_id: a.loom_id });
     reload();
   }
 
@@ -335,8 +336,9 @@ function AssignModal({
       status,
     };
     const { error } = await supabase.from('pavu_assign').insert(payload);
+    if (error) { setBusy(false); setErr(error.message); return; }
+    await supabase.rpc('fn_recompute_pavu_assign_metres', { p_loom_id: loom.id });
     setBusy(false);
-    if (error) { setErr(error.message); return; }
     onDone();
   }
 
@@ -467,8 +469,9 @@ function EditAssignmentModal({
         start_date: mountedDate || null,
       })
       .eq('id', assignment.id);
+    if (error) { setBusy(false); setErr(error.message); return; }
+    await supabase.rpc('fn_recompute_pavu_assign_metres', { p_loom_id: assignment.loom_id });
     setBusy(false);
-    if (error) { setErr(error.message); return; }
     onDone();
   }
 

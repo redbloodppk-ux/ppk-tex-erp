@@ -5536,6 +5536,10 @@ export type Database = {
         Returns: Database["public"]["Enums"]["user_role"]
       }
       fn_next_doc_no: { Args: { p_doc_type: string }; Returns: string }
+      fn_recompute_pavu_assign_metres: {
+        Args: { p_loom_id: number }
+        Returns: undefined
+      }
       fy_week_number: {
         Args: { d: string }
         Returns: {

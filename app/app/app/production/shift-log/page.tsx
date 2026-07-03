@@ -651,6 +651,18 @@ export default function ShiftLogPage(): React.ReactElement {
       }
     }
 
+    // Best-effort: keep pavu_assign.metres_produced in sync for every loom
+    // touched by this save (including ones whose rows were just deleted).
+    const affectedLoomIds = new Set<number>(keepLoomIds);
+    for (const p of existing ?? []) {
+      if (toDeleteParentIds.includes(p.id)) affectedLoomIds.add(p.loom_id);
+    }
+    await Promise.all(
+      Array.from(affectedLoomIds).map((loomId) =>
+        supabase.rpc('fn_recompute_pavu_assign_metres', { p_loom_id: loomId }),
+      ),
+    );
+
     setSaving(false);
     setSavedMsg(
       `Saved ${parentsToSave.length} loom row${parentsToSave.length === 1 ? '' : 's'} ` +
