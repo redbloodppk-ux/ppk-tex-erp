@@ -39,7 +39,7 @@ interface PavuInStock {
   beam_no: string;
   ends: number;
   meters: number;
-  sizing_job?: { warp_count?: { code: string } | null } | null;
+  sizing_job?: { set_no?: string | null; warp_count?: { code: string } | null } | null;
 }
 
 interface Quality {
@@ -87,7 +87,7 @@ export default function PavuAssignPage() {
       supabase.from('pavu')
         .select(`
           id, pavu_code, beam_no, ends, meters,
-          sizing_job:sizing_job_id ( warp_count:warp_count_id ( code ) )
+          sizing_job:sizing_job_id ( set_no, warp_count:warp_count_id ( code ) )
         `)
         .eq('status', 'in_stock')
         .eq('production_mode', 'in_house')
@@ -235,11 +235,26 @@ function AssignModal({
   onDone: () => void;
 }) {
   const supabase = createClient();
+  const [setNoFilter, setSetNoFilter] = useState('');
   const [pavuId, setPavuId] = useState('');
   const [costingId, setCostingId] = useState('');
   const [status, setStatus] = useState<'queued' | 'mounted' | 'running'>('mounted');
+  const [mountedDate, setMountedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Distinct SET NO values present in the in-stock pavu list, so the
+  // operator can narrow the (potentially long) pavu dropdown down to one
+  // vendor set before picking the exact beam.
+  const setNos = useMemo(
+    () => Array.from(new Set(
+      stock.map(s => s.sizing_job?.set_no).filter((v): v is string => !!v),
+    )).sort(),
+    [stock],
+  );
+  const filteredStock = setNoFilter
+    ? stock.filter(s => s.sizing_job?.set_no === setNoFilter)
+    : stock;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -259,8 +274,7 @@ function AssignModal({
       loom_id:       loom.id,
       costing_id:    costingId ? Number(costingId) : null,
       assigned_date: new Date().toISOString().slice(0, 10),
-      start_date:    status === 'running' || status === 'mounted'
-                       ? new Date().toISOString().slice(0, 10) : null,
+      start_date:    status === 'running' || status === 'mounted' ? mountedDate : null,
       status,
     };
     const { error } = await supabase.from('pavu_assign').insert(payload);
@@ -291,16 +305,36 @@ function AssignModal({
             </div>
           )}
 
+          {setNos.length > 0 && (
+            <div>
+              <label className="label">Filter by set no</label>
+              <select
+                value={setNoFilter}
+                onChange={e => { setSetNoFilter(e.target.value); setPavuId(''); }}
+                className="input"
+              >
+                <option value="">All sets</option>
+                {setNos.map(sn => (
+                  <option key={sn} value={sn}>SET {sn}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="label">Pavu *</label>
             <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
               <option value="" disabled>Select an in-stock pavu…</option>
-              {stock.map(s => (
+              {filteredStock.map(s => (
                 <option key={s.id} value={s.id}>
                   {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
+                  {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
                 </option>
               ))}
             </select>
+            {filteredStock.length === 0 && (
+              <p className="text-xs text-ink-mute mt-1">No in-stock pavu for this set.</p>
+            )}
           </div>
 
           <div>
@@ -321,6 +355,18 @@ function AssignModal({
               <option value="running">Running</option>
             </select>
           </div>
+
+          {(status === 'mounted' || status === 'running') && (
+            <div>
+              <label className="label">Mounted date</label>
+              <input
+                type="date"
+                value={mountedDate}
+                onChange={e => setMountedDate(e.target.value)}
+                className="input"
+              />
+            </div>
+          )}
 
           {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}
 
