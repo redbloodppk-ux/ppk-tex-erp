@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2 } from 'lucide-react';
+import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
 
 interface Loom {
   id: number;
@@ -64,8 +64,11 @@ export default function PavuAssignPage() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
-  // Modal state — which loom is being assigned right now.
+  // Modal state — which loom is being assigned right now, or which active
+  // assignment is being edited (quality / mounted date) or removed.
   const [assignFor, setAssignFor] = useState<Loom | null>(null);
+  const [editFor, setEditFor] = useState<ActiveAssignment | null>(null);
+  const [removing, setRemoving] = useState<number | null>(null);
 
   /** Fetch all four datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
@@ -109,6 +112,23 @@ export default function PavuAssignPage() {
   }, [supabase]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  /** Unmount the pavu from a loom — marks the assignment "removed"; a
+   *  trigger flips the pavu back to available stock ("finished"). */
+  async function removeAssignment(a: ActiveAssignment): Promise<void> {
+    const ok = window.confirm(
+      `Remove ${a.pavu?.pavu_code ?? 'this pavu'} from this loom?`,
+    );
+    if (!ok) return;
+    setRemoving(a.id);
+    const { error: rmErr } = await supabase
+      .from('pavu_assign')
+      .update({ status: 'removed', end_date: new Date().toISOString().slice(0, 10) })
+      .eq('id', a.id);
+    setRemoving(null);
+    if (rmErr) { setError(rmErr.message); return; }
+    reload();
+  }
 
   /** Quick lookup: loomId → current active assignment (if any). */
   const activeByLoom = useMemo(() => {
@@ -156,9 +176,32 @@ export default function PavuAssignPage() {
 
                 {cur && cur.pavu ? (
                   <div className="rounded-lg bg-indigo/5 border border-indigo/15 p-3 text-sm space-y-1">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-indigo" />
-                      <span className="font-mono font-semibold text-indigo">{cur.pavu.pavu_code}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-indigo" />
+                        <span className="font-mono font-semibold text-indigo">{cur.pavu.pavu_code}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          aria-label="Edit quality / mounted date"
+                          className="p-1 rounded hover:bg-indigo/10 text-ink-mute hover:text-indigo"
+                          onClick={() => setEditFor(cur)}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Remove pavu from loom"
+                          className="p-1 rounded hover:bg-rose-50 text-ink-mute hover:text-rose-600"
+                          onClick={() => removeAssignment(cur)}
+                          disabled={removing === cur.id}
+                        >
+                          {removing === cur.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="text-xs text-ink-soft">
                       Beam {cur.pavu.beam_no} ·{' '}
@@ -168,6 +211,11 @@ export default function PavuAssignPage() {
                     {cur.costing && (
                       <div className="text-xs text-ink-soft">
                         Quality: <span className="font-semibold">{cur.costing.quality_code}</span>
+                      </div>
+                    )}
+                    {cur.start_date && (
+                      <div className="text-xs text-ink-soft">
+                        Mounted: <span className="font-semibold">{cur.start_date}</span>
                       </div>
                     )}
                     <div className="flex items-center justify-between pt-1">
@@ -213,6 +261,15 @@ export default function PavuAssignPage() {
           currentAssignment={activeByLoom.get(assignFor.id) ?? null}
           onClose={() => setAssignFor(null)}
           onDone={() => { setAssignFor(null); reload(); }}
+        />
+      )}
+
+      {editFor && (
+        <EditAssignmentModal
+          assignment={editFor}
+          qualities={qualities}
+          onClose={() => setEditFor(null)}
+          onDone={() => { setEditFor(null); reload(); }}
         />
       )}
     </div>
@@ -374,6 +431,88 @@ function AssignModal({
             <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
             <button type="submit" disabled={busy || !pavuId} className="btn-primary">
               {busy ? 'Saving…' : 'Assign'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Edit modal — updates quality and mounted date on an already-active
+// assignment, without unmounting/replacing the pavu itself.
+// ───────────────────────────────────────────────────────────────────────────
+function EditAssignmentModal({
+  assignment, qualities, onClose, onDone,
+}: {
+  assignment: ActiveAssignment;
+  qualities: Quality[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const supabase = createClient();
+  const [costingId, setCostingId] = useState(assignment.costing?.id ? String(assignment.costing.id) : '');
+  const [mountedDate, setMountedDate] = useState(assignment.start_date ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    const { error } = await supabase
+      .from('pavu_assign')
+      .update({
+        costing_id: costingId ? Number(costingId) : null,
+        start_date: mountedDate || null,
+      })
+      .eq('id', assignment.id);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    onDone();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
+        <div className="flex items-center justify-between p-4 border-b border-line/60">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-ink-mute">Edit assignment</div>
+            <div className="font-mono font-bold">{assignment.pavu?.pavu_code ?? '—'}</div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-cloud">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="p-4 space-y-4">
+          <div>
+            <label className="label">Quality being woven</label>
+            <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
+              <option value="">— Not set —</option>
+              {qualities.map(q => (
+                <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">Mounted date</label>
+            <input
+              type="date"
+              value={mountedDate}
+              onChange={e => setMountedDate(e.target.value)}
+              className="input"
+            />
+          </div>
+
+          {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+            <button type="submit" disabled={busy} className="btn-primary">
+              {busy ? 'Saving…' : 'Save changes'}
             </button>
           </div>
         </form>
