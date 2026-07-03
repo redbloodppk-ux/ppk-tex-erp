@@ -1360,6 +1360,21 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     // operator ticks the ones to include.
     sizing_job_id: '',
   });
+  // Jobwork manual-entry form only: a repeatable list of beams (ends +
+  // metres typed per beam). Each beam becomes its own jobwork_warp_beam
+  // row on save — the table has no beam-number column, so the beam
+  // number is folded into that row's notes instead.
+  interface BeamRow { ends: string; metres: string; }
+  const [beamRows, setBeamRows] = useState<BeamRow[]>([{ ends: '', metres: '' }]);
+  function addBeamRow(): void {
+    setBeamRows((rows) => [...rows, { ends: '', metres: '' }]);
+  }
+  function removeBeamRow(idx: number): void {
+    setBeamRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
+  }
+  function updateBeamRow(idx: number, field: keyof BeamRow, value: string): void {
+    setBeamRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -1704,34 +1719,46 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
 
     if (kind === 'jobwork') {
-      // Manual entry — no beam picker, no pavu link, no pavu-table side
-      // effects at all. The operator types the totals directly, same as
-      // the weft-bag form.
-      if (form.total_ends === '' || form.beam_count === '' || form.total_metres === '') {
-        setErr('Enter total ends, beam count and total metres.');
+      // Manual, beam-wise entry — no beam picker, no pavu link, no
+      // pavu-table side effects at all. Each typed beam row becomes its
+      // own jobwork_warp_beam row (beam_count=1) sharing the rest of
+      // the form's fields; the beam number is folded into notes since
+      // the table has no beam-number column.
+      const beams = beamRows
+        .map((b, idx) => ({ idx, ends: b.ends, metres: b.metres }))
+        .filter((b) => b.ends !== '' && b.metres !== '');
+      if (beams.length === 0) {
+        setErr('Enter ends and metres for at least one beam.');
         return;
       }
       setBusy(true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const metres = Number(form.total_metres);
-      const payload = {
+      const notesTrimmed = form.notes.trim();
+      const basePayload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
         fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
         warp_count_id:     form.warp_count_id === '' ? null : Number(form.warp_count_id),
         given_date:        form.given_date,
-        total_ends:        Number(form.total_ends),
-        beam_count:        Number(form.beam_count) || 1,
-        total_metres:      metres,
-        original_metres:   metres,
         reference_no:      form.reference_no.trim() || null,
-        notes:             form.notes.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
         sizing_job_id:     form.sizing_job_id === '' ? null : Number(form.sizing_job_id),
         pavu_id:           null,
         pavu_ids:          null,
       };
-      const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payload);
+      const payloads = beams.map((b) => {
+        const metres = Number(b.metres);
+        const beamNote = `Beam ${b.idx + 1}`;
+        return {
+          ...basePayload,
+          total_ends:      Number(b.ends),
+          beam_count:      1,
+          total_metres:    metres,
+          original_metres: metres,
+          notes:           notesTrimmed ? `${beamNote} \u2014 ${notesTrimmed}` : beamNote,
+        };
+      });
+      const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payloads);
       setBusy(false);
       if (insErr) { setErr(insErr.message); return; }
       setForm({
@@ -1739,6 +1766,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
         sizing_job_id: '',
       });
+      setBeamRows([{ ends: '', metres: '' }]);
       setShowAdd(false);
       onChanged();
       return;
@@ -1931,7 +1959,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // Jobwork is a flat, manual entry — no beam picker. Outsource keeps
   // the pavu cascade (party → sizing party → sizing job → checklist).
   const tabBlurb = kind === 'jobwork'
-    ? 'Warp beams sent to jobwork parties. Enter the totals directly \u2014 no beam picker.'
+    ? 'Warp beams sent to jobwork parties. Type in each beam\u2019s ends and metres \u2014 no picking from Pavu/Sizing.'
     : 'Warp beams sent to outsource weavers. Pick the party, sizing party and sizing job, then tick the beams to send \u2014 totals are auto-derived.';
 
   return (
@@ -1976,12 +2004,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">---</option>
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
             </select></div>
-          <div><label className="label text-xs">Total ends *</label>
-            <input type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
-          <div><label className="label text-xs">No. of beams *</label>
-            <input type="number" className="input num" value={form.beam_count} onChange={(e) => setForm({ ...form, beam_count: e.target.value })} /></div>
-          <div><label className="label text-xs">Total metres *</label>
-            <input type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
           <div><label className="label text-xs">Sizing party</label>
             <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
@@ -1996,6 +2018,45 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div><label className="label text-xs">Notes</label>
             <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+        </div>
+
+        {/* Beam-wise entry — ends + metres typed per beam. Each row
+            becomes its own jobwork_warp_beam row on save. */}
+        <div>
+          <label className="label text-xs">Beams *</label>
+          <div className="space-y-2">
+            {beamRows.map((b, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <span className="text-xs text-ink-mute w-16 shrink-0">Beam {idx + 1}</span>
+                <input
+                  type="number"
+                  placeholder="Ends"
+                  className="input num"
+                  value={b.ends}
+                  onChange={(e) => updateBeamRow(idx, 'ends', e.target.value)}
+                />
+                <input
+                  type="number"
+                  step={0.01}
+                  placeholder="Metres"
+                  className="input num"
+                  value={b.metres}
+                  onChange={(e) => updateBeamRow(idx, 'metres', e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="text-err text-xs px-2 disabled:opacity-30"
+                  onClick={() => removeBeamRow(idx)}
+                  disabled={beamRows.length <= 1}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" className="text-indigo underline text-xs" onClick={addBeamRow}>
+              + Add beam
+            </button>
+          </div>
         </div>
         </>
         ) : (
