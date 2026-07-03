@@ -198,12 +198,12 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
       </CardFilter>
 
       <div className="card overflow-x-auto max-w-xl hidden md:block">
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm table-fixed">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-3">Name</th>
-              <th className="text-left px-4 py-3">Active</th>
-              <th className="text-right px-4 py-3">Actions</th>
+              <th className="text-left px-4 py-3 w-32">Active</th>
+              <th className="text-right px-4 py-3 w-28">Actions</th>
             </tr>
           </thead>
           <tbody>
