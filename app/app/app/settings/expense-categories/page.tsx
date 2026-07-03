@@ -7,10 +7,11 @@
  * rows. Hard delete is offered for categories that have never been used.
  */
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react';
 
 interface ExpenseCategory {
   id: number;
@@ -113,6 +114,14 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
         title="Expense Categories"
         subtitle="Categories used on the Expenses page. Add new ones, rename existing ones, or mark inactive to hide from the entry form without losing history."
         crumbs={[{ label: 'Settings', href: '/app/settings' }, { label: 'Expense Categories' }]}
+        actions={
+          <Link
+            href="/app/expenses"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-soft hover:text-ink"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Expenses
+          </Link>
+        }
       />
 
       <div className="card p-4 max-w-xl mb-6">
