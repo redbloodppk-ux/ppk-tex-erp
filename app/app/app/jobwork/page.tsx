@@ -2233,7 +2233,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                 {!hasPavu && (
                   <button onClick={() => setSplitId(splitId === r.id ? null : r.id)} className="text-sky-700 mr-3" title="Split into beams"><Scissors className="w-4 h-4 inline" /></button>
                 )}
-                {hasPavu && (
+                {/* Jobwork beams are mounted on the mill's own loom via /app/pavu/assign;
+                    releasing here would desync from the real pavu_assign state, so
+                    Release is outsource-only. */}
+                {hasPavu && kind !== 'jobwork' && (
                   <button onClick={() => void release(r)} className="text-amber-700 mr-3" title="Release pavus back to in-stock"><Unlock className="w-4 h-4 inline" /></button>
                 )}
                 <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
@@ -2327,8 +2330,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                 {/* Release — only meaningful when this row
                     has a pavu link; reverts the linked
                     pavus to in-stock so Pavu Master can
-                    edit them again, then deletes the row. */}
-                {hasPavu && (
+                    edit them again, then deletes the row.
+                    Jobwork beams are mounted on the mill's own loom via
+                    /app/pavu/assign; releasing here would desync from the
+                    real pavu_assign state, so Release is outsource-only. */}
+                {hasPavu && kind !== 'jobwork' && (
                   <button
                     onClick={() => void release(r)}
                     className="text-amber-700 hover:text-amber-900 mr-2"
