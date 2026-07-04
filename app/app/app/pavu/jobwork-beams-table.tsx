@@ -80,7 +80,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
               <td className="px-4 py-2 text-right num text-indigo-700 font-semibold">{r.metres.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
               <td className="px-4 py-3">
                     {r.pavu_status ? (
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.pavu_status] ?? 'bg-slate-100 text-slate-600'}`}>
+                      <span className={`pill ${STATUS_STYLE[r.pavu_status] ?? 'bg-slate-100 text-slate-600'}`}>
                         {r.pavu_status.replace('_', ' ')}
                       </span>
                     ) : (
