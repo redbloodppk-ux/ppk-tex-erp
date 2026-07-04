@@ -1850,11 +1850,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
 
     if (kind === 'jobwork') {
-      // Manual, beam-wise entry — no beam picker, no pavu link, no
-      // pavu-table side effects at all. Each typed beam row becomes its
-      // own jobwork_warp_beam row (beam_count=1) sharing the rest of
-      // the form's fields; the beam number is folded into notes since
-      // the table has no beam-number column.
+      // Beam-wise entry — one physical warp beam supplied by the jobwork
+      // party per row. Each beam becomes BOTH a jobwork_warp_beam
+      // "warp given" record AND a real pavu stock row (production_mode
+      // = 'jobwork', sizing_job_id = null — the mill didn't size this
+      // beam, the party delivered it ready-made) so it shows up as
+      // available stock on Loom View / the Beam Stock Report exactly
+      // like an in-house beam, and can be mounted on a loom.
       const beams = beamRows
         .map((b) => ({ beamNo: b.beamNo.trim(), ends: b.ends, metres: b.metres }))
         .filter((b) => b.beamNo !== '' && b.ends !== '' && b.metres !== '');
@@ -1865,6 +1867,19 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       setBusy(true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
+
+      const { data: party } = await sb
+        .from('jobwork_party')
+        .select('ledger_id')
+        .eq('id', Number(form.jobwork_party_id))
+        .maybeSingle();
+      if (!party?.ledger_id) {
+        setBusy(false);
+        setErr('Selected party has no linked ledger. Set it up on the party form first.');
+        return;
+      }
+      const supplierLedgerId = Number(party.ledger_id);
+
       const notesTrimmed = form.notes.trim();
       const basePayload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
@@ -1874,24 +1889,52 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         reference_no:      form.reference_no.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
         sizing_job_id:     form.sizing_job_id === '' ? null : Number(form.sizing_job_id),
-        pavu_id:           null,
-        pavu_ids:          null,
       };
-      const payloads = beams.map((b) => {
+
+      // Sequential inserts (not a bulk insert) so each beam's freshly
+      // created pavu.id can be captured and linked into that same
+      // beam's jobwork_warp_beam.pavu_id — a bulk INSERT ... RETURNING
+      // would not guarantee row-order correspondence.
+      for (const b of beams) {
         const metres = Number(b.metres);
+        const ends = Number(b.ends);
+        const { data: newPavu, error: pavuErr } = await sb
+          .from('pavu')
+          .insert({
+            sizing_job_id:     null,
+            beam_no:           b.beamNo,
+            ends,
+            meters:            metres,
+            production_mode:   'jobwork',
+            jobwork_ledger_id: supplierLedgerId,
+            status:            'in_stock',
+          })
+          .select('id')
+          .single();
+        if (pavuErr || !newPavu) {
+          setBusy(false);
+          setErr(`Could not create stock row for beam ${b.beamNo}: ${pavuErr?.message ?? 'unknown error'}`);
+          return;
+        }
         const beamNote = `Beam No ${b.beamNo}`;
-        return {
+        const { error: insErr } = await sb.from('jobwork_warp_beam').insert({
           ...basePayload,
-          total_ends:      Number(b.ends),
+          total_ends:      ends,
           beam_count:      1,
           total_metres:    metres,
           original_metres: metres,
           notes:           notesTrimmed ? `${beamNote} \u2014 ${notesTrimmed}` : beamNote,
-        };
-      });
-      const { error: insErr } = await sb.from('jobwork_warp_beam').insert(payloads);
+          pavu_id:         newPavu.id,
+          pavu_ids:        null,
+        });
+        if (insErr) {
+          setBusy(false);
+          setErr(`Stock row created but the warp-given entry for beam ${b.beamNo} failed: ${insErr.message}`);
+          return;
+        }
+      }
+
       setBusy(false);
-      if (insErr) { setErr(insErr.message); return; }
       setForm({
         given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
         total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
