@@ -16,7 +16,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Lock } from 'lucide-react';
 import { syncWarpBeamFromPavu } from './sync-warp-beam';
 
-type ProdMode = 'in_house' | 'outsource' | 'jobwork';
+type ProdMode = 'in_house' | 'outsource';
 
 export interface PavuRow {
   id: number;
@@ -25,7 +25,11 @@ export interface PavuRow {
   ends: number;
   meters: number;
   status: string;
-  production_mode: ProdMode;
+  // Wider than `ProdMode`: this reflects the actual DB column, which
+  // may still hold a legacy 'jobwork' value from before this editor's
+  // manual jobwork-routing mechanism was removed. `ProdMode` (used for
+  // the row's editable Mode selection) intentionally excludes it.
+  production_mode: 'in_house' | 'outsource' | 'jobwork';
   outsource_ledger_id: number | null;
   jobwork_ledger_id: number | null;
   sizing_job_code: string | null;
@@ -42,7 +46,6 @@ export interface WeavingVendor {
 interface Props {
   rows:           ReadonlyArray<PavuRow>;
   vendors:        ReadonlyArray<WeavingVendor>;
-  jobworkParties: ReadonlyArray<WeavingVendor>;
   /** Which tab this list belongs to — drives the empty-state text
    *  and the row-mode header pill. */
   scope:   'inhouse' | 'outsource' | 'jobwork';
@@ -51,7 +54,6 @@ interface Props {
 interface RowState {
   mode:          ProdMode;
   vendorId:      string;
-  jobworkPartyId: string;
   saving:   boolean;
   error:    string | null;
   saved:    boolean;
@@ -70,9 +72,8 @@ const STATUS_STYLE: Record<string, string> = {
 // useState initializer runs, regardless of hoisting subtleties.
 function defaultStateFor(r: PavuRow): RowState {
   return {
-    mode:           r.production_mode,
+    mode:           r.production_mode === 'jobwork' ? 'in_house' : r.production_mode,
     vendorId:       r.outsource_ledger_id != null ? String(r.outsource_ledger_id) : '',
-    jobworkPartyId: r.jobwork_ledger_id   != null ? String(r.jobwork_ledger_id)   : '',
     saving:   false,
     error:    null,
     saved:    false,
@@ -80,7 +81,7 @@ function defaultStateFor(r: PavuRow): RowState {
   };
 }
 
-export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props): React.ReactElement {
+export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
@@ -110,10 +111,6 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
       patch(row.id, { error: 'Pick an outsource weaver (or switch to In-house).' });
       return;
     }
-    if (s.mode === 'jobwork' && !s.jobworkPartyId) {
-      patch(row.id, { error: 'Pick a jobwork party (or switch to In-house).' });
-      return;
-    }
 
     patch(row.id, { saving: true, error: null, saved: false });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -126,10 +123,8 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
     // for in-house we need to handle it here because the helper
     // deletes the mirror row and returns without touching pavu.status.
     const payload = s.mode === 'in_house'
-      ? { production_mode: 'in_house',  outsource_ledger_id: null,              jobwork_ledger_id: null,               status: 'assigned' }
-      : s.mode === 'outsource'
-      ? { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId), jobwork_ledger_id: null,               status: 'assigned' }
-      : { production_mode: 'jobwork',   outsource_ledger_id: null,              jobwork_ledger_id: Number(s.jobworkPartyId), status: 'assigned' };
+      ? { production_mode: 'in_house',  outsource_ledger_id: null,              jobwork_ledger_id: null, status: 'assigned' }
+      : { production_mode: 'outsource', outsource_ledger_id: Number(s.vendorId), jobwork_ledger_id: null, status: 'assigned' };
     const { error: updErr } = await sb.from('pavu').update(payload).eq('id', row.id);
     if (updErr) { patch(row.id, { saving: false, error: updErr.message }); return; }
 
@@ -167,7 +162,6 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
             <th className="text-right px-4 py-3">Metres</th>
             <th className="text-left  px-4 py-3">Mode</th>
             {scope === 'outsource' && <th className="text-left px-4 py-3">Weaver</th>}
-            {scope === 'jobwork' && <th className="text-left px-4 py-3">Jobwork Party</th>}
             <th className="text-left  px-4 py-3">Status</th>
             <th className="text-right px-4 py-3 w-24"></th>
           </tr>
@@ -201,7 +195,6 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
                       onChange={(e) => patch(r.id, {
                         mode: e.target.value as ProdMode,
                         vendorId: e.target.value === 'outsource' ? s.vendorId : '',
-                        jobworkPartyId: e.target.value === 'jobwork' ? s.jobworkPartyId : '',
                         saved: false,
                         dirty: true,
                       })}
@@ -209,7 +202,6 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
                     >
                       <option value="in_house">In-house</option>
                       <option value="outsource">Outsource</option>
-                      <option value="jobwork">Jobwork</option>
                     </select>
                   )}
                 </td>
@@ -227,26 +219,6 @@ export function PavuListEditor({ rows, vendors, jobworkParties, scope }: Props):
                       >
                         <option value="">Select weaver…</option>
                         {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    ) : (
-                      <span className="text-ink-mute text-xs">—</span>
-                    )}
-                  </td>
-                )}
-                {scope === 'jobwork' && (
-                  <td className="px-4 py-2">
-                    {isLocked ? (
-                      <div className="input py-1 text-xs min-w-[160px] bg-cloud/40 text-ink-mute select-none">
-                        {r.jobwork_vendor_name ?? '—'}
-                      </div>
-                    ) : s.mode === 'jobwork' ? (
-                      <select
-                        value={s.jobworkPartyId}
-                        onChange={(e) => patch(r.id, { jobworkPartyId: e.target.value, saved: false, dirty: true })}
-                        className="input py-1 text-xs min-w-[160px]"
-                      >
-                        <option value="">Select jobwork party…</option>
-                        {jobworkParties.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </select>
                     ) : (
                       <span className="text-ink-mute text-xs">—</span>
