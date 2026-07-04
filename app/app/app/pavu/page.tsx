@@ -88,9 +88,6 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   const vendors = ((partiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
     .filter((p) => p.ledger_id != null)
     .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
-  const jobworkParties = ((jobworkPartiesRes.data ?? []) as Array<{ id: number; name: string; ledger_id: number | null }>)
-    .filter((p) => p.ledger_id != null)
-    .map<WeavingVendor>((p) => ({ id: p.ledger_id as number, name: p.name }));
 
   // ── Jobwork beams (Jobwork tab) ──
   // jobwork_warp_beam.jobwork_party_id is a FK to jobwork_party.id
@@ -118,15 +115,18 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     rawJobworkBeams.flatMap((w) => [w.pavu_id, ...(w.pavu_ids ?? [])]).filter((id): id is number => id != null)
   ));
   const pavuCodeById = new Map<number, string>();
+  const pavuStatusById = new Map<number, string>();
   if (linkedPavuIds.length > 0) {
-    const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code').in('id', linkedPavuIds);
-    for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string }>) {
+    const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code, status').in('id', linkedPavuIds);
+    for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string; status: string }>) {
       pavuCodeById.set(row.id, row.pavu_code);
+      pavuStatusById.set(row.id, row.status);
     }
   }
   const jobworkBeams: JobworkBeamRow[] = rawJobworkBeams.map((w) => {
     const ids = [w.pavu_id, ...(w.pavu_ids ?? [])].filter((id): id is number => id != null);
     const codes = ids.map((id) => pavuCodeById.get(id)).filter((c): c is string => c != null);
+    const firstId = ids.length > 0 ? ids[0] : undefined;
     return {
       id: w.id,
       given_date: w.given_date,
@@ -137,6 +137,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       beam_count: w.beam_count,
       metres: Number((w.original_metres ?? w.total_metres) ?? 0),
       pavu_codes: codes,
+      pavu_status: firstId != null ? (pavuStatusById.get(firstId) ?? null) : null,
     };
   });
 
@@ -356,7 +357,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
               </div>
             )}
 
-            <PavuListEditor rows={tabPavus} vendors={vendors} jobworkParties={jobworkParties} scope={tab} />
+            <PavuListEditor rows={tabPavus} vendors={vendors} scope={tab} />
           </>
         )}
       </section>

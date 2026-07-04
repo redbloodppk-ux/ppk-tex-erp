@@ -20,7 +20,17 @@ export interface JobworkBeamRow {
   /** Pavu code(s) this beam is linked to, if any — empty for manual
    *  entries (the common case; jobwork entries don't pick from Pavu). */
   pavu_codes: string[];
+  /** Current status of the linked pavu row ('in_stock' | 'on_loom' | 'finished' | 'damaged' | 'scrapped'), or null if no pavu is linked (legacy manual entries). */
+  pavu_status: string | null;
 }
+
+const STATUS_STYLE: Record<string, string> = {
+  in_stock: 'bg-emerald-50 text-emerald-700',
+  on_loom:  'bg-indigo-50 text-indigo-700',
+  finished: 'bg-slate-100 text-slate-600',
+  damaged:  'bg-rose-50 text-rose-700',
+  scrapped: 'bg-rose-50 text-rose-700',
+};
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -53,6 +63,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
             <th className="text-right px-4 py-3">Ends</th>
             <th className="text-right px-4 py-3">Beams</th>
             <th className="text-right px-4 py-3">Metres</th>
+                <th className="text-left px-4 py-3">Status</th>
             <th className="text-left  px-4 py-3">Pavu Code</th>
           </tr>
         </thead>
@@ -67,6 +78,15 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
               <td className="px-4 py-2 text-right num">{r.total_ends ?? '—'}</td>
               <td className="px-4 py-2 text-right num font-semibold">{r.beam_count}</td>
               <td className="px-4 py-2 text-right num text-indigo-700 font-semibold">{r.metres.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+              <td className="px-4 py-3">
+                    {r.pavu_status ? (
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.pavu_status] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {r.pavu_status.replace('_', ' ')}
+                      </span>
+                    ) : (
+                      <span className="text-ink-mute">—</span>
+                    )}
+                  </td>
               <td className="px-4 py-2 font-mono text-xs">
                 {r.pavu_codes.length === 0 ? <span className="text-ink-mute">—</span> : r.pavu_codes.join(', ')}
               </td>
@@ -79,6 +99,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
             <td className="px-4 py-3 text-right num font-bold">{totalBeams.toLocaleString('en-IN')} beams</td>
             <td className="px-4 py-3 text-right num font-bold text-indigo-700">{totalMetres.toLocaleString('en-IN', { maximumFractionDigits: 0 })} m</td>
             <td />
+                <td />
           </tr>
         </tfoot>
       </table>
