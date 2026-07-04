@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { JobworkBeamsTable, type JobworkBeamRow } from '../jobwork-beams-table';
 
 interface Loom {
   id: number;
@@ -65,10 +66,16 @@ function addOneDay(dateStr: string): string {
 
 export default function PavuAssignPage() {
   const supabase = createClient();
+  // Jobwork tables (jobwork_party, jobwork_warp_beam, fabric_quality,
+  // yarn_count) aren't part of the generated Database type used to type
+  // `supabase`, the same reason /app/pavu/page.tsx casts to `any` for
+  // these lookups.
+  const sb = supabase as any;
   const [looms, setLooms]             = useState<Loom[]>([]);
   const [active, setActive]           = useState<ActiveAssignment[]>([]);
   const [stock, setStock]             = useState<PavuInStock[]>([]);
   const [qualities, setQualities]     = useState<Quality[]>([]);
+  const [jobworkBeams, setJobworkBeams] = useState<JobworkBeamRow[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -78,10 +85,10 @@ export default function PavuAssignPage() {
   const [editFor, setEditFor] = useState<ActiveAssignment | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
 
-  /** Fetch all four datasets in parallel. Wrapped so we can call again on save. */
+  /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
-    const [l, a, p, q] = await Promise.all([
+    const [l, a, p, q, jp, jb, fq, yc] = await Promise.all([
       supabase.from('loom')
         .select('id, loom_code, loom_type, width_in, status')
         .order('loom_code'),
@@ -108,6 +115,20 @@ export default function PavuAssignPage() {
         .select('id, quality_code, quality_name')
         .eq('status', 'active')
         .order('quality_code'),
+      // Jobwork beams out with parties — read-only reference section
+      // below the loom grid. Jobwork parties weave on their own looms,
+      // so there's no "mount" action here, just visibility (mirrors the
+      // Jobwork tab on Pavu Master).
+      sb.from('jobwork_party')
+        .select('id, name')
+        .eq('kind', 'jobwork')
+        .eq('status', 'active'),
+      sb.from('jobwork_warp_beam')
+        .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, beam_count, total_metres, original_metres, pavu_id, pavu_ids')
+        .eq('status', 'active')
+        .order('given_date', { ascending: false }),
+      sb.from('fabric_quality').select('id, name'),
+      sb.from('yarn_count').select('id, display_name'),
     ]);
     if (l.error || a.error || p.error || q.error) {
       setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? 'Load failed');
@@ -116,6 +137,51 @@ export default function PavuAssignPage() {
     setActive((a.data as any) ?? []);
     setStock((p.data as any) ?? []);
     setQualities(q.data ?? []);
+
+    // Build jobwork beam rows the same way Pavu Master's Jobwork tab does.
+    const jobworkPartyNameById = new Map(
+      ((jp.data ?? []) as Array<{ id: number; name: string }>).map(row => [row.id, row.name]),
+    );
+    const fabricQualityNameById = new Map(
+      ((fq.data ?? []) as Array<{ id: number; name: string }>).map(row => [row.id, row.name]),
+    );
+    const warpCountDisplayById = new Map(
+      ((yc.data ?? []) as Array<{ id: number; display_name: string }>).map(row => [row.id, row.display_name]),
+    );
+    const rawJobworkBeams = ((jb.data ?? []) as Array<{
+      id: number; jobwork_party_id: number;
+      fabric_quality_id: number | null; warp_count_id: number | null;
+      given_date: string; total_ends: number | null; beam_count: number;
+      total_metres: number | null; original_metres: number | null;
+      pavu_id: number | null; pavu_ids: number[] | null;
+    }>).filter(w => jobworkPartyNameById.has(w.jobwork_party_id));
+
+    const linkedPavuIds = Array.from(new Set(
+      rawJobworkBeams.flatMap(w => [w.pavu_id, ...(w.pavu_ids ?? [])]).filter((id): id is number => id != null),
+    ));
+    const pavuCodeById = new Map<number, string>();
+    if (linkedPavuIds.length > 0) {
+      const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code').in('id', linkedPavuIds);
+      for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string }>) {
+        pavuCodeById.set(row.id, row.pavu_code);
+      }
+    }
+    setJobworkBeams(rawJobworkBeams.map(w => {
+      const ids = [w.pavu_id, ...(w.pavu_ids ?? [])].filter((id): id is number => id != null);
+      const codes = ids.map(id => pavuCodeById.get(id)).filter((c): c is string => c != null);
+      return {
+        id: w.id,
+        given_date: w.given_date,
+        party_name: jobworkPartyNameById.get(w.jobwork_party_id) ?? '-',
+        quality_name: w.fabric_quality_id != null ? fabricQualityNameById.get(w.fabric_quality_id) ?? null : null,
+        warp_count_display: w.warp_count_id != null ? warpCountDisplayById.get(w.warp_count_id) ?? null : null,
+        total_ends: w.total_ends,
+        beam_count: w.beam_count,
+        metres: Number((w.original_metres ?? w.total_metres) ?? 0),
+        pavu_codes: codes,
+      };
+    }));
+
     setLoading(false);
   }, [supabase]);
 
@@ -266,6 +332,17 @@ export default function PavuAssignPage() {
           with in-house beams first.
         </div>
       )}
+
+      <div className="mt-8">
+        <h2 className="text-sm font-semibold text-ink-mute uppercase tracking-wide mb-2">
+          Jobwork beams out with parties
+        </h2>
+        <p className="text-xs text-ink-mute mb-3">
+          Read-only — these beams weave on the party&apos;s own looms, not the mill&apos;s. Manage them on{' '}
+          <a href="/app/jobwork" className="underline font-semibold">Job Work → Warp beam given</a>.
+        </p>
+        <JobworkBeamsTable rows={jobworkBeams} />
+      </div>
 
       {assignFor && (
         <AssignModal
