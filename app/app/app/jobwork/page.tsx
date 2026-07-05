@@ -2288,7 +2288,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         {isEditing ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</span>
+              <span className="font-mono text-xs text-ink-mute">{`WBG-${String(r.batch_no ?? r.id).padStart(4, '0')}`}</span>
               <span className="whitespace-nowrap">
                 <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
                 <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
@@ -2308,7 +2308,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <>
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</div>
+                <div className="font-mono text-xs font-semibold">{`WBG-${String(r.batch_no ?? r.id).padStart(4, '0')}`}</div>
                 <div className="text-xs text-ink-soft">{fmtDate(r.given_date)}</div>
               </div>
               <span className="whitespace-nowrap shrink-0">
@@ -2371,7 +2371,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           {isEditing ? (
             <>
               {/* ID — auto-issued, never editable. */}
-              <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
+              <td className="px-3 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.batch_no ?? r.id).padStart(4, '0')}`}</td>
               <td className="px-2 py-2"><input type="date" className="input h-8 text-xs" value={ef.given_date} onChange={(e) => setEditForm({ ...ef, given_date: e.target.value })} /></td>
               <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.jobwork_party_id} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: Number(e.target.value) })}>{parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
               <td className="px-2 py-2"><select className="input h-8 text-xs" value={ef.fabric_quality_id ?? ''} onChange={(e) => setEditForm({ ...ef, fabric_quality_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></td>
@@ -2396,7 +2396,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {/* Auto-issued ID derived from the row's
                   numeric primary key — short, sortable, and
                   unique without a schema change. */}
-              <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
+              <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.batch_no ?? r.id).padStart(4, '0')}`}</td>
               <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
               <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
               <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
@@ -2452,14 +2452,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     );
   }
 
-  // Short label for a merged group's ID column — the id range covered
-  // by its underlying beam rows, e.g. "WBG-0023…0029".
+  // Label for a merged group's ID column — the shared batch_no all of
+  // the group's underlying beam rows were saved under, e.g. "WBG-0023".
   function groupIdLabel(g: WarpBeamGroup): string {
-    const ids = g.rows.map((x) => x.id).sort((a, b) => a - b);
     const pad = (n: number) => String(n).padStart(4, '0');
-    const first = ids[0] ?? 0;
-    const last = ids[ids.length - 1] ?? first;
-    return ids.length === 1 ? `WBG-${pad(first)}` : `WBG-${pad(first)}\u2026${pad(last)}`;
+    return `WBG-${pad(g.batchNo ?? g.rows[0]?.id ?? 0)}`;
   }
 
   return (
