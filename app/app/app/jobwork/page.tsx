@@ -1936,6 +1936,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
       const notesTrimmed = form.notes.trim();
       const sizingSetNoTrimmed = form.sizingSetNo.trim() || null;
+      let batchNo: number;
+      try {
+        batchNo = await fetchNextBatchNo(sb);
+      } catch (e) {
+        setBusy(false);
+        setErr(e instanceof Error ? e.message : 'Could not generate a batch number for this save.');
+        return;
+      }
       const basePayload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
         fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -1944,6 +1952,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         reference_no:      form.reference_no.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
         sizing_set_no:     sizingSetNoTrimmed,
+        batch_no:          batchNo,
       };
 
       // Sequential inserts (not a bulk insert) so each beam's freshly
