@@ -1472,6 +1472,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     // beams from. When set we list its pavu rows below and the
     // operator ticks the ones to include.
     sizing_job_id: '',
+    // New (jobwork flow only): free-text sizing set no supplied by the
+    // jobwork party. Not validated against sizing_job — jobwork beams
+    // are sized externally, so there's no matching row to reference.
+    sizingSetNo: '',
   });
   // Jobwork manual-entry form only: a repeatable list of beams (ends +
   // metres typed per beam). Each beam becomes its own jobwork_warp_beam
@@ -1487,6 +1491,26 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   }
   function updateBeamRow(idx: number, field: keyof BeamRow, value: string): void {
     setBeamRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  // Jobwork manual-entry form only: "Generate beams" helper. Beam No
+  // is assigned by the jobwork/sizing party and is sequential, so the
+  // operator can type a starting number + count instead of typing
+  // every beam no by hand. These two fields are UI-only — they are
+  // never sent to the database; only the resulting beamRows are saved,
+  // through the same per-beam insert path as manually-typed rows.
+  const [beamNoStart, setBeamNoStart] = useState('');
+  const [beamGenCount, setBeamGenCount] = useState('1');
+  function generateBeamRows(): void {
+    const start = Number(beamNoStart);
+    const count = Number(beamGenCount);
+    if (!Number.isFinite(start) || start <= 0 || !Number.isInteger(start)) return;
+    if (!Number.isFinite(count) || count <= 0 || !Number.isInteger(count)) return;
+    const hasExistingData = beamRows.some((r) => r.beamNo !== '' || r.ends !== '' || r.metres !== '');
+    if (hasExistingData && !window.confirm('This will replace the current beam rows. Continue?')) return;
+    const rows: BeamRow[] = Array.from({ length: count }, (_, i) => ({
+      beamNo: String(start + i), ends: '', metres: '',
+    }));
+    setBeamRows(rows);
   }
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1938,7 +1962,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       setForm({
         given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
         total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
-        sizing_job_id: '',
+        sizing_job_id: '', sizingSetNo: '',
       });
       setBeamRows([{ beamNo: '', ends: '', metres: '' }]);
       setShowAdd(false);
@@ -2030,7 +2054,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setForm({
       given_date: todayISO(), jobwork_party_id: '', fabric_quality_id: '', warp_count_id: '',
       total_ends: '', beam_count: '1', total_metres: '', reference_no: '', notes: '', supplier_party_id: '',
-      sizing_job_id: '',
+      sizing_job_id: '', sizingSetNo: '',
     });
     setSelectedPavuIds(new Set());
     setPavusForJob([]);
