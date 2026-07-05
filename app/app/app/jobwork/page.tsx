@@ -2466,6 +2466,31 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             Each row becomes its own jobwork_warp_beam row on save. */}
         <div>
           <label className="label text-xs">Beams *</label>
+          <div className="flex items-end gap-2 mb-2">
+            <div>
+              <label className="label text-xs">Beam No starting</label>
+              <input
+                type="number"
+                placeholder="e.g. 101"
+                className="input w-28"
+                value={beamNoStart}
+                onChange={(e) => setBeamNoStart(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label text-xs">No. of beams</label>
+              <input
+                type="number"
+                min={1}
+                className="input w-20"
+                value={beamGenCount}
+                onChange={(e) => setBeamGenCount(e.target.value)}
+              />
+            </div>
+            <button type="button" className="btn-secondary text-xs" onClick={generateBeamRows}>
+              Generate beams
+            </button>
+          </div>
           <div className="space-y-2">
             {beamRows.map((b, idx) => (
               <div key={idx} className="flex items-center gap-2">
