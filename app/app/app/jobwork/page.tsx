@@ -1484,7 +1484,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   interface BeamRow { beamNo: string; ends: string; metres: string; }
   const [beamRows, setBeamRows] = useState<BeamRow[]>([{ beamNo: '', ends: '', metres: '' }]);
   function addBeamRow(): void {
-    setBeamRows((rows) => [...rows, { beamNo: '', ends: '', metres: '' }]);
+    const fid = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
+    const defaults = fid !== null ? fabricDefaults.get(fid) : undefined;
+    const defaultEnds = defaults && defaults.total_ends !== null ? String(defaults.total_ends) : '';
+    setBeamRows((rows) => [...rows, { beamNo: '', ends: defaultEnds, metres: '' }]);
   }
   function removeBeamRow(idx: number): void {
     setBeamRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
@@ -1507,8 +1510,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     if (!Number.isFinite(count) || count <= 0 || !Number.isInteger(count)) return;
     const hasExistingData = beamRows.some((r) => r.beamNo !== '' || r.ends !== '' || r.metres !== '');
     if (hasExistingData && !window.confirm('This will replace the current beam rows. Continue?')) return;
+    const fid = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
+    const defaults = fid !== null ? fabricDefaults.get(fid) : undefined;
+    const defaultEnds = defaults && defaults.total_ends !== null ? String(defaults.total_ends) : '';
     const rows: BeamRow[] = Array.from({ length: count }, (_, i) => ({
-      beamNo: String(start + i), ends: '', metres: '',
+      beamNo: String(start + i), ends: defaultEnds, metres: '',
     }));
     setBeamRows(rows);
   }
@@ -1844,6 +1850,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         ? String(defaults.total_ends)
         : f.total_ends,
     }));
+    // Jobwork manual-entry beams don't come from form.total_ends — each row
+    // has its own Ends box. Auto-fill every existing row with the new
+    // quality's ends value too (still editable per-row afterward).
+    if (kind === 'jobwork' && defaults && defaults.total_ends !== null) {
+      const defaultEnds = String(defaults.total_ends);
+      setBeamRows((rows) => rows.map((r) => ({ ...r, ends: defaultEnds })));
+    }
   }
 
   async function add() {
