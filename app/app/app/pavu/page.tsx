@@ -73,7 +73,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     // jobwork/page.tsx does it (partyById.has(...)), so we don't need
     // the FK-relationship name for an embedded-resource filter here.
     sb.from('jobwork_warp_beam')
-      .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, beam_count, total_metres, original_metres, pavu_id, pavu_ids')
+      .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, beam_count, total_metres, original_metres, pavu_id, pavu_ids, sizing_set_no')
       .eq('status', 'active')
       .order('given_date', { ascending: false }),
     sb.from('fabric_quality').select('id, name'),
@@ -107,6 +107,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     given_date: string; total_ends: number | null; beam_count: number;
     total_metres: number | null; original_metres: number | null;
     pavu_id: number | null; pavu_ids: number[] | null;
+    sizing_set_no: string | null;
   }>).filter((w) => jobworkPartyNameById.has(w.jobwork_party_id));
 
   // Resolve Pavu codes for any linked rows (pavu_id / pavu_ids) —
@@ -138,6 +139,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       metres: Number((w.original_metres ?? w.total_metres) ?? 0),
       pavu_codes: codes,
       pavu_status: firstId != null ? (pavuStatusById.get(firstId) ?? null) : null,
+      sizing_set_no: w.sizing_set_no,
     };
   });
 

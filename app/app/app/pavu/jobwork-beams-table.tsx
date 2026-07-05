@@ -22,6 +22,8 @@ export interface JobworkBeamRow {
   pavu_codes: string[];
   /** Current status of the linked pavu row ('in_stock' | 'on_loom' | 'finished' | 'damaged' | 'scrapped'), or null if no pavu is linked (legacy manual entries). */
   pavu_status: string | null;
+  /** Free-text sizing set no supplied by the jobwork party, or null for legacy rows saved before this field existed. */
+  sizing_set_no: string | null;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -60,6 +62,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
             <th className="text-left  px-4 py-3">Jobwork Party</th>
             <th className="text-left  px-4 py-3 hidden md:table-cell">Quality</th>
             <th className="text-left  px-4 py-3 hidden lg:table-cell">Warp count</th>
+            <th className="text-left  px-4 py-3 hidden lg:table-cell">Sizing Set No</th>
             <th className="text-right px-4 py-3">Ends</th>
             <th className="text-right px-4 py-3">Beams</th>
             <th className="text-right px-4 py-3">Metres</th>
@@ -75,6 +78,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
               <td className="px-4 py-2">{r.party_name}</td>
               <td className="px-4 py-2 hidden md:table-cell text-ink-soft">{r.quality_name ?? '—'}</td>
               <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.warp_count_display ?? '—'}</td>
+              <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.sizing_set_no ?? '—'}</td>
               <td className="px-4 py-2 text-right num">{r.total_ends ?? '—'}</td>
               <td className="px-4 py-2 text-right num font-semibold">{r.beam_count}</td>
               <td className="px-4 py-2 text-right num text-indigo-700 font-semibold">{r.metres.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
@@ -95,7 +99,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
         </tbody>
         <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
           <tr>
-            <td colSpan={6} className="px-4 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+            <td colSpan={7} className="px-4 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
             <td className="px-4 py-3 text-right num font-bold">{totalBeams.toLocaleString('en-IN')} beams</td>
             <td className="px-4 py-3 text-right num font-bold text-indigo-700">{totalMetres.toLocaleString('en-IN', { maximumFractionDigits: 0 })} m</td>
             <td />
