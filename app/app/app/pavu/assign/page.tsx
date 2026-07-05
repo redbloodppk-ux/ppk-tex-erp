@@ -32,6 +32,8 @@ interface ActiveAssignment {
     sizing_job?: { warp_count?: { code: string } | null } | null;
     production_mode: 'in_house' | 'outsource' | 'jobwork';
     jobwork_vendor?: { name: string } | null;
+    /** Free-text sizing set no, populated for jobwork-mode pavu rows only. */
+    sizing_set_no?: string | null;
   } | null;
   costing: { id: number; quality_code: string; quality_name: string } | null;
 }
@@ -45,6 +47,8 @@ interface PavuInStock {
   sizing_job?: { set_no?: string | null; warp_count?: { code: string } | null } | null;
   production_mode: 'in_house' | 'outsource' | 'jobwork';
   jobwork_vendor?: { name: string } | null;
+  /** Free-text sizing set no, populated for jobwork-mode pavu rows only. */
+  sizing_set_no?: string | null;
 }
 
 interface Quality {
@@ -97,7 +101,7 @@ export default function PavuAssignPage() {
         .select(`
           id, loom_id, status, metres_produced, start_date, metres_start_date,
           pavu:pavu_id (
-            id, pavu_code, beam_no, ends, meters, production_mode,
+            id, pavu_code, beam_no, ends, meters, production_mode, sizing_set_no,
             sizing_job:sizing_job_id ( warp_count:warp_count_id ( code ) ),
             jobwork_vendor:jobwork_ledger_id ( name )
           ),
@@ -106,7 +110,7 @@ export default function PavuAssignPage() {
         .in('status', ['queued', 'mounted', 'running']),
       sb.from('pavu')
         .select(`
-          id, pavu_code, beam_no, ends, meters, production_mode,
+          id, pavu_code, beam_no, ends, meters, production_mode, sizing_set_no,
           sizing_job:sizing_job_id ( set_no, warp_count:warp_count_id ( code ) ),
           jobwork_vendor:jobwork_ledger_id ( name )
         `)
@@ -231,6 +235,7 @@ export default function PavuAssignPage() {
                     {cur.pavu.production_mode === 'jobwork' && (
                       <div className="text-xs text-indigo-700 mt-1">
                         Jobwork beam — supplied by {cur.pavu.jobwork_vendor?.name ?? 'Unknown party'}
+                        {cur.pavu.sizing_set_no ? ` (Set ${cur.pavu.sizing_set_no})` : ''}
                       </div>
                     )}
                     {cur.costing && (
@@ -430,7 +435,7 @@ function AssignModal({
                 <option key={s.id} value={s.id}>
                   {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
                   {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
-                  {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'})` : ''}
+                  {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
                 </option>
               ))}
             </select>
