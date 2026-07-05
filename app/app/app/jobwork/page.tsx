@@ -2460,6 +2460,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             Each row becomes its own jobwork_warp_beam row on save. */}
         <div>
           <label className="label text-xs">Beams *</label>
+          {form.fabric_quality_id === '' && (
+            <div className="text-xs text-ink-mute mb-1">
+              Tip: pick Fabric quality above first — Ends will auto-fill for every beam row below.
+            </div>
+          )}
           <div className="flex items-end gap-2 mb-2">
             <div>
               <label className="label text-xs">Beam No starting</label>
@@ -2522,6 +2527,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <button type="button" className="text-indigo underline text-xs" onClick={addBeamRow}>
               + Add beam
             </button>
+            <div className="flex justify-end gap-4 text-xs text-ink-mute pt-1 border-t border-line">
+              <span>{beamRows.length} beam{beamRows.length === 1 ? '' : 's'}</span>
+              <span className="font-semibold text-ink">
+                Total metres: {beamRows.reduce((s, b) => s + (Number(b.metres) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
           </div>
         </div>
         </>
