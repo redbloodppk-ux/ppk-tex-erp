@@ -2449,11 +2449,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">---</option>
               {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
-          <div><label className="label text-xs">Sizing job</label>
-            <select className="input" value={form.sizing_job_id} onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}>
-              <option value="">---</option>
-              {allSizingJobs.map((j) => <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' · Set ' + j.set_no : ''}</option>)}
-            </select></div>
+          <div><label className="label text-xs">Sizing Set No</label>
+            <input
+              className="input"
+              placeholder="e.g. 12"
+              value={form.sizingSetNo}
+              onChange={(e) => setForm({ ...form, sizingSetNo: e.target.value })}
+            /></div>
           <div><label className="label text-xs">Reference / DC no</label>
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div><label className="label text-xs">Notes</label>
