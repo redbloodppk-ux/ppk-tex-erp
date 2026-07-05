@@ -2056,6 +2056,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     const supplierPartyId  = supplierLedgerId != null
       ? sizingPartyByLedger.get(supplierLedgerId) ?? null
       : null;
+    let outsourceBatchNo: number;
+    try {
+      outsourceBatchNo = await fetchNextBatchNo(sb);
+    } catch (e) {
+      setBusy(false);
+      setErr(e instanceof Error ? e.message : 'Could not generate a batch number for this save.');
+      return;
+    }
     const payload = {
       jobwork_party_id:  Number(form.jobwork_party_id),
       fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -2068,6 +2076,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no:      form.reference_no.trim() || null,
       notes:             form.notes.trim() || null,
       supplier_party_id: supplierPartyId,
+      batch_no:          outsourceBatchNo,
       // Aggregate row — no single pavu link. pavu_ids records the
       // exact set of pavus this row represents so the Release
       // action can revert just those beams. total_metres above is the
