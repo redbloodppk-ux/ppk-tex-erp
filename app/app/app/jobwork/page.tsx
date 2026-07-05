@@ -1564,10 +1564,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     sizing_job_id: number | null;
   }
   const [sizingJobs,       setSizingJobs]       = useState<SizingJobOpt[]>([]);
-  // Jobwork manual-entry form only: a flat, unfiltered sizing job list
-  // for the "Sizing job" dropdown. No cascade, no pavu linkage — the
-  // operator just records which sizing job the warp came from.
-  const [allSizingJobs,    setAllSizingJobs]    = useState<SizingJobOpt[]>([]);
   const [pavusForJob,      setPavusForJob]      = useState<PavuOpt[]>([]);
   const [selectedPavuIds,  setSelectedPavuIds]  = useState<Set<number>>(new Set());
   // Routing relationships between outsource parties and sizing
@@ -1673,25 +1669,6 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     })();
     return () => { cancelled = true; };
   }, [showAdd, kind, supabase, parties]);
-
-  // Jobwork manual-entry form: flat, unfiltered sizing job list for the
-  // "Sizing job" dropdown. No cascade, no pavu-checklist — just a plain
-  // reference field (jobwork_warp_beam.sizing_job_id).
-  useEffect(() => {
-    if (!showAdd || kind !== 'jobwork') return;
-    let cancelled = false;
-    void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const { data } = await sb
-        .from('sizing_job')
-        .select('id, job_code, set_no, warp_count_id, sizing_ledger_id')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (!cancelled) setAllSizingJobs((data ?? []) as SizingJobOpt[]);
-    })();
-    return () => { cancelled = true; };
-  }, [showAdd, kind, supabase]);
 
   // â”€â”€ Cascade memos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectedOutsourceLedgerId = form.jobwork_party_id === ''
