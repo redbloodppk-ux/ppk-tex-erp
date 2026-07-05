@@ -2188,6 +2188,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   async function restock(parent: WarpBeamRow, data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+    let restockBatchNo: number;
+    try {
+      restockBatchNo = await fetchNextBatchNo(sb);
+    } catch (e) {
+      window.alert('Restock failed: ' + (e instanceof Error ? e.message : String(e)));
+      return;
+    }
     const payload = {
       jobwork_party_id: parent.jobwork_party_id,
       fabric_quality_id: parent.fabric_quality_id,
@@ -2199,6 +2206,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no: `RESTOCK-${parent.id}`,
       notes: null,
       supplier_party_id: data.supplier_party_id === '' ? null : Number(data.supplier_party_id),
+      batch_no: restockBatchNo,
     };
     const { error } = await sb.from('jobwork_warp_beam').insert(payload);
     if (error) { window.alert('Restock failed: ' + error.message); return; }

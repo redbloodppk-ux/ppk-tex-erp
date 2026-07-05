@@ -31,6 +31,14 @@ export interface SyncResult {
   action: 'inserted' | 'updated' | 'deleted' | 'noop';
 }
 
+async function fetchNextBatchNo(sb: Sb): Promise<number> {
+  const { data, error } = await sb.rpc('fn_next_warp_beam_batch_no');
+  if (error || data == null) {
+    throw new Error(error?.message ?? 'Could not generate a batch number for this sync.');
+  }
+  return Number(data);
+}
+
 /** Sync a single pavu row's outsource/jobwork assignment to jobwork_warp_beam.
  *  Call after any UPDATE on pavu.production_mode / outsource_ledger_id / jobwork_ledger_id. */
 export async function syncWarpBeamFromPavu(sb: Sb, pavuId: number): Promise<SyncResult> {
@@ -126,9 +134,16 @@ export async function syncWarpBeamFromPavu(sb: Sb, pavuId: number): Promise<Sync
     if (updErr) return { ok: false, error: updErr.message, action: 'noop' };
     return { ok: true, action: 'updated' };
   }
+
+  let batchNo: number;
+  try {
+    batchNo = await fetchNextBatchNo(sb);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), action: 'noop' };
+  }
   const { error: insErr } = await sb
     .from('jobwork_warp_beam')
-    .insert(payload);
+    .insert({ ...payload, batch_no: batchNo });
   if (insErr) return { ok: false, error: insErr.message, action: 'noop' };
   return { ok: true, action: 'inserted' };
 }
