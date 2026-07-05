@@ -1905,6 +1905,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       const supplierLedgerId = Number(party.ledger_id);
 
       const notesTrimmed = form.notes.trim();
+      const sizingSetNoTrimmed = form.sizingSetNo.trim() || null;
       const basePayload = {
         jobwork_party_id:  Number(form.jobwork_party_id),
         fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -1912,7 +1913,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         given_date:        form.given_date,
         reference_no:      form.reference_no.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
-        sizing_job_id:     form.sizing_job_id === '' ? null : Number(form.sizing_job_id),
+        sizing_set_no:     sizingSetNoTrimmed,
       };
 
       // Sequential inserts (not a bulk insert) so each beam's freshly
@@ -1926,6 +1927,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           .from('pavu')
           .insert({
             sizing_job_id:     null,
+            sizing_set_no:     sizingSetNoTrimmed,
             beam_no:           b.beamNo,
             ends,
             meters:            metres,
@@ -1965,6 +1967,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         sizing_job_id: '', sizingSetNo: '',
       });
       setBeamRows([{ beamNo: '', ends: '', metres: '' }]);
+      setBeamNoStart('');
+      setBeamGenCount('1');
       setShowAdd(false);
       onChanged();
       return;
