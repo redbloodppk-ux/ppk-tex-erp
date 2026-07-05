@@ -102,6 +102,10 @@ interface BobbinMasterOpt {
 }
 interface WarpBeamRow {
   id: number; jobwork_party_id: number;
+  /** One number per batch/save-action (migration 234) — shown as
+   *  WBG-NNNN. Null only for a defensive edge case (a row inserted
+   *  outside the app); display code falls back to `id` when null. */
+  batch_no: number | null;
   fabric_quality_id: number | null; warp_count_id: number | null;
   given_date: string; total_ends: number | null;
   tape_length_m: number | null; beam_count: number;
@@ -133,6 +137,10 @@ interface WarpBeamGroup {
   rows: WarpBeamRow[];
   totalBeams: number;
   totalMetres: number;
+  /** All rows in a group share one batch_no (they were saved together,
+   *  or the historical backfill assigned them the same number). Null
+   *  only in the same defensive edge case as WarpBeamRow.batch_no. */
+  batchNo: number | null;
 }
 type WarpBeamItem =
   | { kind: 'single'; row: WarpBeamRow }
@@ -176,6 +184,7 @@ function groupWarpBeamRows(list: WarpBeamRow[]): WarpBeamItem[] {
         rows: bucket,
         totalBeams: bucket.length,
         totalMetres: bucket.reduce((s, x) => s + Number((x.original_metres ?? x.total_metres) ?? 0), 0),
+        batchNo: bucket[0]?.batch_no ?? null,
       },
     });
   }
@@ -296,7 +305,7 @@ export default function JobworkPage(): React.ReactElement {
       // existing BobbinTab UI keeps working.
       sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, supplier_party_id, reference_no, notes,
               bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
-      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id, batch_no').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
