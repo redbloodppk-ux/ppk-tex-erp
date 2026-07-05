@@ -75,6 +75,11 @@ nullable, per migration 231).
   both rows, so it's visible wherever the pavu row surfaces later.
 - Form reset (~line 1938-1943) additionally clears `sizingSetNo`,
   `startingBeamNo`, and the beam-count input back to defaults.
+- `startingBeamNo` and "No. of beams" are local, UI-only state used purely to
+  drive the Generate button — they are never sent to the database directly.
+  Each generated row still saves through the existing per-beam insert path,
+  which already hardcodes `beam_count: 1` per row (unchanged from the
+  current implementation).
 
 ## Downstream display
 
