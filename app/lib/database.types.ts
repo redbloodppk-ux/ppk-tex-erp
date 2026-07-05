@@ -3891,6 +3891,7 @@ export type Database = {
       }
       jobwork_warp_beam: {
         Row: {
+          batch_no: number | null
           beam_count: number
           created_at: string
           created_by: string | null
@@ -3915,6 +3916,7 @@ export type Database = {
           warp_count_id: number | null
         }
         Insert: {
+          batch_no?: number | null
           beam_count?: number
           created_at?: string
           created_by?: string | null
@@ -3939,6 +3941,7 @@ export type Database = {
           warp_count_id?: number | null
         }
         Update: {
+          batch_no?: number | null
           beam_count?: number
           created_at?: string
           created_by?: string | null
@@ -8414,6 +8417,7 @@ export type Database = {
         }[]
       }
       fn_next_doc_no: { Args: { p_doc_type: string }; Returns: string }
+      fn_next_warp_beam_batch_no: { Args: never; Returns: number }
       fn_party_balances_as_of: {
         Args: { p_as_of: string }
         Returns: {
