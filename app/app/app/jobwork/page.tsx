@@ -10,7 +10,7 @@
  * 5. Status          : pivot + per-party balance + per-quality split.
  */
 import Link from 'next/link';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
@@ -1495,6 +1495,21 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   function updateBeamRow(idx: number, field: keyof BeamRow, value: string): void {
     setBeamRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   }
+  // Beam rows list only: pressing Enter moves focus to the next Beam
+  // no./Ends/Metres box instead of the browser default of following DOM
+  // (tab) order, which would land on the "x" remove button between rows.
+  // Scoping the lookup to <input> elements skips buttons entirely.
+  const beamRowsListRef = useRef<HTMLDivElement | null>(null);
+  function handleBeamRowKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const container = beamRowsListRef.current;
+    if (!container) return;
+    const inputs = Array.from(container.querySelectorAll('input'));
+    const idx = inputs.indexOf(e.currentTarget);
+    if (idx === -1 || idx === inputs.length - 1) return;
+    inputs[idx + 1]?.focus();
+  }
   // Jobwork manual-entry form only: "Generate beams" helper. Beam No
   // is assigned by the jobwork/sizing party and is sequential, so the
   // operator can type a starting number + count instead of typing
@@ -2490,7 +2505,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               Generate beams
             </button>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" ref={beamRowsListRef}>
             {beamRows.map((b, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <input
@@ -2498,6 +2513,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   className="input w-24 shrink-0"
                   value={b.beamNo}
                   onChange={(e) => updateBeamRow(idx, 'beamNo', e.target.value)}
+                  onKeyDown={handleBeamRowKeyDown}
                 />
                 <input
                   type="number"
@@ -2505,6 +2521,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   className="input num"
                   value={b.ends}
                   onChange={(e) => updateBeamRow(idx, 'ends', e.target.value)}
+                  onKeyDown={handleBeamRowKeyDown}
                 />
                 <input
                   type="number"
@@ -2513,6 +2530,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   className="input num"
                   value={b.metres}
                   onChange={(e) => updateBeamRow(idx, 'metres', e.target.value)}
+                  onKeyDown={handleBeamRowKeyDown}
                 />
                 <button
                   type="button"
