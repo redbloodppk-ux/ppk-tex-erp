@@ -191,6 +191,22 @@ function groupWarpBeamRows(list: WarpBeamRow[]): WarpBeamItem[] {
   return items;
 }
 
+/** Pulls exactly one new jobwork_warp_beam batch number
+ *  (fn_next_warp_beam_batch_no, migration 234) for the caller to stamp
+ *  onto every row inserted by ONE save action — never call this once
+ *  per beam row, only once per save. Throws so callers can surface a
+ *  clear error and abort the save rather than silently inserting rows
+ *  with a null batch_no (which would defeat the point of this
+ *  feature — every new save must get a real number). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchNextBatchNo(sb: any): Promise<number> {
+  const { data, error } = await sb.rpc('fn_next_warp_beam_batch_no');
+  if (error || data == null) {
+    throw new Error(error?.message ?? 'Could not generate a batch number for this save.');
+  }
+  return Number(data);
+}
+
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
   yarn_count_id: number | null; given_date: string;
