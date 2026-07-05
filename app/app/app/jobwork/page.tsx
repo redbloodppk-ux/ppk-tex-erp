@@ -2231,6 +2231,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+    let splitBatchNo: number;
+    try {
+      splitBatchNo = await fetchNextBatchNo(sb);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not generate a batch number for this split.');
+      return;
+    }
     const notesTrimmed = (parent.notes ?? '').trim();
     const basePayload = {
       jobwork_party_id: parent.jobwork_party_id,
@@ -2240,6 +2247,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no: parent.reference_no,
       supplier_party_id: parent.supplier_party_id,
       sizing_job_id: parent.sizing_job_id,
+      batch_no: splitBatchNo,
       pavu_id: null,
       pavu_ids: null,
     };
