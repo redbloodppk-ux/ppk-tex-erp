@@ -2,12 +2,16 @@
  * Weaver-wise Quality-wise Production Report
  *
  * For a selected week, shows each weaver's total metres woven broken down
- * by fabric quality (loom.fabric_quality_id -> fabric_quality.code/name).
+ * by fabric quality. Quality is taken from the shift log's own FROZEN
+ * fabric_quality_id (production_shift_log.fabric_quality_id -> fabric_quality
+ * .code/name), not the loom's live/current fabric_quality_id — so reassigning
+ * a loom to a new quality today never retroactively reclassifies its past
+ * production.
  *
  * Rows    = weaver (metre-basis employees only)
  * Columns = one column per quality present in the week + a Total column
  *
- * Looms with no fabric_quality_id assigned appear under "No Quality".
+ * Shift logs with no frozen fabric_quality_id appear under "No Quality".
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
@@ -97,20 +101,26 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
 
   const supabase = await createClient();
 
-  // Step 1: All shift logs in the selected week (get id + loom_id).
+  // Step 1: All shift logs in the selected week (get id + loom_id + the
+  // shift log's own FROZEN fabric_quality_id — this is what production
+  // must be grouped by, not the loom's current/live quality).
   const { data: shiftLogsRaw } = await supabase
     .from('production_shift_log')
-    .select('id, loom_id')
+    .select('id, loom_id, fabric_quality_id')
     .gte('log_date', weekStart)
     .lte('log_date', weekEnd);
-  const shiftLogs = (shiftLogsRaw ?? []) as Array<{ id: number; loom_id: number }>;
+  const shiftLogs = (shiftLogsRaw ?? []) as Array<{ id: number; loom_id: number; fabric_quality_id: number | null }>;
 
   const rows: RawRow[] = [];
 
   if (shiftLogs.length > 0) {
     const shiftLogIds = shiftLogs.map((s) => s.id);
     const loomByShift = new Map<number, number>();
-    for (const s of shiftLogs) loomByShift.set(s.id, s.loom_id);
+    const qualityIdByShift = new Map<number, number | null>();
+    for (const s of shiftLogs) {
+      loomByShift.set(s.id, s.loom_id);
+      qualityIdByShift.set(s.id, s.fabric_quality_id);
+    }
 
     // Step 2: Weaver entries for those shift logs.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -143,19 +153,38 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
       empInfo.set(e.id, { full_name: e.full_name, code: e.code });
     }
 
-    // Step 4: Loom fabric_quality + shed mapping.
+    // Step 4: Loom shed mapping only. Fabric quality must NOT come from the
+    // loom here — the loom's fabric_quality_id is live and can be reassigned
+    // at any time, which would retroactively reclassify past production
+    // under whatever quality the loom is currently running. Shed assignment
+    // isn't frozen, so it's fine to read it live from the loom.
     const loomIds = Array.from(new Set(shiftLogs.map((s) => s.loom_id)));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: loomRaw } = await (supabase as any)
       .from('loom')
-      .select('id, shed_no, fabric_quality:fabric_quality_id ( code, name )')
+      .select('id, shed_no')
       .in('id', loomIds);
-    type LoomRow = { id: number; shed_no: number | null; fabric_quality: { code: string; name: string } | null };
-    const qualityByLoom = new Map<number, { code: string; name: string }>();
+    type LoomRow = { id: number; shed_no: number | null };
     const shedByLoom = new Map<number, number | null>();
     for (const l of (loomRaw ?? []) as LoomRow[]) {
-      qualityByLoom.set(l.id, l.fabric_quality ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' });
       shedByLoom.set(l.id, l.shed_no);
+    }
+
+    // Step 4b: Resolve quality code/name from the shift logs' own frozen
+    // fabric_quality_id values (not the loom's live quality).
+    const distinctQualityIds = Array.from(
+      new Set(Array.from(qualityIdByShift.values()).filter((id): id is number => id != null))
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: qualityRaw } = distinctQualityIds.length ? await (supabase as any)
+      .from('fabric_quality')
+      .select('id, code, name')
+      .in('id', distinctQualityIds)
+      : { data: [] };
+    type QualityRow = { id: number; code: string; name: string };
+    const qualityById = new Map<number, { code: string; name: string }>();
+    for (const q of (qualityRaw ?? []) as QualityRow[]) {
+      qualityById.set(q.id, { code: q.code, name: q.name });
     }
 
     // Step 5: Aggregate metres per (employee, quality). When a shed filter
@@ -165,7 +194,9 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
       const loomId = loomByShift.get(w.shift_log_id);
       if (loomId == null) continue;
       if (shedFilter !== null && shedByLoom.get(loomId) !== shedFilter) continue;
-      const fq = qualityByLoom.get(loomId) ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' };
+      const qualityId = qualityIdByShift.get(w.shift_log_id) ?? null;
+      const fq = (qualityId != null ? qualityById.get(qualityId) : undefined)
+        ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' };
       const key = `${w.employee_id}|${fq.code}`;
       const m = Number(w.metres_woven ?? 0);
       if (m <= 0) continue;
