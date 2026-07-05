@@ -2393,9 +2393,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             </>
           ) : (
             <>
-              {/* Auto-issued ID derived from the row's
-                  numeric primary key — short, sortable, and
-                  unique without a schema change. */}
+              {/* Batch code shared by every beam saved in the same
+                  action (batch_no); falls back to the row's numeric
+                  primary key only in the defensive edge case where
+                  batch_no wasn't set. */}
               <td className="px-3 py-2 font-mono text-xs font-semibold">{`WBG-${String(r.batch_no ?? r.id).padStart(4, '0')}`}</td>
               <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
               <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
