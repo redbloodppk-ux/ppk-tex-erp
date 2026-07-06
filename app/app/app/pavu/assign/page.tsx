@@ -18,6 +18,16 @@ interface Loom {
   loom_type: string;
   width_in: number | null;
   status: string;
+  shed_no: number | null;
+  fabric_quality_id: number | null;
+}
+
+/** Fabric quality's expected total ends, read from its calc_snapshot JSON —
+ *  same field the jobwork beam-entry form uses to auto-fill Ends. Used here
+ *  to decide which in-stock pavu are a match for a loom's assigned quality. */
+interface QualityEndsInfo {
+  name: string;
+  expectedEnds: number | null;
 }
 
 interface ActiveAssignment {
@@ -81,6 +91,7 @@ export default function PavuAssignPage() {
   const [active, setActive]           = useState<ActiveAssignment[]>([]);
   const [stock, setStock]             = useState<PavuInStock[]>([]);
   const [qualities, setQualities]     = useState<Quality[]>([]);
+  const [fabricQualityById, setFabricQualityById] = useState<Map<number, QualityEndsInfo>>(new Map());
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -93,9 +104,9 @@ export default function PavuAssignPage() {
   /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
-    const [l, a, p, q] = await Promise.all([
+    const [l, a, p, q, fq] = await Promise.all([
       supabase.from('loom')
-        .select('id, loom_code, loom_type, width_in, status')
+        .select('id, loom_code, loom_type, width_in, status, shed_no, fabric_quality_id')
         .order('loom_code'),
       supabase.from('pavu_assign')
         .select(`
@@ -122,14 +133,29 @@ export default function PavuAssignPage() {
         .select('id, quality_code, quality_name')
         .eq('status', 'active')
         .order('quality_code'),
+      // Fabric quality's calc_snapshot carries its expected total-ends value
+      // (same source the jobwork beam form uses to auto-fill Ends). We use
+      // it here to match in-stock pavu against a loom's assigned quality.
+      sb.from('fabric_quality')
+        .select('id, name, calc_snapshot')
+        .eq('active', true),
     ]);
-    if (l.error || a.error || p.error || q.error) {
-      setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? 'Load failed');
+    if (l.error || a.error || p.error || q.error || fq.error) {
+      setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? fq.error?.message ?? 'Load failed');
     }
     setLooms(l.data ?? []);
     setActive((a.data as any) ?? []);
     setStock((p.data as any) ?? []);
     setQualities(q.data ?? []);
+
+    const qMap = new Map<number, QualityEndsInfo>();
+    for (const row of (fq.data as { id: number; name: string; calc_snapshot: Record<string, unknown> | null }[] | null) ?? []) {
+      const snap = row.calc_snapshot ?? {};
+      const raw = snap['totalEnds'];
+      const n = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+      qMap.set(row.id, { name: row.name, expectedEnds: n !== null && Number.isFinite(n) ? n : null });
+    }
+    setFabricQualityById(qMap);
 
     setLoading(false);
   }, [supabase]);
@@ -161,6 +187,28 @@ export default function PavuAssignPage() {
     return m;
   }, [active]);
 
+  /** Looms grouped by shed_no, each shed's looms sorted by loom_code.
+   *  Looms with no shed assigned (shouldn't normally happen) are grouped
+   *  last under "Unassigned" so nothing silently disappears from the view. */
+  const shedGroups = useMemo(() => {
+    const groups = new Map<number | null, Loom[]>();
+    for (const l of looms) {
+      const key = l.shed_no ?? null;
+      const list = groups.get(key);
+      if (list) list.push(l); else groups.set(key, [l]);
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => {
+        if (a[0] === null) return 1;
+        if (b[0] === null) return -1;
+        return a[0] - b[0];
+      })
+      .map(([shedNo, shedLooms]) => ({
+        shedNo,
+        looms: shedLooms.slice().sort((a, b) => a.loom_code.localeCompare(b.loom_code)),
+      }));
+  }, [looms]);
+
   return (
     <div>
       <PageHeader
@@ -182,8 +230,14 @@ export default function PavuAssignPage() {
           <Loader2 className="w-5 h-5 inline animate-spin mr-2" /> Loading looms…
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {looms.map(l => {
+        <div className="space-y-6">
+          {shedGroups.map(({ shedNo, looms: shedLooms }) => (
+            <div key={shedNo ?? 'unassigned'}>
+              <h2 className="text-xs font-semibold text-ink-mute uppercase tracking-wide mb-2">
+                {shedNo !== null ? `Shed ${shedNo}` : 'Unassigned'}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {shedLooms.map(l => {
             const cur = activeByLoom.get(l.id);
             return (
               <div key={l.id} className="card p-4 flex flex-col gap-3">
@@ -276,7 +330,10 @@ export default function PavuAssignPage() {
                 </button>
               </div>
             );
-          })}
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -295,6 +352,7 @@ export default function PavuAssignPage() {
           loom={assignFor}
           stock={stock}
           qualities={qualities}
+          loomQuality={assignFor.fabric_quality_id ? fabricQualityById.get(assignFor.fabric_quality_id) ?? null : null}
           currentAssignment={activeByLoom.get(assignFor.id) ?? null}
           onClose={() => setAssignFor(null)}
           onDone={() => { setAssignFor(null); reload(); }}
@@ -319,11 +377,15 @@ export default function PavuAssignPage() {
 // so the partial-unique-index constraint stays happy.
 // ───────────────────────────────────────────────────────────────────────────
 function AssignModal({
-  loom, stock, qualities, currentAssignment, onClose, onDone,
+  loom, stock, qualities, loomQuality, currentAssignment, onClose, onDone,
 }: {
   loom: Loom;
   stock: PavuInStock[];
   qualities: Quality[];
+  /** The fabric quality assigned to this loom in Loom Setting, with its
+   *  expected total-ends value — null if the loom has no quality assigned
+   *  at all. Used to narrow the pavu list to matching beams only. */
+  loomQuality: QualityEndsInfo | null;
   currentAssignment: ActiveAssignment | null;
   onClose: () => void;
   onDone: () => void;
@@ -347,18 +409,27 @@ function AssignModal({
     if (!metresStartTouched) setMetresStartDate(addOneDay(value));
   }
 
-  // Distinct SET NO values present in the in-stock pavu list, so the
+  // Only pavu whose ends count matches this loom's assigned fabric quality
+  // are eligible — a loom set up for one quality shouldn't be offered beams
+  // meant for another. If the loom has no quality assigned, or the quality
+  // has no expected-ends value configured, matchedStock is empty and the
+  // UI below explains what to fix instead of silently showing everything.
+  const matchedStock = loomQuality?.expectedEnds != null
+    ? stock.filter(s => s.ends === loomQuality.expectedEnds)
+    : [];
+
+  // Distinct SET NO values present in the matched in-stock pavu list, so the
   // operator can narrow the (potentially long) pavu dropdown down to one
   // vendor set before picking the exact beam.
   const setNos = useMemo(
     () => Array.from(new Set(
-      stock.map(s => s.sizing_job?.set_no).filter((v): v is string => !!v),
+      matchedStock.map(s => s.sizing_job?.set_no).filter((v): v is string => !!v),
     )).sort(),
-    [stock],
+    [matchedStock],
   );
   const filteredStock = setNoFilter
-    ? stock.filter(s => s.sizing_job?.set_no === setNoFilter)
-    : stock;
+    ? matchedStock.filter(s => s.sizing_job?.set_no === setNoFilter)
+    : matchedStock;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -411,38 +482,58 @@ function AssignModal({
             </div>
           )}
 
-          {setNos.length > 0 && (
-            <div>
-              <label className="label">Filter by set no</label>
-              <select
-                value={setNoFilter}
-                onChange={e => { setSetNoFilter(e.target.value); setPavuId(''); }}
-                className="input"
-              >
-                <option value="">All sets</option>
-                {setNos.map(sn => (
-                  <option key={sn} value={sn}>SET {sn}</option>
-                ))}
-              </select>
+          {!loom.fabric_quality_id ? (
+            <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
+              This loom has no fabric quality assigned yet. Set one in{' '}
+              <a href="/app/settings/looms" className="underline font-semibold">Loom Setting</a>{' '}
+              before assigning pavu.
             </div>
-          )}
+          ) : loomQuality?.expectedEnds == null ? (
+            <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
+              This loom's fabric quality ({loomQuality?.name ?? 'assigned quality'}) has no ends
+              spec configured. Set its expected ends in{' '}
+              <a href="/app/settings/fabric-qualities" className="underline font-semibold">Fabric Quality</a>{' '}
+              before assigning pavu.
+            </div>
+          ) : (
+            <>
+              {setNos.length > 0 && (
+                <div>
+                  <label className="label">Filter by set no</label>
+                  <select
+                    value={setNoFilter}
+                    onChange={e => { setSetNoFilter(e.target.value); setPavuId(''); }}
+                    className="input"
+                  >
+                    <option value="">All sets</option>
+                    {setNos.map(sn => (
+                      <option key={sn} value={sn}>SET {sn}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-          <div>
-            <label className="label">Pavu *</label>
-            <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
-              <option value="" disabled>Select an in-stock pavu…</option>
-              {filteredStock.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
-                  {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
-                  {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
-                </option>
-              ))}
-            </select>
-            {filteredStock.length === 0 && (
-              <p className="text-xs text-ink-mute mt-1">No in-stock pavu for this set.</p>
-            )}
-          </div>
+              <div>
+                <label className="label">Pavu *</label>
+                <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
+                  <option value="" disabled>Select an in-stock pavu…</option>
+                  {filteredStock.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
+                      {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
+                      {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {filteredStock.length === 0 && (
+                  <p className="text-xs text-ink-mute mt-1">
+                    No in-stock pavu matching this loom's fabric quality ({loomQuality.name}
+                    {loomQuality.expectedEnds != null ? `, ${loomQuality.expectedEnds} ends` : ''}).
+                  </p>
+                )}
+              </div>
+            </>
+          )}
 
           <div>
             <label className="label">Quality being woven</label>
