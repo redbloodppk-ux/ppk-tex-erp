@@ -1524,12 +1524,25 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // no./Ends/Metres box instead of the browser default of following DOM
   // (tab) order, which would land on the "x" remove button between rows.
   // Scoping the lookup to <input> elements skips buttons entirely.
+  //
+  // The Metres field is the one operators fill in per-beam (Beam no.
+  // and Ends are usually auto-generated/auto-filled already), so Enter
+  // there jumps straight to the next row's Metres box instead of the
+  // next field in DOM order — letting the operator key through every
+  // beam's metres without touching Beam no./Ends at all.
   const beamRowsListRef = useRef<HTMLDivElement | null>(null);
   function handleBeamRowKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const container = beamRowsListRef.current;
     if (!container) return;
+    if (e.currentTarget.dataset.field === 'metres') {
+      const metresInputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[data-field="metres"]'));
+      const metresIdx = metresInputs.indexOf(e.currentTarget);
+      if (metresIdx === -1 || metresIdx === metresInputs.length - 1) return;
+      metresInputs[metresIdx + 1]?.focus();
+      return;
+    }
     const inputs = Array.from(container.querySelectorAll('input'));
     const idx = inputs.indexOf(e.currentTarget);
     if (idx === -1 || idx === inputs.length - 1) return;
@@ -2565,12 +2578,16 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div className="space-y-2" ref={beamRowsListRef}>
             {beamRows.map((b, idx) => (
               <div key={idx} className="flex items-center gap-2">
+                <span className="w-6 shrink-0 text-right text-xs text-ink-mute" title="Beam # in this batch">
+                  {idx + 1}
+                </span>
                 <input
                   placeholder="Beam no"
                   className="input w-24 shrink-0"
                   value={b.beamNo}
                   onChange={(e) => updateBeamRow(idx, 'beamNo', e.target.value)}
                   onKeyDown={handleBeamRowKeyDown}
+                  data-field="beamNo"
                 />
                 <input
                   type="number"
@@ -2579,6 +2596,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   value={b.ends}
                   onChange={(e) => updateBeamRow(idx, 'ends', e.target.value)}
                   onKeyDown={handleBeamRowKeyDown}
+                  data-field="ends"
                 />
                 <input
                   type="number"
@@ -2588,6 +2606,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   value={b.metres}
                   onChange={(e) => updateBeamRow(idx, 'metres', e.target.value)}
                   onKeyDown={handleBeamRowKeyDown}
+                  data-field="metres"
                 />
                 <button
                   type="button"
