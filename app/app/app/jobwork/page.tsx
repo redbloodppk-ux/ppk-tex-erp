@@ -1570,6 +1570,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       beamNo: String(start + i), ends: defaultEnds, metres: '',
     }));
     setBeamRows(rows);
+    // Beam no. and Ends are already filled in above, so send focus
+    // straight to the first Metres box — that's the only thing left
+    // for the operator to type. requestAnimationFrame waits for the
+    // new rows to actually be in the DOM before focusing.
+    requestAnimationFrame(() => {
+      const container = beamRowsListRef.current;
+      const firstMetres = container?.querySelector<HTMLInputElement>('input[data-field="metres"]');
+      firstMetres?.focus();
+    });
   }
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
