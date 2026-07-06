@@ -6106,11 +6106,13 @@ export type Database = {
           created_by: string | null
           fabric_quality_id: number | null
           id: number
+          is_towel: boolean
           log_date: string
           loom_id: number
           notes: string | null
           rate_per_m: number | null
           shift: string
+          towel_meter_per_pc: number | null
           updated_at: string
           updated_by: string | null
         }
@@ -6120,11 +6122,13 @@ export type Database = {
           created_by?: string | null
           fabric_quality_id?: number | null
           id?: number
+          is_towel?: boolean
           log_date?: string
           loom_id: number
           notes?: string | null
           rate_per_m?: number | null
           shift: string
+          towel_meter_per_pc?: number | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -6134,11 +6138,13 @@ export type Database = {
           created_by?: string | null
           fabric_quality_id?: number | null
           id?: number
+          is_towel?: boolean
           log_date?: string
           loom_id?: number
           notes?: string | null
           rate_per_m?: number | null
           shift?: string
+          towel_meter_per_pc?: number | null
           updated_at?: string
           updated_by?: string | null
         }
