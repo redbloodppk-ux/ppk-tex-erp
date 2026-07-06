@@ -8,6 +8,7 @@
  * click. Designed for the floor operator on a tablet.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
@@ -460,7 +461,14 @@ function AssignModal({
     onDone();
   }
 
-  return (
+  // Portal straight to <body>: the app shell's mobile push-menu wrapper sets
+  // will-change-transform on the page surface, which makes it the containing
+  // block for any `fixed` descendant (per spec, will-change: transform acts
+  // like a real transform for this purpose). Left un-portaled, this modal
+  // would render centered inside that (now much taller, shed-grouped) page
+  // surface instead of the actual viewport — i.e. scrolled out of view.
+  // Same fix already used by delivery-challan/cancel-dc-button.tsx.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
@@ -591,7 +599,8 @@ function AssignModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -631,7 +640,8 @@ function EditAssignmentModal({
     onDone();
   }
 
-  return (
+  // See AssignModal above for why this is portaled to <body>.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
@@ -689,6 +699,7 @@ function EditAssignmentModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
