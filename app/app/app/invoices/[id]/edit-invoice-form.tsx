@@ -107,6 +107,9 @@ export function EditInvoiceForm({
   // Credit notes don't carry Due-days or Vehicle number — they
   // adjust an existing balance rather than book a movement.
   const isCreditNote = docType === 'credit_note';
+  // General / rental sales (rent, scrap, services) often move no
+  // goods — Vehicle number stays visible but optional.
+  const isVehicleOptional = docType === 'general_sale' || docType === 'rental_invoice';
   const router = useRouter();
   const supabase = createClient();
 
@@ -569,21 +572,23 @@ export function EditInvoiceForm({
         {/* Credit notes don't move goods — Vehicle number is hidden. */}
         {!isCreditNote && (
           <div>
-            <label className="label">Vehicle number *</label>
+            <label className="label">Vehicle number {isVehicleOptional ? '(optional)' : '*'}</label>
             <input
               value={vehicleNo}
               onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
               className="input uppercase"
               placeholder="e.g. TN33 AB 1234"
               maxLength={20}
-              required
+              required={!isVehicleOptional}
               list="inv-edit-vehicle-history"
             />
             <datalist id="inv-edit-vehicle-history">
               {vehicleHistory.map((v) => <option key={v} value={v} />)}
             </datalist>
             <p className="text-[10px] text-ink-mute mt-1">
-              Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+              {isVehicleOptional
+                ? 'Optional for general / rental sales — fill it only if goods actually move. Printed on the bill when given.'
+                : 'Required on every invoice and printed on the bill. Past vehicles auto-suggest.'}
             </p>
           </div>
         )}

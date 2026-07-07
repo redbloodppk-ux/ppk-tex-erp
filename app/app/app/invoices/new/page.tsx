@@ -1067,9 +1067,10 @@ export default function NewInvoicePage() {
       if (!Number(r.rate))       return setError(`"${r.description}": rate must be > 0.`);
     }
 
-    // Vehicle number is mandatory on every new invoice (migration 160)
-    // — except for credit notes, which don't move goods.
-    if (docType !== 'credit_note' && vehicleNo.trim() === '') {
+    // Vehicle number is mandatory on invoices that move goods
+    // (migration 160) — except credit notes (no goods movement) and
+    // general/rental sales (rent, scrap, services often ship nothing).
+    if (docType !== 'credit_note' && docType !== 'general_sale' && vehicleNo.trim() === '') {
       return setError('Vehicle number is required.');
     }
 
@@ -2059,14 +2060,14 @@ export default function NewInvoicePage() {
                 doc type so the operator isn't blocked. */}
             {docType !== 'credit_note' && (
               <div>
-                <label className="label">Vehicle number *</label>
+                <label className="label">Vehicle number {docType === 'general_sale' ? '(optional)' : '*'}</label>
                 <input
                   value={vehicleNo}
                   onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
                   className="input uppercase"
                   placeholder="e.g. TN33 AB 1234"
                   maxLength={20}
-                  required
+                  required={docType !== 'general_sale'}
                   list="inv-new-vehicle-history"
                 />
                 {/* Browser-native autocomplete fed by past invoice rows.
@@ -2075,7 +2076,9 @@ export default function NewInvoicePage() {
                   {vehicleHistory.map((v) => <option key={v} value={v} />)}
                 </datalist>
                 <p className="text-[10px] text-ink-mute mt-1">
-                  Transport vehicle registration. Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+                  {docType === 'general_sale'
+                    ? 'Optional for general / rental sales — fill it only if goods actually move. Printed on the bill when given.'
+                    : 'Transport vehicle registration. Required on every invoice and printed on the bill. Past vehicles auto-suggest.'}
                 </p>
               </div>
             )}
