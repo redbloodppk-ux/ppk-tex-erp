@@ -289,7 +289,9 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   return a.beam_no.localeCompare(b.beam_no);
                 });
                 const posById = new Map(order.map((r, i) => [r.id, i + 1]));
-                return g.rows.map((r) => {
+                // Rows are always listed in beam-no order so the set reads
+                // top-to-bottom as #1/#2/#3...
+                return order.map((r) => {
             const s = state[r.id] ?? defaultStateFor(r);
             const displayStatus = statusOverride[r.id] ?? r.status;
             // Outsource/Jobwork-assigned pavus are locked: the routing
