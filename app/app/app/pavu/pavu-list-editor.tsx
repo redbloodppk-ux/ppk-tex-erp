@@ -75,7 +75,7 @@ const STATUS_STYLE: Record<string, string> = {
   on_loom:  'bg-indigo-50 text-indigo-700',
   finished: 'bg-slate-100 text-slate-600',
   damaged:  'bg-rose-50 text-rose-700',
-  scrapped: 'bg-rose-50 text-rose-700',
+  scrapped: 'bg-orange-50 text-orange-700',
 };
 
 /** Colours for the editable status <select> — same palette as the
@@ -85,7 +85,7 @@ const STATUS_SELECT_STYLE: Record<string, string> = {
   assigned: 'bg-amber-50 text-amber-800 border-amber-300',
   finished: 'bg-slate-100 text-slate-600 border-slate-300',
   damaged:  'bg-rose-50 text-rose-700 border-rose-300',
-  scrapped: 'bg-rose-50 text-rose-700 border-rose-300',
+  scrapped: 'bg-orange-50 text-orange-700 border-orange-300',
 };
 
 // Statuses the operator can set directly from this table. `on_loom`
