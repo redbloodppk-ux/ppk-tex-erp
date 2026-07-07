@@ -41,10 +41,21 @@ export interface JobworkBeamRow {
 
 const STATUS_STYLE: Record<string, string> = {
   in_stock: 'bg-emerald-50 text-emerald-700',
+  assigned: 'bg-amber-50 text-amber-700',
   on_loom:  'bg-indigo-50 text-indigo-700',
   finished: 'bg-slate-100 text-slate-600',
   damaged:  'bg-rose-50 text-rose-700',
-  scrapped: 'bg-rose-50 text-rose-700',
+  scrapped: 'bg-orange-50 text-orange-700',
+};
+
+/** Colours for the editable status <select> — same palette as the
+ *  read-only pills so a beam's status is recognisable at a glance. */
+const STATUS_SELECT_STYLE: Record<string, string> = {
+  in_stock: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  assigned: 'bg-amber-50 text-amber-800 border-amber-300',
+  finished: 'bg-slate-100 text-slate-600 border-slate-300',
+  damaged:  'bg-rose-50 text-rose-700 border-rose-300',
+  scrapped: 'bg-orange-50 text-orange-700 border-orange-300',
 };
 
 // Statuses the operator can set directly from this table. `on_loom`
@@ -209,7 +220,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
                             value={displayStatus ?? 'in_stock'}
                             onChange={(e) => void handleSetStatus(r, e.target.value)}
                             disabled={u.saving}
-                            className="input py-1 text-xs min-w-[110px] disabled:opacity-60"
+                            className={`input py-1 text-xs min-w-[110px] font-medium disabled:opacity-60 ${STATUS_SELECT_STYLE[displayStatus ?? 'in_stock'] ?? ''}`}
                             title="Change beam status — saves immediately"
                           >
                             {STATUS_OPTIONS.map((o) => (
