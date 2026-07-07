@@ -66,8 +66,15 @@ interface BeamGroup {
   rows:   JobworkBeamRow[];
 }
 
-/** Group rows by given date + sizing set no, preserving the incoming
- *  (newest-first) order. */
+/** Numeric beam no for sorting; rows without one sort last. */
+function beamNoSortKey(r: JobworkBeamRow): number {
+  const n = r.beam_nos.length > 0 ? Number(r.beam_nos[0]) : NaN;
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+}
+
+/** Group rows by given date + sizing set no. Within each group, rows
+ *  are sorted by beam no ascending so the serial no (1, 2, 3…) runs in
+ *  beam order. */
 function groupRows(rows: ReadonlyArray<JobworkBeamRow>): BeamGroup[] {
   const groups: BeamGroup[] = [];
   const byKey = new Map<string, BeamGroup>();
@@ -81,6 +88,7 @@ function groupRows(rows: ReadonlyArray<JobworkBeamRow>): BeamGroup[] {
     }
     g.rows.push(r);
   }
+  for (const g of groups) g.rows.sort((a, b) => beamNoSortKey(a) - beamNoSortKey(b));
   return groups;
 }
 
@@ -138,12 +146,12 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
       <table className="w-full text-sm min-w-[900px]">
         <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
           <tr>
+            <th className="text-right px-4 py-3">S.No</th>
             <th className="text-left  px-4 py-3">ID</th>
             <th className="text-left  px-4 py-3">Date</th>
             <th className="text-left  px-4 py-3">Jobwork Party</th>
             <th className="text-left  px-4 py-3 hidden md:table-cell">Quality</th>
             <th className="text-left  px-4 py-3 hidden lg:table-cell">Warp count</th>
-            <th className="text-left  px-4 py-3 hidden lg:table-cell">Sizing Set No</th>
             <th className="text-right px-4 py-3">Ends</th>
             <th className="text-right px-4 py-3">Beam No</th>
             <th className="text-right px-4 py-3">Metres</th>
@@ -166,18 +174,19 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
                   {g.rows.reduce((s, r) => s + Number(r.metres ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
               </tr>
-              {g.rows.map((r) => {
+              {g.rows.map((r, idx) => {
                 const displayStatus = statusOverride[r.id] ?? r.pavu_status;
                 const u = ui[r.id] ?? { saving: false, error: null };
                 const canEdit = r.pavu_ids.length > 0 && displayStatus !== 'on_loom';
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60 align-middle">
+                    {/* Serial within the date/set group, in beam-no order. */}
+                    <td className="px-4 py-2 text-right num text-ink-mute">{idx + 1}</td>
                     <td className="px-4 py-2 font-mono text-xs text-ink-mute">{`WBG-${String(r.id).padStart(4, '0')}`}</td>
                     <td className="px-4 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
                     <td className="px-4 py-2">{r.party_name}</td>
                     <td className="px-4 py-2 hidden md:table-cell text-ink-soft">{r.quality_name ?? '—'}</td>
                     <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.warp_count_display ?? '—'}</td>
-                    <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.sizing_set_no ?? '—'}</td>
                     <td className="px-4 py-2 text-right num">{r.total_ends ?? '—'}</td>
                     {/* Beam no of the linked pavu; manual entries with
                         no pavu fall back to the beam count. */}
