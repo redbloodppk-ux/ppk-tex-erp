@@ -95,6 +95,14 @@ export default function PavuStockReportPage() {
     [rows],
   );
 
+  /** Numeric part of a loom code ("L-26" → 26) for sorting; beams with
+   *  no loom sort last. */
+  function loomSortKey(r: StockRow): number {
+    if (!r.loom_code) return Number.MAX_SAFE_INTEGER;
+    const n = Number(r.loom_code.replace(/\D/g, ''));
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  }
+
   const filtered = rows.filter(r =>
     (!endsFilter || String(r.ends) === endsFilter) &&
     (!yarnFilter || r.yarn_count === yarnFilter) &&
@@ -102,6 +110,8 @@ export default function PavuStockReportPage() {
     (!setFilter || r.set_no === setFilter) &&
     (!shedFilter || String(r.shed_no ?? '') === shedFilter),
   );
+  // Shed-wise view reads like a walk down the shed: order by loom no.
+  if (shedFilter) filtered.sort((a, b) => loomSortKey(a) - loomSortKey(b));
 
   // Summary grouped by ends + yarn count.
   const summary = useMemo(() => {
