@@ -40,6 +40,9 @@ export interface PavuRow {
   warp_count_code: string | null;
   outsource_vendor_name: string | null;
   jobwork_vendor_name: string | null;
+  /** Loom code this pavu is actively assigned to — shown next to the
+   *  on-loom status pill. Null when not mounted. */
+  loom_code: string | null;
 }
 
 export interface WeavingVendor {
@@ -156,6 +159,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
         production_mode: 'in_house', outsource_ledger_id: null, jobwork_ledger_id: null,
         sizing_job_code: null, sizing_set_no: null, group_date: null,
         warp_count_code: null, outsource_vendor_name: null, jobwork_vendor_name: null,
+        loom_code: null,
       });
       return { ...prev, [rowId]: { ...base, ...patch } };
     });
@@ -333,6 +337,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   {isLocked || displayStatus === 'on_loom' ? (
                     <span className={`pill ${STATUS_STYLE[displayStatus] ?? 'bg-slate-100 text-slate-600'}`}>
                       {displayStatus.replace('_', ' ')}
+                      {displayStatus === 'on_loom' && r.loom_code ? ` · ${r.loom_code}` : ''}
                     </span>
                   ) : (
                     <div>

@@ -38,7 +38,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   // reads. The legacy party-master route (Outsource Weaver type)
   // used a different ledger and broke the cascade.
 
-  const [pavusRes, jobsRes, partiesRes, jobworkPartiesRes, jobworkBeamsRes, fabricQualityRes, yarnCountRes] = await Promise.all([
+  const [pavusRes, jobsRes, partiesRes, jobworkPartiesRes, jobworkBeamsRes, fabricQualityRes, yarnCountRes, assignRes] = await Promise.all([
     sb.from('pavu').select(`
       id, pavu_code, beam_no, ends, meters, status, production_mode,
       outsource_ledger_id, jobwork_ledger_id, created_at,
@@ -78,7 +78,18 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       .order('given_date', { ascending: false }),
     sb.from('fabric_quality').select('id, name'),
     sb.from('yarn_count').select('id, display_name'),
+    // Active loom assignments — used to show WHICH loom an on-loom
+    // beam is mounted on, next to its status pill.
+    sb.from('pavu_assign')
+      .select('pavu_id, loom:loom_id ( loom_code )')
+      .in('status', ['queued', 'mounted', 'running']),
   ]);
+
+  // pavu id → loom code of its active assignment (if any).
+  const loomCodeByPavuId = new Map<number, string>();
+  for (const row of ((assignRes.data ?? []) as Array<{ pavu_id: number; loom: { loom_code: string } | null }>)) {
+    if (row.loom?.loom_code) loomCodeByPavuId.set(row.pavu_id, row.loom.loom_code);
+  }
 
   // ── Vendor / Jobwork party lists ──
   // Value = jobwork_party.ledger_id (created/linked by migration
@@ -144,6 +155,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       pavu_codes: codes,
       pavu_ids: ids,
       pavu_status: firstId != null ? (pavuStatusById.get(firstId) ?? null) : null,
+      loom_codes: ids.map((id) => loomCodeByPavuId.get(id)).filter((c): c is string => c != null),
       sizing_set_no: w.sizing_set_no,
     };
   });
@@ -180,6 +192,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     warp_count_code: p.sizing_job?.warp_count?.code ?? null,
     outsource_vendor_name: p.outsource_vendor?.name ?? null,
     jobwork_vendor_name: p.jobwork_vendor?.name ?? null,
+    loom_code: loomCodeByPavuId.get(p.id) ?? null,
   }));
   const tabPavus = pavus.filter((p) => {
     if (tab === 'inhouse') return p.production_mode === 'in_house';

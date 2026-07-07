@@ -32,6 +32,9 @@ export interface JobworkBeamRow {
   pavu_ids: number[];
   /** Current status of the linked pavu row ('in_stock' | 'on_loom' | 'finished' | 'damaged' | 'scrapped' | 'assigned'), or null if no pavu is linked (legacy manual entries). */
   pavu_status: string | null;
+  /** Loom code(s) the linked pavu row(s) are actively assigned to —
+   *  shown next to the on-loom status pill. Empty when not mounted. */
+  loom_codes: string[];
   /** Free-text sizing set no supplied by the jobwork party, or null for legacy rows saved before this field existed. */
   sizing_set_no: string | null;
 }
@@ -226,6 +229,9 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
                       ) : displayStatus ? (
                         <span className={`pill ${STATUS_STYLE[displayStatus] ?? 'bg-slate-100 text-slate-600'}`}>
                           {displayStatus.replace('_', ' ')}
+                          {displayStatus === 'on_loom' && r.loom_codes.length > 0
+                            ? ` · ${r.loom_codes.join(', ')}`
+                            : ''}
                         </span>
                       ) : (
                         <span className="text-ink-mute">—</span>
