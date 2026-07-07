@@ -280,7 +280,16 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   {g.rows.reduce((s, r) => s + Number(r.meters ?? 0), 0).toFixed(0)} m
                 </td>
               </tr>
-              {g.rows.map((r) => {
+              {(() => {
+                // Beam position within the set (#3/14): rank rows of this
+                // group by numeric beam no, matching the Assign modal.
+                const order = [...g.rows].sort((a, b) => {
+                  const na = Number(a.beam_no); const nb = Number(b.beam_no);
+                  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+                  return a.beam_no.localeCompare(b.beam_no);
+                });
+                const posById = new Map(order.map((r, i) => [r.id, i + 1]));
+                return g.rows.map((r) => {
             const s = state[r.id] ?? defaultStateFor(r);
             const displayStatus = statusOverride[r.id] ?? r.status;
             // Outsource/Jobwork-assigned pavus are locked: the routing
@@ -293,7 +302,10 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
             return (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60 align-middle">
                 <td className="px-4 py-2 font-mono text-xs font-semibold text-ink">{r.pavu_code}</td>
-                <td className="px-4 py-2 font-mono text-xs">{r.beam_no}</td>
+                <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                  {r.beam_no}
+                  <span className="ml-1.5 text-ink-mute">#{posById.get(r.id)}/{g.rows.length}</span>
+                </td>
                 <td className="px-4 py-2 hidden md:table-cell font-mono text-xs text-ink-soft">{r.sizing_job_code ?? '—'}</td>
                 <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.warp_count_code ?? '—'}</td>
                 <td className="px-4 py-2 text-right num">{r.ends}</td>
@@ -399,7 +411,8 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                 </td>
               </tr>
             );
-          })}
+          });
+              })()}
             </Fragment>
           ))}
         </tbody>
