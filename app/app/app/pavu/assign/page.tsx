@@ -519,12 +519,30 @@ function AssignModal({
   const setNos = useMemo(
     () => Array.from(new Set(
       matchedStock.map(s => s.sizing_job?.set_no).filter((v): v is string => !!v),
-    )).sort(),
+    )).sort((a, b) => {
+      const na = Number(a); const nb = Number(b);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+      return a.localeCompare(b);
+    }),
     [matchedStock],
   );
-  const filteredStock = setNoFilter
+  // Dropdown always reads set-by-set, beam-by-beam: sort by set no
+  // first, then numeric beam no — so #1/#2/#3 of a set appear in order.
+  const filteredStock = (setNoFilter
     ? matchedStock.filter(s => s.sizing_job?.set_no === setNoFilter)
-    : matchedStock;
+    : matchedStock
+  ).slice().sort((a, b) => {
+    const sa = a.sizing_job?.set_no ?? a.sizing_set_no ?? '';
+    const sb = b.sizing_job?.set_no ?? b.sizing_set_no ?? '';
+    if (sa !== sb) {
+      const na = Number(sa); const nb = Number(sb);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+      return sa.localeCompare(sb);
+    }
+    const ba = Number(a.beam_no); const bb = Number(b.beam_no);
+    if (Number.isFinite(ba) && Number.isFinite(bb)) return ba - bb;
+    return String(a.beam_no).localeCompare(String(b.beam_no));
+  });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

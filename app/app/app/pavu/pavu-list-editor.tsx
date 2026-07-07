@@ -129,8 +129,8 @@ interface PavuGroup {
   rows:     PavuRow[];
 }
 
-/** Group rows by sizing date + set no (falling back to job code),
- *  preserving the incoming (newest-first) order. */
+/** Group rows by sizing bill date + set no (falling back to job code),
+ *  then order groups newest-bill-date first (undated groups last). */
 function groupRows(rows: ReadonlyArray<PavuRow>): PavuGroup[] {
   const groups: PavuGroup[] = [];
   const byKey = new Map<string, PavuGroup>();
@@ -144,6 +144,14 @@ function groupRows(rows: ReadonlyArray<PavuRow>): PavuGroup[] {
     }
     g.rows.push(r);
   }
+  groups.sort((a, b) => {
+    // ISO yyyy-mm-dd strings compare correctly as text.
+    const da = a.date ?? '';
+    const db = b.date ?? '';
+    if (da !== db) return db.localeCompare(da);
+    // Same date: keep higher set no on top.
+    return Number(b.set_no ?? 0) - Number(a.set_no ?? 0);
+  });
   return groups;
 }
 

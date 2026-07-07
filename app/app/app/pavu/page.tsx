@@ -43,7 +43,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       id, pavu_code, beam_no, ends, meters, status, production_mode,
       outsource_ledger_id, jobwork_ledger_id, created_at,
       sizing_job:sizing_job_id (
-        job_code, set_no, date_sent,
+        job_code, set_no, date_sent, bill_date,
         warp_count:warp_count_id ( code )
       ),
       outsource_vendor:outsource_ledger_id ( name ),
@@ -169,7 +169,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     outsource_ledger_id: number | null;
     jobwork_ledger_id: number | null;
     created_at: string | null;
-    sizing_job: { job_code: string | null; set_no: string | null; date_sent: string | null; warp_count: { code: string | null } | null } | null;
+    sizing_job: { job_code: string | null; set_no: string | null; date_sent: string | null; bill_date: string | null; warp_count: { code: string | null } | null } | null;
     outsource_vendor: { name: string } | null;
     jobwork_vendor: { name: string } | null;
   }>);
@@ -185,10 +185,14 @@ export default async function PavuListPage({ searchParams }: PageProps) {
     jobwork_ledger_id: p.jobwork_ledger_id,
     sizing_job_code: p.sizing_job?.job_code ?? null,
     sizing_set_no: p.sizing_job?.set_no ?? null,
-    // Group date: the sizing job's sent date when known, else the day
-    // the pavu row itself was created — used only for the group
-    // headers on the Pavu Master table.
-    group_date: p.sizing_job?.date_sent ?? (p.created_at ? String(p.created_at).slice(0, 10) : null),
+    // Group date: the sizing BILL date when known (the real commercial
+    // date), else the sent date, else the day the pavu row itself was
+    // created — used for the group headers and group ordering on the
+    // Pavu Master table.
+    group_date:
+      p.sizing_job?.bill_date ??
+      p.sizing_job?.date_sent ??
+      (p.created_at ? String(p.created_at).slice(0, 10) : null),
     warp_count_code: p.sizing_job?.warp_count?.code ?? null,
     outsource_vendor_name: p.outsource_vendor?.name ?? null,
     jobwork_vendor_name: p.jobwork_vendor?.name ?? null,
