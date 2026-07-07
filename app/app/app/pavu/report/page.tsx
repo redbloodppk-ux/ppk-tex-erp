@@ -110,8 +110,10 @@ export default function PavuStockReportPage() {
     (!setFilter || r.set_no === setFilter) &&
     (!shedFilter || String(r.shed_no ?? '') === shedFilter),
   );
-  // Shed-wise view reads like a walk down the shed: order by loom no.
-  if (shedFilter) filtered.sort((a, b) => loomSortKey(a) - loomSortKey(b));
+  // Shed-wise or on-loom view reads like a walk down the shed: order by loom no.
+  if (shedFilter || statusFilter === 'on_loom') {
+    filtered.sort((a, b) => loomSortKey(a) - loomSortKey(b));
+  }
 
   // Summary grouped by ends + yarn count.
   const summary = useMemo(() => {
