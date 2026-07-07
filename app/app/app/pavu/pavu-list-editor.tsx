@@ -10,7 +10,7 @@
  * so the corresponding entry on /app/outsource or /app/jobwork →
  * Warp Beam Given is created / updated / deleted to match.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Lock } from 'lucide-react';
@@ -33,6 +33,10 @@ export interface PavuRow {
   outsource_ledger_id: number | null;
   jobwork_ledger_id: number | null;
   sizing_job_code: string | null;
+  /** Vendor SET NO from the sizing job — grouping label. */
+  sizing_set_no: string | null;
+  /** ISO date used to group rows (sizing date_sent, else created day). */
+  group_date: string | null;
   warp_count_code: string | null;
   outsource_vendor_name: string | null;
   jobwork_vendor_name: string | null;
@@ -58,6 +62,8 @@ interface RowState {
   error:    string | null;
   saved:    boolean;
   dirty:    boolean;
+  /** True while a status change (in stock ⇄ finished) is in flight. */
+  finishing: boolean;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -78,7 +84,42 @@ function defaultStateFor(r: PavuRow): RowState {
     error:    null,
     saved:    false,
     dirty:    false,
+    finishing: false,
   };
+}
+
+/** dd-mm-yyyy from an ISO date string, for the group headers. */
+function fmtGroupDate(d: string | null): string {
+  if (!d) return 'No date';
+  const parts = d.slice(0, 10).split('-');
+  if (parts.length !== 3) return d;
+  return `${parts[2]}-${parts[1]}-${parts[0]}`;
+}
+
+interface PavuGroup {
+  key:      string;
+  date:     string | null;
+  set_no:   string | null;
+  job_code: string | null;
+  rows:     PavuRow[];
+}
+
+/** Group rows by sizing date + set no (falling back to job code),
+ *  preserving the incoming (newest-first) order. */
+function groupRows(rows: ReadonlyArray<PavuRow>): PavuGroup[] {
+  const groups: PavuGroup[] = [];
+  const byKey = new Map<string, PavuGroup>();
+  for (const r of rows) {
+    const key = `${r.group_date ?? ''}|${r.sizing_set_no ?? r.sizing_job_code ?? 'none'}`;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, date: r.group_date, set_no: r.sizing_set_no, job_code: r.sizing_job_code, rows: [] };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    g.rows.push(r);
+  }
+  return groups;
 }
 
 export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElement {
@@ -98,7 +139,8 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
       const base = prev[rowId] ?? defaultStateFor(rows.find((x) => x.id === rowId) ?? {
         id: rowId, pavu_code: '', beam_no: '', ends: 0, meters: 0, status: '',
         production_mode: 'in_house', outsource_ledger_id: null, jobwork_ledger_id: null,
-        sizing_job_code: null, warp_count_code: null, outsource_vendor_name: null, jobwork_vendor_name: null,
+        sizing_job_code: null, sizing_set_no: null, group_date: null,
+        warp_count_code: null, outsource_vendor_name: null, jobwork_vendor_name: null,
       });
       return { ...prev, [rowId]: { ...base, ...patch } };
     });
@@ -141,6 +183,19 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
     router.refresh();
   }
 
+  /** Flip a beam's status between in-stock and finished. Used by the
+   *  "Mark finished" / "Back to stock" links in the Status column —
+   *  a plain status change, no routing / warp-given sync involved. */
+  async function handleSetStatus(row: PavuRow, status: 'finished' | 'in_stock'): Promise<void> {
+    patch(row.id, { finishing: true, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { error } = await sb.from('pavu').update({ status }).eq('id', row.id);
+    if (error) { patch(row.id, { finishing: false, error: error.message }); return; }
+    patch(row.id, { finishing: false });
+    router.refresh();
+  }
+
   if (rows.length === 0) {
     return (
       <div className="card p-10 text-center text-ink-soft text-sm">
@@ -167,7 +222,27 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {groupRows(rows).map((g) => (
+            <Fragment key={g.key}>
+              {/* Group header — one per sizing date / set no */}
+              <tr className="bg-cloud/50 border-t border-line/60">
+                <td colSpan={scope === 'outsource' ? 10 : 9} className="px-4 py-1.5 text-[11px] font-semibold text-ink-soft">
+                  <span className="text-ink">{fmtGroupDate(g.date)}</span>
+                  <span className="mx-1.5 text-ink-mute">·</span>
+                  Set No <span className="font-mono text-ink">{g.set_no ?? '—'}</span>
+                  {g.job_code && (
+                    <>
+                      <span className="mx-1.5 text-ink-mute">·</span>
+                      <span className="font-mono text-ink-mute">{g.job_code}</span>
+                    </>
+                  )}
+                  <span className="mx-1.5 text-ink-mute">·</span>
+                  {g.rows.length} beam{g.rows.length === 1 ? '' : 's'}
+                  <span className="mx-1.5 text-ink-mute">·</span>
+                  {g.rows.reduce((s, r) => s + Number(r.meters ?? 0), 0).toFixed(0)} m
+                </td>
+              </tr>
+              {g.rows.map((r) => {
             const s = state[r.id] ?? defaultStateFor(r);
             // Outsource/Jobwork-assigned pavus are locked: the routing
             // decision has already gone out to the weaver/party and
@@ -229,6 +304,32 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   <span className={`pill ${STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
                     {r.status.replace('_', ' ')}
                   </span>
+                  {/* Quick status flip: in stock → finished (and an
+                      undo back to stock for mis-clicks). Routing-locked
+                      rows never show this — they're released via the
+                      Warp Beam Given page instead. */}
+                  {r.status === 'in_stock' && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSetStatus(r, 'finished')}
+                      disabled={s.finishing}
+                      className="block mt-1 text-[10px] font-semibold text-indigo hover:underline disabled:opacity-40"
+                      title="Mark this beam as finished (woven out / used up)"
+                    >
+                      {s.finishing ? 'Saving…' : '→ Mark finished'}
+                    </button>
+                  )}
+                  {r.status === 'finished' && !isLocked && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSetStatus(r, 'in_stock')}
+                      disabled={s.finishing}
+                      className="block mt-1 text-[10px] text-ink-mute hover:underline disabled:opacity-40"
+                      title="Undo — put this beam back in stock"
+                    >
+                      {s.finishing ? 'Saving…' : '↩ Back to stock'}
+                    </button>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   {isLocked ? (
@@ -258,6 +359,8 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
               </tr>
             );
           })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>
