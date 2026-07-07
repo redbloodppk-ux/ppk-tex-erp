@@ -31,7 +31,7 @@ export default async function EditGeneralPurchasePage({ params }: PageProps) {
       .eq('status', 'active')
       .order('name'),
     sb.from('general_purchase_item')
-      .select('id, item_name, qty, unit, rate')
+      .select('id, item_name, qty, unit, rate, gst_pct')
       .eq('general_purchase_id', Number(id))
       .order('position'),
   ]);
