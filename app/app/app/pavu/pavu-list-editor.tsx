@@ -74,6 +74,17 @@ const STATUS_STYLE: Record<string, string> = {
   scrapped: 'bg-rose-50 text-rose-700',
 };
 
+// Statuses the operator can set directly from this table. `on_loom`
+// is deliberately absent — mounting/unmounting happens on Loom View
+// so the loom assignment records stay consistent.
+const STATUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'in_stock', label: 'In stock' },
+  { value: 'assigned', label: 'Assigned' },
+  { value: 'finished', label: 'Finished' },
+  { value: 'damaged',  label: 'Damaged' },
+  { value: 'scrapped', label: 'Scrapped' },
+];
+
 // Lifted to module scope so it's defined before the component's
 // useState initializer runs, regardless of hoisting subtleties.
 function defaultStateFor(r: PavuRow): RowState {
@@ -125,6 +136,10 @@ function groupRows(rows: ReadonlyArray<PavuRow>): PavuGroup[] {
 export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
+
+  // Optimistic status per row: shown the instant the operator picks a
+  // new status, before the server round-trip / router.refresh lands.
+  const [statusOverride, setStatusOverride] = useState<Record<number, string>>({});
 
   const [state, setState] = useState<Record<number, RowState>>(() => {
     const init: Record<number, RowState> = {};
@@ -183,15 +198,23 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
     router.refresh();
   }
 
-  /** Flip a beam's status between in-stock and finished. Used by the
-   *  "Mark finished" / "Back to stock" links in the Status column —
-   *  a plain status change, no routing / warp-given sync involved. */
-  async function handleSetStatus(row: PavuRow, status: 'finished' | 'in_stock'): Promise<void> {
+  /** Change a beam's status from the Status dropdown. Optimistic: the
+   *  UI flips immediately via `statusOverride`, then the DB update
+   *  runs; on failure the previous value is restored and the error is
+   *  shown in the row. Plain status change — no routing / warp-given
+   *  sync involved. */
+  async function handleSetStatus(row: PavuRow, status: string): Promise<void> {
+    const prevStatus = statusOverride[row.id] ?? row.status;
+    setStatusOverride((m) => ({ ...m, [row.id]: status }));
     patch(row.id, { finishing: true, error: null });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error } = await sb.from('pavu').update({ status }).eq('id', row.id);
-    if (error) { patch(row.id, { finishing: false, error: error.message }); return; }
+    if (error) {
+      setStatusOverride((m) => ({ ...m, [row.id]: prevStatus }));
+      patch(row.id, { finishing: false, error: error.message });
+      return;
+    }
     patch(row.id, { finishing: false });
     router.refresh();
   }
@@ -244,6 +267,7 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
               </tr>
               {g.rows.map((r) => {
             const s = state[r.id] ?? defaultStateFor(r);
+            const displayStatus = statusOverride[r.id] ?? r.status;
             // Outsource/Jobwork-assigned pavus are locked: the routing
             // decision has already gone out to the weaver/party and
             // reversing it has to happen through a release on the
@@ -301,34 +325,35 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                   </td>
                 )}
                 <td className="px-4 py-2">
-                  <span className={`pill ${STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {r.status.replace('_', ' ')}
-                  </span>
-                  {/* Quick status flip: in stock → finished (and an
-                      undo back to stock for mis-clicks). Routing-locked
-                      rows never show this — they're released via the
-                      Warp Beam Given page instead. */}
-                  {r.status === 'in_stock' && (
-                    <button
-                      type="button"
-                      onClick={() => void handleSetStatus(r, 'finished')}
-                      disabled={s.finishing}
-                      className="block mt-1 text-[10px] font-semibold text-indigo hover:underline disabled:opacity-40"
-                      title="Mark this beam as finished (woven out / used up)"
-                    >
-                      {s.finishing ? 'Saving…' : '→ Mark finished'}
-                    </button>
-                  )}
-                  {r.status === 'finished' && !isLocked && (
-                    <button
-                      type="button"
-                      onClick={() => void handleSetStatus(r, 'in_stock')}
-                      disabled={s.finishing}
-                      className="block mt-1 text-[10px] text-ink-mute hover:underline disabled:opacity-40"
-                      title="Undo — put this beam back in stock"
-                    >
-                      {s.finishing ? 'Saving…' : '↩ Back to stock'}
-                    </button>
+                  {/* Editable status — dropdown saves on change with an
+                      instant optimistic flip. Routing-locked rows and
+                      mounted (on-loom) beams stay read-only: locked
+                      rows are released via Warp Beam Given, mounted
+                      beams via Loom View. */}
+                  {isLocked || displayStatus === 'on_loom' ? (
+                    <span className={`pill ${STATUS_STYLE[displayStatus] ?? 'bg-slate-100 text-slate-600'}`}>
+                      {displayStatus.replace('_', ' ')}
+                    </span>
+                  ) : (
+                    <div>
+                      <select
+                        value={displayStatus}
+                        onChange={(e) => void handleSetStatus(r, e.target.value)}
+                        disabled={s.finishing}
+                        className="input py-1 text-xs min-w-[110px] disabled:opacity-60"
+                        title="Change beam status — saves immediately"
+                      >
+                        {STATUS_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                        {!STATUS_OPTIONS.some((o) => o.value === displayStatus) && (
+                          <option value={displayStatus}>{displayStatus.replace('_', ' ')}</option>
+                        )}
+                      </select>
+                      {s.finishing && (
+                        <span className="block mt-0.5 text-[10px] text-ink-mute">Saving…</span>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
