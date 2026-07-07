@@ -30,6 +30,9 @@ interface Loom {
 interface QualityEndsInfo {
   name: string;
   expectedEnds: number | null;
+  /** yarn_count id of the quality's warp count (calc_snapshot.warpCountId),
+   *  or null if not configured — used to narrow stock by yarn count too. */
+  warpCountId: number | null;
 }
 
 interface ActiveAssignment {
@@ -56,7 +59,7 @@ interface PavuInStock {
   beam_no: string;
   ends: number;
   meters: number;
-  sizing_job?: { set_no?: string | null; warp_count?: { code: string } | null } | null;
+  sizing_job?: { set_no?: string | null; warp_count_id?: number | null; warp_count?: { code: string } | null } | null;
   production_mode: 'in_house' | 'outsource' | 'jobwork';
   jobwork_vendor?: { name: string } | null;
   /** Free-text sizing set no, populated for jobwork-mode pavu rows only. */
@@ -94,6 +97,10 @@ export default function PavuAssignPage() {
   const [stock, setStock]             = useState<PavuInStock[]>([]);
   const [qualities, setQualities]     = useState<Quality[]>([]);
   const [fabricQualityById, setFabricQualityById] = useState<Map<number, QualityEndsInfo>>(new Map());
+  // pavu id → yarn_count id of its warp. In-house pavus carry this via
+  // sizing_job; jobwork pavus get it from their linked jobwork_warp_beam.
+  const [pavuWarpById, setPavuWarpById] = useState<Map<number, number>>(new Map());
+  const [yarnNameById, setYarnNameById] = useState<Map<number, string>>(new Map());
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -106,7 +113,7 @@ export default function PavuAssignPage() {
   /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
-    const [l, a, p, q, fq] = await Promise.all([
+    const [l, a, p, q, fq, jwb, yc] = await Promise.all([
       supabase.from('loom')
         .select('id, loom_code, loom_type, width_in, status, shed_no, fabric_quality_id')
         .order('loom_code'),
@@ -124,7 +131,7 @@ export default function PavuAssignPage() {
       sb.from('pavu')
         .select(`
           id, pavu_code, beam_no, ends, meters, production_mode, sizing_set_no,
-          sizing_job:sizing_job_id ( set_no, warp_count:warp_count_id ( code ) ),
+          sizing_job:sizing_job_id ( set_no, warp_count_id, warp_count:warp_count_id ( code ) ),
           jobwork_vendor:jobwork_ledger_id ( name )
         `)
         .eq('status', 'in_stock')
@@ -141,6 +148,12 @@ export default function PavuAssignPage() {
       sb.from('fabric_quality')
         .select('id, name, calc_snapshot')
         .eq('active', true),
+      // Jobwork pavus have no sizing_job, so their warp count comes from
+      // the linked warp-beam-given row instead.
+      sb.from('jobwork_warp_beam')
+        .select('pavu_id, pavu_ids, warp_count_id')
+        .not('warp_count_id', 'is', null),
+      sb.from('yarn_count').select('id, display_name'),
     ]);
     if (l.error || a.error || p.error || q.error || fq.error) {
       setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? fq.error?.message ?? 'Load failed');
@@ -155,9 +168,27 @@ export default function PavuAssignPage() {
       const snap = row.calc_snapshot ?? {};
       const raw = snap['totalEnds'];
       const n = raw === null || raw === undefined || raw === '' ? null : Number(raw);
-      qMap.set(row.id, { name: row.name, expectedEnds: n !== null && Number.isFinite(n) ? n : null });
+      const rawWarp = snap['warpCountId'];
+      const w = rawWarp === null || rawWarp === undefined || rawWarp === '' ? null : Number(rawWarp);
+      qMap.set(row.id, {
+        name: row.name,
+        expectedEnds: n !== null && Number.isFinite(n) ? n : null,
+        warpCountId: w !== null && Number.isFinite(w) ? w : null,
+      });
     }
     setFabricQualityById(qMap);
+
+    // pavu id → warp yarn_count id for jobwork pavus (via their linked
+    // warp-beam-given row — either the single pavu_id fk or the pavu_ids list).
+    const wMap = new Map<number, number>();
+    for (const row of (jwb.data as { pavu_id: number | null; pavu_ids: number[] | null; warp_count_id: number }[] | null) ?? []) {
+      const ids = [row.pavu_id, ...(row.pavu_ids ?? [])].filter((id): id is number => id != null);
+      for (const id of ids) wMap.set(id, Number(row.warp_count_id));
+    }
+    setPavuWarpById(wMap);
+    setYarnNameById(new Map(
+      (((yc.data as { id: number; display_name: string }[] | null) ?? [])).map(r => [Number(r.id), r.display_name]),
+    ));
 
     setLoading(false);
   }, [supabase]);
@@ -360,6 +391,8 @@ export default function PavuAssignPage() {
           stock={stock}
           qualities={qualities}
           loomQuality={assignFor.fabric_quality_id ? fabricQualityById.get(assignFor.fabric_quality_id) ?? null : null}
+          pavuWarpById={pavuWarpById}
+          yarnNameById={yarnNameById}
           currentAssignment={activeByLoom.get(assignFor.id) ?? null}
           onClose={() => setAssignFor(null)}
           onDone={() => { setAssignFor(null); reload(); }}
@@ -384,7 +417,7 @@ export default function PavuAssignPage() {
 // so the partial-unique-index constraint stays happy.
 // ───────────────────────────────────────────────────────────────────────────
 function AssignModal({
-  loom, stock, qualities, loomQuality, currentAssignment, onClose, onDone,
+  loom, stock, qualities, loomQuality, pavuWarpById, yarnNameById, currentAssignment, onClose, onDone,
 }: {
   loom: Loom;
   stock: PavuInStock[];
@@ -393,6 +426,10 @@ function AssignModal({
    *  expected total-ends value — null if the loom has no quality assigned
    *  at all. Used to narrow the pavu list to matching beams only. */
   loomQuality: QualityEndsInfo | null;
+  /** pavu id → warp yarn_count id (from jobwork_warp_beam, for jobwork pavus). */
+  pavuWarpById: Map<number, number>;
+  /** yarn_count id → display name, for showing warp count in option labels. */
+  yarnNameById: Map<number, string>;
   currentAssignment: ActiveAssignment | null;
   onClose: () => void;
   onDone: () => void;
@@ -416,14 +453,48 @@ function AssignModal({
     if (!metresStartTouched) setMetresStartDate(addOneDay(value));
   }
 
-  // Only pavu whose ends count matches this loom's assigned fabric quality
-  // are eligible — a loom set up for one quality shouldn't be offered beams
-  // meant for another. If the loom has no quality assigned, or the quality
-  // has no expected-ends value configured, matchedStock is empty and the
-  // UI below explains what to fix instead of silently showing everything.
+  /** Warp yarn_count id for a pavu: in-house rows carry it via sizing_job,
+   *  jobwork rows via their linked warp-beam-given row. */
+  function pavuWarpId(s: PavuInStock): number | null {
+    return s.sizing_job?.warp_count_id ?? pavuWarpById.get(s.id) ?? null;
+  }
+
+  // Only pavu whose ends count AND warp yarn count match this loom's
+  // assigned fabric quality are eligible — a loom set up for one quality
+  // shouldn't be offered beams meant for another. Beams whose warp count is
+  // unknown (or a quality without a warp spec) are not hidden on that basis,
+  // only on ends. If the loom has no quality assigned, or the quality has no
+  // expected-ends value configured, matchedStock is empty and the UI below
+  // explains what to fix instead of silently showing everything.
   const matchedStock = loomQuality?.expectedEnds != null
-    ? stock.filter(s => s.ends === loomQuality.expectedEnds)
+    ? stock.filter(s => {
+        if (s.ends !== loomQuality.expectedEnds) return false;
+        const w = pavuWarpId(s);
+        return loomQuality.warpCountId == null || w == null || w === loomQuality.warpCountId;
+      })
     : [];
+
+  // Position of each beam within its sizing set (1, 2, 3… by beam no),
+  // computed over the FULL in-stock list so the position reflects the real
+  // set, not just what happens to match this loom's quality.
+  const setPosById = useMemo(() => {
+    const groups = new Map<string, PavuInStock[]>();
+    for (const s of stock) {
+      const key = `${s.production_mode}|${s.sizing_set_no ?? s.sizing_job?.set_no ?? '—'}`;
+      const list = groups.get(key);
+      if (list) list.push(s); else groups.set(key, [s]);
+    }
+    const m = new Map<number, { pos: number; total: number }>();
+    for (const list of groups.values()) {
+      list.sort((a, b) => {
+        const na = Number(a.beam_no); const nb = Number(b.beam_no);
+        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+        return String(a.beam_no).localeCompare(String(b.beam_no));
+      });
+      list.forEach((s, i) => m.set(s.id, { pos: i + 1, total: list.length }));
+    }
+    return m;
+  }, [stock]);
 
   // Distinct SET NO values present in the matched in-stock pavu list, so the
   // operator can narrow the (potentially long) pavu dropdown down to one
@@ -531,13 +602,21 @@ function AssignModal({
                 <label className="label">Pavu *</label>
                 <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
                   <option value="" disabled>Select an in-stock pavu…</option>
-                  {filteredStock.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.pavu_code} — Beam {s.beam_no} · {s.sizing_job?.warp_count?.code ?? ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
-                      {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
-                      {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
-                    </option>
-                  ))}
+                  {filteredStock.map(s => {
+                    const w = pavuWarpId(s);
+                    const warpName = s.sizing_job?.warp_count?.code
+                      ?? (w != null ? yarnNameById.get(w) : null);
+                    const pos = setPosById.get(s.id);
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.pavu_code} — Beam {s.beam_no}
+                        {pos ? ` (#${pos.pos}/${pos.total})` : ''}
+                        {warpName ? ` · ${warpName}` : ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
+                        {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
+                        {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
                 {filteredStock.length === 0 && (
                   <p className="text-xs text-ink-mute mt-1">
