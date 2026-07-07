@@ -33,7 +33,15 @@ interface StockRow {
   loom_code: string | null;
   /** Shed no of that loom — enables shed-wise filtering. */
   shed_no: number | null;
+  /** 'in_house' | 'outsource' | 'jobwork' — enables mode filtering. */
+  production_mode: string | null;
 }
+
+const MODE_LABEL: Record<string, string> = {
+  in_house:  'In-house',
+  outsource: 'Outsource',
+  jobwork:   'Jobwork',
+};
 
 // Same palette as Pavu Master so a status means the same colour everywhere.
 const STATUS_STYLE: Record<string, string> = {
@@ -61,6 +69,7 @@ export default function PavuStockReportPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [setFilter, setSetFilter] = useState('');
   const [shedFilter, setShedFilter] = useState('');
+  const [modeFilter, setModeFilter] = useState('');
 
   const load = useCallback(async (date: string) => {
     setLoading(true); setError(null);
@@ -94,6 +103,10 @@ export default function PavuStockReportPage() {
       .sort((a, b) => a - b),
     [rows],
   );
+  const modeOptions = useMemo(
+    () => Array.from(new Set(rows.map(r => r.production_mode).filter((v): v is string => !!v))).sort(),
+    [rows],
+  );
 
   /** Numeric part of a loom code ("L-26" → 26) for sorting; beams with
    *  no loom sort last. */
@@ -108,7 +121,8 @@ export default function PavuStockReportPage() {
     (!yarnFilter || r.yarn_count === yarnFilter) &&
     (!statusFilter || r.status_as_of === statusFilter) &&
     (!setFilter || r.set_no === setFilter) &&
-    (!shedFilter || String(r.shed_no ?? '') === shedFilter),
+    (!shedFilter || String(r.shed_no ?? '') === shedFilter) &&
+    (!modeFilter || r.production_mode === modeFilter),
   );
   // Shed-wise or on-loom view reads like a walk down the shed: order by loom no.
   if (shedFilter || statusFilter === 'on_loom') {
@@ -171,6 +185,13 @@ export default function PavuStockReportPage() {
           <select value={yarnFilter} onChange={e => setYarnFilter(e.target.value)} className="input">
             <option value="">All</option>
             {yarnOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Mode</label>
+          <select value={modeFilter} onChange={e => setModeFilter(e.target.value)} className="input">
+            <option value="">All</option>
+            {modeOptions.map(m => <option key={m} value={m}>{MODE_LABEL[m] ?? m}</option>)}
           </select>
         </div>
         <div>
