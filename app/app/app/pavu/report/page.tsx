@@ -29,14 +29,20 @@ interface StockRow {
   status_as_of: string;
   mounted_date: string | null;
   finished_date: string | null;
+  /** Loom the beam is mounted on (or was last woven on); null if never assigned. */
+  loom_code: string | null;
+  /** Shed no of that loom — enables shed-wise filtering. */
+  shed_no: number | null;
 }
 
+// Same palette as Pavu Master so a status means the same colour everywhere.
 const STATUS_STYLE: Record<string, string> = {
-  on_loom:  'bg-indigo/10 text-indigo',
-  in_stock: 'bg-slate-100 text-slate-600',
-  finished: 'bg-emerald-50 text-emerald-700',
-  damaged:  'bg-amber-50 text-amber-700',
-  scrapped: 'bg-rose-50 text-rose-700',
+  in_stock: 'bg-emerald-50 text-emerald-700',
+  assigned: 'bg-amber-50 text-amber-700',
+  on_loom:  'bg-indigo-50 text-indigo-700',
+  finished: 'bg-slate-100 text-slate-600',
+  damaged:  'bg-rose-50 text-rose-700',
+  scrapped: 'bg-orange-50 text-orange-700',
 };
 
 function todayStr(): string {
@@ -53,6 +59,8 @@ export default function PavuStockReportPage() {
   const [endsFilter, setEndsFilter] = useState('');
   const [yarnFilter, setYarnFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [setFilter, setSetFilter] = useState('');
+  const [shedFilter, setShedFilter] = useState('');
 
   const load = useCallback(async (date: string) => {
     setLoading(true); setError(null);
@@ -76,11 +84,23 @@ export default function PavuStockReportPage() {
     () => Array.from(new Set(rows.map(r => r.status_as_of))).sort(),
     [rows],
   );
+  const setOptions = useMemo(
+    () => Array.from(new Set(rows.map(r => r.set_no).filter((v): v is string => !!v)))
+      .sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)),
+    [rows],
+  );
+  const shedOptions = useMemo(
+    () => Array.from(new Set(rows.map(r => r.shed_no).filter((v): v is number => v != null)))
+      .sort((a, b) => a - b),
+    [rows],
+  );
 
   const filtered = rows.filter(r =>
     (!endsFilter || String(r.ends) === endsFilter) &&
     (!yarnFilter || r.yarn_count === yarnFilter) &&
-    (!statusFilter || r.status_as_of === statusFilter),
+    (!statusFilter || r.status_as_of === statusFilter) &&
+    (!setFilter || r.set_no === setFilter) &&
+    (!shedFilter || String(r.shed_no ?? '') === shedFilter),
   );
 
   // Summary grouped by ends + yarn count.
@@ -142,10 +162,24 @@ export default function PavuStockReportPage() {
           </select>
         </div>
         <div>
+          <label className="label">Set no</label>
+          <select value={setFilter} onChange={e => setSetFilter(e.target.value)} className="input">
+            <option value="">All</option>
+            {setOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Shed</label>
+          <select value={shedFilter} onChange={e => setShedFilter(e.target.value)} className="input">
+            <option value="">All</option>
+            {shedOptions.map(s => <option key={s} value={s}>Shed {s}</option>)}
+          </select>
+        </div>
+        <div>
           <label className="label">Status</label>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input">
             <option value="">All</option>
-            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            {statusOptions.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
         </div>
       </div>
@@ -220,8 +254,12 @@ export default function PavuStockReportPage() {
                     {Number(r.finished_metre).toFixed(0)}
                   </td>
                   <td className="py-1.5 pr-3">
-                    <span className={`pill ${STATUS_STYLE[r.status_as_of] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {r.status_as_of}
+                    {/* On-loom beams show WHICH loom (and shed) right in the pill. */}
+                    <span className={`pill whitespace-nowrap ${STATUS_STYLE[r.status_as_of] ?? 'bg-slate-100 text-slate-600'}`}>
+                      {r.status_as_of.replace('_', ' ')}
+                      {r.status_as_of === 'on_loom' && r.loom_code
+                        ? ` · ${r.loom_code}${r.shed_no != null ? ` (S${r.shed_no})` : ''}`
+                        : ''}
                     </span>
                   </td>
                   <td className="py-1.5 pr-3">{r.mounted_date ?? '—'}</td>
