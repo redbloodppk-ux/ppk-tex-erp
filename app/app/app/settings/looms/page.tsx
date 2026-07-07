@@ -290,7 +290,7 @@ export default function LoomsPage() {
             <label className="label" htmlFor="nl-quality">Fabric quality</label>
             <select
               id="nl-quality"
-              className="input w-48"
+              className="input w-80"
               value={newLoom.fabric_quality_id}
               onChange={(e) =>
                 setNewLoom((n) => ({ ...n, fabric_quality_id: e.target.value }))
@@ -539,7 +539,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
               </td>
               <td className="py-2 pr-3">
                 <select
-                  className="input w-52"
+                  className="input w-full min-w-[20rem]"
                   value={l.fabric_quality_id ?? ''}
                   onChange={(e) =>
                     onUpdate(l.id, {
