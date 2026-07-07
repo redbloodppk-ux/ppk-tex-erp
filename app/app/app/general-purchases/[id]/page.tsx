@@ -21,7 +21,7 @@ export default async function EditGeneralPurchasePage({ params }: PageProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [{ data: bill }, { data: partyData }] = await Promise.all([
+  const [{ data: bill }, { data: partyData }, { data: itemData }] = await Promise.all([
     sb.from('general_purchase')
       .select('id, bill_no, bill_date, supplier_party_id, description, taxable, gst_pct, round_off, status')
       .eq('id', Number(id))
@@ -30,11 +30,15 @@ export default async function EditGeneralPurchasePage({ params }: PageProps) {
       .select('id, code, name')
       .eq('status', 'active')
       .order('name'),
+    sb.from('general_purchase_item')
+      .select('id, item_name, qty, unit, rate')
+      .eq('general_purchase_id', Number(id))
+      .order('position'),
   ]);
 
   if (!bill) notFound();
 
-  const initial = bill as GeneralPurchaseInitial;
+  const initial = { ...bill, items: itemData ?? [] } as GeneralPurchaseInitial;
   const parties = (partyData ?? []) as PartyOpt[];
 
   return (

@@ -8,18 +8,31 @@
  * single taxable amount + GST %, and it appears in the Purchase
  * Register keyed off the supplier's invoice date / number.
  *
+ * Items (optional): the operator can add line items (name, qty, unit,
+ * rate). Each row's amount = qty x rate, and while any item rows exist
+ * the Taxable Amount auto-fills with the item total (read-only). With
+ * no items, the taxable amount is typed directly, as before.
+ *
  * Register-only: there is NO payment tracking here. The bill simply
  * lands in the Purchase Register for the right GST period.
  */
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Save, Trash2, RotateCcw } from 'lucide-react';
+import { Loader2, Save, Trash2, RotateCcw, Plus, X } from 'lucide-react';
 
 export interface PartyOpt {
   id: number;
   code: string | null;
   name: string;
+}
+
+export interface GeneralPurchaseItemInitial {
+  id?: number;
+  item_name: string;
+  qty: number | string;
+  unit?: string | null;
+  rate: number | string;
 }
 
 export interface GeneralPurchaseInitial {
@@ -32,11 +45,26 @@ export interface GeneralPurchaseInitial {
   gst_pct?: number | string;
   round_off?: number | string;
   status?: string;
+  items?: GeneralPurchaseItemInitial[];
 }
 
 interface Props {
   initial?: GeneralPurchaseInitial;
   parties: PartyOpt[];
+}
+
+/** One editable item row: all fields as strings for the inputs. */
+interface ItemRow {
+  item_name: string;
+  qty: string;
+  unit: string;
+  rate: string;
+}
+
+function rowAmount(r: ItemRow): number {
+  const q = Number(r.qty) || 0;
+  const rt = Number(r.rate) || 0;
+  return Math.round(q * rt * 100) / 100;
 }
 
 function todayISO(): string {
@@ -57,6 +85,33 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     taxable: initial?.taxable != null ? String(initial.taxable) : '',
     gst_pct: initial?.gst_pct != null ? String(initial.gst_pct) : '0',
   });
+  // Optional line items. While any rows exist, Taxable auto-fills with
+  // the item total; with no rows the operator types taxable directly.
+  const [items, setItems] = useState<ItemRow[]>(() =>
+    (initial?.items ?? []).map((it) => ({
+      item_name: it.item_name ?? '',
+      qty: it.qty != null ? String(it.qty) : '',
+      unit: it.unit ?? '',
+      rate: it.rate != null ? String(it.rate) : '',
+    })),
+  );
+
+  function addItem(): void {
+    setItems((rows) => [...rows, { item_name: '', qty: '1', unit: '', rate: '' }]);
+  }
+  function removeItem(idx: number): void {
+    setItems((rows) => rows.filter((_, i) => i !== idx));
+  }
+  function setItem(idx: number, patch: Partial<ItemRow>): void {
+    setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  }
+
+  const itemsTotal = useMemo(
+    () => Math.round(items.reduce((s, r) => s + rowAmount(r), 0) * 100) / 100,
+    [items],
+  );
+  const hasItems = items.length > 0;
+
   // Round Off: auto-fills with the nearest-rupee adjustment but stays editable.
   // While untouched we show the auto value; the operator can override it.
   const [roundOff, setRoundOff] = useState<string>(initial?.round_off != null ? String(initial.round_off) : '');
@@ -90,12 +145,14 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     setPartyOpen(false);
   }
 
+  // Effective taxable: the item total while item rows exist, else the typed value.
+  const effectiveTaxable = hasItems ? itemsTotal : (Number(form.taxable) || 0);
+
   // Base = taxable * (1 + gst/100), to 2 decimals (matches the DB generated col).
   const base = useMemo(() => {
-    const t = Number(form.taxable) || 0;
     const g = Number(form.gst_pct) || 0;
-    return Math.round(t * (1 + g / 100) * 100) / 100;
-  }, [form.taxable, form.gst_pct]);
+    return Math.round(effectiveTaxable * (1 + g / 100) * 100) / 100;
+  }, [effectiveTaxable, form.gst_pct]);
 
   // Suggested round-off = adjustment to reach the nearest whole rupee.
   const autoRoundOff = useMemo(() => Math.round((Math.round(base) - base) * 100) / 100, [base]);
@@ -112,7 +169,14 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     if (!form.bill_no.trim())          { setError('Bill / invoice number is required.'); return; }
     if (!form.bill_date)               { setError('Bill / invoice date is required.'); return; }
     if (form.supplier_party_id === '') { setError('Pick the party.'); return; }
-    const taxable = Number(form.taxable);
+    for (const [i, r] of items.entries()) {
+      if (!r.item_name.trim()) { setError(`Item ${i + 1}: name is required.`); return; }
+      const q = Number(r.qty);
+      if (!Number.isFinite(q) || q < 0) { setError(`Item ${i + 1}: qty must be zero or more.`); return; }
+      const rt = Number(r.rate);
+      if (!Number.isFinite(rt) || rt < 0) { setError(`Item ${i + 1}: rate must be zero or more.`); return; }
+    }
+    const taxable = effectiveTaxable;
     if (!Number.isFinite(taxable) || taxable < 0) { setError('Taxable amount must be zero or more.'); return; }
     const gst = Number(form.gst_pct);
     if (!Number.isFinite(gst) || gst < 0) { setError('GST % must be zero or more.'); return; }
@@ -131,17 +195,39 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
       round_off: effectiveRoundOff,
     };
 
+    // Item rows to persist (amount is a generated column: qty * rate).
+    const itemRows = (billId: number) =>
+      items.map((r, i) => ({
+        general_purchase_id: billId,
+        item_name: r.item_name.trim(),
+        qty: Number(r.qty) || 0,
+        unit: r.unit.trim() || null,
+        rate: Number(r.rate) || 0,
+        position: i,
+      }));
+
     if (isEdit && initial?.id != null) {
       const { error: err } = await sb.from('general_purchase').update(payload).eq('id', initial.id);
+      if (err) { setBusy(false); setError(err.message); return; }
+      // Simplest reliable sync: replace all item rows for this bill.
+      const { error: delErr } = await sb.from('general_purchase_item').delete().eq('general_purchase_id', initial.id);
+      if (delErr) { setBusy(false); setError(delErr.message); return; }
+      if (items.length > 0) {
+        const { error: insErr } = await sb.from('general_purchase_item').insert(itemRows(initial.id));
+        if (insErr) { setBusy(false); setError(insErr.message); return; }
+      }
       setBusy(false);
-      if (err) { setError(err.message); return; }
       setOkMsg('Saved.');
       router.push('/app/general-purchases');
       router.refresh();
     } else {
-      const { error: err } = await sb.from('general_purchase').insert(payload);
+      const { data: created, error: err } = await sb.from('general_purchase').insert(payload).select('id').single();
+      if (err) { setBusy(false); setError(err.message); return; }
+      if (items.length > 0 && created?.id != null) {
+        const { error: insErr } = await sb.from('general_purchase_item').insert(itemRows(created.id));
+        if (insErr) { setBusy(false); setError(`Bill saved, but items failed: ${insErr.message}`); return; }
+      }
       setBusy(false);
-      if (err) { setError(err.message); return; }
       router.push('/app/general-purchases');
       router.refresh();
     }
@@ -224,13 +310,66 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
           className="input" placeholder="e.g. packing material, machine spares, transport" />
       </div>
 
+      {/* Optional line items — while rows exist, Taxable auto-fills with the item total. */}
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label mb-0">Items</label>
+          <button type="button" onClick={addItem}
+            className="btn-ghost text-indigo text-xs">
+            <Plus className="w-3.5 h-3.5" /> Add item
+          </button>
+        </div>
+        {items.length > 0 && (
+          <div className="mt-2 space-y-2">
+            <div className="hidden md:grid md:grid-cols-[1fr_90px_80px_110px_110px_32px] gap-2 text-[11px] text-ink-mute px-1">
+              <span>Item</span><span className="text-right">Qty</span><span>Unit</span>
+              <span className="text-right">Rate (₹)</span><span className="text-right">Amount (₹)</span><span />
+            </div>
+            {items.map((r, i) => (
+              <div key={i} className="grid grid-cols-2 md:grid-cols-[1fr_90px_80px_110px_110px_32px] gap-2 items-center">
+                <input type="text" value={r.item_name}
+                  onChange={(e) => setItem(i, { item_name: e.target.value })}
+                  className="input col-span-2 md:col-span-1" placeholder={`item ${i + 1} — e.g. packing box`} />
+                <input type="number" min={0} step={0.001} value={r.qty}
+                  onChange={(e) => setItem(i, { qty: e.target.value })}
+                  className="input num text-right" placeholder="qty" />
+                <input type="text" value={r.unit}
+                  onChange={(e) => setItem(i, { unit: e.target.value })}
+                  className="input" placeholder="pcs" />
+                <input type="number" min={0} step={0.01} value={r.rate}
+                  onChange={(e) => setItem(i, { rate: e.target.value })}
+                  className="input num text-right" placeholder="rate" />
+                <div className="input num text-right bg-line/30 flex items-center justify-end">
+                  {rowAmount(r).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <button type="button" onClick={() => removeItem(i)}
+                  className="text-rose-700 hover:text-rose-900 flex items-center justify-center"
+                  title="Remove this item row">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex justify-end text-sm font-medium pr-10">
+              Item total: ₹ {itemsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="label">Taxable Amount (₹) *</label>
-          <input type="number" required min={0} step={0.01}
-            value={form.taxable}
-            onChange={(e) => setForm({ ...form, taxable: e.target.value })}
-            className="input num text-right" placeholder="0.00" />
+          {hasItems ? (
+            <div className="input num text-right bg-line/30 flex items-center justify-end"
+              title="Auto-filled from the item rows above">
+              ₹ {itemsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          ) : (
+            <input type="number" required min={0} step={0.01}
+              value={form.taxable}
+              onChange={(e) => setForm({ ...form, taxable: e.target.value })}
+              className="input num text-right" placeholder="0.00" />
+          )}
         </div>
         <div>
           <label className="label">GST %</label>
@@ -274,6 +413,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
       </div>
 
       <p className="text-[11px] text-ink-mute">
+        Items are optional — while item rows exist, Taxable auto-fills with the item total (qty × rate per row).
         Subtotal = Taxable × (1 + GST%). Grand Total = Subtotal + Round Off (auto-set to the nearest rupee, editable).
         This bill appears in the Purchase Register only — there is no payment tracking here.
       </p>
