@@ -8,10 +8,11 @@
  * click. Designed for the floor operator on a tablet.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
 
 interface Loom {
   id: number;
@@ -216,9 +217,14 @@ export default function PavuAssignPage() {
         title="Pavu Assignment"
         subtitle="What's currently mounted on each loom. Tap a loom to assign or change the pavu."
         actions={
-          <button onClick={reload} className="btn-ghost" disabled={loading}>
-            <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/app/pavu" className="btn-ghost">
+              <ArrowLeft className="w-4 h-4" /> Pavu Master
+            </Link>
+            <button onClick={reload} className="btn-ghost" disabled={loading}>
+              <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
         }
       />
 

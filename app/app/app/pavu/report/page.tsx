@@ -12,9 +12,10 @@
  * for the chosen date.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, RotateCw } from 'lucide-react';
+import { ArrowLeft, Loader2, RotateCw } from 'lucide-react';
 
 interface StockRow {
   pavu_id: number;
@@ -105,9 +106,14 @@ export default function PavuStockReportPage() {
         title="Beam Stock Report"
         subtitle="Status, loaded and finished metres for every beam, reconstructed as of any date."
         actions={
-          <button onClick={() => load(asOf)} className="btn-ghost" disabled={loading}>
-            <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/app/pavu" className="btn-ghost">
+              <ArrowLeft className="w-4 h-4" /> Pavu Master
+            </Link>
+            <button onClick={() => load(asOf)} className="btn-ghost" disabled={loading}>
+              <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
         }
       />
 
