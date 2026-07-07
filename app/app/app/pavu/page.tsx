@@ -117,16 +117,19 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   ));
   const pavuCodeById = new Map<number, string>();
   const pavuStatusById = new Map<number, string>();
+  const pavuBeamNoById = new Map<number, string>();
   if (linkedPavuIds.length > 0) {
-    const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code, status').in('id', linkedPavuIds);
-    for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string; status: string }>) {
+    const { data: linkedPavus } = await sb.from('pavu').select('id, pavu_code, beam_no, status').in('id', linkedPavuIds);
+    for (const row of (linkedPavus ?? []) as Array<{ id: number; pavu_code: string; beam_no: string | null; status: string }>) {
       pavuCodeById.set(row.id, row.pavu_code);
       pavuStatusById.set(row.id, row.status);
+      if (row.beam_no != null && row.beam_no !== '') pavuBeamNoById.set(row.id, row.beam_no);
     }
   }
   const jobworkBeams: JobworkBeamRow[] = rawJobworkBeams.map((w) => {
     const ids = [w.pavu_id, ...(w.pavu_ids ?? [])].filter((id): id is number => id != null);
     const codes = ids.map((id) => pavuCodeById.get(id)).filter((c): c is string => c != null);
+    const beamNos = ids.map((id) => pavuBeamNoById.get(id)).filter((b): b is string => b != null);
     const firstId = ids.length > 0 ? ids[0] : undefined;
     return {
       id: w.id,
@@ -136,6 +139,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       warp_count_display: w.warp_count_id != null ? warpCountDisplayById.get(w.warp_count_id) ?? null : null,
       total_ends: w.total_ends,
       beam_count: w.beam_count,
+      beam_nos: beamNos,
       metres: Number((w.original_metres ?? w.total_metres) ?? 0),
       pavu_codes: codes,
       pavu_ids: ids,

@@ -21,6 +21,9 @@ export interface JobworkBeamRow {
   warp_count_display: string | null;
   total_ends: number | null;
   beam_count: number;
+  /** Beam no(s) of the linked pavu row(s) — empty for manual entries
+   *  with no linked pavu. Shown in place of the beam count. */
+  beam_nos: string[];
   metres: number;
   /** Pavu code(s) this beam is linked to, if any — empty for manual
    *  entries (jobwork entries don't always pick from Pavu). */
@@ -142,7 +145,7 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
             <th className="text-left  px-4 py-3 hidden lg:table-cell">Warp count</th>
             <th className="text-left  px-4 py-3 hidden lg:table-cell">Sizing Set No</th>
             <th className="text-right px-4 py-3">Ends</th>
-            <th className="text-right px-4 py-3">Beams</th>
+            <th className="text-right px-4 py-3">Beam No</th>
             <th className="text-right px-4 py-3">Metres</th>
             <th className="text-left px-4 py-3">Status</th>
             <th className="text-left  px-4 py-3">Pavu Code</th>
@@ -176,7 +179,11 @@ export function JobworkBeamsTable({ rows }: { rows: ReadonlyArray<JobworkBeamRow
                     <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.warp_count_display ?? '—'}</td>
                     <td className="px-4 py-2 hidden lg:table-cell text-ink-soft">{r.sizing_set_no ?? '—'}</td>
                     <td className="px-4 py-2 text-right num">{r.total_ends ?? '—'}</td>
-                    <td className="px-4 py-2 text-right num font-semibold">{r.beam_count}</td>
+                    {/* Beam no of the linked pavu; manual entries with
+                        no pavu fall back to the beam count. */}
+                    <td className="px-4 py-2 text-right num font-semibold">
+                      {r.beam_nos.length > 0 ? r.beam_nos.join(', ') : r.beam_count}
+                    </td>
                     <td className="px-4 py-2 text-right num text-indigo-700 font-semibold">{r.metres.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                     <td className="px-4 py-2">
                       {/* Editable status when a pavu is linked — the
