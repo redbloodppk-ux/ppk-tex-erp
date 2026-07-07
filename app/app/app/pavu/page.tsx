@@ -138,6 +138,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       beam_count: w.beam_count,
       metres: Number((w.original_metres ?? w.total_metres) ?? 0),
       pavu_codes: codes,
+      pavu_ids: ids,
       pavu_status: firstId != null ? (pavuStatusById.get(firstId) ?? null) : null,
       sizing_set_no: w.sizing_set_no,
     };
