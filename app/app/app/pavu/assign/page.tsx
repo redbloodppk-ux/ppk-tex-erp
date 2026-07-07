@@ -101,6 +101,10 @@ export default function PavuAssignPage() {
   // sizing_job; jobwork pavus get it from their linked jobwork_warp_beam.
   const [pavuWarpById, setPavuWarpById] = useState<Map<number, number>>(new Map());
   const [yarnNameById, setYarnNameById] = useState<Map<number, string>>(new Map());
+  // pavu id → its position within its sizing set (1, 2, 3… by beam no)
+  // and the set's TOTAL beam count. Computed over ALL pavus of the set
+  // (any status), so mounting/finishing a beam doesn't shift the others.
+  const [setPosById, setSetPosById] = useState<Map<number, { pos: number; total: number }>>(new Map());
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -113,7 +117,7 @@ export default function PavuAssignPage() {
   /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
-    const [l, a, p, q, fq, jwb, yc] = await Promise.all([
+    const [l, a, p, q, fq, jwb, yc, allp] = await Promise.all([
       supabase.from('loom')
         .select('id, loom_code, loom_type, width_in, status, shed_no, fabric_quality_id')
         .order('loom_code'),
@@ -154,6 +158,14 @@ export default function PavuAssignPage() {
         .select('pavu_id, pavu_ids, warp_count_id')
         .not('warp_count_id', 'is', null),
       sb.from('yarn_count').select('id, display_name'),
+      // ALL recent pavus regardless of status — needed to compute each
+      // beam's true position within its set (a beam already on loom or
+      // finished still occupies its slot in the set).
+      sb.from('pavu')
+        .select('id, beam_no, production_mode, sizing_set_no, sizing_job:sizing_job_id ( set_no )')
+        .in('production_mode', ['in_house', 'jobwork'])
+        .order('created_at', { ascending: false })
+        .limit(500),
     ]);
     if (l.error || a.error || p.error || q.error || fq.error) {
       setError(l.error?.message ?? a.error?.message ?? p.error?.message ?? q.error?.message ?? fq.error?.message ?? 'Load failed');
@@ -189,6 +201,30 @@ export default function PavuAssignPage() {
     setYarnNameById(new Map(
       (((yc.data as { id: number; display_name: string }[] | null) ?? [])).map(r => [Number(r.id), r.display_name]),
     ));
+
+    // Position of each beam within its sizing set (1, 2, 3… by beam no),
+    // over the FULL set — beams already mounted or finished still count.
+    type PosRow = {
+      id: number; beam_no: string | null;
+      production_mode: string; sizing_set_no: string | null;
+      sizing_job: { set_no: string | null } | null;
+    };
+    const posGroups = new Map<string, PosRow[]>();
+    for (const s of ((allp.data as PosRow[] | null) ?? [])) {
+      const key = `${s.production_mode}|${s.sizing_set_no ?? s.sizing_job?.set_no ?? '—'}`;
+      const list = posGroups.get(key);
+      if (list) list.push(s); else posGroups.set(key, [s]);
+    }
+    const posMap = new Map<number, { pos: number; total: number }>();
+    for (const list of posGroups.values()) {
+      list.sort((x, y) => {
+        const nx = Number(x.beam_no); const ny = Number(y.beam_no);
+        if (Number.isFinite(nx) && Number.isFinite(ny)) return nx - ny;
+        return String(x.beam_no).localeCompare(String(y.beam_no));
+      });
+      list.forEach((s, i) => posMap.set(s.id, { pos: i + 1, total: list.length }));
+    }
+    setSetPosById(posMap);
 
     setLoading(false);
   }, [supabase]);
@@ -393,6 +429,7 @@ export default function PavuAssignPage() {
           loomQuality={assignFor.fabric_quality_id ? fabricQualityById.get(assignFor.fabric_quality_id) ?? null : null}
           pavuWarpById={pavuWarpById}
           yarnNameById={yarnNameById}
+          setPosById={setPosById}
           currentAssignment={activeByLoom.get(assignFor.id) ?? null}
           onClose={() => setAssignFor(null)}
           onDone={() => { setAssignFor(null); reload(); }}
@@ -417,7 +454,7 @@ export default function PavuAssignPage() {
 // so the partial-unique-index constraint stays happy.
 // ───────────────────────────────────────────────────────────────────────────
 function AssignModal({
-  loom, stock, qualities, loomQuality, pavuWarpById, yarnNameById, currentAssignment, onClose, onDone,
+  loom, stock, qualities, loomQuality, pavuWarpById, yarnNameById, setPosById, currentAssignment, onClose, onDone,
 }: {
   loom: Loom;
   stock: PavuInStock[];
@@ -430,6 +467,8 @@ function AssignModal({
   pavuWarpById: Map<number, number>;
   /** yarn_count id → display name, for showing warp count in option labels. */
   yarnNameById: Map<number, string>;
+  /** pavu id → position within its full sizing set (all statuses). */
+  setPosById: Map<number, { pos: number; total: number }>;
   currentAssignment: ActiveAssignment | null;
   onClose: () => void;
   onDone: () => void;
@@ -473,28 +512,6 @@ function AssignModal({
         return loomQuality.warpCountId == null || w == null || w === loomQuality.warpCountId;
       })
     : [];
-
-  // Position of each beam within its sizing set (1, 2, 3… by beam no),
-  // computed over the FULL in-stock list so the position reflects the real
-  // set, not just what happens to match this loom's quality.
-  const setPosById = useMemo(() => {
-    const groups = new Map<string, PavuInStock[]>();
-    for (const s of stock) {
-      const key = `${s.production_mode}|${s.sizing_set_no ?? s.sizing_job?.set_no ?? '—'}`;
-      const list = groups.get(key);
-      if (list) list.push(s); else groups.set(key, [s]);
-    }
-    const m = new Map<number, { pos: number; total: number }>();
-    for (const list of groups.values()) {
-      list.sort((a, b) => {
-        const na = Number(a.beam_no); const nb = Number(b.beam_no);
-        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-        return String(a.beam_no).localeCompare(String(b.beam_no));
-      });
-      list.forEach((s, i) => m.set(s.id, { pos: i + 1, total: list.length }));
-    }
-    return m;
-  }, [stock]);
 
   // Distinct SET NO values present in the matched in-stock pavu list, so the
   // operator can narrow the (potentially long) pavu dropdown down to one
