@@ -81,7 +81,13 @@ function groupByParty(
   return Array.from(groups.values()).sort((a, b) => b.total - a.total);
 }
 
-export default async function DashboardPage() {
+interface DashboardPageProps {
+  searchParams: Promise<{ tab?: string }>;
+}
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const sp = await searchParams;
+  const tab: 'overview' | 'outstanding' = sp.tab === 'outstanding' ? 'outstanding' : 'overview';
   const supabase = await createClient();
 
   // Pull headline numbers + every open bill in parallel. RLS scopes
@@ -385,6 +391,29 @@ export default async function DashboardPage() {
         </div>
       </header>
 
+      {/* Tabs — Overview (KPIs, quick entry, analytics, attendance) vs
+          Outstanding (the four receivable / payable sections). */}
+      <nav className="flex gap-1 border-b border-line/60">
+        {([
+          { key: 'overview',    label: 'Overview',    href: '/app/dashboard' },
+          { key: 'outstanding', label: 'Outstanding', href: '/app/dashboard?tab=outstanding' },
+        ] as const).map((t) => (
+          <Link
+            key={t.key}
+            href={t.href}
+            className={`px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 -mb-px transition-colors ${
+              tab === t.key
+                ? 'border-indigo text-indigo bg-indigo-50/60'
+                : 'border-transparent text-ink-soft hover:text-ink hover:bg-haze'
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
+
+      {tab === 'overview' && (
+      <>
       <section className="grid grid-cols-2 gap-3">
         {cards.map(c => (
           <Link
@@ -434,9 +463,12 @@ export default async function DashboardPage() {
       <ProductionAnalytics />
 
       <TodayAttendanceWidget />
+      </>
+      )}
 
-      {/* Money sections — two-up on desktop so the operator sees
-          receivables next to payables without scrolling. */}
+      {tab === 'outstanding' && (
+      /* Money sections — two-up on desktop so the operator sees
+         receivables next to payables without scrolling. */
       <div className="grid lg:grid-cols-2 gap-4 items-start">
 
       {/* Outstanding Customer Payments — grouped by party with
@@ -519,6 +551,7 @@ export default async function DashboardPage() {
       </section>
 
       </div>
+      )}
     </div>
   );
 }

@@ -24,9 +24,24 @@ interface ShiftLogRow {
 }
 
 interface WeaverLogRow {
+  shift_log_id: number;
   employee_id: number;
   metres_woven: number | string | null;
   shift_log: { log_date: string } | null;
+}
+
+interface LoomRow {
+  id: number;
+  status: string;
+  shed_no: number | null;
+}
+
+interface ShedPoint {
+  name: string;
+  utilisation: number; // avg % over working days
+  avgLooms: number;
+  runnable: number;
+  metres: number;
 }
 
 interface DayPoint {
@@ -100,7 +115,7 @@ const INDIGO  = '#4f46e5';
 const EMERALD = '#10b981';
 const AMBER   = '#f59e0b';
 
-interface TooltipEntry { value?: number | string; payload?: DayPoint }
+interface TooltipEntry { value?: number | string; payload?: DayPoint | ShedPoint | WeaverPoint }
 
 /** Shared tooltip card so all three charts speak one visual language. */
 function ChartTip({
@@ -128,7 +143,7 @@ export function ProductionAnalytics(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [shiftLogs, setShiftLogs] = useState<ShiftLogRow[]>([]);
   const [weaverLogs, setWeaverLogs] = useState<WeaverLogRow[]>([]);
-  const [loomDenominator, setLoomDenominator] = useState(0);
+  const [looms, setLooms] = useState<LoomRow[]>([]);
   const [employeeNames, setEmployeeNames] = useState<Map<number, string>>(new Map());
 
   const load = useCallback(async (p: Period) => {
@@ -147,19 +162,16 @@ export function ProductionAnalytics(): React.ReactElement {
             .range(a, b)),
         fetchAll<WeaverLogRow>((a, b) =>
           sb.from('production_shift_log_weaver')
-            .select('employee_id, metres_woven, shift_log:shift_log_id!inner(log_date)')
+            .select('shift_log_id, employee_id, metres_woven, shift_log:shift_log_id!inner(log_date)')
             .gte('shift_log.log_date', from)
             .order('id')
             .range(a, b)),
-        sb.from('loom').select('id, status'),
+        sb.from('loom').select('id, status, shed_no'),
         sb.from('employee').select('id, full_name'),
       ]);
       setShiftLogs(logs);
       setWeaverLogs(weavers);
-      // Utilisation denominator: every loom that could have run —
-      // looms parked in maintenance are excluded.
-      const looms = (loomsRes.data ?? []) as Array<{ id: number; status: string }>;
-      setLoomDenominator(looms.filter((l) => l.status !== 'maintenance').length);
+      setLooms((loomsRes.data ?? []) as LoomRow[]);
       setEmployeeNames(new Map(
         ((employeesRes.data ?? []) as Array<{ id: number; full_name: string }>).map((e) => [e.id, e.full_name]),
       ));
@@ -171,6 +183,13 @@ export function ProductionAnalytics(): React.ReactElement {
   }, [supabase]);
 
   useEffect(() => { void load(period); }, [load, period]);
+
+  // Utilisation denominator: every loom that could have run — looms
+  // parked in maintenance are excluded.
+  const loomDenominator = useMemo(
+    () => looms.filter((l) => l.status !== 'maintenance').length,
+    [looms],
+  );
 
   const days: DayPoint[] = useMemo(() => {
     const metresByDay = new Map<string, number>();
@@ -209,6 +228,54 @@ export function ProductionAnalytics(): React.ReactElement {
       .sort((a, b) => b.metres - a.metres)
       .slice(0, 10);
   }, [weaverLogs, employeeNames]);
+
+  const sheds: ShedPoint[] = useMemo(() => {
+    const shedByLoom = new Map<number, number>();
+    const runnableByShed = new Map<number, number>();
+    for (const l of looms) {
+      if (l.shed_no == null) continue;
+      shedByLoom.set(l.id, l.shed_no);
+      if (l.status !== 'maintenance') {
+        runnableByShed.set(l.shed_no, (runnableByShed.get(l.shed_no) ?? 0) + 1);
+      }
+    }
+    // Which shed each shift log belongs to, so weaver metres and the
+    // per-day loom counts can be bucketed by shed.
+    const shedByShiftLog = new Map<number, number>();
+    const loomsByDayShed = new Map<string, Set<number>>(); // "date|shed" → loom ids
+    const workingDays = new Set<string>();
+    for (const l of shiftLogs) {
+      const shed = shedByLoom.get(l.loom_id);
+      if (shed == null) continue;
+      shedByShiftLog.set(l.id, shed);
+      workingDays.add(l.log_date);
+      const key = `${l.log_date}|${shed}`;
+      let set = loomsByDayShed.get(key);
+      if (!set) { set = new Set(); loomsByDayShed.set(key, set); }
+      set.add(l.loom_id);
+    }
+    const metresByShed = new Map<number, number>();
+    for (const w of weaverLogs) {
+      const shed = shedByShiftLog.get(w.shift_log_id);
+      if (shed == null) continue;
+      metresByShed.set(shed, (metresByShed.get(shed) ?? 0) + Number(w.metres_woven ?? 0));
+    }
+    const shedNos = Array.from(runnableByShed.keys()).sort((a, b) => a - b);
+    const dayCount = workingDays.size;
+    return shedNos.map((shed) => {
+      const runnable = runnableByShed.get(shed) ?? 0;
+      let ranTotal = 0;
+      for (const d of workingDays) ranTotal += loomsByDayShed.get(`${d}|${shed}`)?.size ?? 0;
+      const avgLooms = dayCount > 0 ? ranTotal / dayCount : 0;
+      return {
+        name: `Shed ${shed}`,
+        utilisation: runnable > 0 ? Math.round((avgLooms / runnable) * 100) : 0,
+        avgLooms: Math.round(avgLooms * 10) / 10,
+        runnable,
+        metres: Math.round(metresByShed.get(shed) ?? 0),
+      };
+    });
+  }, [looms, shiftLogs, weaverLogs]);
 
   const totalMetres = useMemo(() => days.reduce((s, d) => s + d.metres, 0), [days]);
   const daysWithProduction = useMemo(() => days.filter((d) => d.metres > 0).length, [days]);
@@ -322,18 +389,47 @@ export function ProductionAnalytics(): React.ReactElement {
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
                     <Tooltip
                       cursor={{ stroke: EMERALD, strokeDasharray: '3 3' }}
-                      content={<ChartTip formatter={(e) => `${e.value}% — ${e.payload?.looms ?? 0} of ${loomDenominator} looms ran`} />}
+                      content={<ChartTip formatter={(e) => `${e.value}% — ${(e.payload as DayPoint | undefined)?.looms ?? 0} of ${loomDenominator} looms ran`} />}
                     />
                     <Area type="monotone" dataKey="utilisation" stroke={EMERALD} strokeWidth={2.5} fill="url(#gradUtil)" dot={false} activeDot={{ r: 4 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
 
-          {/* Top weavers */}
-          <div className="mt-4">
-            <h3 className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Top weavers (m woven)</h3>
+            {/* Shed-wise utilisation */}
+            <div>
+              <h3 className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Shed-wise utilisation (avg %)</h3>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sheds} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(139,92,246,0.08)' }}
+                      content={
+                        <ChartTip
+                          formatter={(e) => {
+                            const p = e.payload as ShedPoint | undefined;
+                            return `${e.value}% — avg ${p?.avgLooms ?? 0} of ${p?.runnable ?? 0} looms · ${(p?.metres ?? 0).toLocaleString('en-IN')} m`;
+                          }}
+                        />
+                      }
+                    />
+                    <Bar dataKey="utilisation" radius={[5, 5, 0, 0]} maxBarSize={44} label={{ position: 'top', fontSize: 10, formatter: (v: number) => `${v}%` }}>
+                      {sheds.map((s, i) => (
+                        <Cell key={s.name} fill="#8b5cf6" fillOpacity={1 - i * 0.15} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Top weavers */}
+            <div>
+              <h3 className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Top weavers (m woven)</h3>
             {topWeavers.length === 0 ? (
               <p className="text-xs text-ink-mute">No weaver shift logs in this period.</p>
             ) : (
@@ -356,6 +452,7 @@ export function ProductionAnalytics(): React.ReactElement {
                 </ResponsiveContainer>
               </div>
             )}
+            </div>
           </div>
         </>
       )}
