@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
 import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
+import { ProductionAnalytics } from './production-analytics';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -428,7 +429,15 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      {/* Production Analytics — loom utilisation, daily production and
+          top weavers, with a 7d / 30d / this-month selector. */}
+      <ProductionAnalytics />
+
       <TodayAttendanceWidget />
+
+      {/* Money sections — two-up on desktop so the operator sees
+          receivables next to payables without scrolling. */}
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
 
       {/* Outstanding Customer Payments — grouped by party with
           expand-to-detail. Top row = party name + total outstanding;
@@ -508,6 +517,8 @@ export default async function DashboardPage() {
           footnote={'Suppliers with one or more open bills across sizing, bobbin, yarn, fabric purchases, and opening payables. Click a row to see the individual bills. "Days due" = days since the bill date.'}
         />
       </section>
+
+      </div>
     </div>
   );
 }
