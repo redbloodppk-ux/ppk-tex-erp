@@ -16,7 +16,7 @@ export default async function EditBankEntryPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [{ data: row }, { data: cats }, { data: allLedgers }] = await Promise.all([
+  const [{ data: row }, { data: cats }, { data: allLedgers }, { data: latestRow }] = await Promise.all([
     sb.from('bank_entry')
       .select('id, entry_no, entry_date, direction, amount, bank_ledger_id, other_ledger_id, category_id, mode, reference, notes, status')
       .eq('id', numericId)
@@ -29,8 +29,16 @@ export default async function EditBankEntryPage({
       .select('id, code, name, type:type_id ( name )')
       .eq('active', true)
       .order('name'),
+    // Newest entry ever created (any status). If THIS entry is the
+    // newest, hard delete is allowed and its number gets reused.
+    sb.from('bank_entry')
+      .select('id')
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
   if (!row) notFound();
+  const isLatest = latestRow?.id === row.id;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const flatten = (rows: any[]): LedgerOpt[] => (rows ?? []).map((r) => ({
@@ -72,6 +80,7 @@ export default async function EditBankEntryPage({
         categories={(cats ?? []) as BankCategoryOpt[]}
         bankLedgers={bankList}
         allLedgers={otherLedgersList}
+        isLatest={isLatest}
       />
     </div>
   );

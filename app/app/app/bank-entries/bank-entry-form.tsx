@@ -54,6 +54,7 @@ interface Props {
   categories: BankCategoryOpt[];
   bankLedgers: LedgerOpt[];   // ledgers tagged as Bank / Cash
   allLedgers: LedgerOpt[];    // every active ledger, for the "other side"
+  isLatest?: boolean;         // true = newest entry ever → hard delete allowed (number reused)
 }
 
 function todayISO(): string {
@@ -72,7 +73,7 @@ const MODES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'other',      label: 'Other'      },
 ];
 
-export function BankEntryForm({ initial, categories, bankLedgers, allLedgers }: Props): React.ReactElement {
+export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, isLatest = false }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
   const isEdit = typeof initial?.id === 'number';
@@ -222,6 +223,22 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers }: 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('bank_entry').update({ status: 'cancelled' }).eq('id', initial.id);
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    router.push('/app/bank-entries');
+    router.refresh();
+  }
+
+  async function onDeleteEntry(): Promise<void> {
+    if (!isEdit || initial?.id == null) return;
+    if (!window.confirm(`Permanently DELETE entry ${initial.entry_no ?? ''}? This is the newest entry, so its number will be reused by the next entry. This cannot be undone.`)) return;
+    setBusy(true); setError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    // DB function double-checks it is still the newest entry, deletes
+    // the row and steps the number counter back. If a newer entry got
+    // created meanwhile, it errors and we tell the operator to soft-cancel.
+    const { error: err } = await sb.rpc('fn_bank_entry_hard_delete', { p_id: initial.id });
     setBusy(false);
     if (err) { setError(err.message); return; }
     router.push('/app/bank-entries');
@@ -423,10 +440,17 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers }: 
 
       <div className="flex justify-between gap-2 pt-2">
         <div>
-          {isEdit && (
+          {isEdit && isLatest && (
+            <button type="button" onClick={onDeleteEntry} disabled={busy}
+              className="btn-ghost text-rose-700 text-xs"
+              title="Hard delete: allowed only for the newest entry. Its number is reused by the next entry.">
+              <Trash2 className="w-3.5 h-3.5" /> Delete entry (reuse no.)
+            </button>
+          )}
+          {isEdit && !isLatest && (
             <button type="button" onClick={onCancelEntry} disabled={busy}
               className="btn-ghost text-rose-700 text-xs"
-              title="Soft-cancel: status='cancelled'. The row stays for audit.">
+              title="Soft-cancel: status='cancelled'. The row stays for audit. Hard delete is only allowed for the newest entry.">
               <Trash2 className="w-3.5 h-3.5" /> Cancel entry
             </button>
           )}
