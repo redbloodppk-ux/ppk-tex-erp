@@ -118,7 +118,14 @@ export function OutstandingByParty({
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="num font-bold">{formatRupee(g.total)}</div>
+                  {g.total > 0 ? (
+                    <div className="num font-bold">{formatRupee(g.total)}</div>
+                  ) : (
+                    <div className="text-right">
+                      <div className="num font-bold text-emerald-700">{formatRupee(Math.abs(g.total))}</div>
+                      <div className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wide">In credit</div>
+                    </div>
+                  )}
                   <div className="flex items-center justify-end gap-2 mt-0.5">
                     {g.party_id != null && (
                       <Link

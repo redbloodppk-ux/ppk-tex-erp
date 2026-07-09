@@ -25,6 +25,87 @@ interface OpenBillRow {
 
 interface PartyMasterRow { id: number; name: string }
 
+interface OpeningLedgerRow {
+  id: number;
+  invoice_no: string | null;
+  invoice_date: string | null;
+  party_id: number | null;
+  balance: number | string | null;
+}
+
+/** Net each party's pre-ERP opening-ledger balance into an existing
+ *  invoice-based outstanding total. A party's opening ledger can be a
+ *  due (positive balance, adds to what they owe) or a credit / past
+ *  overpayment (negative balance, offsets it) — both are folded into
+ *  the same per-party total here so this widget agrees with the
+ *  Ledger page's running balance for that party.
+ *
+ *  Parties whose net total drops to zero or below (their opening
+ *  credit fully offsets or exceeds any open invoices) are NOT
+ *  dropped — they still show up, just flagged "in credit" in the UI,
+ *  so the operator always sees the full picture for a party rather
+ *  than having them silently disappear from the list. */
+function mergeOpeningLedger(
+  groups: PartyGroup[],
+  ledgerRows: OpeningLedgerRow[],
+  partyNameById: Map<number, string>,
+  now: number,
+): PartyGroup[] {
+  const byParty = new Map<number, OpeningLedgerRow[]>();
+  for (const r of ledgerRows) {
+    const bal = Number(r.balance ?? 0);
+    if (r.party_id == null || Math.abs(bal) < 0.005) continue;
+    const list = byParty.get(r.party_id) ?? [];
+    list.push(r);
+    byParty.set(r.party_id, list);
+  }
+  if (byParty.size === 0) return groups;
+
+  const usedPartyIds = new Set<number>();
+  const result: PartyGroup[] = groups.map((g) => {
+    const rows = g.party_id != null ? byParty.get(g.party_id) : undefined;
+    if (!rows) return g;
+    usedPartyIds.add(g.party_id as number);
+    const ledgerSum = rows.reduce((s, r) => s + Number(r.balance ?? 0), 0);
+    const ledgerBills = rows.map((r) => ({
+      id: -r.id, // negative namespace so it can't collide with an invoice id
+      invoice_no: r.invoice_no ?? 'Opening balance',
+      invoice_date: r.invoice_date ?? '',
+      balance: Number(r.balance ?? 0),
+    }));
+    return { ...g, total: g.total + ledgerSum, bills: [...g.bills, ...ledgerBills] };
+  });
+
+  // Parties with an opening-ledger balance but no open invoice at all —
+  // still surface them (due or credit) so nothing silently disappears.
+  for (const [partyId, rows] of byParty.entries()) {
+    if (usedPartyIds.has(partyId)) continue;
+    const ledgerSum = rows.reduce((s, r) => s + Number(r.balance ?? 0), 0);
+    let oldest = 0;
+    for (const r of rows) {
+      const due = r.invoice_date
+        ? Math.max(0, Math.floor((now - new Date(r.invoice_date).getTime()) / 86_400_000))
+        : 0;
+      if (due > oldest) oldest = due;
+    }
+    result.push({
+      key: `id:${partyId}`,
+      party_label: partyNameById.get(partyId) ?? `(party ${partyId})`,
+      party_id: partyId,
+      total: ledgerSum,
+      oldest_due: oldest,
+      bills: rows.map((r) => ({
+        id: -r.id,
+        invoice_no: r.invoice_no ?? 'Opening balance',
+        invoice_date: r.invoice_date ?? '',
+        balance: Number(r.balance ?? 0),
+      })),
+    });
+  }
+
+  return result.sort((a, b) => b.total - a.total);
+}
+
 /** Group a flat list of open bills by party. For customer invoices we
  *  match on party_name (ilike against the party master); for jobwork
  *  we use the FK directly. The returned list is sorted by total
@@ -105,6 +186,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     { data: fabricBills },
     { data: openingPayables },
     { data: agentComm },
+    { data: openingReceivables },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid JOB WORK bill, oldest first. These are
@@ -181,6 +263,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       .select('id, agent_party_id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
       .eq('status', 'active')
       .gt('balance', 0),
+    // Opening receivables — pre-ERP balances a customer owes us, or
+    // (negative balance) a past overpayment / credit sitting on their
+    // account. No balance filter here: unlike the payable side, we
+    // need the credits (negative) too, to net into their total below.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('party_opening_ledger')
+      .select('id, invoice_no, invoice_date, party_id, balance')
+      .eq('status', 'active')
+      .eq('direction', 'receivable')
+      .order('invoice_date', { ascending: true }),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,14 +282,23 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const openWeavingBills:  OpenBillRow[] = (weavingBillInvoices ?? []) as OpenBillRow[];
   const openCustomerBills: OpenBillRow[] = (customerInvoices ?? [])    as OpenBillRow[];
   const parties: PartyMasterRow[] = (partyMaster ?? []) as unknown as PartyMasterRow[];
+  const partyNameById = new Map<number, string>();
+  for (const p of parties) partyNameById.set(p.id, p.name);
 
   const now = Date.now();
 
   // Customer side: identity is the party_name stamped on the invoice.
-  const customerGroups = groupByParty(
-    openCustomerBills,
-    parties,
-    (b) => ({ id: null, label: b.party_name ?? '' }),
+  // Net each party's opening-ledger due/credit into their total so
+  // this widget agrees with the Ledger page's running balance.
+  const customerGroups = mergeOpeningLedger(
+    groupByParty(
+      openCustomerBills,
+      parties,
+      (b) => ({ id: null, label: b.party_name ?? '' }),
+      now,
+    ),
+    (openingReceivables ?? []) as OpeningLedgerRow[],
+    partyNameById,
     now,
   );
   // Job work side: identity is jobwork_party_id (FK). The label comes
@@ -224,8 +325,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // (sizing / bobbin / yarn / fabric) or the existing balance column
   // (opening payable). Anything <= 0 is filtered out so a fully
   // settled bill doesn't keep its party group alive.
-  const partyNameById = new Map<number, string>();
-  for (const p of parties) partyNameById.set(p.id, p.name);
   const supplierBills: OpenBillRow[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((sizingBills ?? []) as any[])) {
@@ -487,7 +586,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           direction="in"
           actionLabel="Collect"
           emptyText="No outstanding customer invoices — everything is collected."
-          footnote={'Customers with one or more open sale invoices. Click a row to see their unpaid bills. "Days due" = days since the invoice date.'}
+          footnote={'Customers with one or more open sale invoices, netted against any pre-ERP opening balance (due or credit) — matches the Ledger page\u2019s running balance. A party fully offset by an old credit still shows up, flagged "In credit". Click a row to see the bills. "Days due" = days since the invoice date.'}
         />
       </section>
 
