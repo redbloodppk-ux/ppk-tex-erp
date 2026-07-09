@@ -39,6 +39,9 @@ export interface EditInvoiceInitial {
   status: Status;
   notes: string;
   vehicle_no: string;
+  /** For credit notes: the party's DEBIT NOTE no/date. For debit notes: the supplier's bill no/date. */
+  supplier_bill_no: string;
+  supplier_bill_date: string;
   taxable_value: number;
   cgst_amount: number;
   sgst_amount: number;
@@ -107,6 +110,9 @@ export function EditInvoiceForm({
   // Credit notes don't carry Due-days or Vehicle number — they
   // adjust an existing balance rather than book a movement.
   const isCreditNote = docType === 'credit_note';
+  // Purchase returns (debit notes) reference the supplier's bill the
+  // same way credit notes reference the party's debit note.
+  const isDebitNote = docType === 'debit_note';
   // General / rental sales (rent, scrap, services) often move no
   // goods — Vehicle number stays visible but optional.
   const isVehicleOptional = docType === 'general_sale' || docType === 'rental_invoice';
@@ -119,6 +125,10 @@ export function EditInvoiceForm({
   const [status, setStatus]           = useState<Status>(initial.status);
   const [notes, setNotes]             = useState<string>(initial.notes);
   const [vehicleNo, setVehicleNo]     = useState<string>(initial.vehicle_no ?? '');
+  // Credit note: the customer's debit note reference. Debit note: the
+  // supplier's bill reference. Captured on create; editable here.
+  const [refNo, setRefNo]     = useState<string>(initial.supplier_bill_no ?? '');
+  const [refDate, setRefDate] = useState<string>(initial.supplier_bill_date ?? '');
   // Historical picks for the type-ahead datalists on Vehicle / Notes.
   const vehicleHistory = useColumnHistory('invoice', 'vehicle_no', 100);
   const notesHistory   = useColumnHistory('invoice', 'notes',      50);
@@ -218,6 +228,8 @@ export function EditInvoiceForm({
     || status !== initial.status
     || notes !== initial.notes
     || vehicleNo !== (initial.vehicle_no ?? '')
+    || refNo !== (initial.supplier_bill_no ?? '')
+    || refDate !== (initial.supplier_bill_date ?? '')
     || num(taxable) !== initial.taxable_value
     || num(cgst)    !== initial.cgst_amount
     || num(sgst)    !== initial.sgst_amount
@@ -288,6 +300,11 @@ export function EditInvoiceForm({
       status,
       notes: notes || null,
       vehicle_no:  isCreditNote ? null : (vehicleNo.trim().toUpperCase() || null),
+      // Party debit note (credit note) / supplier bill (debit note)
+      // reference — only these doc types carry it.
+      ...((isCreditNote || isDebitNote)
+        ? { supplier_bill_no: refNo.trim() || null, supplier_bill_date: refDate || null }
+        : {}),
       // GST block
       taxable_value: taxableN,
       cgst_amount: cgstN,
@@ -438,6 +455,31 @@ export function EditInvoiceForm({
               ))}
             </select>
           </div>
+          {/* Sales return: the customer's debit note reference.
+              Purchase return: the supplier's bill reference. */}
+          {(isCreditNote || isDebitNote) && (
+            <>
+              <div>
+                <label className="label">{isCreditNote ? 'Party debit note no' : 'Supplier bill no'}</label>
+                <input
+                  type="text"
+                  value={refNo}
+                  onChange={(e) => setRefNo(e.target.value)}
+                  className="input font-mono text-xs"
+                  placeholder={isCreditNote ? 'e.g. DN/26-27/0012' : 'e.g. BILL-1234'}
+                />
+              </div>
+              <div>
+                <label className="label">{isCreditNote ? 'Debit note date' : 'Supplier bill date'}</label>
+                <input
+                  type="date"
+                  value={refDate}
+                  onChange={(e) => setRefDate(e.target.value)}
+                  className="input"
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {/* ───── GST tax block ───── */}

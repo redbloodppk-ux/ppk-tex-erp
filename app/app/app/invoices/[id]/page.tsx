@@ -102,6 +102,7 @@ export default async function InvoiceDetailPage({
     sb.from('invoice')
       .select(`
         id, invoice_no, doc_type, source_kind, invoice_date, due_date, notes, status, vehicle_no,
+        supplier_bill_no, supplier_bill_date,
         subtotal, gst_amount, total, amount_paid, balance,
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, extra_charge, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
@@ -264,6 +265,8 @@ export default async function InvoiceDetailPage({
           status: inv.status,
           notes: inv.notes ?? '',
           vehicle_no: inv.vehicle_no ?? '',
+          supplier_bill_no:   inv.supplier_bill_no ?? '',
+          supplier_bill_date: inv.supplier_bill_date ?? '',
           taxable_value: Number(inv.taxable_value ?? 0),
           cgst_amount:   Number(inv.cgst_amount ?? 0),
           sgst_amount:   Number(inv.sgst_amount ?? 0),
