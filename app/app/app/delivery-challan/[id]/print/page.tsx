@@ -764,16 +764,10 @@ export default async function DcPrintPage({
                       </div>
                     </div>
 
-                    {/* DC-level totals row at the very bottom (small, optional cross-check).
-                        Only shown for single-quality DCs — a mixed-quality DC has per-quality
-                        totals above and must not display a merged grand total. */}
-                    {singleQuality && (dc.total_metres != null || dc.total_pieces != null || dc.total_bundles != null) && (
-                      <div style={{ marginTop: 6, textAlign: 'right', fontSize: 10, color: '#666' }}>
-                        DC Totals: {fmtMetres(num(dc.total_metres))} m &nbsp;&middot;&nbsp;
-                        {dc.total_pieces ?? 0} pcs &nbsp;&middot;&nbsp;
-                        {dc.total_bundles ?? 0} bundles
-                      </div>
-                    )}
+                    {/* The small "DC Totals" cross-check line was removed — the
+                        per-quality TOTAL METRES / PIECES / BUNDLES box above
+                        already carries the totals, and the extra line was
+                        overflowing single-page DCs onto a near-empty page 2. */}
                   </div>
                 </>
               ) : (
