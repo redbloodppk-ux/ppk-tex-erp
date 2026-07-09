@@ -381,6 +381,16 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
   // ── Bundle helpers (detailed mode) ────────────────────────────────────────
   function addBundle(): void {
     setBundles((bs) => [...bs, { sno: bs.length + 1, pieces: [''] }]);
+    // After React renders the new bundle, drop the cursor into its
+    // "No. of pieces" field so the count can be typed immediately.
+    setTimeout(() => {
+      const counts = document.querySelectorAll<HTMLInputElement>('input[data-piece-count-input]');
+      const last = counts[counts.length - 1];
+      if (last) {
+        last.focus();
+        last.select();
+      }
+    }, 0);
   }
   function removeBundle(idx: number): void {
     setBundles((bs) => {
@@ -1053,6 +1063,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
               return (
                 <div
                   key={bIdx}
+                  data-bundle-card
                   className="rounded-lg border border-line bg-cloud/20 p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1071,11 +1082,24 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                         min={1}
                         max={200}
                         step={1}
+                        data-piece-count-input
                         className="input h-7 text-xs num w-16 text-right"
                         value={b.pieces.length}
                         onChange={(e) =>
                           setBundlePieceCount(bIdx, Number(e.target.value) || 1)
                         }
+                        onKeyDown={(e) => {
+                          // Enter on the count = jump into this bundle's
+                          // first metre field (skip the Remove button).
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          const card = e.currentTarget.closest('[data-bundle-card]');
+                          const first = card?.querySelector<HTMLInputElement>('input[data-piece-input]');
+                          if (first) {
+                            first.focus();
+                            first.select();
+                          }
+                        }}
                       />
                       <button
                         type="button"
