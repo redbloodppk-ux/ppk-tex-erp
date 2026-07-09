@@ -202,7 +202,7 @@ export async function TodayAttendanceWidget(): Promise<React.ReactElement> {
 }
 
 function ShiftCard({ section }: { section: ShiftSection }) {
-  const { shift, isWorking, reason, remark, roles, totalHeadcount, totalPresent, weaverSheds } = section;
+  const { shift, isWorking, reason, remark, totalHeadcount, totalPresent, weaverSheds } = section;
 
   return (
     <div className="rounded-lg border border-line/60 p-3 bg-cloud/10">
@@ -230,52 +230,29 @@ function ShiftCard({ section }: { section: ShiftSection }) {
             {remark && <div className="text-rose-700 mt-0.5">{remark}</div>}
           </div>
         </div>
-      ) : roles.length === 0 ? (
+      ) : weaverSheds.length === 0 ? (
         <p className="text-xs text-ink-soft py-1">
           Nobody marked yet for this shift.
         </p>
       ) : (
-        <>
-          <ul className="space-y-1 text-sm">
-            {roles.map(r => (
-              <li
-                key={r.role}
-                className="flex items-center justify-between py-0.5"
-              >
-                <span className="capitalize text-ink-soft text-xs">{r.role}</span>
-                <span
-                  className={`text-xs font-semibold tabular-nums ${presentTone(
-                    r.presentCount,
-                    r.headcount,
-                  )}`}
-                >
-                  {r.presentCount} / {r.headcount}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          {/* Shed-wise weaver names — who is running which shed in this
-              shift. Only present weavers are listed. */}
-          {weaverSheds.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-line/50 space-y-1.5">
-              {weaverSheds.map(s => (
-                <div key={s.shed} className="flex items-start gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-ink-mute whitespace-nowrap mt-0.5 w-12 shrink-0">
-                    {s.shed === '—' ? 'No shed' : `Shed ${s.shed}`}
+        /* Shed-wise weaver names — who is running which shed in this
+           shift. Only present weavers are listed. */
+        <div className="space-y-1.5">
+          {weaverSheds.map(s => (
+            <div key={s.shed} className="flex items-start gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-ink-mute whitespace-nowrap mt-0.5 w-12 shrink-0">
+                {s.shed === '—' ? 'No shed' : `Shed ${s.shed}`}
+              </span>
+              <span className="flex flex-wrap gap-1">
+                {s.names.map(n => (
+                  <span key={n} className="inline-block rounded-md bg-indigo-50 text-indigo border border-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold">
+                    {n}
                   </span>
-                  <span className="flex flex-wrap gap-1">
-                    {s.names.map(n => (
-                      <span key={n} className="inline-block rounded-md bg-indigo-50 text-indigo border border-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold">
-                        {n}
-                      </span>
-                    ))}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </span>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
