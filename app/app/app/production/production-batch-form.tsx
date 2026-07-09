@@ -48,6 +48,8 @@ interface Costing {
   quality_code: string;
   quality_name: string;
   approval_status: string;
+  /** Towel length (m per piece) from fabric_quality — null for running fabric. */
+  meter_per_pc: number | null;
 }
 
 /** Party master option — filtered by party type for jobwork / outsource. */
@@ -208,8 +210,14 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     initial ? String(initial.produced_m) : '',
   );
 
+  // Towel length starts BLANK — a blank length means "produced value is
+  // metres, no pcs conversion". It is prefilled from the selected quality's
+  // meter_per_pc (towel qualities only), so running fabric is never silently
+  // multiplied by a default length. See the phantom-stock bug on batch
+  // B-26-27-0005 (metres entered, ×1.7 applied → 3655 m of stock that
+  // never existed).
   const [convertToTowel, setConvertToTowel] = useState(false);
-  const [towelLength, setTowelLength] = useState('1.7');
+  const [towelLength, setTowelLength] = useState('');
 
   const [preview, setPreview] = useState<CostingPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -225,7 +233,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         (async () => {
           const [fqRes, cmRes] = await Promise.all([
             sb.from('fabric_quality')
-              .select('id, code, name, costing_id, active')
+              .select('id, code, name, costing_id, active, meter_per_pc')
               .eq('active', true)
               .not('costing_id', 'is', null)
               .order('code'),
@@ -237,7 +245,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           for (const c of (cmRes.data ?? []) as Array<{ id: number; approval_status: string }>) {
             cms.set(c.id, c);
           }
-          const merged = ((fqRes.data ?? []) as Array<{ id: number; code: string; name: string; costing_id: number | null }>)
+          const merged = ((fqRes.data ?? []) as Array<{ id: number; code: string; name: string; costing_id: number | null; meter_per_pc: number | string | null }>)
             .map((f) => {
               const cm = f.costing_id != null ? cms.get(f.costing_id) : null;
               if (!cm) return null;
@@ -246,6 +254,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                 quality_code: f.code,
                 quality_name: f.name,
                 approval_status: cm.approval_status,
+                meter_per_pc: f.meter_per_pc != null ? Number(f.meter_per_pc) : null,
               };
             })
             .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -898,7 +907,14 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           <select
             required={productionMode !== 'jobwork'}
             value={costingId}
-            onChange={e => setCostingId(e.target.value)}
+            onChange={e => {
+              setCostingId(e.target.value);
+              // Prefill the towel length from the quality's own m/pc so
+              // towel batches use the right length (1.65 vs 1.70 etc.) and
+              // running-fabric batches stay blank (no pcs conversion).
+              const picked = costings.find(c => String(c.id) === e.target.value);
+              setTowelLength(picked?.meter_per_pc != null && picked.meter_per_pc > 0 ? String(picked.meter_per_pc) : '');
+            }}
             className="input"
           >
             <option value="" disabled={productionMode !== 'jobwork'}>
