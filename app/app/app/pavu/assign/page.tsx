@@ -999,6 +999,10 @@ interface ProdLogRow {
   id: number;
   log_date: string;
   shift: string;
+  rate_per_m: number | null;
+  is_towel: boolean;
+  towel_meter_per_pc: number | null;
+  quality: { code: string } | null;
   weavers: { metres_woven: number | null; employee: { full_name: string } | null }[] | null;
 }
 
@@ -1024,7 +1028,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
           .order('id', { ascending: false })
           .limit(50),
         sb.from('production_shift_log')
-          .select('id, log_date, shift, weavers:production_shift_log_weaver ( metres_woven, employee:employee_id ( full_name ) )')
+          .select('id, log_date, shift, rate_per_m, is_towel, towel_meter_per_pc, quality:fabric_quality_id ( code ), weavers:production_shift_log_weaver ( metres_woven, employee:employee_id ( full_name ) )')
           .eq('loom_id', loom.id)
           .order('log_date', { ascending: false })
           .order('id', { ascending: false })
@@ -1122,14 +1126,56 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
           ) : (
             <div className="space-y-1.5">
               <p className="text-xs text-ink-mute mb-2">Last {logs.length} shift log{logs.length > 1 ? 's' : ''}, newest first.</p>
-              {logs.map(l => {
+              {logs.map((l, idx) => {
                 const weavers = l.weavers ?? [];
                 const total = weavers.reduce((s, w) => s + Number(w.metres_woven ?? 0), 0);
+                // Compare with the next row in the list = the previous
+                // (older) shift log, to flag rate / towel-length changes.
+                const prev = logs[idx + 1];
+                const rateChanged =
+                  prev != null && l.rate_per_m != null && prev.rate_per_m != null &&
+                  Number(l.rate_per_m) !== Number(prev.rate_per_m);
+                // Only flag towel-length changes between two towel logs —
+                // switching to/from a non-towel quality is already covered
+                // by the quality-changed flag.
+                const towelChanged =
+                  prev != null &&
+                  Number(l.towel_meter_per_pc ?? 0) > 0 &&
+                  Number(prev.towel_meter_per_pc ?? 0) > 0 &&
+                  Number(l.towel_meter_per_pc) !== Number(prev.towel_meter_per_pc);
+                const qualityChanged =
+                  prev != null && (l.quality?.code ?? '') !== (prev.quality?.code ?? '');
                 return (
                   <div key={l.id} className="flex items-start justify-between gap-2 rounded-lg border border-line/60 px-3 py-2 text-xs">
                     <div>
                       <span className="font-semibold">{l.log_date}</span>{' '}
                       <span className="uppercase text-ink-mute">{l.shift === 'morning' ? 'M' : l.shift === 'night' ? 'N' : l.shift}</span>
+                      <div className="text-ink-soft mt-0.5">
+                        <span className="font-mono text-indigo">{l.quality?.code ?? '—'}</span>
+                        {l.rate_per_m != null && <> · ₹{Number(l.rate_per_m).toFixed(2)}/m</>}
+                        {(l.is_towel || Number(l.towel_meter_per_pc ?? 0) > 0) && (
+                          <> · towel {Number(l.towel_meter_per_pc ?? 0).toFixed(2)} m/pc</>
+                        )}
+                      </div>
+                      {(rateChanged || towelChanged || qualityChanged) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {qualityChanged && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border bg-indigo-50 text-indigo border-indigo-200">
+                              Quality changed
+                            </span>
+                          )}
+                          {rateChanged && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border bg-amber-50 text-amber-700 border-amber-200">
+                              Rate changed{prev?.rate_per_m != null ? ` (was ₹${Number(prev.rate_per_m).toFixed(2)})` : ''}
+                            </span>
+                          )}
+                          {towelChanged && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border bg-amber-50 text-amber-700 border-amber-200">
+                              Towel length changed{prev != null ? ` (was ${Number(prev.towel_meter_per_pc ?? 0).toFixed(2)} m/pc)` : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="text-ink-soft mt-0.5">
                         {weavers.length === 0
                           ? '—'
