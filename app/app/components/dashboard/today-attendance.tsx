@@ -36,6 +36,17 @@ interface ShiftSection {
   }>;
   totalHeadcount: number;
   totalPresent: number;
+  weaverSheds: ReadonlyArray<{ shed: string; names: string[] }>;
+}
+
+/** One present-today attendance row for a weaver, with the shed(s)
+ *  they were marked into and the shift it belongs to. */
+interface WeaverEntryRow {
+  status: string;
+  shed_no: string | null;
+  shed_nos: string[] | null;
+  day: { shift: Shift; attendance_date: string } | null;
+  employee: { full_name: string; role: string; home_shed_no: string | null } | null;
 }
 
 const REASON_LABEL: Record<string, string> = {
@@ -59,7 +70,40 @@ function fmtToday(): string {
   });
 }
 
-function buildSections(rows: ReadonlyArray<WidgetRow>): ShiftSection[] {
+/** Group today's present weavers by shed for one shift. A weaver
+ *  marked into two sheds appears under both. Shed order 1→4; anyone
+ *  without a shed lands in "—" at the end. */
+function buildWeaverSheds(
+  weaverRows: ReadonlyArray<WeaverEntryRow>,
+  shift: Shift,
+): Array<{ shed: string; names: string[] }> {
+  const byShed = new Map<string, Set<string>>();
+  for (const w of weaverRows) {
+    if (w.day?.shift !== shift) continue;
+    const name = w.employee?.full_name?.trim();
+    if (!name) continue;
+    const sheds = (w.shed_nos && w.shed_nos.length > 0)
+      ? w.shed_nos
+      : (w.shed_no ? [w.shed_no] : (w.employee?.home_shed_no ? [w.employee.home_shed_no] : ['—']));
+    for (const shed of sheds) {
+      const set = byShed.get(shed) ?? new Set<string>();
+      set.add(name);
+      byShed.set(shed, set);
+    }
+  }
+  return Array.from(byShed.entries())
+    .map(([shed, names]) => ({ shed, names: Array.from(names).sort((a, b) => a.localeCompare(b)) }))
+    .sort((a, b) => {
+      if (a.shed === '—') return 1;
+      if (b.shed === '—') return -1;
+      return Number(a.shed) - Number(b.shed);
+    });
+}
+
+function buildSections(
+  rows: ReadonlyArray<WidgetRow>,
+  weaverRows: ReadonlyArray<WeaverEntryRow>,
+): ShiftSection[] {
   const shifts: Shift[] = ['morning', 'night'];
   return shifts.map(shift => {
     const shiftRows = rows.filter(r => r.shift === shift);
@@ -77,7 +121,8 @@ function buildSections(rows: ReadonlyArray<WidgetRow>): ShiftSection[] {
       .sort((a, b) => a.role.localeCompare(b.role));
     const totalHeadcount = roles.reduce((s, r) => s + r.headcount, 0);
     const totalPresent = roles.reduce((s, r) => s + r.presentCount, 0);
-    return { shift, isWorking, reason, remark, roles, totalHeadcount, totalPresent };
+    const weaverSheds = buildWeaverSheds(weaverRows, shift);
+    return { shift, isWorking, reason, remark, roles, totalHeadcount, totalPresent, weaverSheds };
   });
 }
 
@@ -91,15 +136,28 @@ function presentTone(present: number, headcount: number): string {
 
 export async function TodayAttendanceWidget(): Promise<React.ReactElement> {
   const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  // Today's date in factory time (IST) — the server runs in UTC, so a
+  // plain new Date() would point at yesterday until 5:30 AM.
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   // v_today_attendance_widget was added in migration 027 after the last
   // typegen run; cast the table name so supabase-js's generated union accepts
   // it. Regenerate database.types.ts to drop the cast.
-  const { data, error } = await supabase
-    .from('v_today_attendance_widget' as never)
-    .select('*');
+  const [{ data, error }, { data: weaverData }] = await Promise.all([
+    sb.from('v_today_attendance_widget').select('*'),
+    // Present weavers today with the shed(s) they were marked into,
+    // so each shift card can list names shed-wise.
+    sb.from('attendance_entry')
+      .select('status, shed_no, shed_nos, day:attendance_day_id!inner(shift, attendance_date), employee:employee_id!inner(full_name, role, home_shed_no)')
+      .eq('day.attendance_date', todayIso)
+      .eq('employee.role', 'weaver')
+      .in('status', ['present', 'half_day', 'late', 'early_leave']),
+  ]);
 
   const rows = (data as unknown as WidgetRow[]) ?? [];
-  const sections = buildSections(rows);
+  const weaverRows = (weaverData as unknown as WeaverEntryRow[]) ?? [];
+  const sections = buildSections(rows, weaverRows);
   const noEmployees = rows.length === 0;
 
   return (
@@ -144,7 +202,7 @@ export async function TodayAttendanceWidget(): Promise<React.ReactElement> {
 }
 
 function ShiftCard({ section }: { section: ShiftSection }) {
-  const { shift, isWorking, reason, remark, roles, totalHeadcount, totalPresent } = section;
+  const { shift, isWorking, reason, remark, roles, totalHeadcount, totalPresent, weaverSheds } = section;
 
   return (
     <div className="rounded-lg border border-line/60 p-3 bg-cloud/10">
@@ -177,24 +235,47 @@ function ShiftCard({ section }: { section: ShiftSection }) {
           Nobody marked yet for this shift.
         </p>
       ) : (
-        <ul className="space-y-1 text-sm">
-          {roles.map(r => (
-            <li
-              key={r.role}
-              className="flex items-center justify-between py-0.5"
-            >
-              <span className="capitalize text-ink-soft text-xs">{r.role}</span>
-              <span
-                className={`text-xs font-semibold tabular-nums ${presentTone(
-                  r.presentCount,
-                  r.headcount,
-                )}`}
+        <>
+          <ul className="space-y-1 text-sm">
+            {roles.map(r => (
+              <li
+                key={r.role}
+                className="flex items-center justify-between py-0.5"
               >
-                {r.presentCount} / {r.headcount}
-              </span>
-            </li>
-          ))}
-        </ul>
+                <span className="capitalize text-ink-soft text-xs">{r.role}</span>
+                <span
+                  className={`text-xs font-semibold tabular-nums ${presentTone(
+                    r.presentCount,
+                    r.headcount,
+                  )}`}
+                >
+                  {r.presentCount} / {r.headcount}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Shed-wise weaver names — who is running which shed in this
+              shift. Only present weavers are listed. */}
+          {weaverSheds.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-line/50 space-y-1.5">
+              {weaverSheds.map(s => (
+                <div key={s.shed} className="flex items-start gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-ink-mute whitespace-nowrap mt-0.5 w-12 shrink-0">
+                    {s.shed === '—' ? 'No shed' : `Shed ${s.shed}`}
+                  </span>
+                  <span className="flex flex-wrap gap-1">
+                    {s.names.map(n => (
+                      <span key={n} className="inline-block rounded-md bg-indigo-50 text-indigo border border-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold">
+                        {n}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
