@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2, History } from 'lucide-react';
 
 interface Loom {
   id: number;
@@ -122,6 +122,7 @@ export default function PavuAssignPage() {
   const [assignFor, setAssignFor] = useState<Loom | null>(null);
   const [editFor, setEditFor] = useState<ActiveAssignment | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [historyFor, setHistoryFor] = useState<Loom | null>(null);
 
   /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
@@ -379,11 +380,17 @@ export default function PavuAssignPage() {
             return (
               <div key={l.id} className="card p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    title="View loom history"
+                    className="flex items-center gap-2 rounded hover:bg-haze px-1 -mx-1"
+                    onClick={() => setHistoryFor(l)}
+                  >
                     <Wrench className="w-4 h-4 text-ink-mute" />
-                    <span className="font-mono font-bold text-ink">{l.loom_code}</span>
+                    <span className="font-mono font-bold text-ink underline decoration-dotted decoration-line underline-offset-2">{l.loom_code}</span>
                     <span className="text-xs text-ink-mute">{l.loom_type}</span>
-                  </div>
+                    <History className="w-3 h-3 text-ink-mute" />
+                  </button>
                   <span className={`pill ${STATUS_STYLE[l.status] ?? 'bg-slate-100 text-slate-600'}`}>
                     {l.status}
                   </span>
@@ -535,6 +542,10 @@ export default function PavuAssignPage() {
           onClose={() => setEditFor(null)}
           onDone={() => { setEditFor(null); reload(); }}
         />
+      )}
+
+      {historyFor && (
+        <LoomHistoryModal loom={historyFor} onClose={() => setHistoryFor(null)} />
       )}
     </div>
   );
@@ -961,6 +972,182 @@ function EditAssignmentModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Loom history modal — full beam (pavu) history and recent production shift
+// logs for one loom. Opened by tapping the loom code on a card.
+// ───────────────────────────────────────────────────────────────────────────
+interface BeamHistoryRow {
+  id: number;
+  status: string;
+  assigned_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  metres_produced: number | null;
+  actual_metres: number | null;
+  metre_variance: number | null;
+  pavu: { pavu_code: string; beam_no: string | null; meters: number | null } | null;
+  costing: { quality_code: string } | null;
+}
+
+interface ProdLogRow {
+  id: number;
+  log_date: string;
+  shift: string;
+  weavers: { metres_woven: number | null; employee: { full_name: string } | null }[] | null;
+}
+
+function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }) {
+  const supabase = createClient();
+  const [tab, setTab] = useState<'beams' | 'production'>('beams');
+  const [beams, setBeams] = useState<BeamHistoryRow[]>([]);
+  const [logs, setLogs] = useState<ProdLogRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Generated types lag behind the new actual_metres/metre_variance
+      // columns — cast through any like the rest of this page.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [b, p] = await Promise.all([
+        sb.from('pavu_assign')
+          .select('id, status, assigned_date, start_date, end_date, metres_produced, actual_metres, metre_variance, pavu:pavu_id ( pavu_code, beam_no, meters ), costing:costing_id ( quality_code )')
+          .eq('loom_id', loom.id)
+          .order('id', { ascending: false })
+          .limit(50),
+        sb.from('production_shift_log')
+          .select('id, log_date, shift, weavers:production_shift_log_weaver ( metres_woven, employee:employee_id ( full_name ) )')
+          .eq('loom_id', loom.id)
+          .order('log_date', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(60),
+      ]);
+      if (cancelled) return;
+      if (b.error) setErr(b.error.message);
+      else if (p.error) setErr(p.error.message);
+      setBeams((b.data as BeamHistoryRow[] | null) ?? []);
+      setLogs((p.data as ProdLogRow[] | null) ?? []);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loom.id]);
+
+  // See AssignModal above for why this is portaled to <body>.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-lg border border-line/60 flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between p-4 border-b border-line/60">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-ink-mute">Loom history</div>
+            <div className="font-mono font-bold">{loom.loom_code}</div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-cloud">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex gap-1 px-4 pt-3">
+          {([['beams', 'Beam history'], ['production', 'Production']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                tab === key ? 'bg-indigo text-white' : 'bg-haze text-ink-soft hover:text-ink'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 overflow-y-auto">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-ink-soft">
+              <Loader2 className="w-4 h-4 inline animate-spin mr-2" /> Loading…
+            </div>
+          ) : err ? (
+            <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>
+          ) : tab === 'beams' ? (
+            beams.length === 0 ? (
+              <div className="py-8 text-center text-sm text-ink-mute">No beams have been assigned to this loom yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {beams.map(b => {
+                  const nominal = Number(b.pavu?.meters ?? 0);
+                  const v = b.metre_variance == null ? null : Number(b.metre_variance);
+                  return (
+                    <div key={b.id} className="rounded-lg border border-line/60 p-3 text-sm space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-semibold text-indigo">{b.pavu?.pavu_code ?? '—'}</span>
+                        <span className={`pill ${b.status === 'removed' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                          {b.status}
+                        </span>
+                      </div>
+                      <div className="text-xs text-ink-soft">
+                        Beam {b.pavu?.beam_no ?? '—'}
+                        {b.costing?.quality_code ? ` · ${b.costing.quality_code}` : ''}
+                        {nominal > 0 ? ` · ${nominal.toFixed(0)} m nominal` : ''}
+                      </div>
+                      <div className="text-xs text-ink-soft">
+                        {b.start_date ?? b.assigned_date ?? '—'} → {b.end_date ?? 'on loom'}
+                        {' · '}
+                        <span className="num">{Number(b.metres_produced ?? 0).toFixed(0)} m made</span>
+                        {b.actual_metres != null && ` · actual ${Number(b.actual_metres).toFixed(0)} m`}
+                      </div>
+                      {v != null && v !== 0 && (
+                        <span className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border ${
+                          v < 0 ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                        }`}>
+                          {v < 0 ? `Shortfall ${v.toFixed(0)} m` : `Excess +${v.toFixed(0)} m`}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : logs.length === 0 ? (
+            <div className="py-8 text-center text-sm text-ink-mute">No production shift logs for this loom yet.</div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-xs text-ink-mute mb-2">Last {logs.length} shift log{logs.length > 1 ? 's' : ''}, newest first.</p>
+              {logs.map(l => {
+                const weavers = l.weavers ?? [];
+                const total = weavers.reduce((s, w) => s + Number(w.metres_woven ?? 0), 0);
+                return (
+                  <div key={l.id} className="flex items-start justify-between gap-2 rounded-lg border border-line/60 px-3 py-2 text-xs">
+                    <div>
+                      <span className="font-semibold">{l.log_date}</span>{' '}
+                      <span className="uppercase text-ink-mute">{l.shift === 'morning' ? 'M' : l.shift === 'night' ? 'N' : l.shift}</span>
+                      <div className="text-ink-soft mt-0.5">
+                        {weavers.length === 0
+                          ? '—'
+                          : weavers.map((w, i) => (
+                              <span key={i}>
+                                {i > 0 && ', '}
+                                {w.employee?.full_name ?? '—'} ({Number(w.metres_woven ?? 0).toFixed(0)} m)
+                              </span>
+                            ))}
+                      </div>
+                    </div>
+                    <span className="num font-semibold whitespace-nowrap">{total.toFixed(0)} m</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body,
