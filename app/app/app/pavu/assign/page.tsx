@@ -79,6 +79,15 @@ const STATUS_STYLE: Record<string, string> = {
   breakdown:  'bg-rose-50 text-rose-700',
 };
 
+/** Beam progress: % of the beam's nominal metres already woven, or null if
+ *  the pavu has no usable nominal metres. Not capped — >100% means the beam
+ *  overran its nominal length. */
+function beamPct(a: ActiveAssignment): number | null {
+  const nominal = Number(a.pavu?.meters ?? 0);
+  if (!(nominal > 0)) return null;
+  return Math.round((Number(a.metres_produced) / nominal) * 100);
+}
+
 /** Adds one day to a yyyy-mm-dd date string, returning the same format. */
 function addOneDay(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00`);
@@ -232,16 +241,32 @@ export default function PavuAssignPage() {
   useEffect(() => { reload(); }, [reload]);
 
   /** Unmount the pavu from a loom — marks the assignment "removed"; a
-   *  trigger flips the pavu back to available stock ("finished"). */
+   *  trigger flips the pavu back to available stock ("finished"). Asks the
+   *  operator to confirm the ACTUAL metres woven off the beam, so shortfall
+   *  or excess vs the nominal beam metres is recorded on the finished row. */
   async function removeAssignment(a: ActiveAssignment): Promise<void> {
-    const ok = window.confirm(
-      `Remove ${a.pavu?.pavu_code ?? 'this pavu'} from this loom?`,
+    const nominal = Number(a.pavu?.meters ?? 0);
+    const answer = window.prompt(
+      `Remove ${a.pavu?.pavu_code ?? 'this pavu'} from this loom?\n\n` +
+      `Beam nominal: ${nominal.toFixed(0)} m.\n` +
+      `Enter the ACTUAL metres woven off this beam (correct if needed):`,
+      Number(a.metres_produced ?? 0).toFixed(0),
     );
-    if (!ok) return;
+    if (answer === null) return; // cancelled
+    const actual = Number(answer);
+    if (!Number.isFinite(actual) || actual < 0) {
+      setError('Invalid metres value — removal cancelled.');
+      return;
+    }
     setRemoving(a.id);
-    const { error: rmErr } = await supabase
+    const { error: rmErr } = await sb
       .from('pavu_assign')
-      .update({ status: 'removed', end_date: new Date().toISOString().slice(0, 10) })
+      .update({
+        status: 'removed',
+        end_date: new Date().toISOString().slice(0, 10),
+        actual_metres: actual,
+        metre_variance: nominal > 0 ? actual - nominal : null,
+      })
       .eq('id', a.id);
     setRemoving(null);
     if (rmErr) { setError(rmErr.message); return; }
@@ -255,6 +280,23 @@ export default function PavuAssignPage() {
     for (const a of active) m.set(a.loom_id, a);
     return m;
   }, [active]);
+
+  /** Looms whose beam is due for change (≥95%) or nearing the end (85–94%),
+   *  by loom code — powers the alert strip at the top of the page. */
+  const beamAlerts = useMemo(() => {
+    const codeById = new Map(looms.map(l => [l.id, l.loom_code]));
+    const due: string[] = [];
+    const near: string[] = [];
+    for (const a of active) {
+      const p = beamPct(a);
+      if (p == null) continue;
+      const code = codeById.get(a.loom_id) ?? `Loom ${a.loom_id}`;
+      if (p >= 95) due.push(code);
+      else if (p >= 85) near.push(code);
+    }
+    due.sort(); near.sort();
+    return { due, near };
+  }, [active, looms]);
 
   /** Looms grouped by shed_no, each shed's looms sorted by loom_code.
    *  Looms with no shed assigned (shouldn't normally happen) are grouped
@@ -297,6 +339,27 @@ export default function PavuAssignPage() {
 
       {error && (
         <div className="card p-4 text-sm text-err mb-4">Could not load: {error}</div>
+      )}
+
+      {(beamAlerts.due.length > 0 || beamAlerts.near.length > 0) && (
+        <div className="flex flex-col gap-2 mb-4">
+          {beamAlerts.due.length > 0 && (
+            <div className="card p-3 text-sm bg-rose-50/60 border-rose-200 text-rose-700">
+              <span className="font-bold">
+                {beamAlerts.due.length} loom{beamAlerts.due.length > 1 ? 's' : ''} due for beam change:
+              </span>{' '}
+              <span className="font-mono font-semibold">{beamAlerts.due.join(', ')}</span>
+            </div>
+          )}
+          {beamAlerts.near.length > 0 && (
+            <div className="card p-3 text-sm bg-amber-50/60 border-amber-200 text-amber-700">
+              <span className="font-bold">
+                {beamAlerts.near.length} beam{beamAlerts.near.length > 1 ? 's' : ''} nearing the end (85%+):
+              </span>{' '}
+              <span className="font-mono font-semibold">{beamAlerts.near.join(', ')}</span>
+            </div>
+          )}
+        </div>
       )}
 
       {loading && !looms.length ? (
@@ -381,12 +444,41 @@ export default function PavuAssignPage() {
                         Counting from: <span className="font-semibold">{cur.metres_start_date}</span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] uppercase tracking-wide text-ink-mute">{cur.status}</span>
-                      <span className="text-xs num">
-                        {Number(cur.metres_produced).toFixed(0)} m made
-                      </span>
-                    </div>
+                    {(() => {
+                      const pct = beamPct(cur);
+                      const barColor = pct != null && pct >= 95 ? 'bg-rose-500'
+                        : pct != null && pct >= 85 ? 'bg-amber-500'
+                        : 'bg-indigo';
+                      return (
+                        <div className="pt-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] uppercase tracking-wide text-ink-mute">{cur.status}</span>
+                            <span className="text-xs num">
+                              {Number(cur.metres_produced).toFixed(0)} / {Number(cur.pavu.meters).toFixed(0)} m
+                              {pct != null ? ` · ${pct}%` : ''}
+                            </span>
+                          </div>
+                          {pct != null && (
+                            <div className="h-1.5 rounded-full bg-haze overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${barColor}`}
+                                style={{ width: `${Math.min(pct, 100)}%` }}
+                              />
+                            </div>
+                          )}
+                          {pct != null && pct >= 95 && (
+                            <span className="inline-block rounded-md bg-rose-50 text-rose-600 border border-rose-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                              Change beam
+                            </span>
+                          )}
+                          {pct != null && pct >= 85 && pct < 95 && (
+                            <span className="inline-block rounded-md bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                              Beam ending soon
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-line p-3 text-center text-sm text-ink-mute">
@@ -481,6 +573,10 @@ function AssignModal({
   const [mountedDate, setMountedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [metresStartDate, setMetresStartDate] = useState(() => addOneDay(new Date().toISOString().slice(0, 10)));
   const [metresStartTouched, setMetresStartTouched] = useState(false);
+  // Actual metres woven off the beam being replaced — pre-filled from shift
+  // logs, operator-correctable so shortfall/excess vs nominal is recorded.
+  const [actualMetres, setActualMetres] = useState(() =>
+    currentAssignment ? Number(currentAssignment.metres_produced ?? 0).toFixed(0) : '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -548,11 +644,24 @@ function AssignModal({
     e.preventDefault();
     setBusy(true); setErr(null);
 
-    // Free up the loom first if something else is on it.
+    // Free up the loom first if something else is on it, recording the
+    // actual metres woven and the shortfall/excess vs nominal beam metres.
     if (currentAssignment) {
-      const { error: rmErr } = await supabase
-        .from('pavu_assign')
-        .update({ status: 'removed', end_date: new Date().toISOString().slice(0, 10) })
+      const actual = Number(actualMetres);
+      if (!Number.isFinite(actual) || actual < 0) {
+        setErr('Enter valid actual metres for the beam being removed.');
+        setBusy(false); return;
+      }
+      const nominal = Number(currentAssignment.pavu?.meters ?? 0);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const paTable = supabase.from('pavu_assign') as any;
+      const { error: rmErr } = await paTable
+        .update({
+          status: 'removed',
+          end_date: new Date().toISOString().slice(0, 10),
+          actual_metres: actual,
+          metre_variance: nominal > 0 ? actual - nominal : null,
+        })
         .eq('id', currentAssignment.id);
       if (rmErr) { setErr(`Could not remove existing: ${rmErr.message}`); setBusy(false); return; }
     }
@@ -596,9 +705,43 @@ function AssignModal({
 
         <form onSubmit={onSubmit} className="p-4 space-y-4">
           {currentAssignment?.pavu && (
-            <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
-              Loom currently has <span className="font-mono font-semibold">{currentAssignment.pavu.pavu_code}</span>.
-              Saving will mark it removed.
+            <div className="space-y-2">
+              <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
+                Loom currently has <span className="font-mono font-semibold">{currentAssignment.pavu.pavu_code}</span>.
+                Saving will mark it removed.
+              </div>
+              <div>
+                <label className="label">
+                  Actual metres woven off {currentAssignment.pavu.pavu_code} *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={actualMetres}
+                  onChange={e => setActualMetres(e.target.value)}
+                  className="input"
+                />
+                {(() => {
+                  const nominal = Number(currentAssignment.pavu?.meters ?? 0);
+                  const actual = Number(actualMetres);
+                  if (!(nominal > 0) || actualMetres === '' || !Number.isFinite(actual)) {
+                    return (
+                      <p className="text-xs text-ink-mute mt-1">
+                        Pre-filled from shift logs — correct it if the beam ran short or long.
+                      </p>
+                    );
+                  }
+                  const diff = actual - nominal;
+                  return (
+                    <p className={`text-xs mt-1 ${diff < 0 ? 'text-rose-600' : diff > 0 ? 'text-emerald-600' : 'text-ink-mute'}`}>
+                      Beam nominal {nominal.toFixed(0)} m →{' '}
+                      {diff === 0 ? 'exact' : diff > 0 ? `excess +${diff.toFixed(0)} m` : `shortfall ${diff.toFixed(0)} m`}
+                    </p>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
