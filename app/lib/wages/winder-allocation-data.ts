@@ -71,7 +71,10 @@ export async function loadWinderAllocation(
   const { data: winAttRaw } = await supabase
     .from('attendance_entry')
     .select(
-      'employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date, shift, is_working )',
+      // !inner makes the date filter a real join filter — without it
+      // PostgREST returns these employees' ENTIRE history (day nulled for
+      // out-of-range rows) and silently truncates at the 1000-row cap.
+      'employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
     )
     .in('employee_id', winderIds)
     .gte('attendance_day.attendance_date', weekStart)

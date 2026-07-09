@@ -168,7 +168,11 @@ export default async function ShedRunningReport({
   const { data: entryData, error: entryErr } = await (supabase as any)
     .from('attendance_entry')
     .select(
-      'status, shed_no, shed_nos, employee:employee_id ( role ), attendance_day:attendance_day_id ( attendance_date, shift, is_working )',
+      // !inner makes the attendance_day date filter a real join filter —
+      // without it PostgREST returns EVERY attendance_entry row (day nulled
+      // for out-of-range ones) and silently truncates at the 1000-row cap,
+      // which made recent shifts show "idle" once the table grew past 1000.
+      'status, shed_no, shed_nos, employee:employee_id ( role ), attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
     )
     .gte('attendance_day.attendance_date', startISO)
     .lte('attendance_day.attendance_date', endISO);

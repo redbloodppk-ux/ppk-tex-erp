@@ -429,7 +429,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: covAttRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id ( attendance_date )')
+      // !inner: real join filter, avoids the 1000-row cap on full history.
+      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date )')
       .in('employee_id', fitterIds)
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd);

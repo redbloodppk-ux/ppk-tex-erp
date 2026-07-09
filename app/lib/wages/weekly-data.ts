@@ -315,7 +315,8 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: attRaw } = await (supabase as any)
       .from('attendance_entry')
-      .select('employee_id, status, attendance_day:attendance_day_id ( attendance_date )')
+      // !inner: real join filter, avoids the 1000-row cap on full history.
+      .select('employee_id, status, attendance_day:attendance_day_id!inner ( attendance_date )')
       .in('employee_id', fitterIds)
       .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
