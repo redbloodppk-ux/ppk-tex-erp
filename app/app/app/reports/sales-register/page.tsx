@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { CustomerFilter } from './customer-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
 import {
   FileText,
@@ -299,18 +300,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Customer</span>
-          <select
-            name="customer_id"
-            defaultValue={customerIdParam}
-            className="input min-w-[200px]"
-          >
-            <option value="">All customers</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code ? `${c.code} — ${c.name}` : c.name}
-              </option>
-            ))}
-          </select>
+          <CustomerFilter customers={customers} defaultValue={customerIdParam} />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Doc type</span>
