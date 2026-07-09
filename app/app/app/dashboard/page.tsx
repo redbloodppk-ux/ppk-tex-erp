@@ -33,6 +33,19 @@ interface OpeningLedgerRow {
   balance: number | string | null;
 }
 
+interface InPaymentRow {
+  id: number;
+  payment_no: string;
+  payment_date: string;
+  amount: number | string | null;
+  party_id: number | null;
+}
+
+interface PaymentAllocationRow {
+  payment_id: number;
+  amount: number | string | null;
+}
+
 /** Net each party's pre-ERP opening-ledger balance into an existing
  *  invoice-based outstanding total. A party's opening ledger can be a
  *  due (positive balance, adds to what they owe) or a credit / past
@@ -100,6 +113,77 @@ function mergeOpeningLedger(
         invoice_date: r.invoice_date ?? '',
         balance: Number(r.balance ?? 0),
       })),
+    });
+  }
+
+  return result.sort((a, b) => b.total - a.total);
+}
+
+/** Net each customer's unallocated payment amount into their
+ *  outstanding total, same idea as mergeOpeningLedger above but for
+ *  cash already received (`payment`, direction='in') that hasn't been
+ *  matched to a bill — either because no bill was ticked at all, or
+ *  the payment was larger than the bill(s) it was matched to (the
+ *  Payments page's "Keep remaining on account" flow). The Ledger page
+ *  already reflects this (it sums every payment regardless of
+ *  allocation); this widget previously only looked at bill balances,
+ *  so an unallocated leftover made a customer look like they owed
+ *  more than they actually do. */
+function mergeUnallocatedAdvances(
+  groups: PartyGroup[],
+  payments: InPaymentRow[],
+  invoiceAllocs: PaymentAllocationRow[],
+  openingAllocs: PaymentAllocationRow[],
+  partyNameById: Map<number, string>,
+): PartyGroup[] {
+  const allocatedByPayment = new Map<number, number>();
+  for (const a of [...invoiceAllocs, ...openingAllocs]) {
+    allocatedByPayment.set(a.payment_id, (allocatedByPayment.get(a.payment_id) ?? 0) + Number(a.amount ?? 0));
+  }
+
+  interface AdvanceRow { payment_id: number; payment_no: string; payment_date: string; unallocated: number }
+  const byParty = new Map<number, AdvanceRow[]>();
+  for (const p of payments) {
+    if (p.party_id == null) continue;
+    const allocated = allocatedByPayment.get(p.id) ?? 0;
+    const unallocated = Math.round((Number(p.amount ?? 0) - allocated) * 100) / 100;
+    if (unallocated < 0.005) continue; // fully allocated — nothing to net
+    const list = byParty.get(p.party_id) ?? [];
+    list.push({ payment_id: p.id, payment_no: p.payment_no, payment_date: p.payment_date, unallocated });
+    byParty.set(p.party_id, list);
+  }
+  if (byParty.size === 0) return groups;
+
+  function advanceBills(rows: AdvanceRow[]) {
+    return rows.map((r) => ({
+      id: -1_000_000 - r.payment_id, // synthetic namespace, distinct from invoice / opening-ledger ids
+      invoice_no: `Advance — ${r.payment_no}`,
+      invoice_date: r.payment_date,
+      balance: -r.unallocated,
+    }));
+  }
+
+  const usedPartyIds = new Set<number>();
+  const result: PartyGroup[] = groups.map((g) => {
+    const rows = g.party_id != null ? byParty.get(g.party_id) : undefined;
+    if (!rows) return g;
+    usedPartyIds.add(g.party_id as number);
+    const advSum = rows.reduce((s, r) => s + r.unallocated, 0);
+    return { ...g, total: g.total - advSum, bills: [...g.bills, ...advanceBills(rows)] };
+  });
+
+  // Parties with an unallocated advance but no open bill at all — still
+  // surface them (in credit) so nothing silently disappears.
+  for (const [partyId, rows] of byParty.entries()) {
+    if (usedPartyIds.has(partyId)) continue;
+    const advSum = rows.reduce((s, r) => s + r.unallocated, 0);
+    result.push({
+      key: `id:${partyId}`,
+      party_label: partyNameById.get(partyId) ?? `(party ${partyId})`,
+      party_id: partyId,
+      total: -advSum,
+      oldest_due: 0,
+      bills: advanceBills(rows),
     });
   }
 
@@ -187,6 +271,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     { data: openingPayables },
     { data: agentComm },
     { data: openingReceivables },
+    { data: inPayments },
+    { data: invoicePaymentAllocs },
+    { data: openingPaymentAllocs },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid JOB WORK bill, oldest first. These are
@@ -273,6 +360,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       .eq('status', 'active')
       .eq('direction', 'receivable')
       .order('invoice_date', { ascending: true }),
+    // Cash already received (payments in). Some of this is fully
+    // allocated to a bill, some isn't (unticked, or "Keep remaining on
+    // account") — the unallocated leftover is netted into the
+    // customer's outstanding total below (mergeUnallocatedAdvances).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('payment')
+      .select('id, payment_no, payment_date, amount, party_id')
+      .eq('direction', 'in'),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('payment_allocation').select('payment_id, amount'),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('payment_opening_allocation').select('payment_id, amount'),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -290,16 +389,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // Customer side: identity is the party_name stamped on the invoice.
   // Net each party's opening-ledger due/credit into their total so
   // this widget agrees with the Ledger page's running balance.
-  const customerGroups = mergeOpeningLedger(
-    groupByParty(
-      openCustomerBills,
-      parties,
-      (b) => ({ id: null, label: b.party_name ?? '' }),
+  const customerGroups = mergeUnallocatedAdvances(
+    mergeOpeningLedger(
+      groupByParty(
+        openCustomerBills,
+        parties,
+        (b) => ({ id: null, label: b.party_name ?? '' }),
+        now,
+      ),
+      (openingReceivables ?? []) as OpeningLedgerRow[],
+      partyNameById,
       now,
     ),
-    (openingReceivables ?? []) as OpeningLedgerRow[],
+    (inPayments ?? []) as InPaymentRow[],
+    (invoicePaymentAllocs ?? []) as PaymentAllocationRow[],
+    (openingPaymentAllocs ?? []) as PaymentAllocationRow[],
     partyNameById,
-    now,
   );
   // Job work side: identity is jobwork_party_id (FK). The label comes
   // from party_name on the invoice. Bills raised against jobworkers.
