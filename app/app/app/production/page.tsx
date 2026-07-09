@@ -29,6 +29,7 @@ interface BatchRow {
   end_date: string | null;
   produced_m: number;
   total_pieces: number | null;
+  total_bundles: number | null;
   actual_true_cost_per_m: number | null;
   actual_sizing_cost_per_m: number | null;
   production_mode: ProductionMode | null;
@@ -116,12 +117,15 @@ function pieceUnit(fabricType: string | null | undefined): string | null {
 // Render a quantity + pieces with each half in its own fixed-width,
 // right-aligned slot so columns line up cleanly row to row. Piece-counted
 // qualities switch the unit label from metres to towels/dhotis.
-function QtyMP({ m, pcs, showPcs, unit }: { m: number; pcs: number | null; showPcs: boolean; unit?: string | null }) {
+function QtyMP({ m, pcs, showPcs, unit, bundles }: { m: number; pcs: number | null; showPcs: boolean; unit?: string | null; bundles?: number | null }) {
   return (
     <span className="num tabular-nums whitespace-nowrap inline-flex justify-end items-baseline gap-2">
       <span className="inline-block text-right min-w-[4rem]">{m.toFixed(0)} {unit ?? 'm'}</span>
       {showPcs && (
         <span className="inline-block text-right min-w-[3rem] text-ink-mute">{pcs ?? 0} pcs</span>
+      )}
+      {bundles != null && bundles > 0 && (
+        <span className="inline-block text-right min-w-[3rem] text-ink-mute">{bundles} bnd</span>
       )}
     </span>
   );
@@ -171,7 +175,7 @@ export default async function ProductionPage({
     supabase
       .from('production_batch')
       .select(`
-        id, batch_code, start_date, end_date, produced_m, total_pieces,
+        id, batch_code, start_date, end_date, produced_m, total_pieces, total_bundles,
         actual_true_cost_per_m, actual_sizing_cost_per_m,
         production_mode, party_id,
         loom:loom_id ( loom_code ),
@@ -420,6 +424,9 @@ export default async function ProductionPage({
                               {b.total_pieces != null && (
                                 <span className="text-sm font-normal text-ink-mute"> · {b.total_pieces} pcs</span>
                               )}
+                              {b.total_bundles != null && b.total_bundles > 0 && (
+                                <span className="text-sm font-normal text-ink-mute"> · {b.total_bundles} bnd</span>
+                              )}
                             </div>
                             <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-1">Balance</div>
                             <div className="num text-sm text-ink-soft">
@@ -560,6 +567,7 @@ export default async function ProductionPage({
                           pcs={b.total_pieces}
                           showPcs={b.total_pieces != null}
                           unit={batchUnit(b)}
+                          bundles={b.total_bundles}
                         />
                       </td>
                       <td className="px-3 py-2 text-right text-ink-soft">

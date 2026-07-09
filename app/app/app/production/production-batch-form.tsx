@@ -1098,11 +1098,27 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                           step={0.01}
                           min={0}
                           placeholder="metres"
+                          data-piece-input
                           className="input h-8 text-xs num flex-1 text-right"
                           value={p}
                           onChange={(e) =>
                             setPieceValue(bIdx, pIdx, e.target.value)
                           }
+                          onKeyDown={(e) => {
+                            // Enter = jump straight to the next metre field
+                            // (across bundles too) instead of submitting the
+                            // form / landing on the Remove button.
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            const inputs = Array.from(
+                              document.querySelectorAll<HTMLInputElement>('input[data-piece-input]')
+                            );
+                            const next = inputs[inputs.indexOf(e.currentTarget) + 1];
+                            if (next) {
+                              next.focus();
+                              next.select();
+                            }
+                          }}
                         />
                       </div>
                     ))}
