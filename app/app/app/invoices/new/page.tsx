@@ -754,7 +754,9 @@ export default function NewInvoicePage() {
         const qty = Number(it.metres ?? 0);
         return {
           ...newRow(),
-          description: `${it.quality?.name ?? it.description ?? 'Fabric'} (${dc.code})`,
+          // Quality name only — the DC link lives in dc_id, so the DC
+          // number is NOT repeated in the printed line description.
+          description: it.quality?.name ?? it.description ?? 'Fabric',
           hsn_sac: FABRIC_HSN,
           uom: isTowel ? 'pcs' : 'mtr',
           quantity: qty > 0 ? String(qty) : '',
@@ -780,7 +782,7 @@ export default function NewInvoicePage() {
           const qty = pcsMode ? Number(it.no_of_pieces ?? 0) : Number(it.received_metres ?? 0);
           return {
             ...newRow(),
-            description: `${it.quality?.name ?? 'Fabric'} (${dc.receipt?.code ?? dc.code})`,
+            description: it.quality?.name ?? 'Fabric',
             hsn_sac: FABRIC_HSN,
             uom: pcsMode ? 'pcs' : 'mtr',
             quantity: qty > 0 ? String(qty) : '',
@@ -797,7 +799,7 @@ export default function NewInvoicePage() {
         })
       : [{
           ...newRow(),
-          description: `Fabric (${dc.receipt?.code ?? dc.code})`,
+          description: 'Fabric',
           hsn_sac: FABRIC_HSN,
           quantity: dc.total_metres != null ? String(dc.total_metres) : '',
           dc_id: String(dc.id),
