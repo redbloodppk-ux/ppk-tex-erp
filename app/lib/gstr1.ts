@@ -614,3 +614,203 @@ export function summarise(ret: Gstr1Return): Gstr1Summary {
     totalTax: r2(totalTax),
   };
 }
+
+/* ─────────────────────────── report tables (on-screen) ───────────────────────── */
+
+export interface ReportDetailRow {
+  docNo: string;
+  date: string; // portal format, DD-MM-YYYY
+  rate: number;
+  taxableValue: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+}
+
+export interface ReportTableRow {
+  /** whatever this table groups by: recipient GSTIN, place-of-supply code, HSN code, etc. */
+  key: string;
+  label: string;
+  count: number;
+  taxableValue: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  /** underlying invoice/note rows for the expand view; empty when the source data has already been consolidated (tables 7, 12, 13) */
+  detail: ReportDetailRow[];
+}
+
+export interface ReportTable {
+  tableNo: string; // '4A' | '5' | '7' | '9B' | '12' | '13'
+  title: string;
+  rows: ReportTableRow[];
+  totals: { count: number; taxableValue: number; igst: number; cgst: number; sgst: number };
+}
+
+function sumItms2(itms: Itm[]): { taxableValue: number; igst: number; cgst: number; sgst: number } {
+  return itms.reduce(
+    (a, it) => ({
+      taxableValue: a.taxableValue + it.itm_det.txval,
+      igst: a.igst + it.itm_det.iamt,
+      cgst: a.cgst + it.itm_det.camt,
+      sgst: a.sgst + it.itm_det.samt,
+    }),
+    { taxableValue: 0, igst: 0, cgst: 0, sgst: 0 },
+  );
+}
+
+function detailFromItms(docNo: string, date: string, itms: Itm[]): ReportDetailRow[] {
+  return itms.map((it) => ({
+    docNo,
+    date,
+    rate: it.itm_det.rt,
+    taxableValue: r2(it.itm_det.txval),
+    igst: r2(it.itm_det.iamt),
+    cgst: r2(it.itm_det.camt),
+    sgst: r2(it.itm_det.samt),
+  }));
+}
+
+function totalsOfRows(rows: ReportTableRow[]): ReportTable['totals'] {
+  return rows.reduce(
+    (a, r) => ({
+      count: a.count + r.count,
+      taxableValue: r2(a.taxableValue + r.taxableValue),
+      igst: r2(a.igst + r.igst),
+      cgst: r2(a.cgst + r.cgst),
+      sgst: r2(a.sgst + r.sgst),
+    }),
+    { count: 0, taxableValue: 0, igst: 0, cgst: 0, sgst: 0 },
+  );
+}
+
+function build4A(b2b: B2bGroup[]): ReportTable | null {
+  if (b2b.length === 0) return null;
+  const rows: ReportTableRow[] = b2b.map((g) => {
+    const detail = g.inv.flatMap((inv) => detailFromItms(inv.inum, inv.idt, inv.itms));
+    const sums = sumItms2(g.inv.flatMap((inv) => inv.itms));
+    return {
+      key: g.ctin,
+      label: g.ctin,
+      count: g.inv.length,
+      taxableValue: r2(sums.taxableValue),
+      igst: r2(sums.igst),
+      cgst: r2(sums.cgst),
+      sgst: r2(sums.sgst),
+      detail,
+    };
+  });
+  return { tableNo: '4A', title: 'B2B Invoices (Registered)', rows, totals: totalsOfRows(rows) };
+}
+
+function build5(b2cl: B2clGroup[]): ReportTable | null {
+  if (b2cl.length === 0) return null;
+  const rows: ReportTableRow[] = b2cl.map((g) => {
+    const detail = g.inv.flatMap((inv) => detailFromItms(inv.inum, inv.idt, inv.itms));
+    const sums = sumItms2(g.inv.flatMap((inv) => inv.itms));
+    return {
+      key: g.pos,
+      label: `POS ${g.pos}`,
+      count: g.inv.length,
+      taxableValue: r2(sums.taxableValue),
+      igst: r2(sums.igst),
+      cgst: r2(sums.cgst),
+      sgst: r2(sums.sgst),
+      detail,
+    };
+  });
+  return { tableNo: '5', title: 'B2C (Large)', rows, totals: totalsOfRows(rows) };
+}
+
+function build7(b2cs: B2csEntry[]): ReportTable | null {
+  if (b2cs.length === 0) return null;
+  const rows: ReportTableRow[] = b2cs.map((e, i) => ({
+    key: `${e.pos}-${e.rt}-${e.sply_ty}-${i}`,
+    label: `POS ${e.pos} @ ${e.rt}%`,
+    count: 1,
+    taxableValue: r2(e.txval),
+    igst: r2(e.iamt),
+    cgst: r2(e.camt),
+    sgst: r2(e.samt),
+    detail: [],
+  }));
+  return { tableNo: '7', title: 'B2C (Others)', rows, totals: totalsOfRows(rows) };
+}
+
+function build9B(cdnr: CdnrGroup[], cdnur: CdnurNote[]): ReportTable | null {
+  if (cdnr.length === 0 && cdnur.length === 0) return null;
+  const rows: ReportTableRow[] = cdnr.map((g) => {
+    const detail = g.nt.flatMap((n) => detailFromItms(n.nt_num, n.nt_dt, n.itms));
+    const sums = sumItms2(g.nt.flatMap((n) => n.itms));
+    return {
+      key: g.ctin,
+      label: g.ctin,
+      count: g.nt.length,
+      taxableValue: r2(sums.taxableValue),
+      igst: r2(sums.igst),
+      cgst: r2(sums.cgst),
+      sgst: r2(sums.sgst),
+      detail,
+    };
+  });
+  if (cdnur.length > 0) {
+    const detail = cdnur.flatMap((n) => detailFromItms(n.nt_num, n.nt_dt, n.itms));
+    const sums = sumItms2(cdnur.flatMap((n) => n.itms));
+    rows.push({
+      key: 'UNREGISTERED',
+      label: 'Unregistered',
+      count: cdnur.length,
+      taxableValue: r2(sums.taxableValue),
+      igst: r2(sums.igst),
+      cgst: r2(sums.cgst),
+      sgst: r2(sums.sgst),
+      detail,
+    });
+  }
+  return { tableNo: '9B', title: 'Credit/Debit Notes (Registered & Unregistered)', rows, totals: totalsOfRows(rows) };
+}
+
+function build12(hsn: HsnRow[]): ReportTable | null {
+  if (hsn.length === 0) return null;
+  const rows: ReportTableRow[] = hsn.map((h) => ({
+    key: `${h.hsn_sc}-${h.uqc}-${h.rt}`,
+    label: `${h.hsn_sc} — ${h.desc}`,
+    count: 1,
+    taxableValue: r2(h.txval),
+    igst: r2(h.iamt),
+    cgst: r2(h.camt),
+    sgst: r2(h.samt),
+    detail: [],
+  }));
+  return { tableNo: '12', title: 'HSN-wise Summary', rows, totals: totalsOfRows(rows) };
+}
+
+function build13(docDet: DocDet[]): ReportTable | null {
+  if (docDet.length === 0) return null;
+  const rows: ReportTableRow[] = docDet.flatMap((d) =>
+    d.docs.map((r, i) => ({
+      key: `${d.doc_num}-${i}`,
+      label: `${r.from} to ${r.to}`,
+      count: r.totnum,
+      taxableValue: 0,
+      igst: 0,
+      cgst: 0,
+      sgst: 0,
+      detail: [] as ReportDetailRow[],
+    })),
+  );
+  return { tableNo: '13', title: 'Documents Issued', rows, totals: totalsOfRows(rows) };
+}
+
+/** Reshape a built GSTR-1 return into official-form-style tables (only sections with data are included). */
+export function buildReportTables(ret: Gstr1Return): ReportTable[] {
+  const tables: (ReportTable | null)[] = [
+    build4A(ret.b2b ?? []),
+    build5(ret.b2cl ?? []),
+    build7(ret.b2cs ?? []),
+    build9B(ret.cdnr ?? [], ret.cdnur ?? []),
+    build12(ret.hsn?.data ?? []),
+    build13(ret.doc_issue?.doc_det ?? []),
+  ];
+  return tables.filter((t): t is ReportTable => t !== null);
+}
