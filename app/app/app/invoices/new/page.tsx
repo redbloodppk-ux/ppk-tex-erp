@@ -114,13 +114,23 @@ interface InhouseReceiptDc {
  *  invoice lines from these (the lines come from fabric stock) — the
  *  linkage is status-only: ticking a DC stamps it invoiced on save so
  *  its sales order advances via the DB trigger. */
+interface StockDcItem {
+  fabric_quality_id: number | null;
+  metres: number | string | null;
+}
+
 interface StockDc {
   id: number;
   code: string | null;
   dc_date: string | null;
   total_metres: number | string | null;
+  vehicle_no: string | null;
   sales_order_id: number | null;
   so_number: string | null;
+  /** DC line items — used to prefill invoice-line qty per quality when
+   *  the DC is ticked. For towel qualities `metres` holds the towel
+   *  COUNT (pcs); for plain fabric it holds metres. */
+  items: StockDcItem[];
 }
 
 interface Row {
@@ -558,7 +568,7 @@ export default function NewInvoicePage() {
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data } = await (supabase as any).from('delivery_challan')
-        .select('id, code, dc_date, total_metres, sales_order_id, so:sales_order_id ( so_number )')
+        .select('id, code, dc_date, total_metres, vehicle_no, sales_order_id, so:sales_order_id ( so_number ), items:delivery_challan_item ( fabric_quality_id, metres )')
         .eq('party_id', customerPartyId)
         .is('invoice_id', null)
         .neq('status', 'cancelled')
@@ -571,8 +581,14 @@ export default function NewInvoicePage() {
         code: d.code ?? null,
         dc_date: d.dc_date ?? null,
         total_metres: d.total_metres ?? null,
+        vehicle_no: d.vehicle_no ?? null,
         sales_order_id: d.sales_order_id ?? null,
         so_number: d.so?.so_number ?? null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items: ((d.items ?? []) as any[]).map((it) => ({
+          fabric_quality_id: it.fabric_quality_id ?? null,
+          metres: it.metres ?? null,
+        })),
       }));
       setStockDcs(rows);
       setStockPickedDcIds(new Set());
@@ -600,6 +616,40 @@ export default function NewInvoicePage() {
       return next;
     });
   };
+
+  /** Per-quality quantity across all TICKED stock DCs. Drives the
+   *  invoice-line qty prefill: for towels the DC item `metres` column
+   *  already holds the towel count (pcs), so no unit conversion needed. */
+  const stockDcQtyByQuality = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const d of stockDcs) {
+      if (!stockPickedDcIds.has(d.id)) continue;
+      for (const it of d.items) {
+        if (it.fabric_quality_id == null) continue;
+        const q = Number(it.metres ?? 0);
+        if (q > 0) m.set(it.fabric_quality_id, (m.get(it.fabric_quality_id) ?? 0) + q);
+      }
+    }
+    return m;
+  }, [stockDcs, stockPickedDcIds]);
+
+  // When the ticked-DC set changes, push the summed DC quantities into
+  // any row that already picked that production quality, and fetch the
+  // vehicle number from the DC (only when the field is still empty, so
+  // a hand-typed vehicle is never clobbered).
+  useEffect(() => {
+    if (stockPickedDcIds.size === 0) return;
+    setRows((prev) => prev.map((r) => {
+      if (!r.production_fabric_quality_id) return r;
+      const sum = stockDcQtyByQuality.get(Number(r.production_fabric_quality_id)) ?? 0;
+      return sum > 0 && r.quantity !== String(sum) ? { ...r, quantity: String(sum) } : r;
+    }));
+    const withVehicle = stockDcs.find((d) => stockPickedDcIds.has(d.id) && d.vehicle_no);
+    if (withVehicle?.vehicle_no) {
+      setVehicleNo((v) => (v.trim() === '' ? withVehicle.vehicle_no! : v));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockPickedDcIds, stockDcs, stockDcQtyByQuality]);
 
   // ── reset source when doc type changes ─────────────────────────────────────
   useEffect(() => {
@@ -944,6 +994,9 @@ export default function NewInvoicePage() {
         updateRow(rowId, { production_fabric_quality_id: String(fqId), fabric_purchase_id: '' });
         return;
       }
+      // Qty prefill: if the operator already ticked DC(s) containing
+      // this quality, seed the line qty from the DC totals.
+      const dcQty = stockDcQtyByQuality.get(fqId) ?? 0;
       updateRow(rowId, {
         production_fabric_quality_id: String(fqId),
         fabric_purchase_id: '',
@@ -953,6 +1006,7 @@ export default function NewInvoicePage() {
         rate: opt.rate_per_m != null ? String(opt.rate_per_m) : '',
         gst_rate_pct: opt.gst_pct != null ? String(opt.gst_pct) : GST_DEFAULT,
         costing_id: opt.costing_id != null ? String(opt.costing_id) : '',
+        ...(dcQty > 0 ? { quantity: String(dcQty) } : {}),
       });
       return;
     }
