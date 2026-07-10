@@ -661,9 +661,20 @@ export default function NewInvoicePage() {
       const seeded: Row[] = [];
       for (const d of stockDcs) {
         if (!stockPickedDcIds.has(d.id) || present.has(String(d.id))) continue;
-        for (const it of d.items) {
+        // Merge same-quality DC items into ONE invoice line (qty summed);
+        // each distinct quality still gets its own line.
+        const byQuality = new Map<string, { qty: number; it: StockDcItem }>();
+        for (const raw of d.items) {
+          const key = raw.fabric_quality_id != null
+            ? String(raw.fabric_quality_id)
+            : `desc:${(raw.quality?.name ?? '').trim()}`;
+          const cur = byQuality.get(key);
+          const q = Number(raw.metres ?? 0);
+          if (cur) cur.qty += q;
+          else byQuality.set(key, { qty: q, it: raw });
+        }
+        for (const { qty, it } of byQuality.values()) {
           const isTowel = it.quality?.fabric_type === 'towel';
-          const qty = Number(it.metres ?? 0);
           seeded.push({
             ...newRow(),
             description: `${it.quality?.name ?? 'Fabric'} (${d.code ?? 'DC'})`,
