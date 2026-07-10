@@ -86,6 +86,23 @@ export function DeleteInvoiceButton({
       return;
     }
 
+    // 4. Free the invoice number: if this invoice held the LATEST number
+    //    in its sequence, roll the counter back so the same number is
+    //    handed to the next invoice (keeps the GST series gap-free).
+    //    The `.eq('next_value', seq + 1)` guard makes this a no-op when
+    //    a newer invoice already took the next number — an older number
+    //    can't be reused without renumbering everything after it.
+    const numMatch = invoiceNo.match(/^([A-Z]+)\/([^/]+)\/0*(\d+)$/);
+    if (numMatch) {
+      const seq = Number(numMatch[3]);
+      await sb
+        .from('doc_sequence')
+        .update({ next_value: seq })
+        .eq('prefix', numMatch[1])
+        .eq('fy_code', numMatch[2])
+        .eq('next_value', seq + 1);
+    }
+
     setBusy(false);
     router.push(redirectTo);
     router.refresh();
