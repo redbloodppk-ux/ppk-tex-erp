@@ -677,7 +677,9 @@ export default function NewInvoicePage() {
           const isTowel = it.quality?.fabric_type === 'towel';
           seeded.push({
             ...newRow(),
-            description: `${it.quality?.name ?? 'Fabric'} (${d.code ?? 'DC'})`,
+            // Quality name only — the DC link lives in dc_id, so the DC
+            // number is NOT repeated in the printed line description.
+            description: it.quality?.name ?? 'Fabric',
             hsn_sac: FABRIC_HSN,
             uom: isTowel ? 'pcs' : 'mtr',
             quantity: qty > 0 ? String(qty) : '',
