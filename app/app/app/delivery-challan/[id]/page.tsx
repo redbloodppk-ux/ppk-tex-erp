@@ -58,6 +58,7 @@ interface DcItemRow {
   pieces: number | null;
   bundles: number | null;
   bundles_detail: BundleDetailJson[] | null;
+  production_batch_id: number | null;
 }
 
 /**
@@ -109,7 +110,7 @@ export default async function EditDcPage({
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, production_batch_id')
       .eq('dc_id', numericId)
       .order('sno'),
   ]);
@@ -131,6 +132,10 @@ export default async function EditDcPage({
         summary_metres:  r.metres  == null ? '' : String(r.metres),
         summary_pieces:  r.pieces  == null ? '' : String(r.pieces),
         summary_bundles: r.bundles == null ? '' : String(r.bundles),
+        // CRITICAL: without this, editing a batch DC re-saves its items
+        // with production_batch_id NULL — the batch link (and its stock
+        // outflows) silently vanish (this bit DC/26-27/0053).
+        production_batch_id: r.production_batch_id,
       }))
     : EMPTY_DC.items;
 
