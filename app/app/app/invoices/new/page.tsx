@@ -114,9 +114,18 @@ interface InhouseReceiptDc {
  *  invoice lines from these (the lines come from fabric stock) — the
  *  linkage is status-only: ticking a DC stamps it invoiced on save so
  *  its sales order advances via the DB trigger. */
+interface StockDcItemQuality {
+  name: string | null;
+  fabric_type: string | null;
+  rate_per_m: number | string | null;
+  gst_pct: number | string | null;
+  costing_id: number | null;
+}
+
 interface StockDcItem {
   fabric_quality_id: number | null;
   metres: number | string | null;
+  quality: StockDcItemQuality | null;
 }
 
 interface StockDc {
@@ -568,7 +577,7 @@ export default function NewInvoicePage() {
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data } = await (supabase as any).from('delivery_challan')
-        .select('id, code, dc_date, total_metres, vehicle_no, sales_order_id, so:sales_order_id ( so_number ), items:delivery_challan_item ( fabric_quality_id, metres )')
+        .select('id, code, dc_date, total_metres, vehicle_no, sales_order_id, so:sales_order_id ( so_number ), items:delivery_challan_item ( fabric_quality_id, metres, quality:fabric_quality_id ( name, fabric_type, rate_per_m, gst_pct, costing_id ) )')
         .eq('party_id', customerPartyId)
         .is('invoice_id', null)
         .neq('status', 'cancelled')
@@ -588,6 +597,7 @@ export default function NewInvoicePage() {
         items: ((d.items ?? []) as any[]).map((it) => ({
           fabric_quality_id: it.fabric_quality_id ?? null,
           metres: it.metres ?? null,
+          quality: it.quality ?? null,
         })),
       }));
       setStockDcs(rows);
@@ -633,23 +643,57 @@ export default function NewInvoicePage() {
     return m;
   }, [stockDcs, stockPickedDcIds]);
 
-  // When the ticked-DC set changes, push the summed DC quantities into
-  // any row that already picked that production quality, and fetch the
-  // vehicle number from the DC (only when the field is still empty, so
-  // a hand-typed vehicle is never clobbered).
+  // Ticking a DC seeds one invoice line per DC item — description, HSN,
+  // qty (towel count for towels, metres for fabric), rate + GST from
+  // the fabric master. Unticking removes only the rows that came from
+  // that DC; hand-entered rows are never touched. Seeded rows carry
+  // dc_id, so save() skips the production outflow for them (the DC
+  // already depleted production stock at DC-save time — a second
+  // outflow here would double-count the shipment).
   useEffect(() => {
-    if (stockPickedDcIds.size === 0) return;
-    setRows((prev) => prev.map((r) => {
-      if (!r.production_fabric_quality_id) return r;
-      const sum = stockDcQtyByQuality.get(Number(r.production_fabric_quality_id)) ?? 0;
-      return sum > 0 && r.quantity !== String(sum) ? { ...r, quantity: String(sum) } : r;
-    }));
+    const ticked = new Set(Array.from(stockPickedDcIds, (n) => String(n)));
+    setRows((prev) => {
+      // Drop rows whose DC got unticked; keep manual rows untouched.
+      let next = prev.filter((r) => r.dc_id === '' || ticked.has(r.dc_id));
+      // Seed rows only for DCs not already represented (so re-renders
+      // never clobber an operator's rate/qty edits on seeded rows).
+      const present = new Set(next.map((r) => r.dc_id));
+      const seeded: Row[] = [];
+      for (const d of stockDcs) {
+        if (!stockPickedDcIds.has(d.id) || present.has(String(d.id))) continue;
+        for (const it of d.items) {
+          const isTowel = it.quality?.fabric_type === 'towel';
+          const qty = Number(it.metres ?? 0);
+          seeded.push({
+            ...newRow(),
+            description: `${it.quality?.name ?? 'Fabric'} (${d.code ?? 'DC'})`,
+            hsn_sac: FABRIC_HSN,
+            uom: isTowel ? 'pcs' : 'mtr',
+            quantity: qty > 0 ? String(qty) : '',
+            rate: it.quality?.rate_per_m != null ? String(it.quality.rate_per_m) : '',
+            gst_rate_pct: it.quality?.gst_pct != null ? String(it.quality.gst_pct) : GST_DEFAULT,
+            dc_id: String(d.id),
+            costing_id: it.quality?.costing_id != null ? String(it.quality.costing_id) : '',
+          });
+        }
+      }
+      if (seeded.length === 0 && next.length === prev.length) return prev;
+      if (seeded.length > 0) {
+        // Drop the single blank starter row when the first DC lands.
+        const isBlank = (r: Row): boolean =>
+          r.description.trim() === '' && r.quantity.trim() === '' && r.rate.trim() === '' && r.dc_id === '';
+        next = next.filter((r) => !isBlank(r));
+      }
+      const out = [...next, ...seeded];
+      return out.length > 0 ? out : [newRow()];
+    });
+    // Vehicle no from the ticked DC — fill only when the field is still
+    // empty, so a hand-typed vehicle is never clobbered.
     const withVehicle = stockDcs.find((d) => stockPickedDcIds.has(d.id) && d.vehicle_no);
     if (withVehicle?.vehicle_no) {
       setVehicleNo((v) => (v.trim() === '' ? withVehicle.vehicle_no! : v));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stockPickedDcIds, stockDcs, stockDcQtyByQuality]);
+  }, [stockPickedDcIds, stockDcs]);
 
   // ── reset source when doc type changes ─────────────────────────────────────
   useEffect(() => {
