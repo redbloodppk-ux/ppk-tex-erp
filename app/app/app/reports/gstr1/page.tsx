@@ -12,10 +12,12 @@
  */
 import { createClient } from '@/lib/supabase/server';
 import { loadCompany } from '@/lib/load-company';
+import { fmtRupees } from '@/lib/format';
 import { PageHeader } from '@/app/components/page-header';
-import { buildGstr1, summarise } from '@/lib/gstr1';
+import { buildGstr1, buildReportTables, summarise } from '@/lib/gstr1';
 import type { Gstr1Invoice, Gstr1Line } from '@/lib/gstr1';
 import { DownloadJsonButton } from './download-json-button';
+import { ReportTables } from './report-tables';
 import { AlertCircle, FileJson, Info } from 'lucide-react';
 
 export const metadata = { title: 'GSTR-1 Export' };
@@ -49,10 +51,6 @@ function periodBounds(period: string): {
     year: 'numeric',
   });
   return { from, to, fp, label };
-}
-
-function fmtRupees(n: number): string {
-  return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /* ── DB row shapes ──────────────────────────────────────────────── */
@@ -140,15 +138,6 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
   const nothing = rows.length === 0;
   const gstinMissing = !/^[0-9]{2}[A-Z0-9]{13}$/.test(company.gstin.trim().toUpperCase());
 
-  const sections: Array<{ key: string; label: string; count: number }> = [
-    { key: 'b2b', label: 'B2B (registered)', count: sum.b2b },
-    { key: 'b2cl', label: 'B2CL (interstate large)', count: sum.b2cl },
-    { key: 'b2cs', label: 'B2CS (consolidated)', count: sum.b2cs },
-    { key: 'cdnr', label: 'CDNR (credit notes — registered)', count: sum.cdnr },
-    { key: 'cdnur', label: 'CDNUR (credit notes — unregistered)', count: sum.cdnur },
-    { key: 'hsn', label: 'HSN summary rows', count: sum.hsn },
-  ];
-
   return (
     <div>
       <PageHeader
@@ -215,30 +204,13 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* Section breakdown */}
+      {/* GSTR-1 report tables (official form layout) */}
       {nothing ? (
         <div className="card p-8 text-center text-sm text-ink-mute">
           No billed invoices or credit notes in {label}.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase tracking-wide text-ink-mute bg-cloud/40">
-              <tr>
-                <th className="text-left px-4 py-2">Section</th>
-                <th className="text-right px-4 py-2">Entries</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sections.map((s) => (
-                <tr key={s.key} className="border-t border-line/40">
-                  <td className="px-4 py-2">{s.label}</td>
-                  <td className="px-4 py-2 text-right num font-semibold">{s.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ReportTables tables={buildReportTables(gstr1)} />
       )}
 
       {/* Notes */}
