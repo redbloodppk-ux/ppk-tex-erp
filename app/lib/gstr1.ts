@@ -454,6 +454,10 @@ function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
       const hsn = (l.hsn_sac ?? '').trim();
       if (hsn === '') continue;
       const rt = num(l.gst_rate_pct);
+      // 0% GST lines (e.g. jobwork weaving billed without GST — kept
+      // for the business's own records) are NOT part of the GSTR-1
+      // HSN summary, per the owner's filing practice.
+      if (rt === 0) continue;
       const uqc = uqcOf(l.uom);
       const key = `${hsn}|${uqc}|${rt}`;
       const cur =
