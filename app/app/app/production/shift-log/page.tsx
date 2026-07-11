@@ -43,6 +43,8 @@ interface Loom {
   id: number;
   loom_code: string;
   loom_type: string;
+  /** Name of the fabric quality the loom is set up for (Settings -> Looms). */
+  quality_name: string | null;
   status: string;
   shed_no: number | null;
   /** Migration 079: date the loom went non-running. Shift log entries on
@@ -69,6 +71,8 @@ interface LoomRow {
   loom_id: number;
   loom_code: string;
   loom_type: string;
+  /** Fabric quality name shown under the loom code (falls back to loom_type). */
+  quality_name: string | null;
   /** Loom status from Mill Setup (running / idle / maintenance / breakdown). */
   status: string;
   /** Date the loom went non-running. NULL when currently running. */
@@ -145,6 +149,7 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_id: l.id,
       loom_code: l.loom_code,
       loom_type: l.loom_type,
+      quality_name: l.quality_name,
       status: l.status,
       idle_since: l.idle_since,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
@@ -212,7 +217,7 @@ export default function ShiftLogPage(): React.ReactElement {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any)
             .from('loom')
-            .select('id, loom_code, loom_type, status, shed_no, idle_since')
+            .select('id, loom_code, loom_type, status, shed_no, idle_since, fabric_quality:fabric_quality_id (name)')
             .order('loom_code'),
           // role + status casts via any because employee role/status types lag.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -234,7 +239,12 @@ export default function ShiftLogPage(): React.ReactElement {
         setLoading(false);
         return;
       }
-      setLooms((loomData ?? []) as unknown as Loom[]);
+      // Flatten the fabric_quality join into quality_name.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setLooms(((loomData ?? []) as any[]).map((l) => ({
+        ...l,
+        quality_name: l.fabric_quality?.name ?? null,
+      })) as Loom[]);
       setWeaverOptions((empData ?? []) as WeaverOption[]);
 
       const v = (cfgData as { value: { enabled?: boolean } | null } | null)?.value;
@@ -367,6 +377,7 @@ export default function ShiftLogPage(): React.ReactElement {
           loom_id: l.id,
           loom_code: l.loom_code,
           loom_type: l.loom_type,
+          quality_name: l.quality_name,
           status: l.status,
           idle_since: l.idle_since,
           metres,
@@ -942,7 +953,8 @@ function ShedCard({
                 <tr key={r.loom_id} className="border-b border-line/60 align-middle">
                   <td className="py-2 pr-3 sticky left-0 z-10 bg-paper">
                     <div className="font-medium">{r.loom_code}</div>
-                    <div className="text-xs text-ink-mute">{r.loom_type}</div>
+                    {/* Fabric quality the loom is set up for; loom type only when no quality is assigned. */}
+                    <div className="text-xs text-ink-mute">{r.quality_name ?? r.loom_type}</div>
                   </td>
                   {running ? (
                     <>
