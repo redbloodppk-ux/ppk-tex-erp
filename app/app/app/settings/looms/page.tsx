@@ -218,6 +218,20 @@ export default function LoomsPage() {
       await load();
       return;
     }
+    // Append to the dated status-change log (viewable on the Pavu Assign
+    // page → loom history → Status log). Best-effort: the status update
+    // above already succeeded.
+    if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+      const prev = looms.find((l) => l.id === id);
+      if (patch.status && patch.status !== prev?.status) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('loom_status_log').insert({
+          loom_id: id,
+          old_status: prev?.status ?? null,
+          new_status: patch.status,
+        });
+      }
+    }
     setSavedMsg('Saved.');
   }
 

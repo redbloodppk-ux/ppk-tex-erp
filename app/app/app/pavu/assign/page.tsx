@@ -22,6 +22,9 @@ interface Loom {
   status: string;
   shed_no: number | null;
   fabric_quality_id: number | null;
+  /** Date the loom became non-running (locks shift-log entries from that
+   *  date). NULL while status = 'running'. Kept in sync on status change. */
+  idle_since: string | null;
 }
 
 /** Fabric quality's expected total ends, read from its calc_snapshot JSON —
@@ -79,6 +82,18 @@ const STATUS_STYLE: Record<string, string> = {
   breakdown:  'bg-rose-50 text-rose-700',
 };
 
+/** Same list as Settings → Looms. The card pill is a live dropdown so the
+ *  operator can flip a loom's status right here without opening Settings. */
+const LOOM_STATUSES = ['running', 'idle', 'maintenance', 'breakdown'] as const;
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Beam progress: % of the beam's nominal metres already woven, or null if
  *  the pavu has no usable nominal metres. Not capped — >100% means the beam
  *  overran its nominal length. */
@@ -123,13 +138,15 @@ export default function PavuAssignPage() {
   const [editFor, setEditFor] = useState<ActiveAssignment | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
   const [historyFor, setHistoryFor] = useState<Loom | null>(null);
+  // Loom whose status dropdown is mid-save.
+  const [statusBusyId, setStatusBusyId] = useState<number | null>(null);
 
   /** Fetch all datasets in parallel. Wrapped so we can call again on save. */
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
     const [l, a, p, q, fq, jwb, yc, allp] = await Promise.all([
       supabase.from('loom')
-        .select('id, loom_code, loom_type, width_in, status, shed_no, fabric_quality_id')
+        .select('id, loom_code, loom_type, width_in, status, shed_no, fabric_quality_id, idle_since')
         .order('loom_code'),
       supabase.from('pavu_assign')
         .select(`
@@ -245,6 +262,41 @@ export default function PavuAssignPage() {
    *  trigger flips the pavu back to available stock ("finished"). Asks the
    *  operator to confirm the ACTUAL metres woven off the beam, so shortfall
    *  or excess vs the nominal beam metres is recorded on the finished row. */
+  /** Change a loom's status straight from the card (no Settings trip).
+   *  Mirrors Settings → Looms: flipping running → non-running stamps
+   *  idle_since = today (locks newer shift-log entries); back to running
+   *  clears it. Every change is appended to loom_status_log so there is a
+   *  dated history of when each loom stopped / restarted. */
+  async function changeLoomStatus(l: Loom, newStatus: string): Promise<void> {
+    if (newStatus === l.status) return;
+    setError(null);
+    setStatusBusyId(l.id);
+
+    const wasRunning = l.status === 'running';
+    const nowRunning = newStatus === 'running';
+    const patch: { status: string; idle_since?: string | null } = { status: newStatus };
+    if (wasRunning && !nowRunning) patch.idle_since = todayISO();
+    else if (!wasRunning && nowRunning) patch.idle_since = null;
+
+    const { error: upErr } = await sb.from('loom').update(patch).eq('id', l.id);
+    if (upErr) {
+      setStatusBusyId(null);
+      setError(upErr.message);
+      return;
+    }
+    // Log row is best-effort on purpose: the status change itself already
+    // succeeded, so a log failure should not roll the operator back.
+    await sb.from('loom_status_log').insert({
+      loom_id: l.id,
+      old_status: l.status,
+      new_status: newStatus,
+    });
+    setLooms((prev) =>
+      prev.map((x) => (x.id === l.id ? { ...x, ...patch, status: newStatus } : x)),
+    );
+    setStatusBusyId(null);
+  }
+
   async function removeAssignment(a: ActiveAssignment): Promise<void> {
     const nominal = Number(a.pavu?.meters ?? 0);
     const answer = window.prompt(
@@ -391,9 +443,19 @@ export default function PavuAssignPage() {
                     <span className="text-xs text-ink-mute">{l.loom_type}</span>
                     <History className="w-3 h-3 text-ink-mute" />
                   </button>
-                  <span className={`pill ${STATUS_STYLE[l.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {l.status}
-                  </span>
+                  {/* Live status dropdown styled as the old pill — changing
+                      it saves immediately and logs the change with date. */}
+                  <select
+                    aria-label={`Status of loom ${l.loom_code}`}
+                    value={l.status}
+                    disabled={statusBusyId === l.id}
+                    onChange={(e) => void changeLoomStatus(l, e.target.value)}
+                    className={`pill cursor-pointer border-0 disabled:opacity-50 ${STATUS_STYLE[l.status] ?? 'bg-slate-100 text-slate-600'}`}
+                  >
+                    {LOOM_STATUSES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {cur && cur.pavu ? (
@@ -1006,11 +1068,20 @@ interface ProdLogRow {
   weavers: { metres_woven: number | null; employee: { full_name: string } | null }[] | null;
 }
 
+interface StatusLogRow {
+  id: number;
+  old_status: string | null;
+  new_status: string;
+  changed_on: string;
+  created_at: string;
+}
+
 function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }) {
   const supabase = createClient();
-  const [tab, setTab] = useState<'beams' | 'production'>('beams');
+  const [tab, setTab] = useState<'beams' | 'production' | 'status'>('beams');
   const [beams, setBeams] = useState<BeamHistoryRow[]>([]);
   const [logs, setLogs] = useState<ProdLogRow[]>([]);
+  const [statusLogs, setStatusLogs] = useState<StatusLogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1021,7 +1092,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
       // columns — cast through any like the rest of this page.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [b, p] = await Promise.all([
+      const [b, p, s] = await Promise.all([
         sb.from('pavu_assign')
           .select('id, status, assigned_date, start_date, end_date, metres_produced, actual_metres, metre_variance, pavu:pavu_id ( pavu_code, beam_no, meters ), costing:costing_id ( quality_code )')
           .eq('loom_id', loom.id)
@@ -1033,12 +1104,19 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
           .order('log_date', { ascending: false })
           .order('id', { ascending: false })
           .limit(60),
+        sb.from('loom_status_log')
+          .select('id, old_status, new_status, changed_on, created_at')
+          .eq('loom_id', loom.id)
+          .order('id', { ascending: false })
+          .limit(60),
       ]);
       if (cancelled) return;
       if (b.error) setErr(b.error.message);
       else if (p.error) setErr(p.error.message);
+      else if (s.error) setErr(s.error.message);
       setBeams((b.data as BeamHistoryRow[] | null) ?? []);
       setLogs((p.data as ProdLogRow[] | null) ?? []);
+      setStatusLogs((s.data as StatusLogRow[] | null) ?? []);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -1061,7 +1139,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
         </div>
 
         <div className="flex gap-1 px-4 pt-3">
-          {([['beams', 'Beam history'], ['production', 'Production']] as const).map(([key, label]) => (
+          {([['beams', 'Beam history'], ['production', 'Production'], ['status', 'Status log']] as const).map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -1119,6 +1197,31 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
                     </div>
                   );
                 })}
+              </div>
+            )
+          ) : tab === 'status' ? (
+            statusLogs.length === 0 ? (
+              <div className="py-8 text-center text-sm text-ink-mute">
+                No status changes recorded for this loom yet. Changes made from
+                the card&apos;s status dropdown (or Settings → Looms) appear here.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-xs text-ink-mute mb-2">Newest first.</p>
+                {statusLogs.map((s) => (
+                  <div key={s.id} className="rounded-lg border border-line/60 p-3 text-sm flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {s.old_status && (
+                        <>
+                          <span className={`pill ${STATUS_STYLE[s.old_status] ?? 'bg-slate-100 text-slate-600'}`}>{s.old_status}</span>
+                          <span className="text-ink-mute">→</span>
+                        </>
+                      )}
+                      <span className={`pill ${STATUS_STYLE[s.new_status] ?? 'bg-slate-100 text-slate-600'}`}>{s.new_status}</span>
+                    </div>
+                    <span className="text-xs text-ink-soft num">{s.changed_on}</span>
+                  </div>
+                ))}
               </div>
             )
           ) : logs.length === 0 ? (
