@@ -405,7 +405,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     (invoicePaymentAllocs ?? []) as PaymentAllocationRow[],
     (openingPaymentAllocs ?? []) as PaymentAllocationRow[],
     partyNameById,
-  );
+  )
+    // Only parties who actually owe money: zero-balance and in-credit
+    // parties are hidden from this widget (they still show on Ledger).
+    .filter((g) => g.total > 0.005);
   // Job work side: identity is jobwork_party_id (FK). The label comes
   // from party_name on the invoice. Bills raised against jobworkers.
   const jobworkGroups = groupByParty(
@@ -691,7 +694,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           direction="in"
           actionLabel="Collect"
           emptyText="No outstanding customer invoices — everything is collected."
-          footnote={'Customers with one or more open sale invoices, netted against any pre-ERP opening balance (due or credit) — matches the Ledger page\u2019s running balance. A party fully offset by an old credit still shows up, flagged "In credit". Click a row to see the bills. "Days due" = days since the invoice date.'}
+          footnote={'Customers with one or more open sale invoices, netted against any pre-ERP opening balance (due or credit) — matches the Ledger page\u2019s running balance. Parties fully settled or in credit are hidden here (see the Ledger page for those). Click a row to see the bills. "Days due" = days since the invoice date.'}
         />
       </section>
 
