@@ -22,12 +22,10 @@ import { Loader2, Plus, CheckCircle2 } from 'lucide-react';
 
 const SHEDS = [1, 2, 3, 4] as const;
 
-const STATUSES = [
-  { value: 'running', label: 'Running' },
-  { value: 'idle', label: 'Idle' },
-  { value: 'maintenance', label: 'Maintenance' },
-  { value: 'breakdown', label: 'Breakdown' },
-] as const;
+// Loom STATUS is no longer edited here — the operator flips it straight on
+// the Pavu Assign loom cards (which also writes the dated loom_status_log).
+// New looms are created as 'running'; updateLoom still handles a status
+// patch (idle_since sync + log) in case a future screen sends one.
 
 interface Loom {
   id: number;
@@ -253,7 +251,7 @@ export default function LoomsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Looms"
-        subtitle="Add looms, pick the fabric quality each is set up for, set status, and assign each loom to a weaving shed."
+        subtitle="Add looms, pick the fabric quality each is set up for, and assign each loom to a weaving shed. Loom status is changed on the Pavu Assign loom cards."
         crumbs={[{ label: 'Settings', href: '/app/settings' }, { label: 'Looms' }]}
       />
 
@@ -316,19 +314,6 @@ export default function LoomsPage() {
                   {q.code} · {q.name}
                   {q.width_in != null ? ` (${q.width_in}in)` : ''}
                 </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="nl-status">Status</label>
-            <select
-              id="nl-status"
-              className="input w-36"
-              value={newLoom.status}
-              onChange={(e) => setNewLoom((n) => ({ ...n, status: e.target.value }))}
-            >
-              {STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
           </div>
@@ -470,18 +455,6 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
           </div>
           <div className="flex flex-wrap gap-3">
             <div>
-              <label className="label text-xs">Status</label>
-              <select
-                className="input w-36"
-                value={l.status}
-                onChange={(e) => onUpdate(l.id, { status: e.target.value })}
-              >
-                {STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
               <label className="label text-xs">Shed</label>
               <select
                 className="input w-28"
@@ -532,7 +505,6 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
             <th className="py-2 pr-3">Loom</th>
             <th className="py-2 pr-3">Type</th>
             <th className="py-2 pr-3">Fabric quality</th>
-            <th className="py-2 pr-3">Status</th>
             <th className="py-2 pr-3">Idle since</th>
             <th className="py-2 pr-3">Shed</th>
             <th className="py-2 pr-3">Default /m</th>
@@ -568,17 +540,6 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                       {q.code} · {q.name}
                       {q.width_in != null ? ` (${q.width_in}in)` : ''}
                     </option>
-                  ))}
-                </select>
-              </td>
-              <td className="py-2 pr-3">
-                <select
-                  className="input w-36"
-                  value={l.status}
-                  onChange={(e) => onUpdate(l.id, { status: e.target.value })}
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
               </td>
