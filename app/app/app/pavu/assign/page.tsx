@@ -77,9 +77,10 @@ interface Quality {
 
 const STATUS_STYLE: Record<string, string> = {
   running:    'bg-emerald-50 text-emerald-700',
-  idle:       'bg-slate-100 text-slate-600',
-  maintenance:'bg-amber-50 text-amber-700',
-  breakdown:  'bg-rose-50 text-rose-700',
+  // All non-running statuses read red — a stopped loom must stand out.
+  idle:       'bg-rose-100 text-rose-700',
+  maintenance:'bg-rose-100 text-rose-700',
+  breakdown:  'bg-rose-100 text-rose-700',
 };
 
 /** Same list as Settings → Looms. The card pill is a live dropdown so the
@@ -430,7 +431,14 @@ export default function PavuAssignPage() {
                 {shedLooms.map(l => {
             const cur = activeByLoom.get(l.id);
             return (
-              <div key={l.id} className="card p-4 flex flex-col gap-3">
+              <div
+                key={l.id}
+                // Non-running looms glow red so a stopped loom is obvious
+                // at a glance when scanning the shed.
+                className={`card p-4 flex flex-col gap-3 ${
+                  l.status !== 'running' ? 'border-rose-300 bg-rose-50/60' : ''
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
@@ -439,7 +447,7 @@ export default function PavuAssignPage() {
                     onClick={() => setHistoryFor(l)}
                   >
                     <Wrench className="w-4 h-4 text-ink-mute" />
-                    <span className="font-mono font-bold text-ink underline decoration-dotted decoration-line underline-offset-2">{l.loom_code}</span>
+                    <span className={`font-mono font-bold underline decoration-dotted decoration-line underline-offset-2 ${l.status !== 'running' ? 'text-rose-700' : 'text-ink'}`}>{l.loom_code}</span>
                     <span className="text-xs text-ink-mute">{l.loom_type}</span>
                     <History className="w-3 h-3 text-ink-mute" />
                   </button>
