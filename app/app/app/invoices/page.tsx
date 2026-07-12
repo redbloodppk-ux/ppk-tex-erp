@@ -91,14 +91,36 @@ export default async function InvoicesPage({
 
   // Agent commission per invoice (for the listed rows) — shown under the party.
   const invoiceIds = ((invoices ?? []) as Array<{ id: number }>).map((r) => r.id);
-  const commByInvoice = new Map<number, { agent: string; amount: number }>();
+  const commByInvoice = new Map<number, { agent: string; amount: number; status: string }>();
   if (invoiceIds.length > 0) {
     const { data: comms } = await sb.from('agent_commission')
-      .select('invoice_id, amount, agent:agent_party_id ( name )')
+      .select('invoice_id, amount, status, agent:agent_party_id ( name )')
       .in('invoice_id', invoiceIds);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const c of ((comms ?? []) as any[])) {
-      commByInvoice.set(c.invoice_id, { agent: c.agent?.name ?? '—', amount: Number(c.amount ?? 0) });
+      commByInvoice.set(c.invoice_id, {
+        agent: c.agent?.name ?? '—',
+        amount: Number(c.amount ?? 0),
+        status: String(c.status ?? 'active'),
+      });
+    }
+  }
+
+  // Credit-note coverage per original invoice. An invoice whose credit
+  // notes add up to its full total was fully returned — shown with a
+  // "returned" status pill (instead of the misleading "paid") and its
+  // agent commission is cancelled.
+  const cnTotalByInvoice = new Map<number, number>();
+  if (invoiceIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: cns } = await sb.from('invoice')
+      .select('original_invoice_id, total')
+      .eq('doc_type', 'credit_note')
+      .in('original_invoice_id', invoiceIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of ((cns ?? []) as any[])) {
+      const k = Number(c.original_invoice_id);
+      cnTotalByInvoice.set(k, (cnTotalByInvoice.get(k) ?? 0) + Number(c.total ?? 0));
     }
   }
 
@@ -176,6 +198,9 @@ export default async function InvoicesPage({
             ?? inv.vendor?.phone
             ?? null;
           const isReturn = inv.doc_type === 'debit_note' || inv.doc_type === 'credit_note';
+          const fullyReturned = !isReturn
+            && (cnTotalByInvoice.get(inv.id) ?? 0) >= Number(inv.total) - 0.005;
+          const comm = commByInvoice.get(inv.id);
           const waMessage = [
             `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
             `Party: ${partyName}`,
@@ -195,8 +220,8 @@ export default async function InvoicesPage({
                     </span>
                   </div>
                 </div>
-                <span className={`pill shrink-0 ${STATUS_STYLE[inv.status] ?? ''}`}>
-                  {inv.status.replace('_', ' ')}
+                <span className={`pill shrink-0 ${fullyReturned ? 'bg-rose-50 text-rose-700' : STATUS_STYLE[inv.status] ?? ''}`}>
+                  {fullyReturned ? 'returned' : inv.status.replace('_', ' ')}
                 </span>
               </div>
 
@@ -204,10 +229,16 @@ export default async function InvoicesPage({
                 <span className="font-semibold">{partyName}</span>
                 <span className="text-ink-soft text-xs"> · {inv.invoice_date}</span>
               </div>
-              {commByInvoice.get(inv.id) && (
-                <div className="text-[10px] text-amber-700 mt-0.5">
-                  Agent: {commByInvoice.get(inv.id)!.agent} · ₹{commByInvoice.get(inv.id)!.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
+              {comm && (
+                comm.status === 'cancelled' ? (
+                  <div className="text-[10px] text-ink-mute mt-0.5 line-through">
+                    Agent: {comm.agent} · commission cancelled (lot returned)
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-amber-700 mt-0.5">
+                    Agent: {comm.agent} · ₹{comm.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                )
               )}
 
               <div className="flex items-end justify-between mt-2">
@@ -286,6 +317,10 @@ export default async function InvoicesPage({
             <tbody>
               {invoices?.length ? invoices.map((inv: any) => {
                 const gst = Number(inv.cgst_amount) + Number(inv.sgst_amount) + Number(inv.igst_amount);
+                const isReturnDoc = inv.doc_type === 'debit_note' || inv.doc_type === 'credit_note';
+                const fullyReturned = !isReturnDoc
+                  && (cnTotalByInvoice.get(inv.id) ?? 0) >= Number(inv.total) - 0.005;
+                const comm = commByInvoice.get(inv.id);
                 const partyName = inv.customer?.name
                   ?? inv.vendor?.name
                   ?? inv.jobwork_party?.name
@@ -316,10 +351,16 @@ export default async function InvoicesPage({
                     <td className="px-4 py-3 text-xs text-ink-soft">{inv.invoice_date}</td>
                     <td className="px-4 py-3">
                       {partyName}
-                      {commByInvoice.get(inv.id) && (
-                        <div className="text-[10px] text-amber-700 mt-0.5">
-                          Agent: {commByInvoice.get(inv.id)!.agent} · ₹{commByInvoice.get(inv.id)!.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
+                      {comm && (
+                        comm.status === 'cancelled' ? (
+                          <div className="text-[10px] text-ink-mute mt-0.5 line-through">
+                            Agent: {comm.agent} · commission cancelled (lot returned)
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-amber-700 mt-0.5">
+                            Agent: {comm.agent} · ₹{comm.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="px-4 py-3 text-right num hidden md:table-cell">{Number(inv.taxable_value).toFixed(2)}</td>
@@ -333,8 +374,8 @@ export default async function InvoicesPage({
                         : Number(inv.balance ?? 0).toFixed(2)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`pill ${STATUS_STYLE[inv.status] ?? ''}`}>
-                        {inv.status.replace('_', ' ')}
+                      <span className={`pill ${fullyReturned ? 'bg-rose-50 text-rose-700' : STATUS_STYLE[inv.status] ?? ''}`}>
+                        {fullyReturned ? 'returned' : inv.status.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">

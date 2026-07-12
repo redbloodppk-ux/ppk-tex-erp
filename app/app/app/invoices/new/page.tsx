@@ -1571,6 +1571,37 @@ export default function NewInvoicePage() {
           }
         }
       }
+
+      // Full return → cancel the agent commission on the original invoice.
+      // If the credit notes against an invoice now add up to its full
+      // total, the sale never stood, so nothing is payable to the agent.
+      // Only unpaid commissions are touched; a commission that was already
+      // (part-)paid to the agent is left for manual handling.
+      const returnedInvoiceIds = Array.from(new Set(
+        creditAllocs
+          .filter((a) => a.kind === 'invoice')
+          .map((a) => (a as { invoice_id: number }).invoice_id),
+      ));
+      for (const invId of returnedInvoiceIds) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sb2 = supabase as any;
+        const { data: orig } = await sb2.from('invoice')
+          .select('id, total').eq('id', invId).maybeSingle();
+        if (!orig) continue;
+        const { data: cns } = await sb2.from('invoice')
+          .select('total')
+          .eq('doc_type', 'credit_note')
+          .eq('original_invoice_id', invId);
+        const cnSum = ((cns ?? []) as Array<{ total: number | string }>)
+          .reduce((s, r) => s + Number(r.total || 0), 0);
+        if (cnSum >= Number(orig.total) - 0.005) {
+          await sb2.from('agent_commission')
+            .update({ status: 'cancelled', amount: 0 })
+            .eq('invoice_id', invId)
+            .eq('status', 'active')
+            .eq('amount_paid', 0);
+        }
+      }
     }
 
     router.push('/app/invoices');
