@@ -1572,11 +1572,14 @@ export default function NewInvoicePage() {
         }
       }
 
-      // Full return → cancel the agent commission on the original invoice.
-      // If the credit notes against an invoice now add up to its full
-      // total, the sale never stood, so nothing is payable to the agent.
-      // Only unpaid commissions are touched; a commission that was already
-      // (part-)paid to the agent is left for manual handling.
+      // Credit note issued → recompute the agent commission on each
+      // affected original invoice using the SAME basis it was created
+      // with (₹/pc, ₹/m, or % of taxable), applied to what remains
+      // after all returns:
+      //   new commission = basis(original lines) − basis(all credit-note lines)
+      // Partial return → commission reduced proportionally.
+      // Full return    → commission cancelled (nothing payable).
+      // A commission never drops below what was already paid to the agent.
       const returnedInvoiceIds = Array.from(new Set(
         creditAllocs
           .filter((a) => a.kind === 'invoice')
@@ -1585,21 +1588,55 @@ export default function NewInvoicePage() {
       for (const invId of returnedInvoiceIds) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sb2 = supabase as any;
-        const { data: orig } = await sb2.from('invoice')
-          .select('id, total').eq('id', invId).maybeSingle();
-        if (!orig) continue;
-        const { data: cns } = await sb2.from('invoice')
-          .select('total')
+        const { data: comm } = await sb2.from('agent_commission')
+          .select('id, commission_type, commission_rate, amount_paid')
+          .eq('invoice_id', invId)
+          .maybeSingle();
+        if (!comm) continue;
+
+        const { data: origInv } = await sb2.from('invoice')
+          .select('id, taxable_value').eq('id', invId).maybeSingle();
+        if (!origInv) continue;
+        const { data: cnHeads } = await sb2.from('invoice')
+          .select('id, taxable_value')
           .eq('doc_type', 'credit_note')
           .eq('original_invoice_id', invId);
-        const cnSum = ((cns ?? []) as Array<{ total: number | string }>)
-          .reduce((s, r) => s + Number(r.total || 0), 0);
-        if (cnSum >= Number(orig.total) - 0.005) {
+        const cnIds = ((cnHeads ?? []) as Array<{ id: number }>).map((c) => c.id);
+
+        const rate = Number(comm.commission_rate || 0);
+        const type = String(comm.commission_type);
+        let newAmount = 0;
+        if (type === 'percent') {
+          const cnTaxable = ((cnHeads ?? []) as Array<{ taxable_value: number | string }>)
+            .reduce((s, c) => s + Number(c.taxable_value || 0), 0);
+          newAmount = +(((Number(origInv.taxable_value || 0) - cnTaxable) * rate) / 100).toFixed(2);
+        } else {
+          const uom = type === 'metre' ? 'mtr' : 'pcs';
+          const { data: origLines } = await sb2.from('invoice_line')
+            .select('quantity, uom').eq('invoice_id', invId);
+          const origQty = ((origLines ?? []) as Array<{ quantity: number | string; uom: string }>)
+            .filter((l) => l.uom === uom)
+            .reduce((s, l) => s + Number(l.quantity || 0), 0);
+          let cnQty = 0;
+          if (cnIds.length) {
+            const { data: cnLines } = await sb2.from('invoice_line')
+              .select('quantity, uom').in('invoice_id', cnIds);
+            cnQty = ((cnLines ?? []) as Array<{ quantity: number | string; uom: string }>)
+              .filter((l) => l.uom === uom)
+              .reduce((s, l) => s + Number(l.quantity || 0), 0);
+          }
+          newAmount = +((origQty - cnQty) * rate).toFixed(2);
+        }
+
+        const paid = Number(comm.amount_paid || 0);
+        if (newAmount <= 0.005 && paid <= 0) {
           await sb2.from('agent_commission')
             .update({ status: 'cancelled', amount: 0 })
-            .eq('invoice_id', invId)
-            .eq('status', 'active')
-            .eq('amount_paid', 0);
+            .eq('id', comm.id);
+        } else {
+          await sb2.from('agent_commission')
+            .update({ amount: Math.max(newAmount, paid), status: 'active' })
+            .eq('id', comm.id);
         }
       }
     }
