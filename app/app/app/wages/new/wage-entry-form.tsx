@@ -62,6 +62,15 @@ export interface InitialEntry {
   loan_deduction?: number | null;
 }
 
+// An "Advance" wage entry paid to the employee inside the selected
+// settlement week — surfaced so the operator can net it off the amount.
+interface WeekAdvanceRow {
+  id: number;
+  pay_date: string;
+  amount: number;
+  notes: string | null;
+}
+
 // Cash / bank account the wage was paid from.
 interface SourceLedgerOption {
   id: number;
@@ -217,6 +226,35 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase, employeeId]);
+
+  // Advances paid to this employee during the selected settlement week
+  // (pay_date inside Mon–Sun). Shown on Weekly settlement so the operator
+  // remembers to deduct them from the amount being paid out now.
+  const [weekAdvances, setWeekAdvances] = useState<WeekAdvanceRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWeekAdvances(): Promise<void> {
+      if (!employeeId || kind !== 'settlement' || !periodStart || !periodEnd) {
+        setWeekAdvances([]);
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from('wage_entry')
+        .select('id, pay_date, amount, notes')
+        .eq('employee_id', Number(employeeId))
+        .eq('kind', 'advance')
+        .gte('pay_date', periodStart)
+        .lte('pay_date', periodEnd)
+        .order('pay_date');
+      if (cancelled) return;
+      setWeekAdvances(((data ?? []) as WeekAdvanceRow[]));
+    }
+    void loadWeekAdvances();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, employeeId, kind, periodStart, periodEnd]);
+  const weekAdvanceTotal = weekAdvances.reduce((s, a) => s + Number(a.amount || 0), 0);
 
   const [ctx, setCtx] = useState<WorkContext>({
     shifts: { morning: 0, night: 0 },
@@ -776,6 +814,27 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             you actually paid — it stays independent. The wage will show up in the selected
             week&apos;s summary only.
           </p>
+          {weekAdvances.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Advance paid during this week — remember to deduct it
+              </div>
+              {weekAdvances.map((a) => (
+                <div key={a.id} className="flex items-center justify-between text-xs text-amber-900">
+                  <span>
+                    {fmtShortDate(a.pay_date)}
+                    {a.notes ? <span className="text-amber-700"> — {a.notes}</span> : null}
+                  </span>
+                  <span className="font-semibold num">₹{Number(a.amount || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between border-t border-amber-200 pt-1 text-xs font-bold text-amber-900">
+                <span>Total advance this week</span>
+                <span className="num">₹{weekAdvanceTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
