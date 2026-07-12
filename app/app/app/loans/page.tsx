@@ -69,15 +69,15 @@ export default async function LoansPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: allLoans } = await (supabase as any)
     .from('employee_loan')
-    .select('employee_id, amount');
-  const loanAgg = (allLoans ?? []) as Array<{ employee_id: number; amount: number }>;
+    .select('employee_id, amount, loan_date');
+  const loanAgg = (allLoans ?? []) as Array<{ employee_id: number; amount: number; loan_date: string }>;
   const totalDisbursedAll = loanAgg.reduce((acc, r) => acc + Number(r.amount || 0), 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: allDeductions } = await (supabase as any)
     .from('wage_entry')
-    .select('employee_id, loan_deduction');
-  const dedAgg = (allDeductions ?? []) as Array<{ employee_id: number; loan_deduction: number | null }>;
+    .select('id, employee_id, loan_deduction, pay_date');
+  const dedAgg = (allDeductions ?? []) as Array<{ id: number; employee_id: number; loan_deduction: number | null; pay_date: string }>;
   const totalRepaidAll = dedAgg.reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
 
   const totalOutstanding = totalDisbursedAll - totalRepaidAll;
@@ -109,6 +109,32 @@ export default async function LoansPage({
       outstanding: s.disbursed - s.repaid,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // When a single employee is selected in the filter, the Outstanding card
+  // shows THAT employee's outstanding (disbursed − repaid) instead of the
+  // all-employees total, so the number matches the person you're looking at.
+  const selectedEmpName = empId != null ? (empById.get(empId)?.full_name ?? null) : null;
+  const selectedOutstanding = empId != null
+    ? empSummary.reduce((acc, s) => acc + s.outstanding, 0)
+    : null;
+
+  // Running "outstanding after this repayment" per wage entry, shown as a
+  // column in the Repayments table. Walk all deductions oldest-first:
+  // outstanding after a repayment = loans disbursed up to that date
+  // − repayments made up to and including that entry.
+  const outstandingAfterByWageId = new Map<number, number>();
+  const cumRepaidByEmp = new Map<number, number>();
+  const dedSorted = dedAgg
+    .filter((r) => Number(r.loan_deduction || 0) > 0)
+    .sort((a, b) => (a.pay_date < b.pay_date ? -1 : a.pay_date > b.pay_date ? 1 : a.id - b.id));
+  for (const r of dedSorted) {
+    const repaidSoFar = (cumRepaidByEmp.get(r.employee_id) ?? 0) + Number(r.loan_deduction || 0);
+    cumRepaidByEmp.set(r.employee_id, repaidSoFar);
+    const disbursedUpTo = loanAgg
+      .filter((l) => l.employee_id === r.employee_id && l.loan_date <= r.pay_date)
+      .reduce((acc, l) => acc + Number(l.amount || 0), 0);
+    outstandingAfterByWageId.set(r.id, disbursedUpTo - repaidSoFar);
+  }
 
   // Repayment history — wage entries that withheld a loan deduction.
   interface RepaymentRow {
@@ -169,8 +195,12 @@ export default async function LoansPage({
           <div className="num text-xl font-bold">{formatRupee(shownTotal)}</div>
         </div>
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Outstanding (all)</div>
-          <div className="num text-xl font-bold text-rose-700">{formatRupee(totalOutstanding)}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">
+            {selectedEmpName ? `Outstanding — ${selectedEmpName}` : 'Outstanding (all)'}
+          </div>
+          <div className="num text-xl font-bold text-rose-700">
+            {formatRupee(selectedOutstanding ?? totalOutstanding)}
+          </div>
         </div>
       </div>
 
@@ -324,6 +354,7 @@ export default async function LoansPage({
               <th className="text-left px-4 py-2">Date</th>
               <th className="text-left px-4 py-2">Employee</th>
               <th className="text-right px-4 py-2">Repaid</th>
+              <th className="text-right px-4 py-2">Outstanding after</th>
               <th className="text-right px-4 py-2">Wage entry</th>
             </tr>
           </thead>
@@ -338,6 +369,9 @@ export default async function LoansPage({
                 <td className="px-4 py-2 text-right num font-semibold text-emerald-700">
                   {formatRupee(Number(r.loan_deduction))}
                 </td>
+                <td className={`px-4 py-2 text-right num font-semibold ${(outstandingAfterByWageId.get(r.id) ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  {formatRupee(outstandingAfterByWageId.get(r.id) ?? 0)}
+                </td>
                 <td className="px-4 py-2 text-right">
                   <Link href={`/app/wages/${r.id}`} className="text-xs text-indigo font-semibold">
                     View →
@@ -346,7 +380,7 @@ export default async function LoansPage({
               </tr>
             )) : (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-sm text-ink-soft">
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-ink-soft">
                   No repayments yet. Repayments are recorded on the New Wage Entry form via the Loan repayment field.
                 </td>
               </tr>
