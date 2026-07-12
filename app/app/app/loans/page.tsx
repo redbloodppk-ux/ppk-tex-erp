@@ -65,22 +65,68 @@ export default async function LoansPage({
   const employees = ((empData ?? []) as Array<{ id: number; code: string; full_name: string }>);
 
   // Outstanding = total disbursed - total repaid (loan_deduction on wages).
+  // Fetched with employee_id so we can also break both down per employee.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: allLoans } = await (supabase as any)
     .from('employee_loan')
-    .select('amount');
-  const totalDisbursedAll = ((allLoans ?? []) as Array<{ amount: number }>)
-    .reduce((acc, r) => acc + Number(r.amount || 0), 0);
+    .select('employee_id, amount');
+  const loanAgg = (allLoans ?? []) as Array<{ employee_id: number; amount: number }>;
+  const totalDisbursedAll = loanAgg.reduce((acc, r) => acc + Number(r.amount || 0), 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: allDeductions } = await (supabase as any)
     .from('wage_entry')
-    .select('loan_deduction');
-  const totalRepaidAll = ((allDeductions ?? []) as Array<{ loan_deduction: number | null }>)
-    .reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
+    .select('employee_id, loan_deduction');
+  const dedAgg = (allDeductions ?? []) as Array<{ employee_id: number; loan_deduction: number | null }>;
+  const totalRepaidAll = dedAgg.reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
 
   const totalOutstanding = totalDisbursedAll - totalRepaidAll;
   const shownTotal = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+
+  // Per-employee summary: disbursed / repaid / outstanding. Only employees
+  // with at least one loan appear.
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  const perEmp = new Map<number, { disbursed: number; repaid: number }>();
+  for (const r of loanAgg) {
+    const s = perEmp.get(r.employee_id) ?? { disbursed: 0, repaid: 0 };
+    s.disbursed += Number(r.amount || 0);
+    perEmp.set(r.employee_id, s);
+  }
+  for (const r of dedAgg) {
+    const ded = Number(r.loan_deduction || 0);
+    if (!ded) continue;
+    const s = perEmp.get(r.employee_id);
+    if (!s) continue; // repayment without a loan row — ignore in this table
+    s.repaid += ded;
+  }
+  const empSummary = Array.from(perEmp.entries())
+    .filter(([id]) => empId == null || id === empId)
+    .map(([id, s]) => ({
+      id,
+      code: empById.get(id)?.code ?? '',
+      name: empById.get(id)?.full_name ?? `#${id}`,
+      ...s,
+      outstanding: s.disbursed - s.repaid,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Repayment history — wage entries that withheld a loan deduction.
+  interface RepaymentRow {
+    id: number;
+    pay_date: string;
+    loan_deduction: number;
+    employee: { code: string; full_name: string } | null;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let repayQuery = (supabase as any)
+    .from('wage_entry')
+    .select('id, pay_date, loan_deduction, employee:employee_id ( code, full_name )')
+    .gt('loan_deduction', 0)
+    .order('pay_date', { ascending: false })
+    .limit(200);
+  if (empId != null) repayQuery = repayQuery.eq('employee_id', empId);
+  const { data: repayData } = await repayQuery;
+  const repayments = ((repayData ?? []) as unknown as RepaymentRow[]);
 
   return (
     <div>
@@ -230,6 +276,78 @@ export default async function LoansPage({
                   <Link href="/app/loans/new" className="text-indigo font-semibold">
                     Issue the first one →
                   </Link>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Per-employee position: disbursed vs repaid vs outstanding. */}
+      {empSummary.length > 0 && (
+        <div className="card overflow-x-auto mt-4">
+          <div className="px-4 pt-3 pb-1 text-sm font-semibold text-ink">Per-employee position</div>
+          <table className="w-full text-sm min-w-[480px]">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left px-4 py-2">Employee</th>
+                <th className="text-right px-4 py-2">Disbursed</th>
+                <th className="text-right px-4 py-2">Repaid</th>
+                <th className="text-right px-4 py-2">Outstanding</th>
+              </tr>
+            </thead>
+            <tbody>
+              {empSummary.map((s) => (
+                <tr key={s.id} className="border-t border-line/40">
+                  <td className="px-4 py-2">
+                    <div className="font-medium">{s.name}</div>
+                    <div className="text-[11px] text-ink-mute font-mono">{s.code}</div>
+                  </td>
+                  <td className="px-4 py-2 text-right num">{formatRupee(s.disbursed)}</td>
+                  <td className="px-4 py-2 text-right num text-emerald-700">{formatRupee(s.repaid)}</td>
+                  <td className={`px-4 py-2 text-right num font-semibold ${s.outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {formatRupee(s.outstanding)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Repayment history — loan deductions withheld on wage entries. */}
+      <div className="card overflow-x-auto mt-4">
+        <div className="px-4 pt-3 pb-1 text-sm font-semibold text-ink">Repayments (withheld on wages)</div>
+        <table className="w-full text-sm min-w-[480px]">
+          <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+            <tr>
+              <th className="text-left px-4 py-2">Date</th>
+              <th className="text-left px-4 py-2">Employee</th>
+              <th className="text-right px-4 py-2">Repaid</th>
+              <th className="text-right px-4 py-2">Wage entry</th>
+            </tr>
+          </thead>
+          <tbody>
+            {repayments.length ? repayments.map((r) => (
+              <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                <td className="px-4 py-2 num text-xs">{r.pay_date}</td>
+                <td className="px-4 py-2">
+                  <div className="font-medium">{r.employee?.full_name ?? '—'}</div>
+                  <div className="text-[11px] text-ink-mute font-mono">{r.employee?.code ?? ''}</div>
+                </td>
+                <td className="px-4 py-2 text-right num font-semibold text-emerald-700">
+                  {formatRupee(Number(r.loan_deduction))}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <Link href={`/app/wages/${r.id}`} className="text-xs text-indigo font-semibold">
+                    View →
+                  </Link>
+                </td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-sm text-ink-soft">
+                  No repayments yet. Repayments are recorded on the New Wage Entry form via the Loan repayment field.
                 </td>
               </tr>
             )}
