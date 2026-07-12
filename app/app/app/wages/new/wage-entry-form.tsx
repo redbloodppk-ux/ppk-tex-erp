@@ -454,57 +454,52 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       let night = 0;
       const shedSet = new Set<string>();
       let missingSheds = 0;
-      // (date, shift) -> shed_no — used below to match production logs.
-      const shedByDateShift = new Map<string, string>();
       for (const r of atts) {
         const sh = r.attendance_day?.shift;
         if (sh === 'morning') morning += 1;
         if (sh === 'night') night += 1;
         if (r.shed_no) {
           shedSet.add(r.shed_no);
-          shedByDateShift.set(
-            `${r.attendance_day?.attendance_date}|${sh}`,
-            r.shed_no,
-          );
         } else {
           missingSheds += 1;
         }
       }
 
-      // 2) For metre-basis weavers, prefill the amount from the shift-log
-      //    production × per-loom default rate, scoped to looms whose shed
-      //    matches the employee's attendance shed on the same (date, shift).
+      // 2) For metre-basis weavers, prefill the amount from the metres THIS
+      //    employee logged on the Shift Log (production_shift_log_weaver),
+      //    priced at the shift log's rate_per_m when set, else the loom's
+      //    default ₹/m. No shed matching needed — the metres are already
+      //    attributed to the weaver on the log itself.
       let autoAmount: number | null = null;
       let autoNote: string | null = null;
-      if (
-        selected?.wage_alloc_basis === 'metres' &&
-        atts.length > 0 &&
-        missingSheds === 0
-      ) {
+      if (selected?.wage_alloc_basis === 'metres') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: prodRows } = await (supabase as any)
-          .from('production_shift_log')
+          .from('production_shift_log_weaver')
           .select(
-            'log_date, shift, produced_m, loom:loom_id ( shed_no, default_rate_per_m )',
+            'metres_woven, shift_log:shift_log_id!inner ( log_date, rate_per_m, loom:loom_id ( default_rate_per_m ) )',
           )
-          .gte('log_date', periodStart)
-          .lte('log_date', periodEnd);
+          .eq('employee_id', Number(employeeId))
+          .gte('shift_log.log_date', periodStart)
+          .lte('shift_log.log_date', periodEnd);
 
         type ProdRow = {
-          log_date: string;
-          shift: string;
-          produced_m: number | null;
-          loom: { shed_no: string | null; default_rate_per_m: number | null } | null;
+          metres_woven: number | null;
+          shift_log: {
+            log_date: string;
+            rate_per_m: number | null;
+            loom: { default_rate_per_m: number | null } | null;
+          } | null;
         };
         let total = 0;
         let metresCounted = 0;
         let missingRate = false;
         for (const r of (prodRows ?? []) as ProdRow[]) {
-          const empShed = shedByDateShift.get(`${r.log_date}|${r.shift}`);
-          if (!empShed) continue;
-          if (r.loom?.shed_no !== empShed) continue;
-          const metres = Number(r.produced_m ?? 0);
-          const rate = Number(r.loom?.default_rate_per_m ?? 0);
+          const metres = Number(r.metres_woven ?? 0);
+          if (!metres) continue;
+          const rate =
+            Number(r.shift_log?.rate_per_m ?? 0) ||
+            Number(r.shift_log?.loom?.default_rate_per_m ?? 0);
           if (!rate) {
             missingRate = true;
             continue;
@@ -514,8 +509,8 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         }
         autoAmount = Math.round(total * 100) / 100;
         autoNote = missingRate
-          ? `From ${metresCounted} m of matched production. Some looms have no default ₹/m — set it on Settings → Looms.`
-          : `From ${metresCounted} m of matched production × per-loom default ₹/m.`;
+          ? `From ${metresCounted} m woven by this employee in the period. Some looms have no ₹/m rate — set it on Settings → Looms.`
+          : `From ${metresCounted} m woven by this employee in the period × ₹/m rate.`;
       }
 
       if (cancelled) return;
