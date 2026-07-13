@@ -250,10 +250,57 @@ interface DashboardPageProps {
   searchParams: Promise<{ tab?: string }>;
 }
 
+// ── Looms tab types ─────────────────────────────────────────────
+interface LoomBoardRow {
+  id: number;
+  loom_code: string;
+  loom_type: string | null;
+  status: string;
+  shed_no: number | null;
+}
+
+interface LoomBoardAssign {
+  loom_id: number;
+  status: string;
+  metres_produced: number | string | null;
+  pavu: { pavu_code: string; beam_no: string | null; meters: number | string | null } | null;
+  costing: { quality_code: string | null; quality_name: string | null } | null;
+}
+
+const LOOM_STATUS_PILL: Record<string, string> = {
+  running:     'bg-emerald-100 text-emerald-700',
+  idle:        'bg-rose-100 text-rose-700',
+  maintenance: 'bg-amber-100 text-amber-700',
+  breakdown:   'bg-rose-100 text-rose-700',
+};
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const sp = await searchParams;
-  const tab: 'overview' | 'outstanding' = sp.tab === 'outstanding' ? 'outstanding' : 'overview';
+  const tab: 'overview' | 'outstanding' | 'looms' =
+    sp.tab === 'outstanding' ? 'outstanding' : sp.tab === 'looms' ? 'looms' : 'overview';
   const supabase = await createClient();
+
+  // ── Looms tab data — only fetched when that tab is open. Every loom
+  //    plus whatever beam is currently mounted / running on it, so the
+  //    board shows quality + metres pending per loom at a glance.
+  let boardLooms: LoomBoardRow[] = [];
+  const assignByLoom = new Map<number, LoomBoardAssign>();
+  if (tab === 'looms') {
+    const [lr, ar] = await Promise.all([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('loom')
+        .select('id, loom_code, loom_type, status, shed_no')
+        .order('loom_code'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('pavu_assign')
+        .select('loom_id, status, metres_produced, pavu:pavu_id ( pavu_code, beam_no, meters ), costing:costing_id ( quality_code, quality_name )')
+        .in('status', ['mounted', 'running']),
+    ]);
+    boardLooms = ((lr.data ?? []) as LoomBoardRow[]);
+    for (const a of ((ar.data ?? []) as LoomBoardAssign[])) {
+      assignByLoom.set(Number(a.loom_id), a);
+    }
+  }
 
   // Pull headline numbers + every open bill in parallel. RLS scopes
   // each query to what the signed-in user can see.
@@ -603,6 +650,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <nav className="flex gap-1 border-b border-line/60">
         {([
           { key: 'overview',    label: 'Overview',    href: '/app/dashboard' },
+          { key: 'looms',       label: 'Looms',       href: '/app/dashboard?tab=looms' },
           { key: 'outstanding', label: 'Outstanding', href: '/app/dashboard?tab=outstanding' },
         ] as const).map((t) => (
           <Link
@@ -672,6 +720,109 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <TodayAttendanceWidget />
       </>
       )}
+
+      {tab === 'looms' && (() => {
+        // Group looms by shed (same layout the loom view page uses) and
+        // compute headline counts for the summary strip.
+        const groups = new Map<string, { shedNo: number | null; looms: LoomBoardRow[] }>();
+        for (const l of boardLooms) {
+          const key = l.shed_no === null ? 'x' : String(l.shed_no);
+          const g = groups.get(key);
+          if (g) g.looms.push(l); else groups.set(key, { shedNo: l.shed_no, looms: [l] });
+        }
+        const shedGroups = Array.from(groups.values())
+          .sort((a, b) => (a.shedNo ?? 999) - (b.shedNo ?? 999));
+        const runningCount = boardLooms.filter((l) => l.status === 'running').length;
+        const stoppedCount = boardLooms.length - runningCount;
+        const totalPending = boardLooms.reduce((acc, l) => {
+          const a = assignByLoom.get(l.id);
+          if (!a?.pavu || l.status !== 'running') return acc;
+          return acc + Math.max(Number(a.pavu.meters ?? 0) - Number(a.metres_produced ?? 0), 0);
+        }, 0);
+
+        return (
+          <div className="space-y-4">
+            {/* Summary strip — one glance tells how the shed is doing. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="pill bg-emerald-100 text-emerald-700">{runningCount} running</span>
+              <span className="pill bg-rose-100 text-rose-700">{stoppedCount} stopped</span>
+              <span className="pill bg-indigo-50 text-indigo">{totalPending.toFixed(0)} m pending on running looms</span>
+              <Link href="/app/pavu/assign" className="ml-auto text-xs text-indigo font-semibold">
+                Loom view &rarr;
+              </Link>
+            </div>
+
+            {boardLooms.length === 0 && (
+              <div className="card p-8 text-center text-sm text-ink-soft">No looms configured yet.</div>
+            )}
+
+            {shedGroups.map(({ shedNo, looms: shedLooms }) => (
+              <div key={shedNo ?? 'unassigned'}>
+                <h2 className="text-xs font-semibold text-ink-mute uppercase tracking-wide mb-2">
+                  {shedNo !== null ? `Shed ${shedNo}` : 'Unassigned'}
+                </h2>
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {shedLooms.map((l) => {
+                    const a = assignByLoom.get(l.id);
+                    const meters = Number(a?.pavu?.meters ?? 0);
+                    const produced = Number(a?.metres_produced ?? 0);
+                    const pending = Math.max(meters - produced, 0);
+                    const pct = meters > 0 ? Math.min((produced / meters) * 100, 100) : 0;
+                    const quality = a?.costing?.quality_name || a?.costing?.quality_code || null;
+                    // Beam nearly over → amber, so the operator can plan
+                    // the next beam before the loom stops.
+                    const nearlyOver = a?.pavu != null && meters > 0 && pending <= 100;
+                    return (
+                      <Link
+                        key={l.id}
+                        href={`/app/pavu/assign#loom-${l.id}`}
+                        className={`card p-3 group hover:shadow-emboss transition-shadow block ${
+                          l.status !== 'running' ? 'border-rose-300 bg-rose-50/60' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-mono font-bold ${l.status !== 'running' ? 'text-rose-700' : 'text-ink'}`}>
+                            {l.loom_code}
+                          </span>
+                          <span className={`pill ${LOOM_STATUS_PILL[l.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                            {l.status}
+                          </span>
+                        </div>
+                        {a?.pavu ? (
+                          <div className="mt-2 space-y-1.5">
+                            <div className="text-sm font-semibold text-ink truncate" title={quality ?? undefined}>
+                              {quality ?? '—'}
+                            </div>
+                            <div className="text-[11px] text-ink-soft font-mono truncate">
+                              {a.pavu.pavu_code}
+                              {a.pavu.beam_no ? ` · Beam ${a.pavu.beam_no}` : ''}
+                              {meters > 0 ? ` · ${meters.toFixed(0)} m` : ''}
+                            </div>
+                            <div className="h-2 rounded-full bg-haze overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${nearlyOver ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="num text-ink-soft">{produced.toFixed(0)} m woven</span>
+                              <span className={`num font-semibold ${nearlyOver ? 'text-amber-700' : 'text-ink'}`}>
+                                {pending.toFixed(0)} m pending
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-ink-mute">No beam mounted</div>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {tab === 'outstanding' && (
       /* Money sections — two-up on desktop so the operator sees

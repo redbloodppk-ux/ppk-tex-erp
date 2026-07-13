@@ -259,6 +259,21 @@ export default function PavuAssignPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Deep-link support — /app/pavu/assign#loom-<id> (used by the dashboard
+  // Looms tab) scrolls to that loom's card once the cards have rendered,
+  // with a brief highlight ring so the eye lands on the right loom.
+  useEffect(() => {
+    if (loading) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith('#loom-')) return;
+    const el = document.getElementById(hash.slice(1));
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-indigo', 'ring-offset-2');
+    const t = setTimeout(() => el.classList.remove('ring-2', 'ring-indigo', 'ring-offset-2'), 3000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   /** Unmount the pavu from a loom — marks the assignment "removed"; a
    *  trigger flips the pavu back to available stock ("finished"). Asks the
    *  operator to confirm the ACTUAL metres woven off the beam, so shortfall
@@ -433,9 +448,11 @@ export default function PavuAssignPage() {
             return (
               <div
                 key={l.id}
+                id={`loom-${l.id}`}
                 // Non-running looms glow red so a stopped loom is obvious
-                // at a glance when scanning the shed.
-                className={`card p-4 flex flex-col gap-3 ${
+                // at a glance when scanning the shed. scroll-mt keeps the
+                // card clear of the sticky header on #loom-<id> deep links.
+                className={`card p-4 flex flex-col gap-3 scroll-mt-24 transition-shadow ${
                   l.status !== 'running' ? 'border-rose-300 bg-rose-50/60' : ''
                 }`}
               >
