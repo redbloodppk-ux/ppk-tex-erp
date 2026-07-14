@@ -960,15 +960,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         const { error: insErr } = await sb.from('jobwork_bobbin_issue').insert(extra);
         if (insErr) { setAddBusy(false); window.alert('Entry updated, but adding the extra lines failed: ' + insErr.message); onChanged(); return; }
       }
-      // The list shows M/pc (and Total m) from the bobbin MASTER, not
-      // the issue row — so an M/pc edited here must be written back to
-      // the master or the table looks like "nothing changed".
-      const perPc = Number(first.metre_per_pc);
-      const bm = bobbinMasters.find((m) => m.id === Number(first.bobbin_id));
-      if (Number.isFinite(perPc) && perPc > 0 && bm && Number(bm.bobbin_metre ?? 0) !== perPc) {
-        const { error: bmErr } = await sb.from('bobbin').update({ bobbin_metre: perPc }).eq('id', Number(first.bobbin_id));
-        if (bmErr) window.alert('Entry updated, but M/pc could not be saved to the bobbin master: ' + bmErr.message);
-      }
+      // NOTE: M/pc is a property of the bobbin MASTER shared by every
+      // entry of that bobbin — deliberately NOT updated from here.
+      // (We tried once: editing one entry changed M/pc on all rows of
+      // that bobbin. Change it in Settings → Bobbin Master instead.)
       setAddBusy(false);
       resetAddForm();
       setShowAdd(false);
@@ -1262,9 +1257,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           <p className="text-[10px] text-ink-mute">
-            {editingId !== null
-              ? <>Bobbins are managed in Settings &rarr; Bobbin Master. Changing M/pc here while editing updates the bobbin master, so every entry of that bobbin shows the corrected value.</>
-              : <>Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces — the master value is not changed.</>}
+            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master and is used only for the Total m calculation here — to change M/pc for a bobbin, edit it in Settings &rarr; Bobbin Master.
           </p>
 
           <div className="flex items-center justify-end gap-2">
