@@ -319,7 +319,7 @@ export default function JobworkPage(): React.ReactElement {
       // those properties belong to the bobbin master, not the issue
       // event. We reshape the result into BobbinRow below so the
       // existing BobbinTab UI keeps working.
-      sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, supplier_party_id, reference_no, notes,
+      sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, metre_per_pc, supplier_party_id, reference_no, notes,
               bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id, batch_no').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
@@ -382,6 +382,9 @@ export default function JobworkPage(): React.ReactElement {
         issue_date: string | null;
         pieces_issued: number | string | null;
         original_pieces: number | string | null;
+        /** Per-entry M/pc (migration add_metre_per_pc_to_jobwork_bobbin_issue).
+         *  NULL = fall back to the bobbin master's bobbin_metre. */
+        metre_per_pc: number | string | null;
         supplier_party_id: number | null;
         reference_no: string | null; notes: string | null;
         bobbin: { id: number; code: string | null; ends_per_bobbin: number | null;
@@ -393,7 +396,9 @@ export default function JobworkPage(): React.ReactElement {
         code: r.bobbin?.code ?? `JB-${r.id}`,
         description: r.notes ?? '',
         ends_per_bobbin: Number(r.bobbin?.ends_per_bobbin ?? 0),
-        bobbin_metre: Number(r.bobbin?.bobbin_metre ?? 0),
+        // Prefer the entry's own M/pc; fall back to the bobbin master
+        // for rows created before the metre_per_pc column existed.
+        bobbin_metre: Number(r.metre_per_pc ?? r.bobbin?.bobbin_metre ?? 0),
         quantity: Number(r.pieces_issued ?? 0),
         gst_pct: 0,
         bobbin_price: 0,
@@ -941,12 +946,20 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         reference_no: addForm.reference_no.trim() === '' ? null : addForm.reference_no.trim(),
         notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
       };
+      // Per-entry M/pc — stored on the issue row itself (NULL falls
+      // back to the bobbin master), so editing metres here changes
+      // only THIS entry.
+      const perPcOrNull = (v: string): number | null => {
+        const n = Number(v);
+        return v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+      };
       const qty = Number(first.qty);
       const { error } = await sb.from('jobwork_bobbin_issue').update({
         ...shared,
         bobbin_id: Number(first.bobbin_id),
         pieces_issued: qty,
         original_pieces: qty,
+        metre_per_pc: perPcOrNull(first.metre_per_pc),
       }).eq('id', editingId);
       if (error) { setAddBusy(false); window.alert('Update failed: ' + error.message); return; }
       if (rest.length > 0) {
@@ -955,6 +968,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           bobbin_id: Number(it.bobbin_id),
           pieces_issued: Number(it.qty),
           original_pieces: Number(it.qty),
+          metre_per_pc: perPcOrNull(it.metre_per_pc),
           status: 'active',
         }));
         const { error: insErr } = await sb.from('jobwork_bobbin_issue').insert(extra);
@@ -977,6 +991,9 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       issue_date: addForm.purchase_date,
       pieces_issued: Number(it.qty),
       original_pieces: Number(it.qty),
+      // Per-entry M/pc — what the operator sees in the form is what the
+      // row stores. NULL only if left blank (falls back to the master).
+      metre_per_pc: it.metre_per_pc !== '' && Number(it.metre_per_pc) > 0 ? Number(it.metre_per_pc) : null,
       supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
       reference_no: addForm.reference_no.trim() === '' ? null : addForm.reference_no.trim(),
       notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
@@ -1006,6 +1023,8 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       issue_date: data.given_date,
       pieces_issued: qty,
       original_pieces: qty,
+      // Carry the parent entry's effective M/pc onto the restock row.
+      metre_per_pc: Number(parent.bobbin_metre) > 0 ? Number(parent.bobbin_metre) : null,
       supplier_party_id: supplierPartyId,
       reference_no: `RESTOCK-${parent.code}`,
       notes: 'Restock of ' + parent.code
@@ -1257,7 +1276,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           <p className="text-[10px] text-ink-mute">
-            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master and is used only for the Total m calculation here — to change M/pc for a bobbin, edit it in Settings &rarr; Bobbin Master.
+            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master but is saved on this entry only — editing it here changes just this entry, never the master or other entries.
           </p>
 
           <div className="flex items-center justify-end gap-2">
