@@ -32,6 +32,10 @@ type CommType = 'pcs' | 'metre' | 'percent';
 interface FabricRow {
   id: number;
   code: string;
+  /** 'supplier' purchase or 'customer' fabric-in-lieu-of-payment
+   *  adjustment. Customer rows carry a synthetic payment +
+   *  allocations, so they can't be edited from this form. */
+  source: SourceMode;
   fabric_quality_id: number | null;
   /** Free-form quality name — set by supplier-purchase mode when the
    *  fabric isn't one of the in-house production qualities. */
@@ -190,7 +194,7 @@ export function FabricPurchaseLog(): React.ReactElement {
 
     const [rowsRes, qRes, sRes, cRes, agentTypeRes, partyRes, commRes] = await Promise.all([
       sb.from('fabric_purchase')
-        .select('id, code, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, round_off, total_amount, invoice_no, notes, delivery_destination')
+        .select('id, code, source, fabric_quality_id, quality_text, supplier_party_id, received_date, received_metres, received_pieces, rate_unit, rate, gst_pct, round_off, total_amount, invoice_no, notes, delivery_destination')
         .eq('status', 'active')
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -297,6 +301,14 @@ export function FabricPurchaseLog(): React.ReactElement {
   }
 
   function openEditForm(r: FabricRow): void {
+    // Guard: customer-adjustment rows carry a synthetic payment and
+    // bill allocations. Editing them here would silently convert the
+    // row to a supplier purchase and orphan the money side. Delete +
+    // re-add instead, or edit the payment from /app/payments.
+    if (r.source === 'customer') {
+      window.alert('This is a customer fabric-adjustment entry — it has a linked payment and bill adjustments, so it can\'t be edited here.\n\nDelete it and add it again with the correct values, or adjust the linked payment from the Payments page.');
+      return;
+    }
     setEditingId(r.id);
     // Hydrate the single Quantity field from whichever DB column is
     // populated based on the saved rate_unit. Edit always opens in
@@ -937,10 +949,12 @@ export function FabricPurchaseLog(): React.ReactElement {
                   <td className="px-3 py-3 hidden lg:table-cell text-ink-soft font-mono text-xs">{r.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      <button type="button" className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
-                        title="Edit" onClick={() => openEditForm(r)}>
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      {r.source !== 'customer' && (
+                        <button type="button" className="p-1 rounded hover:bg-indigo-50 text-indigo-600"
+                          title="Edit" onClick={() => openEditForm(r)}>
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
                       <button type="button" className="p-1 rounded hover:bg-rose-50 text-rose-600"
                         title="Delete" onClick={() => deleteRow(r.id, r.code)}>
                         <Trash2 className="w-4 h-4" />

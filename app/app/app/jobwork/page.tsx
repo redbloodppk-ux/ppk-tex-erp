@@ -3060,6 +3060,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
         original_kg: editedKg,
         reference_no: form.reference_no.trim() || null,
         notes: form.notes.trim() || null,
+        supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
       }).eq('id', editingId);
       setBusy(false);
       if (error) { setErr(error.message); return; }
@@ -3343,6 +3344,7 @@ function WarpYarnTab({
         total_cost: form.total_cost === '' ? null : Number(form.total_cost),
         reference_no: form.reference_no.trim() || null,
         notes: form.notes.trim() || null,
+        supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
       }).eq('id', editingId);
       setBusy(false);
       if (error) { setErr(error.message); return; }

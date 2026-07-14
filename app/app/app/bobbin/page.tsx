@@ -429,18 +429,20 @@ export default function BobbinPurchasePage() {
       if (!it) { setBusy(false); return; }
       const qty = Number(it.qty_pcs);
       const metre = it.metre_per_pc === '' ? null : Number(it.metre_per_pc);
-      const price = it.price_per_pc === '' ? null : Number(it.price_per_pc);
+      const price = it.price_per_pc === '' ? 0 : Number(it.price_per_pc);
       const gst = it.gst_pct === '' ? 0 : Number(it.gst_pct);
       const noteSuffix = gst > 0 ? ` · GST ${gst}%` : '';
       const { error: err } = await sb
         .from('bobbin_purchase')
         .update({
+          bobbin_id:        Number(it.bobbin_id),
           purchase_date:    form.purchase_date,
           invoice_no:       form.invoice_no.trim(),
           vendor_id:        form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
           pieces_purchased: qty,
           bobbin_metre:     metre,
           bobbin_price:     price,
+          round_off:        effectiveRoundOff,
           notes:            (form.notes.trim() + noteSuffix) || null,
         })
         .eq('id', editingId);
