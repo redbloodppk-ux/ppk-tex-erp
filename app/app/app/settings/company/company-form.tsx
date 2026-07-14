@@ -93,10 +93,28 @@ function panFromGstin(gstin: string): string {
   return gstin.slice(2, 12);
 }
 
+/** Merge the DB row over the EMPTY defaults, then coerce any NULL string
+ *  columns (address_line2, phone, email, website, bank_* …) back to ''.
+ *  Without this, a null from the DB overrides the '' default via the
+ *  spread, and `.trim()` in handleSave throws — leaving the Save button
+ *  spinning forever with nothing written. */
+function fromInitial(initial: Partial<CompanyRow> | null): CompanyRow {
+  const merged: CompanyRow = { ...EMPTY, ...(initial ?? {}) };
+  for (const k of Object.keys(EMPTY) as Array<keyof CompanyRow>) {
+    if (typeof EMPTY[k] === 'string' && (merged[k] === null || merged[k] === undefined)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (merged as any)[k] = '';
+    }
+  }
+  if (merged.fy_start_month == null) merged.fy_start_month = 4;
+  if (!merged.base_currency) merged.base_currency = 'INR';
+  return merged;
+}
+
 export function CompanyForm({ initial }: Props): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
-  const [form, setForm] = useState<CompanyRow>({ ...EMPTY, ...(initial ?? {}) });
+  const [form, setForm] = useState<CompanyRow>(() => fromInitial(initial));
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -154,49 +172,56 @@ export function CompanyForm({ initial }: Props): React.ReactElement {
     ];
     for (const [k, msg] of required) {
       const v = form[k];
-      if (typeof v === 'string' && v.trim() === '') {
+      if (v == null || (typeof v === 'string' && v.trim() === '')) {
         setError(msg);
         setBusy(false);
         return;
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
-    const payload = {
-      legal_name: form.legal_name.trim(),
-      display_name: form.display_name.trim(),
-      gstin: form.gstin.toUpperCase(),
-      pan: form.pan.toUpperCase(),
-      address_line1: form.address_line1.trim(),
-      address_line2: form.address_line2.trim() || null,
-      city: form.city.trim(),
-      state: form.state.trim(),
-      pincode: form.pincode.trim(),
-      phone: form.phone.trim() || null,
-      email: form.email.trim() || null,
-      website: form.website.trim() || null,
-      fy_start_month: form.fy_start_month,
-      base_currency: form.base_currency || 'INR',
-      gstin_verified_at: form.gstin_verified_at || null,
-      bank_name:       form.bank_name.trim()       || null,
-      bank_account_no: form.bank_account_no.trim() || null,
-      bank_ifsc:       form.bank_ifsc.trim().toUpperCase() || null,
-      bank_branch:     form.bank_branch.trim()     || null,
-    };
+    // Null-safe trim — some fields can still be null if the row predates
+    // the column (e.g. bank_* added later).
+    const s = (v: string | null | undefined): string => (v ?? '').trim();
 
-    if (form.id != null) {
-      const { error: err } = await sb.from('company_profile').update(payload).eq('id', form.id);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Company profile saved.');
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const payload = {
+        legal_name: s(form.legal_name),
+        display_name: s(form.display_name),
+        gstin: s(form.gstin).toUpperCase(),
+        pan: s(form.pan).toUpperCase(),
+        address_line1: s(form.address_line1),
+        address_line2: s(form.address_line2) || null,
+        city: s(form.city),
+        state: s(form.state),
+        pincode: s(form.pincode),
+        phone: s(form.phone) || null,
+        email: s(form.email) || null,
+        website: s(form.website) || null,
+        fy_start_month: form.fy_start_month,
+        base_currency: form.base_currency || 'INR',
+        gstin_verified_at: form.gstin_verified_at || null,
+        bank_name:       s(form.bank_name)       || null,
+        bank_account_no: s(form.bank_account_no) || null,
+        bank_ifsc:       s(form.bank_ifsc).toUpperCase() || null,
+        bank_branch:     s(form.bank_branch)     || null,
+      };
+
+      if (form.id != null) {
+        const { error: err } = await sb.from('company_profile').update(payload).eq('id', form.id);
+        if (err) { setError(err.message); return; }
+        setSavedMsg('Company profile saved.');
+      } else {
+        const { error: err } = await sb.from('company_profile').insert(payload);
+        if (err) { setError(err.message); return; }
+        setSavedMsg('Company profile created.');
+      }
       router.refresh();
-    } else {
-      const { error: err } = await sb.from('company_profile').insert(payload);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Save failed — please try again.');
+    } finally {
       setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Company profile created.');
-      router.refresh();
     }
   }
 
