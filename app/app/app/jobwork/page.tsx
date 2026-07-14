@@ -927,24 +927,49 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    // Edit mode — the form was reopened from a row's Edit button, so
-    // UPDATE that single row instead of inserting new ones.
+    // Edit mode — the form was reopened from a row's Edit button. The
+    // FIRST line UPDATEs that row; any extra lines the operator added
+    // are INSERTed as brand-new rows sharing the same header facts
+    // (party / date / supplier / reference / notes).
     if (editingId !== null) {
-      const it = validItems[0];
-      if (!it) { setAddBusy(false); return; }
-      const qty = Number(it.qty);
-      const { error } = await sb.from('jobwork_bobbin_issue').update({
+      const [first, ...rest] = validItems;
+      if (!first) { setAddBusy(false); return; }
+      const shared = {
         jobwork_party_id: partyId,
-        bobbin_id: Number(it.bobbin_id),
         issue_date: addForm.purchase_date,
-        pieces_issued: qty,
-        original_pieces: qty,
         supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
         reference_no: addForm.reference_no.trim() === '' ? null : addForm.reference_no.trim(),
         notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
+      };
+      const qty = Number(first.qty);
+      const { error } = await sb.from('jobwork_bobbin_issue').update({
+        ...shared,
+        bobbin_id: Number(first.bobbin_id),
+        pieces_issued: qty,
+        original_pieces: qty,
       }).eq('id', editingId);
+      if (error) { setAddBusy(false); window.alert('Update failed: ' + error.message); return; }
+      if (rest.length > 0) {
+        const extra = rest.map((it) => ({
+          ...shared,
+          bobbin_id: Number(it.bobbin_id),
+          pieces_issued: Number(it.qty),
+          original_pieces: Number(it.qty),
+          status: 'active',
+        }));
+        const { error: insErr } = await sb.from('jobwork_bobbin_issue').insert(extra);
+        if (insErr) { setAddBusy(false); window.alert('Entry updated, but adding the extra lines failed: ' + insErr.message); onChanged(); return; }
+      }
+      // The list shows M/pc (and Total m) from the bobbin MASTER, not
+      // the issue row — so an M/pc edited here must be written back to
+      // the master or the table looks like "nothing changed".
+      const perPc = Number(first.metre_per_pc);
+      const bm = bobbinMasters.find((m) => m.id === Number(first.bobbin_id));
+      if (Number.isFinite(perPc) && perPc > 0 && bm && Number(bm.bobbin_metre ?? 0) !== perPc) {
+        const { error: bmErr } = await sb.from('bobbin').update({ bobbin_metre: perPc }).eq('id', Number(first.bobbin_id));
+        if (bmErr) window.alert('Entry updated, but M/pc could not be saved to the bobbin master: ' + bmErr.message);
+      }
       setAddBusy(false);
-      if (error) { window.alert('Update failed: ' + error.message); return; }
       resetAddForm();
       setShowAdd(false);
       onChanged();
@@ -1056,7 +1081,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         <div className="card p-3 mb-3 space-y-3">
           {editingId !== null && (
             <div className="text-xs font-semibold text-indigo bg-indigo-50 border border-indigo/20 rounded-md px-3 py-2">
-              Editing an existing entry — Save will update it, not create a new one.
+              Editing an existing entry — line 1 updates it; any extra lines you add are saved as new entries.
             </div>
           )}
           {/* Top: shared facts for every line in this submission */}
@@ -1209,17 +1234,16 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               <tfoot className="bg-cloud/30 border-t border-line/40">
                 <tr>
                   <td colSpan={4} className="px-2 py-2">
-                    {/* Multi-line only makes sense when adding; an edit
-                        targets exactly one existing row. */}
-                    {editingId === null && (
-                      <button
-                        type="button"
-                        onClick={addItemRow}
-                        className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add line
-                      </button>
-                    )}
+                    {/* In edit mode line 1 updates the entry being
+                        edited; extra lines are saved as NEW entries
+                        sharing the same party/date/supplier/reference. */}
+                    <button
+                      type="button"
+                      onClick={addItemRow}
+                      className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add line
+                    </button>
                   </td>
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {(() => {
@@ -1238,7 +1262,9 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           </div>
 
           <p className="text-[10px] text-ink-mute">
-            Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces — the master value is not changed.
+            {editingId !== null
+              ? <>Bobbins are managed in Settings &rarr; Bobbin Master. Changing M/pc here while editing updates the bobbin master, so every entry of that bobbin shows the corrected value.</>
+              : <>Bobbins are managed in Settings &rarr; Bobbin Master. M/pc prefills from the master when you pick a bobbin, but you can override it here for partial bobbins or short pieces — the master value is not changed.</>}
           </p>
 
           <div className="flex items-center justify-end gap-2">
