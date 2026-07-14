@@ -796,8 +796,9 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   const supabase = createClient();
   const [restockId, setRestockId] = useState<number | null>(null);
   const [returnId, setReturnId] = useState<number | null>(null);
+  // Row being edited via the Add form (Edit reopens the form pre-filled
+  // instead of inline row inputs). null = the form is in "add new" mode.
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<BobbinRow | null>(null);
   // Total qty returned per bobbin_id - shown alongside the "given" qty
   // so the operator sees the outstanding balance with the supplier.
   const returnedByBobbinId = new Map<number, number>();
@@ -854,6 +855,28 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       notes: '',
       items: [makeEmptyItem()],
     });
+    setEditingId(null);
+  }
+
+  /** Edit = reopen the Add form pre-filled with this row's values.
+   *  Saving then UPDATEs the row instead of inserting a new one. */
+  function startEdit(r: BobbinRow): void {
+    setEditingId(r.id);
+    setAddForm({
+      jobwork_party_id: r.jobwork_party_id != null ? String(r.jobwork_party_id) : '',
+      purchase_date: r.purchase_date ?? todayISO(),
+      supplier_party_id: r.supplier_party_id != null ? String(r.supplier_party_id) : '',
+      // BobbinRow.invoice_no carries jobwork_bobbin_issue.reference_no.
+      reference_no: r.invoice_no ?? '',
+      notes: r.notes ?? '',
+      items: [{
+        bobbin_id: String(r.bobbin_id),
+        qty: String(Number((r.original_quantity ?? r.quantity) ?? 0) || ''),
+        metre_per_pc: r.bobbin_metre != null ? String(r.bobbin_metre) : '',
+      }],
+    });
+    setShowAdd(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function addItemRow(): void {
@@ -903,6 +926,31 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     setAddBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
+
+    // Edit mode — the form was reopened from a row's Edit button, so
+    // UPDATE that single row instead of inserting new ones.
+    if (editingId !== null) {
+      const it = validItems[0];
+      if (!it) { setAddBusy(false); return; }
+      const qty = Number(it.qty);
+      const { error } = await sb.from('jobwork_bobbin_issue').update({
+        jobwork_party_id: partyId,
+        bobbin_id: Number(it.bobbin_id),
+        issue_date: addForm.purchase_date,
+        pieces_issued: qty,
+        original_pieces: qty,
+        supplier_party_id: addForm.supplier_party_id === '' ? null : Number(addForm.supplier_party_id),
+        reference_no: addForm.reference_no.trim() === '' ? null : addForm.reference_no.trim(),
+        notes: addForm.notes.trim() === '' ? null : addForm.notes.trim(),
+      }).eq('id', editingId);
+      setAddBusy(false);
+      if (error) { window.alert('Update failed: ' + error.message); return; }
+      resetAddForm();
+      setShowAdd(false);
+      onChanged();
+      return;
+    }
+
     const payloads = validItems.map((it) => ({
       jobwork_party_id: partyId,
       bobbin_id: Number(it.bobbin_id),
@@ -950,29 +998,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     onChanged();
   }
 
-  async function saveEdit(): Promise<void> {
-    if (!editForm) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
-    // Editing the issued qty resets BOTH original_pieces (the history
-    // value) and pieces_issued (the live balance). The bobbin master
-    // properties (ends, metre, lurex) live on the bobbin master and are
-    // not editable from this form — they belong to a different concern.
-    const editedQty = Number(editForm.original_quantity ?? editForm.quantity ?? 0);
-    const payload = {
-      jobwork_party_id: editForm.jobwork_party_id,
-      issue_date: editForm.purchase_date,
-      pieces_issued: editedQty,
-      original_pieces: editedQty,
-      notes: editForm.notes,
-    };
-    const { error } = await sb.from('jobwork_bobbin_issue').update(payload).eq('id', editForm.id);
-    if (error) { window.alert('Save failed: ' + error.message); return; }
-    setEditingId(null);
-    setEditForm(null);
-    onChanged();
-  }
-
   async function del(id: number): Promise<void> {
     if (!window.confirm('Delete this bobbin entry? This cannot be undone.')) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1010,7 +1035,14 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     <div>
       <div className="flex justify-between items-center mb-3">
         <p className="text-sm text-ink-mute">Bobbin issued to jobwork parties. Use Add to log a new bobbin spec; Restock to log a fresh batch of an existing spec.</p>
-        <button type="button" onClick={() => setShowAdd((v) => !v)} className="btn-primary">
+        <button
+          type="button"
+          onClick={() => {
+            if (showAdd) { setShowAdd(false); resetAddForm(); }
+            else setShowAdd(true);
+          }}
+          className="btn-primary"
+        >
           {showAdd ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showAdd ? 'Cancel' : 'Add bobbin given'}
         </button>
@@ -1022,6 +1054,11 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           master). One Save inserts N rows into jobwork_bobbin_issue. */}
       {showAdd && (
         <div className="card p-3 mb-3 space-y-3">
+          {editingId !== null && (
+            <div className="text-xs font-semibold text-indigo bg-indigo-50 border border-indigo/20 rounded-md px-3 py-2">
+              Editing an existing entry — Save will update it, not create a new one.
+            </div>
+          )}
           {/* Top: shared facts for every line in this submission */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
@@ -1172,13 +1209,17 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               <tfoot className="bg-cloud/30 border-t border-line/40">
                 <tr>
                   <td colSpan={4} className="px-2 py-2">
-                    <button
-                      type="button"
-                      onClick={addItemRow}
-                      className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add line
-                    </button>
+                    {/* Multi-line only makes sense when adding; an edit
+                        targets exactly one existing row. */}
+                    {editingId === null && (
+                      <button
+                        type="button"
+                        onClick={addItemRow}
+                        className="text-xs text-indigo-700 inline-flex items-center gap-1 hover:underline"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add line
+                      </button>
+                    )}
                   </td>
                   <td className="px-2 py-2 text-right num text-xs font-semibold">
                     {(() => {
@@ -1210,8 +1251,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               disabled={addBusy}
               className="btn-primary text-xs"
             >
-              {addBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Save all
+              {addBusy
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : editingId !== null ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              {editingId !== null ? 'Update' : 'Save all'}
             </button>
           </div>
         </div>
@@ -1221,61 +1264,36 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
         {rows.length === 0 ? (
           <div className="card p-4 text-center text-ink-soft text-sm">No jobwork bobbin entries yet.</div>
         ) : rows.map((r) => {
-          const isEditing = editingId === r.id;
-          const ef = isEditing && editForm ? editForm : r;
-          const partyOptions = Array.from(partyById.values());
           const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
           const perPcForRow = Number(r.bobbin_metre ?? 0);
           const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
           const returnedRow = returnedByBobbinId.get(r.id) ?? 0;
           const balanceRow = qtyForRow - returnedRow;
           return (
-            <div key={r.id} className="card p-3">
-              {isEditing ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-ink-mute">{r.code}</span>
-                    <span className="whitespace-nowrap">
-                      <button onClick={saveEdit} className="text-emerald-700 mr-3" title="Save"><Check className="w-4 h-4 inline" /></button>
-                      <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><label className="label text-[10px]">Date</label><input type="date" className="input h-8 text-xs" value={ef.purchase_date ?? ''} onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })} /></div>
-                    <div><label className="label text-[10px]">Party</label><select className="input h-8 text-xs" value={ef.jobwork_party_id ?? ''} onChange={(e) => setEditForm({ ...ef, jobwork_party_id: e.target.value === '' ? null : Number(e.target.value) })}><option value="">---</option>{partyOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div className="col-span-2"><label className="label text-[10px]">Description</label><input className="input h-8 text-xs" value={ef.description ?? ''} onChange={(e) => setEditForm({ ...ef, description: e.target.value })} /></div>
-                    <div><label className="label text-[10px]">Ends</label><input type="number" className="input num h-8 text-xs" value={ef.ends_per_bobbin ?? ''} onChange={(e) => setEditForm({ ...ef, ends_per_bobbin: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
-                    <div><label className="label text-[10px]">M/pc</label><input type="number" step={0.01} className="input num h-8 text-xs" value={ef.bobbin_metre ?? ''} onChange={(e) => setEditForm({ ...ef, bobbin_metre: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
-                    <div><label className="label text-[10px]">Qty (pcs)</label><input type="number" className="input num h-8 text-xs" value={ef.original_quantity ?? ef.quantity ?? ''} onChange={(e) => setEditForm({ ...ef, original_quantity: e.target.value === '' ? 0 : Number(e.target.value) })} /></div>
-                  </div>
+            <div key={r.id} className={`card p-3 ${editingId === r.id ? 'border-indigo/40 bg-indigo-50/40' : ''}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-mono text-xs font-semibold">{r.code}</div>
+                  <div className="text-xs text-ink-soft">{fmtDate(r.purchase_date)}</div>
                 </div>
-              ) : (
-                <>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="font-mono text-xs font-semibold">{r.code}</div>
-                      <div className="text-xs text-ink-soft">{fmtDate(r.purchase_date)}</div>
-                    </div>
-                    <span className="whitespace-nowrap shrink-0">
-                      <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
-                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
-                      <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 mr-3" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
-                      <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm">{r.jobwork_party_id ? partyById.get(r.jobwork_party_id)?.name ?? '-' : '-'}</div>
-                  {r.description && <div className="text-xs text-ink-soft">{r.description}</div>}
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div><div className="text-ink-mute">Ends</div><div className="num">{r.ends_per_bobbin}</div></div>
-                    <div><div className="text-ink-mute">M/pc</div><div className="num">{r.bobbin_metre}</div></div>
-                    <div><div className="text-ink-mute">Qty</div><div className="num font-semibold">{qtyForRow}</div></div>
-                    <div><div className="text-ink-mute">Total m</div><div className="num text-indigo-700 font-semibold">{totalMRow > 0 ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-'}</div></div>
-                    <div><div className="text-ink-mute">Returned</div><div className="num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</div></div>
-                    <div><div className="text-ink-mute">Balance</div><div className={`num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</div></div>
-                  </div>
-                </>
-              )}
-              {restockId === r.id && !isEditing && (
+                <span className="whitespace-nowrap shrink-0">
+                  <button onClick={() => startEdit(r)} className="text-indigo-700 mr-3" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                  <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 mr-3" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                  <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 mr-3" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
+                  <button onClick={() => del(r.id)} className="text-rose-700" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                </span>
+              </div>
+              <div className="mt-1 text-sm">{r.jobwork_party_id ? partyById.get(r.jobwork_party_id)?.name ?? '-' : '-'}</div>
+              {r.description && <div className="text-xs text-ink-soft">{r.description}</div>}
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div><div className="text-ink-mute">Ends</div><div className="num">{r.ends_per_bobbin}</div></div>
+                <div><div className="text-ink-mute">M/pc</div><div className="num">{r.bobbin_metre}</div></div>
+                <div><div className="text-ink-mute">Qty</div><div className="num font-semibold">{qtyForRow}</div></div>
+                <div><div className="text-ink-mute">Total m</div><div className="num text-indigo-700 font-semibold">{totalMRow > 0 ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-'}</div></div>
+                <div><div className="text-ink-mute">Returned</div><div className="num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</div></div>
+                <div><div className="text-ink-mute">Balance</div><div className={`num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</div></div>
+              </div>
+              {restockId === r.id && (
                 <div className="mt-2">
                   <RestockForm parties={bobbinSuppliers}
                     qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
@@ -1283,7 +1301,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                     onSave={(data) => restock(r, data)} />
                 </div>
               )}
-              {returnId === r.id && !isEditing && (
+              {returnId === r.id && (
                 <div className="mt-2">
                   <RestockForm parties={bobbinSuppliers}
                     qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
@@ -1319,9 +1337,6 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
             {rows.length === 0 ? (
               <tr><td colSpan={11} className="px-3 py-8 text-center text-ink-soft">No jobwork bobbin entries yet.</td></tr>
             ) : rows.map((r) => {
-              const isEditing = editingId === r.id;
-              const ef = isEditing && editForm ? editForm : r;
-              const partyOptions = Array.from(partyById.values());
               const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
               const perPcForRow = Number(r.bobbin_metre ?? 0);
               const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
@@ -1329,107 +1344,29 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               const balanceRow = qtyForRow - returnedRow;
               return (
                 <React.Fragment key={r.id}>
-                  <tr className="border-t border-line/40">
-                    {isEditing ? (
-                      <>
-                        <td className="px-2 py-2">
-                          <input
-                            type="date"
-                            className="input h-8 text-xs"
-                            value={ef.purchase_date ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, purchase_date: e.target.value || null })}
-                          />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs text-ink-mute">{r.code}</td>
-                        <td className="px-2 py-2">
-                          <select
-                            className="input h-8 text-xs"
-                            value={ef.jobwork_party_id ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, jobwork_party_id: e.target.value === '' ? null : Number(e.target.value) })}
-                          >
-                            <option value="">---</option>
-                            {partyOptions.map((p) => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            className="input h-8 text-xs"
-                            value={ef.description ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, description: e.target.value })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            className="input num h-8 text-xs w-16"
-                            value={ef.ends_per_bobbin ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, ends_per_bobbin: e.target.value === '' ? 0 : Number(e.target.value) })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            step={0.01}
-                            className="input num h-8 text-xs w-20"
-                            value={ef.bobbin_metre ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, bobbin_metre: e.target.value === '' ? 0 : Number(e.target.value) })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            className="input num h-8 text-xs w-20"
-                            value={ef.original_quantity ?? ef.quantity ?? ''}
-                            onChange={(e) => setEditForm({ ...ef, original_quantity: e.target.value === '' ? 0 : Number(e.target.value) })}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">
-                          {/* Total m is derived; not editable. Shows the
-                              live computed value as the operator edits. */}
-                          {(() => {
-                            const q = Number(ef.original_quantity ?? ef.quantity ?? 0);
-                            const p = Number(ef.bobbin_metre ?? 0);
-                            const t = p > 0 ? q * p : 0;
-                            return t > 0 ? t.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m' : '-';
-                          })()}
-                        </td>
-                        {/* Returned + Balance are derived from
-                            bobbin_return entries and aren't editable. */}
-                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">{returnedRow > 0 ? returnedRow : '-'}</td>
-                        <td className="px-3 py-2 text-right num text-xs text-ink-mute">{balanceRow}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button onClick={saveEdit} className="text-emerald-700 mr-2" title="Save"><Check className="w-4 h-4 inline" /></button>
-                          <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-ink-mute" title="Cancel"><X className="w-4 h-4 inline" /></button>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{fmtDate(r.purchase_date)}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                        <td className="px-3 py-2">{r.jobwork_party_id ? (partyById.get(r.jobwork_party_id)?.name ?? '-') : '-'}</td>
-                        <td className="px-3 py-2 text-ink-soft">{r.description}</td>
-                        <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
-                        <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
-                        <td className="px-3 py-2 text-right num font-semibold">{qtyForRow}</td>
-                        <td className="px-3 py-2 text-right num text-indigo-700 font-semibold">
-                          {totalMRow > 0
-                            ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m'
-                            : <span className="text-ink-mute">-</span>}
-                        </td>
-                        <td className="px-3 py-2 text-right num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</td>
-                        <td className={`px-3 py-2 text-right num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingId(r.id); setEditForm(r); }} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
-                          <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
-                          <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 hover:text-amber-900 mr-2" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
-                          <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
-                        </td>
-                      </>
-                    )}
+                  <tr className={`border-t border-line/40 ${editingId === r.id ? 'bg-indigo-50/50' : ''}`}>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{fmtDate(r.purchase_date)}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
+                    <td className="px-3 py-2">{r.jobwork_party_id ? (partyById.get(r.jobwork_party_id)?.name ?? '-') : '-'}</td>
+                    <td className="px-3 py-2 text-ink-soft">{r.description}</td>
+                    <td className="px-3 py-2 text-right num">{r.ends_per_bobbin}</td>
+                    <td className="px-3 py-2 text-right num">{r.bobbin_metre}</td>
+                    <td className="px-3 py-2 text-right num font-semibold">{qtyForRow}</td>
+                    <td className="px-3 py-2 text-right num text-indigo-700 font-semibold">
+                      {totalMRow > 0
+                        ? totalMRow.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' m'
+                        : <span className="text-ink-mute">-</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right num text-amber-700">{returnedRow > 0 ? returnedRow : '-'}</td>
+                    <td className={`px-3 py-2 text-right num font-semibold ${balanceRow > 0 ? 'text-ink' : 'text-emerald-700'}`}>{balanceRow}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button onClick={() => startEdit(r)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit"><Pencil className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setRestockId(restockId === r.id ? null : r.id)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Restock"><RefreshCw className="w-4 h-4 inline" /></button>
+                      <button onClick={() => setReturnId(returnId === r.id ? null : r.id)} className="text-amber-700 hover:text-amber-900 mr-2" title="Return to supplier"><ArrowLeft className="w-4 h-4 inline" /></button>
+                      <button onClick={() => del(r.id)} className="text-rose-700 hover:text-rose-900" title="Delete"><Trash2 className="w-4 h-4 inline" /></button>
+                    </td>
                   </tr>
-                  {restockId === r.id && !isEditing && (
+                  {restockId === r.id && (
                     <tr><td colSpan={11} className="p-0">
                       <RestockForm parties={bobbinSuppliers}
                         qtyFields={[{ key: 'qty', label: 'Qty', step: 1 }]}
@@ -1437,7 +1374,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         onSave={(data) => restock(r, data)} />
                     </td></tr>
                   )}
-                  {returnId === r.id && !isEditing && (
+                  {returnId === r.id && (
                     <tr><td colSpan={11} className="p-0">
                       <RestockForm parties={bobbinSuppliers}
                         qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
