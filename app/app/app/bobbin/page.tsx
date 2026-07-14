@@ -421,10 +421,11 @@ export default function BobbinPurchasePage() {
     };
 
     if (editingId !== null) {
-      // Row edit — the form was reopened from a row's pencil button, so
-      // UPDATE that single bobbin_purchase row instead of inserting.
-      // Same columns the old inline row editor wrote.
-      const it = validItems[0];
+      // Row edit — the form was reopened from a row's pencil button.
+      // Line 1 UPDATEs that bobbin_purchase row (same columns the old
+      // inline row editor wrote); any extra lines the operator added
+      // are INSERTed as new purchase rows on the same invoice.
+      const [it, ...rest] = validItems;
       if (!it) { setBusy(false); return; }
       const qty = Number(it.qty_pcs);
       const metre = it.metre_per_pc === '' ? null : Number(it.metre_per_pc);
@@ -443,9 +444,13 @@ export default function BobbinPurchasePage() {
           notes:            (form.notes.trim() + noteSuffix) || null,
         })
         .eq('id', editingId);
+      if (err) { setBusy(false); setError(err.message); return; }
+      if (rest.length > 0) {
+        const { error: insErr } = await sb.from('bobbin_purchase').insert(rest.map(toPayload));
+        if (insErr) { setBusy(false); setError('Purchase updated, but adding the extra lines failed: ' + insErr.message); return; }
+      }
       setBusy(false);
-      if (err) { setError(err.message); return; }
-      setSavedMsg('Purchase updated.');
+      setSavedMsg(rest.length > 0 ? `Purchase updated, ${rest.length} new line${rest.length === 1 ? '' : 's'} added.` : 'Purchase updated.');
     } else if (editInvoiceIds === null) {
       // New purchase — plain multi-line insert. Round-off sits on line 1.
       const payloads = validItems.map(toPayload);
@@ -648,7 +653,7 @@ export default function BobbinPurchasePage() {
 
           {editingId !== null && (
             <div className="text-xs font-semibold text-indigo bg-indigo-50 border border-indigo/20 rounded-md px-3 py-2">
-              Editing an existing entry — Save will update it, not create a new one.
+              Editing an existing entry — line 1 updates it; any extra lines you add are saved as new purchase lines.
             </div>
           )}
 
