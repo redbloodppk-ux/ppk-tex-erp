@@ -303,17 +303,22 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
   // total-metres display, and pavu insert payload.
   const allBeams = useMemo(() => endsGroups.flatMap((g) => g.beams), [endsGroups]);
 
-  // ── billing math (rounded to whole rupees) ──
+  // ── billing math ──
+  // Charges + Total stay rounded to whole rupees (mills invoice in
+  // whole-rupee figures). GST is derived from the *rounded* charges,
+  // and the gap to the whole-rupee Total is captured in round_off so
+  // v_purchase_register's (total - round_off) - taxable reconstruction
+  // yields the exact decimal GST (e.g. ₹376.60) instead of inflating
+  // it to a whole rupee (₹377.00) the way a stuck round_off of 0 did.
   const billing = useMemo(() => {
     const kg = Number(yarnUsedKg) || 0;
     const r  = Number(rate)       || 0;
     const g  = Number(gstPct)     || 0;
-    const chargesRaw = kg * r;
-    const totalRaw   = chargesRaw * (1 + g / 100);
-    return {
-      charges: Math.round(chargesRaw),
-      total:   Math.round(totalRaw),
-    };
+    const charges  = Math.round(kg * r);
+    const gstExact = Math.round(charges * g) / 100;
+    const total    = Math.round(charges + gstExact);
+    const roundOff = Math.round((total - charges - gstExact) * 100) / 100;
+    return { charges, total, roundOff };
   }, [yarnUsedKg, rate, gstPct]);
 
   const balance = useMemo(() => (Number(yarnSentKg) || 0) - (Number(yarnUsedKg) || 0), [yarnSentKg, yarnUsedKg]);
@@ -441,6 +446,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
       charges_amount:         billing.charges,
       gst_pct:                Number(gstPct) || 0,
       total_amount:           billing.total,
+      round_off:              billing.roundOff,
       bill_no:                billNo.trim(),
       bill_date:              billDate,
       default_production_mode: defaultMode === 'mixed' ? null : defaultMode,

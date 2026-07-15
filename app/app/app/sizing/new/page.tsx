@@ -354,20 +354,24 @@ export default function NewSizingJobPage() {
   // Mills bill for what they actually sized, not for what was handed
   // over — sent quantity stays as a stock-movement record only.
   //
-  // Bill values are rounded to whole rupees (no paise). Mills here
-  // invoice in whole-rupee figures, and the prior 2-decimal display
-  // was creating spurious ₹0.01 / ₹0.02 mismatches against the
-  // operator's paper bills.
+  // Charges and Total are still rounded to whole rupees (no paise) —
+  // mills here invoice in whole-rupee figures. But GST is now derived
+  // from the *rounded* charges (not the raw kg×rate), and the gap
+  // between that exact GST and the whole-rupee Total is captured in
+  // round_off. That keeps v_purchase_register's reconstruction
+  //   (total - round_off) - taxable
+  // an exact decimal GST figure (e.g. ₹376.60) instead of it silently
+  // inflating to a whole rupee (₹377.00) the way it did when round_off
+  // was left at 0.
   const billing = useMemo(() => {
     const kg = Number(yarnUsedKg) || 0;
     const r  = Number(rate) || 0;
     const g  = Number(gstPct) || 0;
-    const chargesRaw = kg * r;
-    const totalRaw   = chargesRaw * (1 + g / 100);
-    return {
-      charges: Math.round(chargesRaw),
-      total:   Math.round(totalRaw),
-    };
+    const charges  = Math.round(kg * r);
+    const gstExact = Math.round(charges * g) / 100; // exact GST to the paisa
+    const total    = Math.round(charges + gstExact); // whole-rupee bill total
+    const roundOff = Math.round((total - charges - gstExact) * 100) / 100;
+    return { charges, total, roundOff };
   }, [yarnUsedKg, rate, gstPct]);
 
   const balance = useMemo(() => {
@@ -488,6 +492,7 @@ export default function NewSizingJobPage() {
       charges_amount:   billing.charges,
       gst_pct:          Number(gstPct) || 0,
       total_amount:     billing.total,
+      round_off:        billing.roundOff,
       // Sizing-bill fields (migration 116). Both mandatory in the UI.
       bill_no:          billNo.trim(),
       bill_date:        billDate,
