@@ -62,6 +62,13 @@ interface DcItemRow {
   pieces: number | null;
   bundles: number | null;
   hsn: string | null;
+  /** Set when this DC line was dispatched straight out of a Production
+   *  Batch (migration 196) rather than the separate outsource
+   *  dispatch→receive flow. These DCs never get a fabric_receipt_id by
+   *  design — the batch record itself is the verified source of truth —
+   *  so they must still count as billable even though fabric_receipt_id
+   *  is null. */
+  production_batch_id: number | null;
 }
 
 /** Aggregated billing data per DC × quality, sourced from the fabric
@@ -298,7 +305,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       const dcIds = dcList.map((d) => d.id);
       const { data: itemRows } = await sb
         .from('delivery_challan_item')
-        .select('dc_id, fabric_quality_id, metres, pieces, bundles, hsn')
+        .select('dc_id, fabric_quality_id, metres, pieces, bundles, hsn, production_batch_id')
         .in('dc_id', dcIds);
       if (cancelled) return;
       const itemList = (itemRows ?? []) as DcItemRow[];
@@ -393,6 +400,19 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   // `party` is now computed earlier in the file so the doc_type +
   // preview can switch the moment a party is selected (see useMemo
   // above at the top of the component).
+
+  // ── DCs dispatched straight out of a Production Batch (migration 196) ──
+  // These skip the fabric_receipt step by design (the batch record is
+  // already the verified quantity), so fabric_receipt_id is permanently
+  // null for them. Without this, such DCs would sit "Not receipted"
+  // forever and could never be billed.
+  const batchSourcedDcIds = useMemo<Set<number>>(() => {
+    const s = new Set<number>();
+    for (const it of items) {
+      if (it.production_batch_id != null) s.add(it.dc_id);
+    }
+    return s;
+  }, [items]);
 
   // ── Aggregated lines, keyed by fabric_quality_id ──
   // Source of truth = the fabric_receipt (not the DC). If any receipt
@@ -769,7 +789,9 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
             <tbody>
               {dcs.map((d) => {
                 const picked = pickedDcIds.has(d.id);
-                const receipted = d.fabric_receipt_id !== null;
+                const hasReceipt = d.fabric_receipt_id !== null;
+                const fromBatch = batchSourcedDcIds.has(d.id);
+                const receipted = hasReceipt || fromBatch;
                 return (
                   <tr
                     key={d.id}
@@ -791,9 +813,13 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
                     <td className="px-3 py-2 font-mono text-xs">{d.code}</td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{fmtDate(d.dc_date)}</td>
                     <td className="px-3 py-2">
-                      {receipted ? (
+                      {hasReceipt ? (
                         <span className="pill bg-emerald-50 text-emerald-700 text-[10px] uppercase tracking-wide">
                           Receipted
+                        </span>
+                      ) : fromBatch ? (
+                        <span className="pill bg-sky-50 text-sky-700 text-[10px] uppercase tracking-wide" title="Dispatched straight from a Production Batch - no separate receipt needed">
+                          From batch
                         </span>
                       ) : (
                         <span className="pill bg-rose-50 text-rose-700 text-[10px] uppercase tracking-wide" title="Save a Fabric Receipt against this DC before billing">
