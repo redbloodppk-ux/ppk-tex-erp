@@ -50,7 +50,7 @@ const REPORTS: ReportLink[] = [
   },
   {
     href: '/app/reports/purchase-register',
-    title: 'Purchase Register',
+    title: 'Purchase Register (GSTR 2B)',
     description:
       'Every supplier bill in one place — yarn, bobbin, sizing, fabric and outsource weaving. CGST/SGST/IGST split with "with GST / without GST" filter.',
     ready: true,

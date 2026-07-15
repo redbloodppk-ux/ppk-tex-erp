@@ -29,7 +29,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-export const metadata = { title: 'Purchase Register' };
+export const metadata = { title: 'Purchase Register (GSTR 2B)' };
 export const dynamic = 'force-dynamic';
 
 type SourceFilter =
@@ -321,17 +321,17 @@ export default async function PurchaseRegisterReport({
   return (
     <div>
       <PageHeader
-        title="Purchase Register"
+        title="Purchase Register (GSTR 2B)"
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
-          { label: 'Purchase Register' },
+          { label: 'Purchase Register (GSTR 2B)' },
         ]}
         subtitle={`Every supplier bill between ${from} and ${to}. Unions yarn, bobbin, sizing, fabric, and outsource-weaving bills. GST split is auto-derived from supplier state.`}
         actions={
           <ExcelExportButton
             filename="purchase-register"
-            sheetName="Purchase Register"
-            title={`Purchase Register · ${from} to ${to}`}
+            sheetName="Purchase Register (GSTR 2B)"
+            title={`Purchase Register (GSTR 2B) · ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
