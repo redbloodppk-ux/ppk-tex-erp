@@ -678,6 +678,18 @@ function AssignModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Lock background scroll while this modal is open — without this the
+  // page behind can scroll-chain with the modal's own internal scroll on
+  // mobile, which felt like "the screen scrolls wrong" and made the
+  // Assign/Cancel footer unreachable on long forms (e.g. a loom that
+  // already has an active assignment, which adds the removal/actual-metres
+  // block above and pushes the form well past one screen).
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Keep the metres-count start date defaulted to mounted date + 1 day,
   // unless the user has manually edited it — shift logs are sometimes
   // entered late, so this should stay independently editable.
@@ -790,7 +802,7 @@ function AssignModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
         <div className="flex shrink-0 items-center justify-between p-4 border-b border-line/60">
           <div>
             <div className="text-xs uppercase tracking-wide text-ink-mute">Assign to</div>
@@ -802,7 +814,7 @@ function AssignModal({
         </div>
 
         <form onSubmit={onSubmit} className="flex flex-1 min-h-0 flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
           {currentAssignment?.pavu && (
             <div className="space-y-2">
               <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
@@ -986,6 +998,13 @@ function EditAssignmentModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // See AssignModal above for why this locks background scroll.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr(null);
@@ -1007,7 +1026,7 @@ function EditAssignmentModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
         <div className="flex shrink-0 items-center justify-between p-4 border-b border-line/60">
           <div>
             <div className="text-xs uppercase tracking-wide text-ink-mute">Edit assignment</div>
@@ -1019,7 +1038,7 @@ function EditAssignmentModal({
         </div>
 
         <form onSubmit={onSubmit} className="flex flex-1 min-h-0 flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
           <div>
             <label className="label">Quality being woven</label>
             <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
