@@ -831,8 +831,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       {/* Outstanding Customer Payments — grouped by party with
           expand-to-detail. Top row = party name + total outstanding;
-          click to see the actual unpaid invoices. */}
-      <section className="card p-4">
+          click to see the actual unpaid invoices.
+          min-w-0: without this, a grid item defaults to min-width:auto,
+          so it stretches to fit the bills table's intrinsic width instead
+          of clipping to the column — which silently defeats the table's
+          own overflow-x-auto and gets clipped by <main>'s overflow-x-hidden,
+          making the extra columns unreachable on mobile. */}
+      <section className="card p-4 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-rose-600" />
@@ -851,7 +856,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       {/* Outstanding Job Work Bills — grouped by the jobwork party.
           These are the older jobwork_invoice doc type. */}
-      <section className="card p-4">
+      <section className="card p-4 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Hammer className="w-4 h-4 text-amber-700" />
@@ -870,7 +875,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       {/* Outstanding Outsourcing Weaving Bills — grouped by the
           outsource weaver. These are the newer weaving_bill doc type. */}
-      <section className="card p-4">
+      <section className="card p-4 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Truck className="w-4 h-4 text-rose-700" />
@@ -891,7 +896,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           sizing mills, bobbin / yarn / fabric suppliers, and any
           pre-ERP opening payable. Grouped by supplier so the
           operator sees totals per party first; click to drill in. */}
-      <section className="card p-4">
+      <section className="card p-4 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Truck className="w-4 h-4 text-violet-700" />
