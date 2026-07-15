@@ -95,13 +95,21 @@ function todayISO(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Beam progress: % of the beam's nominal metres already woven, or null if
- *  the pavu has no usable nominal metres. Not capped — >100% means the beam
- *  overran its nominal length. */
-function beamPct(a: ActiveAssignment): number | null {
+/** Cumulative metres woven on this beam: the live assignment's metres_produced
+ *  plus anything woven under a PRIOR ended assignment of the same beam (it
+ *  was mounted, partly woven, taken off, then remounted). */
+function cumulativeMetres(a: ActiveAssignment, priorMetresByPavuId: Map<number, number>): number {
+  const prior = a.pavu ? (priorMetresByPavuId.get(a.pavu.id) ?? 0) : 0;
+  return prior + Number(a.metres_produced ?? 0);
+}
+
+/** Beam progress: % of the beam's nominal metres already woven (cumulative
+ *  across mount cycles), or null if the pavu has no usable nominal metres.
+ *  Not capped — >100% means the beam overran its nominal length. */
+function beamPct(a: ActiveAssignment, priorMetresByPavuId: Map<number, number>): number | null {
   const nominal = Number(a.pavu?.meters ?? 0);
   if (!(nominal > 0)) return null;
-  return Math.round((Number(a.metres_produced) / nominal) * 100);
+  return Math.round((cumulativeMetres(a, priorMetresByPavuId) / nominal) * 100);
 }
 
 /** Adds one day to a yyyy-mm-dd date string, returning the same format. */
@@ -130,6 +138,12 @@ export default function PavuAssignPage() {
   // and the set's TOTAL beam count. Computed over ALL pavus of the set
   // (any status), so mounting/finishing a beam doesn't shift the others.
   const [setPosById, setSetPosById] = useState<Map<number, { pos: number; total: number }>>(new Map());
+  // pavu id → metres already woven under a PREVIOUS assignment of the same
+  // physical beam (status 'removed' or 'completed'). A beam can be taken off
+  // a loom and remounted later to finish weaving its shortfall — the current
+  // pavu_assign row's metres_produced only tracks the live mount, so this map
+  // carries forward the earlier progress for the "X / Y m" display.
+  const [priorMetresByPavuId, setPriorMetresByPavuId] = useState<Map<number, number>>(new Map());
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -202,6 +216,33 @@ export default function PavuAssignPage() {
     setActive((a.data as any) ?? []);
     setStock((p.data as any) ?? []);
     setQualities(q.data ?? []);
+
+    // Carry-forward metres: a beam currently on a loom may have been mounted,
+    // partly woven, taken off, and remounted (e.g. wrongly marked complete
+    // then reverted). Sum up any PRIOR ended assignments (removed/completed)
+    // for the same pavu ids so the progress widget shows cumulative metres
+    // instead of resetting to 0 on remount.
+    {
+      const activePavuIds = Array.from(new Set(
+        ((a.data as any) ?? [])
+          .map((row: { pavu: { id: number } | null }) => row.pavu?.id)
+          .filter((id: number | undefined): id is number => id != null),
+      ));
+      if (activePavuIds.length > 0) {
+        const { data: priorRows } = await supabase
+          .from('pavu_assign')
+          .select('pavu_id, metres_produced, status')
+          .in('pavu_id', activePavuIds)
+          .in('status', ['removed', 'completed']);
+        const priorMap = new Map<number, number>();
+        for (const row of (priorRows as { pavu_id: number; metres_produced: number | null }[] | null) ?? []) {
+          priorMap.set(row.pavu_id, (priorMap.get(row.pavu_id) ?? 0) + Number(row.metres_produced ?? 0));
+        }
+        setPriorMetresByPavuId(priorMap);
+      } else {
+        setPriorMetresByPavuId(new Map());
+      }
+    }
 
     const qMap = new Map<number, QualityEndsInfo>();
     for (const row of (fq.data as { id: number; name: string; calc_snapshot: Record<string, unknown> | null }[] | null) ?? []) {
@@ -366,7 +407,7 @@ export default function PavuAssignPage() {
     const due: string[] = [];
     const near: string[] = [];
     for (const a of active) {
-      const p = beamPct(a);
+      const p = beamPct(a, priorMetresByPavuId);
       if (p == null) continue;
       const code = codeById.get(a.loom_id) ?? `Loom ${a.loom_id}`;
       if (p >= 95) due.push(code);
@@ -374,7 +415,7 @@ export default function PavuAssignPage() {
     }
     due.sort(); near.sort();
     return { due, near };
-  }, [active, looms]);
+  }, [active, looms, priorMetresByPavuId]);
 
   /** Looms grouped by shed_no, each shed's looms sorted by loom_code.
    *  Looms with no shed assigned (shouldn't normally happen) are grouped
@@ -548,7 +589,8 @@ export default function PavuAssignPage() {
                       </div>
                     )}
                     {(() => {
-                      const pct = beamPct(cur);
+                      const pct = beamPct(cur, priorMetresByPavuId);
+                      const shown = cumulativeMetres(cur, priorMetresByPavuId);
                       const barColor = pct != null && pct >= 95 ? 'bg-rose-500'
                         : pct != null && pct >= 85 ? 'bg-amber-500'
                         : 'bg-indigo';
@@ -557,7 +599,7 @@ export default function PavuAssignPage() {
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] uppercase tracking-wide text-ink-mute">{cur.status}</span>
                             <span className="text-xs num">
-                              {Number(cur.metres_produced).toFixed(0)} / {Number(cur.pavu.meters).toFixed(0)} m
+                              {shown.toFixed(0)} / {Number(cur.pavu.meters).toFixed(0)} m
                               {pct != null ? ` · ${pct}%` : ''}
                             </span>
                           </div>
