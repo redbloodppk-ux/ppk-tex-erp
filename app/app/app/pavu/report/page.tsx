@@ -24,6 +24,9 @@ interface StockRow {
   ends: number;
   yarn_count: string | null;
   set_no: string | null;
+  /** Fabric quality — from the assignment's costing, the jobwork entry,
+   *  or the latest costing matching this beam's ends. */
+  quality: string | null;
   loaded_metre: number;
   finished_metre: number;
   status_as_of: string;
@@ -129,21 +132,24 @@ export default function PavuStockReportPage() {
     filtered.sort((a, b) => loomSortKey(a) - loomSortKey(b));
   }
 
-  // Summary grouped by ends + yarn count.
+  // Summary grouped by ends + yarn count + quality.
   const summary = useMemo(() => {
     const m = new Map<string, {
-      ends: number; yarn_count: string | null; count: number;
+      ends: number; yarn_count: string | null; quality: string | null; count: number;
       loaded: number; finished: number;
     }>();
     for (const r of filtered) {
-      const key = `${r.ends}__${r.yarn_count ?? ''}`;
-      const cur = m.get(key) ?? { ends: r.ends, yarn_count: r.yarn_count, count: 0, loaded: 0, finished: 0 };
+      const key = `${r.ends}__${r.yarn_count ?? ''}__${r.quality ?? ''}`;
+      const cur = m.get(key) ?? { ends: r.ends, yarn_count: r.yarn_count, quality: r.quality, count: 0, loaded: 0, finished: 0 };
       cur.count += 1;
       cur.loaded += Number(r.loaded_metre);
       cur.finished += Number(r.finished_metre);
       m.set(key, cur);
     }
-    return Array.from(m.values()).sort((a, b) => a.ends - b.ends || (a.yarn_count ?? '').localeCompare(b.yarn_count ?? ''));
+    return Array.from(m.values()).sort((a, b) =>
+      a.ends - b.ends
+      || (a.yarn_count ?? '').localeCompare(b.yarn_count ?? '')
+      || (a.quality ?? '').localeCompare(b.quality ?? ''));
   }, [filtered]);
 
   return (
@@ -230,6 +236,7 @@ export default function PavuStockReportPage() {
               <tr className="text-left text-xs text-ink-mute border-b border-line/60">
                 <th className="py-1.5 pr-3">Ends</th>
                 <th className="py-1.5 pr-3">Yarn count</th>
+                <th className="py-1.5 pr-3">Quality</th>
                 <th className="py-1.5 pr-3 text-right">Beams</th>
                 <th className="py-1.5 pr-3 text-right">Loaded m</th>
                 <th className="py-1.5 pr-3 text-right">Finished m</th>
@@ -237,9 +244,10 @@ export default function PavuStockReportPage() {
             </thead>
             <tbody>
               {summary.map(s => (
-                <tr key={`${s.ends}__${s.yarn_count}`} className="border-b border-line/30 last:border-0">
+                <tr key={`${s.ends}__${s.yarn_count}__${s.quality}`} className="border-b border-line/30 last:border-0">
                   <td className="py-1.5 pr-3 num">{s.ends}</td>
                   <td className="py-1.5 pr-3">{s.yarn_count ?? '—'}</td>
+                  <td className="py-1.5 pr-3">{s.quality ?? '—'}</td>
                   <td className="py-1.5 pr-3 text-right num">{s.count}</td>
                   <td className="py-1.5 pr-3 text-right num">{s.loaded.toFixed(0)}</td>
                   <td className={`py-1.5 pr-3 text-right num ${s.finished < 0 ? 'text-rose-600' : ''}`}>
