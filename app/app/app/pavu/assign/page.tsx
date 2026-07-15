@@ -327,11 +327,20 @@ export default function PavuAssignPage() {
       setError('Invalid metres value — removal cancelled.');
       return;
     }
+    // Finished (no yarn left) beams must not keep counting as "in stock" —
+    // only 'completed' assignments read as status 'finished' in the Beam
+    // Stock Report; 'removed' means the beam still has usable yarn and
+    // goes back to the in-stock pool to be mounted again.
+    const isFinished = window.confirm(
+      `Is ${a.pavu?.pavu_code ?? 'this beam'} FULLY finished — no yarn left, won't be reassigned?\n\n` +
+      `OK = Finished (removed from stock counts)\n` +
+      `Cancel = Just removed early, still has yarn (stays in stock for reuse)`,
+    );
     setRemoving(a.id);
     const { error: rmErr } = await sb
       .from('pavu_assign')
       .update({
-        status: 'removed',
+        status: isFinished ? 'completed' : 'removed',
         end_date: new Date().toISOString().slice(0, 10),
         actual_metres: actual,
         metre_variance: nominal > 0 ? actual - nominal : null,
@@ -675,6 +684,11 @@ function AssignModal({
   // logs, operator-correctable so shortfall/excess vs nominal is recorded.
   const [actualMetres, setActualMetres] = useState(() =>
     currentAssignment ? Number(currentAssignment.metres_produced ?? 0).toFixed(0) : '');
+  // Whether the beam being swapped off is fully done (no yarn left) — if so
+  // it's marked 'completed' so the Beam Stock Report shows it as "finished"
+  // instead of counting it toward "in stock". Left unchecked, it's marked
+  // 'removed' and goes back to the in-stock pool for reassignment.
+  const [oldBeamFinished, setOldBeamFinished] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -767,7 +781,7 @@ function AssignModal({
       const paTable = supabase.from('pavu_assign') as any;
       const { error: rmErr } = await paTable
         .update({
-          status: 'removed',
+          status: oldBeamFinished ? 'completed' : 'removed',
           end_date: new Date().toISOString().slice(0, 10),
           actual_metres: actual,
           metre_variance: nominal > 0 ? actual - nominal : null,
@@ -819,7 +833,7 @@ function AssignModal({
             <div className="space-y-2">
               <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
                 Loom currently has <span className="font-mono font-semibold">{currentAssignment.pavu.pavu_code}</span>.
-                Saving will mark it removed.
+                Saving will {oldBeamFinished ? 'mark it finished' : 'remove it back to stock'}.
               </div>
               <div>
                 <label className="label">
@@ -853,6 +867,18 @@ function AssignModal({
                   );
                 })()}
               </div>
+              <label className="flex items-start gap-2 text-xs p-2 rounded-lg bg-cloud/60">
+                <input
+                  type="checkbox"
+                  checked={oldBeamFinished}
+                  onChange={e => setOldBeamFinished(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  This beam is fully finished — no yarn left, won't be reassigned.
+                  {' '}Leave unchecked if it still has usable yarn (it'll stay in stock for reuse).
+                </span>
+              </label>
             </div>
           )}
 
