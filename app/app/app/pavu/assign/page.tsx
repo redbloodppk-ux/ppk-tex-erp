@@ -790,8 +790,8 @@ function AssignModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
-        <div className="flex items-center justify-between p-4 border-b border-line/60">
+      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
+        <div className="flex shrink-0 items-center justify-between p-4 border-b border-line/60">
           <div>
             <div className="text-xs uppercase tracking-wide text-ink-mute">Assign to</div>
             <div className="font-mono font-bold">{loom.loom_code}</div>
@@ -801,7 +801,8 @@ function AssignModal({
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="p-4 space-y-4">
+        <form onSubmit={onSubmit} className="flex flex-1 min-h-0 flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4">
           {currentAssignment?.pavu && (
             <div className="space-y-2">
               <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
@@ -951,8 +952,9 @@ function AssignModal({
           )}
 
           {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}
+          </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-line/60 p-4">
             <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
             <button type="submit" disabled={busy || !pavuId} className="btn-primary">
               {busy ? 'Saving…' : 'Assign'}
@@ -1005,8 +1007,8 @@ function EditAssignmentModal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md border border-line/60">
-        <div className="flex items-center justify-between p-4 border-b border-line/60">
+      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden bg-paper rounded-t-2xl sm:rounded-2xl shadow-xl border border-line/60">
+        <div className="flex shrink-0 items-center justify-between p-4 border-b border-line/60">
           <div>
             <div className="text-xs uppercase tracking-wide text-ink-mute">Edit assignment</div>
             <div className="font-mono font-bold">{assignment.pavu?.pavu_code ?? '—'}</div>
@@ -1016,7 +1018,8 @@ function EditAssignmentModal({
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="p-4 space-y-4">
+        <form onSubmit={onSubmit} className="flex flex-1 min-h-0 flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4">
           <div>
             <label className="label">Quality being woven</label>
             <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
@@ -1051,8 +1054,9 @@ function EditAssignmentModal({
           </div>
 
           {err && <div className="p-3 rounded-lg bg-red-50 text-err text-sm">{err}</div>}
+          </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-line/60 p-4">
             <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
             <button type="submit" disabled={busy} className="btn-primary">
               {busy ? 'Saving…' : 'Save changes'}
