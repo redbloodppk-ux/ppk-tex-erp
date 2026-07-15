@@ -549,7 +549,6 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
     if (party === null) { setError('Pick an outsource party.'); return; }
     if (pickedDcIds.size === 0) { setError('Pick at least one DC.'); return; }
     if (lines.length === 0) { setError('Selected DCs have no fabric quality lines.'); return; }
-    if (vehicleNo.trim() === '') { setError('Vehicle number is required.'); return; }
     if (missingRateQualities.length > 0) {
       setError(`Set pick_cost_per_m on: ${missingRateQualities.join(', ')}`);
       return;
@@ -952,21 +951,20 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
 
       <div className="card p-4 space-y-3">
         <div>
-          <label className="label">Vehicle number *</label>
+          <label className="label">Vehicle number</label>
           <input
             value={vehicleNo}
             onChange={(e) => setVehicleNo(e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, ''))}
             className="input uppercase"
             placeholder="e.g. TN33 AB 1234"
             maxLength={20}
-            required
             list="jb-vehicle-history"
           />
           <datalist id="jb-vehicle-history">
             {vehicleHistory.map((v) => <option key={v} value={v} />)}
           </datalist>
           <p className="text-[10px] text-ink-mute mt-1">
-            Required on every invoice and printed on the bill. Past vehicles auto-suggest.
+            Optional — printed on the bill if entered. Past vehicles auto-suggest.
           </p>
         </div>
         <div>
