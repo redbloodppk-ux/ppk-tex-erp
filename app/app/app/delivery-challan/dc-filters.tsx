@@ -67,24 +67,21 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
     [scopedParties],
   );
 
-  // Scope the quality list to whichever tab is active, same rule as the
-  // party dropdown above and the New DC form's quality picker. The two
-  // sides spell "job work" / "outsourcing" differently, so normalize
-  // rather than compare literally:
-  //   DC production_mode      fabric_quality.production_mode
-  //   'inhouse'          <->  'inhouse'
-  //   'jobwork'          <->  'job_work' (or 'jobwork')
-  //   'outsource'        <->  'outsourcing' (or 'outsource')
-  // "All" tab (no mode) keeps every active quality available.
+  // Scope the quality list to whichever tab is active — same rule the New
+  // DC form's quality picker already uses (dc-form.tsx): nobody tags
+  // fabric qualities 'outsourcing' in practice (outsource weaving just
+  // reproduces an existing inhouse quality at an outside mill), so a
+  // strict 3-way split leaves the Outsource tab with an empty dropdown.
+  // Instead it's a 2-way split — jobwork qualities vs. everything else —
+  // and In-house / Outsource Weaving both get "everything else". "All"
+  // tab (no mode) keeps every active quality available.
+  const isJobworkQuality = (q: QualityOption): boolean =>
+    q.production_mode === 'job_work' || q.production_mode === 'jobwork';
   const scopedQualities = useMemo(() => {
     if (mode === '') return qualities;
-    return qualities.filter((q) => {
-      const pm = q.production_mode ?? '';
-      if (mode === 'inhouse') return pm === 'inhouse';
-      if (mode === 'jobwork') return pm === 'job_work' || pm === 'jobwork';
-      if (mode === 'outsource') return pm === 'outsourcing' || pm === 'outsource';
-      return true;
-    });
+    return mode === 'jobwork'
+      ? qualities.filter(isJobworkQuality)
+      : qualities.filter((q) => !isJobworkQuality(q));
   }, [qualities, mode]);
 
   // Several physically-distinct fabric_quality rows can share one merged
