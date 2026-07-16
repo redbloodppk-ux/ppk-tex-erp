@@ -5,6 +5,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { Plus, Pencil, Printer, PackageCheck } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
 import { CancelDcButton } from './cancel-dc-button';
+import { DcFilters } from './dc-filters';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -80,7 +81,10 @@ function statusPill(s: DcRow['status']): { label: string; cls: string } {
 export default async function DeliveryChallanListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; dir?: string; mode?: string }>;
+  searchParams: Promise<{
+    sort?: string; dir?: string; mode?: string;
+    from?: string; to?: string; party?: string; quality?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'dc_date';
@@ -93,18 +97,59 @@ export default async function DeliveryChallanListPage({
   // so on. No mode = show everything (legacy behaviour).
   const mode: ModeFilter | null = isModeFilter(sp.mode) ? sp.mode : null;
 
+  // Optional date-range / party / fabric-quality filters — apply across
+  // all 4 tabs (via DcFilters, a client filter bar) alongside whatever
+  // mode tab is active. Basic format guards so a malformed param can't
+  // break the query.
+  const isDate = (s: string | undefined): s is string => s != null && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const from = isDate(sp.from) ? sp.from : null;
+  const to = isDate(sp.to) ? sp.to : null;
+  const partyId = sp.party != null && /^\d+$/.test(sp.party) ? Number(sp.party) : null;
+  const qualityId = sp.quality != null && /^\d+$/.test(sp.quality) ? Number(sp.quality) : null;
+
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
-  let q = sb
-    .from('delivery_challan')
-    .select('id, code, void_code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id, fabric_receipt_id')
-    .order(sort, { ascending: dir === 'asc' })
-    .order('id', { ascending: false });
-  if (mode !== null) q = q.eq('production_mode', mode);
-  const { data, error } = await q;
 
-  const rows = (data ?? []) as DcRow[];
+  // Fabric-quality filter isn't a column on delivery_challan itself — it
+  // lives on delivery_challan_item. Resolve it to a set of dc ids first so
+  // the main query can just .in('id', …) alongside the other filters.
+  let qualityDcIds: number[] | null = null;
+  if (qualityId !== null) {
+    const { data: qItemRows } = await sb
+      .from('delivery_challan_item')
+      .select('dc_id')
+      .eq('fabric_quality_id', qualityId);
+    qualityDcIds = Array.from(new Set(
+      ((qItemRows ?? []) as Array<{ dc_id: number | null }>)
+        .map((r) => r.dc_id)
+        .filter((id): id is number => id != null),
+    ));
+  }
+
+  let rows: DcRow[] = [];
+  let error: { message: string } | null = null;
+  if (qualityDcIds === null || qualityDcIds.length > 0) {
+    let q = sb
+      .from('delivery_challan')
+      .select('id, code, void_code, dc_date, status, production_mode, party_id, bill_to_name, total_metres, total_pieces, total_bundles, sales_order_id, invoice_id, fabric_receipt_id')
+      .order(sort, { ascending: dir === 'asc' })
+      .order('id', { ascending: false });
+    if (mode !== null) q = q.eq('production_mode', mode);
+    if (from !== null) q = q.gte('dc_date', from);
+    if (to !== null) q = q.lte('dc_date', to);
+    if (partyId !== null) q = q.eq('party_id', partyId);
+    if (qualityDcIds !== null) q = q.in('id', qualityDcIds);
+    const res = await q;
+    rows = (res.data ?? []) as DcRow[];
+    error = res.error;
+  }
+
+  // Options for the Party / Fabric Quality filter dropdowns.
+  const [{ data: partyOpts }, { data: qualityOpts }] = await Promise.all([
+    sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
+    sb.from('fabric_quality').select('id, code, name').eq('active', true).order('code'),
+  ]);
 
   // Which DCs were cut from a production batch? Those carry already-
   // finished fabric going OUT to a customer — they must NOT be receipted
@@ -172,9 +217,42 @@ export default async function DeliveryChallanListPage({
     }
   }
 
-  // Preserve the mode filter in any links built off this page.
+  // Delivery-metres summary for whatever's currently on screen (after mode
+  // tab + date/party/quality filters). A piece-counted DC (towel/dhoti) has
+  // its piece count stored in total_metres, not real metres — same
+  // qtyUnit test the rows use below — so those are kept out of the metres
+  // total and rolled into the pieces total instead.
+  let summaryTotalMetres = 0;
+  let summaryTotalPieces = 0;
+  for (const r of rows) {
+    const pUnit = pieceUnitByDc.get(r.id);
+    const isPieceRow = pUnit && Number.isInteger(Number(r.total_metres ?? 0));
+    if (isPieceRow) summaryTotalPieces += Number(r.total_metres ?? 0);
+    else summaryTotalMetres += Number(r.total_metres ?? 0);
+  }
+  const summaryTotalBundles = rows.reduce((s, r) => s + Number(r.total_bundles ?? 0), 0);
+
+  // Preserve the mode filter + any active date/party/quality filters in
+  // links built off this page (tab strip, sort headers).
   const qsMode = mode !== null ? `?mode=${mode}` : '';
   const newDcHref = `/app/delivery-challan/new${qsMode}`;
+  const filterExtraParams: Record<string, string | undefined> = {
+    mode: mode ?? undefined,
+    from: from ?? undefined,
+    to: to ?? undefined,
+    party: partyId !== null ? String(partyId) : undefined,
+    quality: qualityId !== null ? String(qualityId) : undefined,
+  };
+  function tabHref(key: ModeFilter | 'all'): string {
+    const params = new URLSearchParams();
+    if (key !== 'all') params.set('mode', key);
+    if (from !== null) params.set('from', from);
+    if (to !== null) params.set('to', to);
+    if (partyId !== null) params.set('party', String(partyId));
+    if (qualityId !== null) params.set('quality', String(qualityId));
+    const qs = params.toString();
+    return qs ? `/app/delivery-challan?${qs}` : '/app/delivery-challan';
+  }
 
   // Build the subtitle so it reflects the active mode scope.
   const subtitle = mode !== null
@@ -210,7 +288,7 @@ export default async function DeliveryChallanListPage({
       <div className="flex flex-wrap gap-1 mb-4 border-b border-line/60">
         {TAB_DEFS.map((t) => {
           const active = t.key === activeKey;
-          const href = t.key === 'all' ? '/app/delivery-challan' : `/app/delivery-challan?mode=${t.key}`;
+          const href = tabHref(t.key);
           return (
             <Link
               key={t.key}
@@ -226,6 +304,33 @@ export default async function DeliveryChallanListPage({
             </Link>
           );
         })}
+      </div>
+
+      {/* Party / Fabric quality / date-range filters — apply across all
+          4 tabs above, on top of whatever mode tab is active. */}
+      <DcFilters
+        parties={(partyOpts ?? []) as Array<{ id: number; code: string | null; name: string }>}
+        qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null }>}
+      />
+
+      {/* Delivery-metres summary for the current filter/tab scope. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="card p-3">
+          <div className="text-xs text-ink-mute">DCs</div>
+          <div className="text-lg font-semibold mt-1">{rows.length.toLocaleString('en-IN')}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-xs text-ink-mute">Total metres</div>
+          <div className="text-lg font-semibold mt-1 num">{summaryTotalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-xs text-ink-mute">Total pieces</div>
+          <div className="text-lg font-semibold mt-1 num">{summaryTotalPieces.toLocaleString('en-IN')}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-xs text-ink-mute">Total bundles</div>
+          <div className="text-lg font-semibold mt-1 num">{summaryTotalBundles.toLocaleString('en-IN')}</div>
+        </div>
       </div>
 
       {error && (
@@ -342,8 +447,8 @@ export default async function DeliveryChallanListPage({
                   `${basePath}?sort=...&dir=...` so the mode param has
                   to ride along via extraParams, not glued onto the
                   basePath (that'd produce ?mode=…?sort=…). */}
-              <SortableTh column="code" label="DC No" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={mode !== null ? { mode } : {}} className="text-left px-3 py-3" />
-              <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={mode !== null ? { mode } : {}} className="text-left px-3 py-3" />
+              <SortableTh column="code" label="DC No" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={filterExtraParams} className="text-left px-3 py-3" />
+              <SortableTh column="dc_date" label="Date" sort={sort} dir={dir} basePath="/app/delivery-challan" extraParams={filterExtraParams} className="text-left px-3 py-3" />
               <th className="text-left px-3 py-3">Mode</th>
               <th className="text-left px-3 py-3">Party (Bill-To)</th>
               <th className="text-left px-3 py-3">Fabric Quality</th>
