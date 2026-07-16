@@ -145,11 +145,21 @@ export default async function DeliveryChallanListPage({
     error = res.error;
   }
 
-  // Options for the Party / Fabric Quality filter dropdowns.
-  const [{ data: partyOpts }, { data: qualityOpts }] = await Promise.all([
-    sb.from('party').select('id, code, name').eq('status', 'active').order('name'),
+  // Options for the Party / Fabric Quality filter dropdowns. Parties carry
+  // their party_type_ids so the filter bar can scope the list to whichever
+  // tab is active (In-house -> Customer, Job Work -> Jobwork Party,
+  // Outsource Weaving -> Outsource Weaver) — same rule the New DC form uses.
+  const [{ data: partyOpts }, { data: qualityOpts }, { data: partyTypeRows }] = await Promise.all([
+    sb.from('party').select('id, code, name, party_type_ids').eq('status', 'active').order('name'),
     sb.from('fabric_quality').select('id, code, name').eq('active', true).order('code'),
+    sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
   ]);
+  const partyTypes = (partyTypeRows ?? []) as Array<{ id: number; name: string }>;
+  const partyTypeIds = {
+    inhouse: partyTypes.find((t) => t.name === 'Customer')?.id ?? null,
+    jobwork: partyTypes.find((t) => t.name === 'Jobwork Party')?.id ?? null,
+    outsource: partyTypes.find((t) => t.name === 'Outsource Weaver')?.id ?? null,
+  };
 
   // Which DCs were cut from a production batch? Those carry already-
   // finished fabric going OUT to a customer — they must NOT be receipted
@@ -309,8 +319,9 @@ export default async function DeliveryChallanListPage({
       {/* Party / Fabric quality / date-range filters — apply across all
           4 tabs above, on top of whatever mode tab is active. */}
       <DcFilters
-        parties={(partyOpts ?? []) as Array<{ id: number; code: string | null; name: string }>}
+        parties={(partyOpts ?? []) as Array<{ id: number; code: string | null; name: string; party_type_ids: number[] | null }>}
         qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null }>}
+        partyTypeIds={partyTypeIds}
       />
 
       {/* Delivery-metres summary for the current filter/tab scope. */}
