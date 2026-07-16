@@ -25,6 +25,7 @@ interface QualityOption {
   name: string | null;
   is_merged: boolean | null;
   merged_name: string | null;
+  production_mode: string | null;
 }
 
 interface DcFiltersProps {
@@ -66,6 +67,26 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
     [scopedParties],
   );
 
+  // Scope the quality list to whichever tab is active, same rule as the
+  // party dropdown above and the New DC form's quality picker. The two
+  // sides spell "job work" / "outsourcing" differently, so normalize
+  // rather than compare literally:
+  //   DC production_mode      fabric_quality.production_mode
+  //   'inhouse'          <->  'inhouse'
+  //   'jobwork'          <->  'job_work' (or 'jobwork')
+  //   'outsource'        <->  'outsourcing' (or 'outsource')
+  // "All" tab (no mode) keeps every active quality available.
+  const scopedQualities = useMemo(() => {
+    if (mode === '') return qualities;
+    return qualities.filter((q) => {
+      const pm = q.production_mode ?? '';
+      if (mode === 'inhouse') return pm === 'inhouse';
+      if (mode === 'jobwork') return pm === 'job_work' || pm === 'jobwork';
+      if (mode === 'outsource') return pm === 'outsourcing' || pm === 'outsource';
+      return true;
+    });
+  }, [qualities, mode]);
+
   // Several physically-distinct fabric_quality rows can share one merged
   // name (e.g. "COLOR OE" covers two yarn-count variants) — group those
   // into a single option whose value is every underlying id joined with a
@@ -74,7 +95,7 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
   const qualityOptions: SearchSelectOption[] = useMemo(() => {
     const merged = new Map<string, number[]>();
     const singles: SearchSelectOption[] = [];
-    for (const q of qualities) {
+    for (const q of scopedQualities) {
       if (q.is_merged && q.merged_name) {
         const ids = merged.get(q.merged_name) ?? [];
         ids.push(q.id);
@@ -88,7 +109,7 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
       label: name,
     }));
     return [...groups, ...singles].sort((a, b) => a.label.localeCompare(b.label));
-  }, [qualities]);
+  }, [scopedQualities]);
 
   function setParam(key: string, value: string): void {
     const next = new URLSearchParams(params.toString());
@@ -121,7 +142,7 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
           onChange={(v) => setParam('quality', v)}
           placeholder="All qualities — type to search…"
           className="min-w-[200px]"
-          noMatchText="No quality found."
+          noMatchText="No quality found for this tab."
         />
       </div>
 

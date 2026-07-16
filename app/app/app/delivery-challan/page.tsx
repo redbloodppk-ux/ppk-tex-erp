@@ -157,7 +157,7 @@ export default async function DeliveryChallanListPage({
   // Outsource Weaving -> Outsource Weaver) — same rule the New DC form uses.
   const [{ data: partyOpts }, { data: qualityOpts }, { data: partyTypeRows }] = await Promise.all([
     sb.from('party').select('id, code, name, party_type_ids').eq('status', 'active').order('name'),
-    sb.from('fabric_quality').select('id, code, name, is_merged, merged_name').eq('active', true).order('code'),
+    sb.from('fabric_quality').select('id, code, name, is_merged, merged_name, production_mode').eq('active', true).order('code'),
     sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
   ]);
   const partyTypes = (partyTypeRows ?? []) as Array<{ id: number; name: string }>;
@@ -332,7 +332,7 @@ export default async function DeliveryChallanListPage({
           4 tabs above, on top of whatever mode tab is active. */}
       <DcFilters
         parties={(partyOpts ?? []) as Array<{ id: number; code: string | null; name: string; party_type_ids: number[] | null }>}
-        qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null; is_merged: boolean | null; merged_name: string | null }>}
+        qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null; is_merged: boolean | null; merged_name: string | null; production_mode: string | null }>}
         partyTypeIds={partyTypeIds}
       />
 
