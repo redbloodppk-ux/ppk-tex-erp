@@ -30,6 +30,8 @@ interface BeamRow {
   rate_per_metre: number;
   gst_pct: number;
   total_amount: number;
+  invoice_no: string | null;
+  amount_paid: number | null;
   notes: string | null;
 }
 
@@ -58,6 +60,7 @@ interface FormState {
   metres:            string;
   rate_per_metre:    string;
   gst_pct:           string;
+  invoice_no:        string;
   notes:             string;
 }
 
@@ -70,6 +73,7 @@ const EMPTY: FormState = {
   metres:            '',
   rate_per_metre:    '',
   gst_pct:           '5',
+  invoice_no:        '',
   notes:             '',
 };
 
@@ -119,7 +123,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
 
     const [rowsRes, qRes, eRes, cRes, pRes] = await Promise.all([
       sb.from('inhouse_warp_beam_purchase')
-        .select('id, code, purchase_date, fabric_quality_id, ends_id, yarn_count_id, supplier_party_id, metres, rate_per_metre, gst_pct, total_amount, notes')
+        .select('id, code, purchase_date, fabric_quality_id, ends_id, yarn_count_id, supplier_party_id, metres, rate_per_metre, gst_pct, total_amount, invoice_no, amount_paid, notes')
         .eq('status', 'active')
         .order('purchase_date', { ascending: false })
         .order('id', { ascending: false }),
@@ -252,6 +256,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
       metres:            String(r.metres),
       rate_per_metre:    String(r.rate_per_metre),
       gst_pct:           String(r.gst_pct),
+      invoice_no:        r.invoice_no ?? '',
       notes:             r.notes ?? '',
     });
     setFormOpen(true);
@@ -284,6 +289,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     if (supplierId === null)               { setError('Supplier is required.'); return; }
     if (metres === null || metres <= 0)    { setError('Metre must be greater than zero.'); return; }
     if (rate === null || rate < 0)         { setError('Rate per metre is required.'); return; }
+    if (form.invoice_no.trim() === '')     { setError('Invoice number is required.'); return; }
 
     const payload = {
       purchase_date:     form.purchase_date,
@@ -294,6 +300,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
       metres,
       rate_per_metre:    rate,
       gst_pct:           gst,
+      invoice_no:        form.invoice_no.trim(),
       notes:             form.notes.trim() === '' ? null : form.notes.trim(),
     };
 
@@ -448,6 +455,13 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                 value={form.gst_pct}
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>
+            <div>
+              <label className="label" htmlFor="wb-invoice-no">Invoice No *</label>
+              <input id="wb-invoice-no" type="text" required className="input w-full"
+                placeholder="Supplier invoice no."
+                value={form.invoice_no}
+                onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))} />
+            </div>
 
             <div>
               <label className="label">Total (auto)</label>
@@ -492,6 +506,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                   <div className="font-mono text-xs text-ink-mute">{r.code ?? '-'}</div>
                   <div className="font-semibold">{qualityLabel(r.fabric_quality_id)}</div>
                   <div className="text-xs text-ink-mute">{fmtDate(r.purchase_date)}</div>
+                  <div className="text-xs text-ink-mute">Inv: {r.invoice_no ?? '-'}</div>
                 </div>
                 <div className="num font-semibold text-emerald-700 shrink-0">Rs {fmtMoney(Number(r.total_amount))}</div>
               </div>
@@ -523,6 +538,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
               <tr>
                 <th className="text-left  px-3 py-3">ID</th>
                 <th className="text-left  px-3 py-3">Date</th>
+                <th className="text-left  px-3 py-3">Invoice No</th>
                 <th className="text-left  px-3 py-3">Quality</th>
                 <th className="text-left  px-3 py-3">Ends</th>
                 <th className="text-left  px-3 py-3">Yarn count</th>
@@ -539,6 +555,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                 <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
                   <td className="px-3 py-3 font-mono text-xs">{r.code ?? '-'}</td>
                   <td className="px-3 py-3 text-ink-soft">{fmtDate(r.purchase_date)}</td>
+                  <td className="px-3 py-3 text-ink-soft">{r.invoice_no ?? '-'}</td>
                   <td className="px-3 py-3 font-semibold">{qualityLabel(r.fabric_quality_id)}</td>
                   <td className="px-3 py-3">{endsLabel(r.ends_id)}</td>
                   <td className="px-3 py-3">{countLabel(r.yarn_count_id)}</td>

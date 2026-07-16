@@ -82,8 +82,9 @@ interface UnpaidBill {
    *    yarn    -> payment_yarn_allocation (yarn_lot_id)
    *    fabric  -> payment_fabric_allocation (fabric_purchase_id)
    *    agent   -> payment_agent_allocation (agent_commission_id)
+   *    warp_beam -> payment_warp_beam_allocation (warp_beam_purchase_id)
    */
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'agent';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'agent' | 'warp_beam';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -109,7 +110,7 @@ interface LedgerTxn {
   kind:
     | 'sale_invoice' | 'jobwork_bill'
     | 'credit_note'  | 'debit_note'
-    | 'sizing_bill'  | 'bobbin_purchase' | 'yarn_purchase' | 'fabric_purchase'
+    | 'sizing_bill'  | 'bobbin_purchase' | 'yarn_purchase' | 'fabric_purchase' | 'warp_beam_purchase'
     | 'opening_receivable' | 'opening_payable'
     | 'payment_in' | 'payment_out';
   date: string;
@@ -152,6 +153,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
+  warp_beam_purchase: 'Warp Beam Purchase',
   // Opening ledger entries (settings → Opening Ledger) — discriminated
   // by direction so the operator can see at a glance which way the
   // pre-ERP balance was sitting.
@@ -364,7 +366,7 @@ function NewPaymentTab(): React.ReactElement {
     // in parallel. After migration 165 the Payments page is the unified
     // settlement screen for invoices + opening ledger + sizing bills +
     // bobbin purchases + yarn purchases.
-    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = await Promise.all([
+    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, wbRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', party.name)
@@ -415,6 +417,12 @@ function NewPaymentTab(): React.ReactElement {
         .eq('agent_party_id', party.id)
         .eq('status', 'active')
         .gt('balance', 0),
+      // In-house warp beam purchases against this supplier.
+      sb.from('inhouse_warp_beam_purchase')
+        .select('id, code, invoice_no, purchase_date, total_amount, amount_paid')
+        .eq('supplier_party_id', party.id)
+        .eq('status', 'active')
+        .gt('total_amount', 0),
     ]);
     setBillsLoading(false);
     if (invRes.error) { setError(invRes.error.message); return; }
@@ -427,6 +435,7 @@ function NewPaymentTab(): React.ReactElement {
     if (yarnRes?.error) { /* eslint-disable-next-line no-console */ console.warn('yarn_lot not loadable:', yarnRes.error.message); }
     if (fabRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('fabric_purchase not loadable:', fabRes.error.message); }
     if (agentRes?.error){ /* eslint-disable-next-line no-console */ console.warn('agent_commission not loadable:', agentRes.error.message); }
+    if (wbRes?.error)   { /* eslint-disable-next-line no-console */ console.warn('inhouse_warp_beam_purchase not loadable:', wbRes.error.message); }
 
     const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
       id: number; invoice_no: string; invoice_date: string; doc_type: string;
@@ -533,9 +542,24 @@ function NewPaymentTab(): React.ReactElement {
          };
        });
 
+    const warpBeamBills: UnpaidBill[] = ((wbRes?.data ?? []) as Array<{
+      id: number; code: string | null; invoice_no: string | null;
+      purchase_date: string | null; total_amount: number | string; amount_paid: number | string;
+    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+       .map((r) => ({
+         kind: 'warp_beam',
+         id: r.id,
+         invoice_no: r.invoice_no ?? r.code ?? `WB-${r.id}`,
+         invoice_date: r.purchase_date ?? '',
+         doc_type: 'warp_beam_purchase',
+         total: r.total_amount,
+         amount_paid: r.amount_paid,
+         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+       }));
+
     // Sort merged list by date (oldest first) so the operator's mental
     // model is "settle the oldest bill first" regardless of source.
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...agentBills].sort((a, b) => {
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...agentBills, ...warpBeamBills].sort((a, b) => {
       const dc = a.invoice_date.localeCompare(b.invoice_date);
       return dc !== 0 ? dc : a.id - b.id;
     });
@@ -656,6 +680,7 @@ function NewPaymentTab(): React.ReactElement {
     const yarnAllocs:     { yarn_lot_id: number; amount: number }[]        = [];
     const fabricAllocs:   { fabric_purchase_id: number; amount: number }[] = [];
     const agentAllocs:    { agent_commission_id: number; amount: number }[] = [];
+    const warpBeamAllocs: { warp_beam_purchase_id: number; amount: number }[] = [];
     for (const b of bills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
@@ -679,12 +704,13 @@ function NewPaymentTab(): React.ReactElement {
         case 'yarn':    yarnAllocs   .push({ yarn_lot_id:        b.id, amount: rounded }); break;
         case 'fabric':  fabricAllocs .push({ fabric_purchase_id: b.id, amount: rounded }); break;
         case 'agent':   agentAllocs  .push({ agent_commission_id: b.id, amount: rounded }); break;
+        case 'warp_beam': warpBeamAllocs.push({ warp_beam_purchase_id: b.id, amount: rounded }); break;
         default:        allocations  .push({ invoice_id:         b.id, amount: rounded });
       }
     }
     const totalAllocCount = allocations.length + openingAllocs.length
                           + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length
-                          + fabricAllocs.length + agentAllocs.length;
+                          + fabricAllocs.length + agentAllocs.length + warpBeamAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
     if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
@@ -700,7 +726,8 @@ function NewPaymentTab(): React.ReactElement {
                     + bobbinAllocs.reduce((s, a) => s + a.amount, 0)
                     + yarnAllocs.reduce((s, a) => s + a.amount, 0)
                     + fabricAllocs.reduce((s, a) => s + a.amount, 0)
-                    + agentAllocs.reduce((s, a) => s + a.amount, 0);
+                    + agentAllocs.reduce((s, a) => s + a.amount, 0)
+                    + warpBeamAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -837,6 +864,20 @@ function NewPaymentTab(): React.ReactElement {
       if (aErr) {
         setBusy(false);
         setError(`Payment ${data?.payment_no ?? ''} saved, but the agent-commission adjustment failed: ${aErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    // Warp beam purchase allocations: the trigger bumps
+    // inhouse_warp_beam_purchase.amount_paid automatically.
+    if (warpBeamAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: wbErr } = await (supabase as any)
+        .from('payment_warp_beam_allocation')
+        .insert(warpBeamAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (wbErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the warp-beam adjustment failed: ${wbErr.message}`);
         await loadBills();
         return;
       }
@@ -1402,8 +1443,14 @@ function StatusTab(): React.ReactElement {
       if (hasParty) fabQ = fabQ.eq('supplier_party_id', pid!);
       fabQ = fabQ.limit(LIMIT);
 
-      const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
-        invQ, openQ, sizQ, bobQ, yarnQ, fabQ,
+      let wbQ  = sb.from('inhouse_warp_beam_purchase')
+        .select('id, code, invoice_no, purchase_date, total_amount, supplier_party_id')
+        .eq('status', 'active');
+      if (hasParty) wbQ = wbQ.eq('supplier_party_id', pid!);
+      wbQ = wbQ.limit(LIMIT);
+
+      const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
+        invQ, openQ, sizQ, bobQ, yarnQ, fabQ, wbQ,
       ]);
 
       const txns: LedgerTxn[] = [];
@@ -1545,6 +1592,29 @@ function StatusTab(): React.ReactElement {
           debit:      0,
           credit:     total,
           href:       '/app/fabric-stock',
+          party_label:  labelFor(r.supplier_party_id),
+          party_link_id: r.supplier_party_id,
+        });
+      }
+
+      // In-house warp beam purchases — we always owe the supplier.
+      for (const r of ((wbRes?.data ?? []) as Array<{
+        id: number; code: string | null; invoice_no: string | null;
+        purchase_date: string | null; total_amount: number | string;
+        supplier_party_id: number | null;
+      }>)) {
+        const total = Number(r.total_amount ?? 0);
+        if (total <= 0) continue;
+        txns.push({
+          key:        `wb-${r.id}`,
+          source_id:  r.id,
+          kind:       'warp_beam_purchase',
+          date:       r.purchase_date ?? '',
+          voucher_no: r.invoice_no ?? r.code ?? `WB-${r.id}`,
+          description: 'Warp Beam Purchase',
+          debit:      0,
+          credit:     total,
+          href:       '/app/warp-beam',
           party_label:  labelFor(r.supplier_party_id),
           party_link_id: r.supplier_party_id,
         });

@@ -315,6 +315,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     { data: bobbinBills },
     { data: yarnBills },
     { data: fabricBills },
+    { data: warpBeamBills },
     { data: openingPayables },
     { data: agentComm },
     { data: openingReceivables },
@@ -382,6 +383,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       .eq('status', 'active')
       .gt('total_amount', 0)
       .order('received_date', { ascending: true }),
+    // In-house warp beam purchases.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('inhouse_warp_beam_purchase')
+      .select('id, code, invoice_no, purchase_date, total_amount, amount_paid, supplier_party_id')
+      .eq('status', 'active')
+      .gt('total_amount', 0)
+      .order('purchase_date', { ascending: true }),
     // Opening payables — pre-ERP balances we owe to suppliers.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('party_opening_ledger')
@@ -577,6 +585,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       customer_id:      null,
       jobwork_party_id: r.agent_party_id ?? null,
       total:            r.amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((warpBeamBills ?? []) as any[])) {
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.invoice_no ?? r.code ?? `WB-${r.id}`,
+      party_name:       r.supplier_party_id ? (partyNameById.get(r.supplier_party_id) ?? null) : null,
+      invoice_date:     r.purchase_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.supplier_party_id ?? null,
+      total:            r.total_amount,
       amount_paid:      r.amount_paid,
       balance:          bal,
     });

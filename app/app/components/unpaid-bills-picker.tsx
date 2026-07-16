@@ -33,7 +33,8 @@ export type BillAllocation =
   | { kind: 'sizing';  sizing_job_id:     number; amount: number }
   | { kind: 'bobbin';  bobbin_purchase_id: number; amount: number }
   | { kind: 'yarn';    yarn_lot_id:       number; amount: number }
-  | { kind: 'fabric';  fabric_purchase_id: number; amount: number };
+  | { kind: 'fabric';  fabric_purchase_id: number; amount: number }
+  | { kind: 'warp_beam'; warp_beam_purchase_id: number; amount: number };
 
 /** Lightweight identifier for a ticked bill — emitted regardless of
  *  the per-bill amount so callers can react to the TICK event itself
@@ -67,7 +68,7 @@ export interface UnpaidBillsPickerProps {
 // ── Internal types ─────────────────────────────────────────────────
 
 interface UnpaidBill {
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'warp_beam';
   id: number;
   doc_no: string;
   doc_date: string;
@@ -91,6 +92,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
+  warp_beam_purchase: 'Warp Beam Purchase',
 };
 
 function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
@@ -140,7 +142,7 @@ export function UnpaidBillsPicker({
     const partyRes = await sb.from('party').select('name').eq('id', partyId).maybeSingle();
     const partyName: string = partyRes?.data?.name ?? '';
 
-    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes] = await Promise.all([
+    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
       sb.from('invoice')
         .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
         .ilike('party_name', partyName)
@@ -181,6 +183,11 @@ export function UnpaidBillsPicker({
         .select('id, code, invoice_no, received_date, total_amount, amount_paid')
         .eq('supplier_party_id', partyId)
         .eq('source', 'supplier')
+        .eq('status', 'active')
+        .gt('total_amount', 0),
+      sb.from('inhouse_warp_beam_purchase')
+        .select('id, code, invoice_no, purchase_date, total_amount, amount_paid')
+        .eq('supplier_party_id', partyId)
         .eq('status', 'active')
         .gt('total_amount', 0),
     ]);
@@ -279,7 +286,23 @@ export function UnpaidBillsPicker({
         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
       }));
 
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills]
+    const warpBeamBills: UnpaidBill[] = ((wbRes?.data ?? []) as Array<{
+      id: number; code: string | null; invoice_no: string | null;
+      purchase_date: string | null; total_amount: number | string; amount_paid: number | string;
+    }>)
+      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
+      .map((r) => ({
+        kind: 'warp_beam',
+        id: r.id,
+        doc_no: r.invoice_no ?? r.code ?? `WB-${r.id}`,
+        doc_date: r.purchase_date ?? '',
+        doc_type: 'warp_beam_purchase',
+        total: Number(r.total_amount ?? 0),
+        amount_paid: Number(r.amount_paid ?? 0),
+        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      }));
+
+    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...warpBeamBills]
       .sort((a, b) => {
         const dc = (a.doc_date ?? '').localeCompare(b.doc_date ?? '');
         return dc !== 0 ? dc : a.id - b.id;
@@ -344,6 +367,8 @@ export function UnpaidBillsPicker({
         case 'sizing':  out.push({ kind: 'sizing',  sizing_job_id:      b.id, amount }); break;
         case 'bobbin':  out.push({ kind: 'bobbin',  bobbin_purchase_id: b.id, amount }); break;
         case 'yarn':    out.push({ kind: 'yarn',    yarn_lot_id:        b.id, amount }); break;
+        case 'fabric':  out.push({ kind: 'fabric',  fabric_purchase_id: b.id, amount }); break;
+        case 'warp_beam': out.push({ kind: 'warp_beam', warp_beam_purchase_id: b.id, amount }); break;
       }
     }
     return out;
@@ -513,6 +538,7 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
   bobbins:  { bobbin_purchase_id: number; amount: number }[];
   yarns:    { yarn_lot_id: number;        amount: number }[];
   fabrics:  { fabric_purchase_id: number; amount: number }[];
+  warpBeams: { warp_beam_purchase_id: number; amount: number }[];
 } {
   const invoices: { invoice_id: number;         amount: number }[] = [];
   const openings: { opening_ledger_id: number;  amount: number }[] = [];
@@ -520,6 +546,7 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
   const bobbins:  { bobbin_purchase_id: number; amount: number }[] = [];
   const yarns:    { yarn_lot_id: number;        amount: number }[] = [];
   const fabrics:  { fabric_purchase_id: number; amount: number }[] = [];
+  const warpBeams: { warp_beam_purchase_id: number; amount: number }[] = [];
   for (const a of allocations) {
     switch (a.kind) {
       case 'invoice': invoices.push({ invoice_id:         a.invoice_id,         amount: a.amount }); break;
@@ -528,7 +555,8 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
       case 'bobbin':  bobbins .push({ bobbin_purchase_id: a.bobbin_purchase_id, amount: a.amount }); break;
       case 'yarn':    yarns   .push({ yarn_lot_id:        a.yarn_lot_id,        amount: a.amount }); break;
       case 'fabric':  fabrics .push({ fabric_purchase_id: a.fabric_purchase_id, amount: a.amount }); break;
+      case 'warp_beam': warpBeams.push({ warp_beam_purchase_id: a.warp_beam_purchase_id, amount: a.amount }); break;
     }
   }
-  return { invoices, openings, sizings, bobbins, yarns, fabrics };
+  return { invoices, openings, sizings, bobbins, yarns, fabrics, warpBeams };
 }
