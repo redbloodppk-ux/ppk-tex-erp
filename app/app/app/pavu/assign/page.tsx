@@ -223,7 +223,7 @@ export default function PavuAssignPage() {
     // for the same pavu ids so the progress widget shows cumulative metres
     // instead of resetting to 0 on remount.
     {
-      const activePavuIds = Array.from(new Set(
+      const activePavuIds: number[] = Array.from(new Set<number>(
         ((a.data as any) ?? [])
           .map((row: { pavu: { id: number } | null }) => row.pavu?.id)
           .filter((id: number | undefined): id is number => id != null),
