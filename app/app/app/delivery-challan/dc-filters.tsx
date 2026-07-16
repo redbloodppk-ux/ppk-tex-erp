@@ -23,6 +23,8 @@ interface QualityOption {
   id: number;
   code: string | null;
   name: string | null;
+  is_merged: boolean | null;
+  merged_name: string | null;
 }
 
 interface DcFiltersProps {
@@ -64,6 +66,30 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
     [scopedParties],
   );
 
+  // Several physically-distinct fabric_quality rows can share one merged
+  // name (e.g. "COLOR OE" covers two yarn-count variants) — group those
+  // into a single option whose value is every underlying id joined with a
+  // comma, so picking it filters DCs matching ANY of them. Non-merged
+  // qualities stay as individual options, same as before.
+  const qualityOptions: SearchSelectOption[] = useMemo(() => {
+    const merged = new Map<string, number[]>();
+    const singles: SearchSelectOption[] = [];
+    for (const q of qualities) {
+      if (q.is_merged && q.merged_name) {
+        const ids = merged.get(q.merged_name) ?? [];
+        ids.push(q.id);
+        merged.set(q.merged_name, ids);
+      } else {
+        singles.push({ value: String(q.id), label: q.code ?? q.name ?? `#${q.id}` });
+      }
+    }
+    const groups: SearchSelectOption[] = Array.from(merged.entries()).map(([name, ids]) => ({
+      value: ids.slice().sort((a, b) => a - b).join(','),
+      label: name,
+    }));
+    return [...groups, ...singles].sort((a, b) => a.label.localeCompare(b.label));
+  }, [qualities]);
+
   function setParam(key: string, value: string): void {
     const next = new URLSearchParams(params.toString());
     if (value === '') next.delete(key);
@@ -89,18 +115,14 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
 
       <div className="flex flex-col gap-1">
         <label className="text-[11px] uppercase tracking-wide text-ink-mute">Fabric quality</label>
-        <select
+        <SearchSelect
+          options={qualityOptions}
           value={quality}
-          onChange={(e) => setParam('quality', e.target.value)}
-          className="input input-sm min-w-[160px]"
-        >
-          <option value="">All qualities</option>
-          {qualities.map((q) => (
-            <option key={q.id} value={q.id}>
-              {q.code ?? q.name ?? `#${q.id}`}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setParam('quality', v)}
+          placeholder="All qualities — type to search…"
+          className="min-w-[200px]"
+          noMatchText="No quality found."
+        />
       </div>
 
       <div className="flex flex-col gap-1">

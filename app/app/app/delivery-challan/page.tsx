@@ -105,7 +105,13 @@ export default async function DeliveryChallanListPage({
   const from = isDate(sp.from) ? sp.from : null;
   const to = isDate(sp.to) ? sp.to : null;
   const partyId = sp.party != null && /^\d+$/.test(sp.party) ? Number(sp.party) : null;
-  const qualityId = sp.quality != null && /^\d+$/.test(sp.quality) ? Number(sp.quality) : null;
+  // Fabric quality filter may carry more than one id at once — a "merged
+  // quality" option in the filter bar (e.g. "COLOR OE") stands in for
+  // several underlying fabric_quality rows, joined as a comma-separated
+  // list in the URL (?quality=10,11). Split + validate each piece.
+  const qualityIds: number[] | null = sp.quality != null && /^\d+(,\d+)*$/.test(sp.quality)
+    ? Array.from(new Set(sp.quality.split(',').map(Number)))
+    : null;
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,11 +121,11 @@ export default async function DeliveryChallanListPage({
   // lives on delivery_challan_item. Resolve it to a set of dc ids first so
   // the main query can just .in('id', …) alongside the other filters.
   let qualityDcIds: number[] | null = null;
-  if (qualityId !== null) {
+  if (qualityIds !== null) {
     const { data: qItemRows } = await sb
       .from('delivery_challan_item')
       .select('dc_id')
-      .eq('fabric_quality_id', qualityId);
+      .in('fabric_quality_id', qualityIds);
     qualityDcIds = Array.from(new Set(
       ((qItemRows ?? []) as Array<{ dc_id: number | null }>)
         .map((r) => r.dc_id)
@@ -151,7 +157,7 @@ export default async function DeliveryChallanListPage({
   // Outsource Weaving -> Outsource Weaver) — same rule the New DC form uses.
   const [{ data: partyOpts }, { data: qualityOpts }, { data: partyTypeRows }] = await Promise.all([
     sb.from('party').select('id, code, name, party_type_ids').eq('status', 'active').order('name'),
-    sb.from('fabric_quality').select('id, code, name').eq('active', true).order('code'),
+    sb.from('fabric_quality').select('id, code, name, is_merged, merged_name').eq('active', true).order('code'),
     sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
   ]);
   const partyTypes = (partyTypeRows ?? []) as Array<{ id: number; name: string }>;
@@ -206,16 +212,22 @@ export default async function DeliveryChallanListPage({
     if (allQIds.size > 0) {
       const { data: qMaster } = await sb
         .from('fabric_quality')
-        .select('id, code, name, fabric_type')
+        .select('id, code, name, fabric_type, is_merged, merged_name')
         .in('id', Array.from(allQIds));
-      for (const q of (qMaster ?? []) as Array<{ id: number; code: string | null; name: string | null; fabric_type: string | null }>) {
-        qLabel.set(Number(q.id), q.code ?? q.name ?? '');
+      for (const q of (qMaster ?? []) as Array<{ id: number; code: string | null; name: string | null; fabric_type: string | null; is_merged: boolean | null; merged_name: string | null }>) {
+        // Show the merged quality name only, when this row belongs to one —
+        // several physically-distinct quality codes can share one merged
+        // name (e.g. "COLOR OE"), and the list should read as one quality.
+        const label = q.is_merged && q.merged_name ? q.merged_name : (q.code ?? q.name ?? '');
+        qLabel.set(Number(q.id), label);
         qType.set(Number(q.id), q.fabric_type);
       }
     }
     for (const [dcId, ids] of qIdsByDc) {
       const idList = Array.from(ids);
-      const label = idList.map((id) => qLabel.get(id) ?? '').filter(Boolean).join(', ');
+      // Dedupe labels — two items can reference different quality ids that
+      // share the same merged name, which would otherwise repeat it.
+      const label = Array.from(new Set(idList.map((id) => qLabel.get(id) ?? '').filter(Boolean))).join(', ');
       if (label) qualityByDc.set(dcId, label);
       // Only a DC whose qualities all share one piece-counted type gets a
       // piece-unit; mixed-type DCs stay in metres to avoid mislabelling.
@@ -251,7 +263,7 @@ export default async function DeliveryChallanListPage({
     from: from ?? undefined,
     to: to ?? undefined,
     party: partyId !== null ? String(partyId) : undefined,
-    quality: qualityId !== null ? String(qualityId) : undefined,
+    quality: qualityIds !== null ? qualityIds.join(',') : undefined,
   };
   function tabHref(key: ModeFilter | 'all'): string {
     const params = new URLSearchParams();
@@ -259,7 +271,7 @@ export default async function DeliveryChallanListPage({
     if (from !== null) params.set('from', from);
     if (to !== null) params.set('to', to);
     if (partyId !== null) params.set('party', String(partyId));
-    if (qualityId !== null) params.set('quality', String(qualityId));
+    if (qualityIds !== null) params.set('quality', qualityIds.join(','));
     const qs = params.toString();
     return qs ? `/app/delivery-challan?${qs}` : '/app/delivery-challan';
   }
@@ -320,7 +332,7 @@ export default async function DeliveryChallanListPage({
           4 tabs above, on top of whatever mode tab is active. */}
       <DcFilters
         parties={(partyOpts ?? []) as Array<{ id: number; code: string | null; name: string; party_type_ids: number[] | null }>}
-        qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null }>}
+        qualities={(qualityOpts ?? []) as Array<{ id: number; code: string | null; name: string | null; is_merged: boolean | null; merged_name: string | null }>}
         partyTypeIds={partyTypeIds}
       />
 
