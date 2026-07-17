@@ -3043,8 +3043,13 @@ async function loadJobworkBobbin(
     })(),
   );
   // Re-shape into the bob[] flat structure the rest of the loader uses.
+  // NOTE: `id` here is the jobwork_bobbin_issue row id (used as the React/
+  // event key for inflow rows) — it is NOT the bobbin master id. Outflow
+  // rows in stock_ledger.bobbin_id reference the bobbin MASTER, so we keep
+  // that id separately (bobbin_master_id) for the lookup map below.
   const bobs = issues.map((r) => ({
     id: r.id,
+    bobbin_master_id: r.bobbin?.id ?? null,
     code: r.bobbin?.code ?? `JB-${r.id}`,
     description: r.notes,
     jobwork_party_id: r.jobwork_party_id,
@@ -3071,8 +3076,12 @@ async function loadJobworkBobbin(
   );
 
   const partyById = new Map(parties.map((p: any) => [p.id, p]));
+  // Keyed by the bobbin MASTER id (matches stock_ledger.bobbin_id), not the
+  // jobwork_bobbin_issue row id — see note on `bobs` above.
   const bobInfoById = new Map<number, { code: string; ends_per_bobbin: number | null; bobbin_metre: number | string | null }>();
-  for (const b of bobs) bobInfoById.set(b.id, b);
+  for (const b of bobs) {
+    if (b.bobbin_master_id != null) bobInfoById.set(b.bobbin_master_id, b);
+  }
 
   const colMap = new Map<string, PivotColumn>();
   const events: PivotEvent[] = [];
