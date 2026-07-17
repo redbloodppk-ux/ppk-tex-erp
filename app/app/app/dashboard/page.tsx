@@ -257,6 +257,7 @@ interface LoomBoardRow {
   loom_type: string | null;
   status: string;
   shed_no: number | null;
+  fabric_quality_id: number | null;
 }
 
 interface LoomBoardAssign {
@@ -285,20 +286,31 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   //    board shows quality + metres pending per loom at a glance.
   let boardLooms: LoomBoardRow[] = [];
   const assignByLoom = new Map<number, LoomBoardAssign>();
+  const fabricQualityNameById = new Map<number, string>();
   if (tab === 'looms') {
-    const [lr, ar] = await Promise.all([
+    const [lr, ar, fqr] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('loom')
-        .select('id, loom_code, loom_type, status, shed_no')
+        .select('id, loom_code, loom_type, status, shed_no, fabric_quality_id')
         .order('loom_code'),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('pavu_assign')
         .select('loom_id, status, metres_produced, pavu:pavu_id ( pavu_code, beam_no, meters ), costing:costing_id ( quality_code, quality_name )')
         .in('status', ['mounted', 'running']),
+      // Loom's assigned fabric quality — shown on the card instead of the
+      // costing quality (which is a placeholder like "Jobwork - exempt"
+      // for jobwork beams and isn't the actual fabric being woven).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('fabric_quality')
+        .select('id, name')
+        .eq('active', true),
     ]);
     boardLooms = ((lr.data ?? []) as LoomBoardRow[]);
     for (const a of ((ar.data ?? []) as LoomBoardAssign[])) {
       assignByLoom.set(Number(a.loom_id), a);
+    }
+    for (const q of ((fqr.data ?? []) as { id: number; name: string }[])) {
+      fabricQualityNameById.set(Number(q.id), q.name);
     }
   }
 
@@ -792,7 +804,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     const produced = Number(a?.metres_produced ?? 0);
                     const pending = Math.max(meters - produced, 0);
                     const pct = meters > 0 ? Math.min((produced / meters) * 100, 100) : 0;
-                    const quality = a?.costing?.quality_name || a?.costing?.quality_code || null;
+                    const quality = (l.fabric_quality_id ? fabricQualityNameById.get(l.fabric_quality_id) : null) ?? null;
                     // Beam nearly over → amber, so the operator can plan
                     // the next beam before the loom stops.
                     const nearlyOver = a?.pavu != null && meters > 0 && pending <= 100;
