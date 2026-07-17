@@ -573,9 +573,9 @@ export default function PavuAssignPage() {
                         {cur.pavu.sizing_set_no ? ` (Set ${cur.pavu.sizing_set_no})` : ''}
                       </div>
                     )}
-                    {cur.costing && (
+                    {l.fabric_quality_id && fabricQualityById.get(l.fabric_quality_id) && (
                       <div className="text-xs text-ink-soft">
-                        Quality: <span className="font-semibold">{cur.costing.quality_code}</span>
+                        Quality: <span className="font-semibold">{fabricQualityById.get(l.fabric_quality_id)!.name}</span>
                       </div>
                     )}
                     {cur.start_date && (
