@@ -487,6 +487,31 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       reference_no: batchCode,
     };
 
+    // Resolve jobwork_party_id for non-inhouse batches so their raw-material
+    // consumption (warp/weft/porvai/bobbin) routes to the Job Work /
+    // Outsource warehouse pivots instead of silently counting as in-house
+    // stock. production_batch.party_id points at the general `party` table;
+    // jobwork_party is a separate table keyed by name + kind, so bridge
+    // through party.name (same pattern used by migration 145's historical
+    // backfill).
+    let jobworkPartyId: number | null = null;
+    if (productionMode !== 'inhouse' && partyId) {
+      const { data: partyRow } = await sb
+        .from('party')
+        .select('name')
+        .eq('id', Number(partyId))
+        .maybeSingle();
+      if (partyRow?.name) {
+        const { data: jwRow } = await sb
+          .from('jobwork_party')
+          .select('id')
+          .eq('name', partyRow.name)
+          .eq('kind', productionMode === 'outsource' ? 'outsource' : 'jobwork')
+          .maybeSingle();
+        if (jwRow?.id != null) jobworkPartyId = jwRow.id;
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ledgerRows: any[] = [];
 
@@ -520,6 +545,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
       direction: 'out',
       fabric_quality_id: linkedFqId,
       yarn_count_id: costing.warp_count_id ?? null,
+      jobwork_party_id: jobworkPartyId,
       quantity: actualMetres,
       unit: 'm',
       ...src,
@@ -534,6 +560,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         direction: 'out',
         fabric_quality_id: linkedFqId,
         yarn_count_id: costing.weft_count_id ?? null,
+        jobwork_party_id: jobworkPartyId,
         quantity: weftKg,
         unit: 'kg',
         ...src,
@@ -549,6 +576,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         direction: 'out',
         fabric_quality_id: linkedFqId,
         yarn_count_id: costing.porvai_count_id ?? null,
+        jobwork_party_id: jobworkPartyId,
         quantity: porvaiKg,
         unit: 'kg',
         ...src,
@@ -568,10 +596,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         direction: 'out',
         fabric_quality_id: linkedFqId,
         bobbin_id: b.bobbin_id,
+        jobwork_party_id: jobworkPartyId,
         quantity: actualMetres,
         unit: 'm',
         ...src,
-        notes: 'In-house bobbin consumption (1 m per fabric metre)',
+        notes: productionMode === 'inhouse'
+          ? 'In-house bobbin consumption (1 m per fabric metre)'
+          : 'Bobbin consumption (1 m per fabric metre)',
       });
     }
     } // end if (!exempt) — jobwork-exempt batches skip all raw-material outflows

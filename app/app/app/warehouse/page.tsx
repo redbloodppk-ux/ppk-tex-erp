@@ -2654,7 +2654,12 @@ async function loadInhouseOpeningStock(
     sb.from('stock_ledger')
       .select('id, fabric_quality_id, yarn_count_id, bobbin_id, quantity, event_date, reference_no, notes, direction, source_id')
       .eq('bucket', bucket)
-      .eq('source_kind', 'production_batch'),
+      .eq('source_kind', 'production_batch')
+      // Jobwork/outsource consumption is tagged with jobwork_party_id and
+      // belongs on the Job Work / Outsource warehouse pivots (see
+      // loadJobworkWarpBeam etc.) — exclude it here so it doesn't also
+      // count as in-house stock.
+      .is('jobwork_party_id', null),
   );
 
   // For warp_beam, resolve `ends` via costing_master.warp_ends keyed
