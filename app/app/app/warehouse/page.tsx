@@ -2512,7 +2512,14 @@ async function loadInhouseOpeningStock(
       });
     }
 
-    // Pavu inflows — in-house, in_stock, with a real meters value.
+    // Pavu inflows — every in-house beam that ever came out of sizing,
+    // regardless of its CURRENT status (in_stock / on_loom / finished).
+    // Outflows (fabric receipts, production-batch consumption) are a
+    // permanent ledger that never forgets a beam once it's used — so
+    // filtering inflow to status='in_stock' only was wrong: as soon as
+    // a beam moved to on_loom/finished, its inflow vanished here while
+    // its consumption kept getting deducted, driving the balance deeply
+    // negative even though nothing physical was actually missing.
     const inhousePavus = await safeSelect<{
       id: number; pavu_code: string | null; ends: number | null;
       meters: number | string | null;
@@ -2521,8 +2528,7 @@ async function loadInhouseOpeningStock(
     }>(
       supabase.from('pavu')
         .select('id, pavu_code, ends, meters, sizing_job_id, created_at')
-        .eq('production_mode', 'in_house')
-        .eq('status', 'in_stock'),
+        .eq('production_mode', 'in_house'),
     );
     // Resolve each pavu's date AND warp_count_id from its sizing job.
     // sizing_job.warp_count_id is what disambiguates pavu inflows with
