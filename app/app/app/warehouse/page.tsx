@@ -3030,6 +3030,15 @@ async function loadJobworkBobbin(
   // for its code + ends_per_bobbin + bobbin_metre. Previously the bobbin
   // master itself was overloaded with these rows; migration 141 separates
   // the concerns.
+  //
+  // Deliberately NOT filtered by status='active': outflows (stock_ledger
+  // bucket='bobbin' consumption) are a permanent ledger that never forgets
+  // an issue once it's used, so scoping inflow to one status value would
+  // reproduce the exact bug found on the in-house Warp Metre tab (pavu
+  // status='in_stock' filter) — every issue whose status later moved away
+  // from 'active' (e.g. archived/discontinued) would silently vanish from
+  // this pivot while its consumption kept getting deducted, driving the
+  // balance negative for no real reason. Every historical issue must count.
   const issues = await safeSelect<{
     id: number; jobwork_party_id: number;
     pieces_issued: number | string | null;
@@ -3047,7 +3056,6 @@ async function loadJobworkBobbin(
         .from('jobwork_bobbin_issue')
         .select(`id, jobwork_party_id, pieces_issued, original_pieces, issue_date, reference_no, notes,
                  bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre )`)
-        .eq('status', 'active')
         .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       return q;
