@@ -133,6 +133,13 @@ export default function PavuAssignPage() {
   // pavu id → yarn_count id of its warp. In-house pavus carry this via
   // sizing_job; jobwork pavus get it from their linked jobwork_warp_beam.
   const [pavuWarpById, setPavuWarpById] = useState<Map<number, number>>(new Map());
+  // pavu id → intended fabric_quality_id, from the jobwork_warp_beam row it
+  // was received under. Only jobwork pavus carry this (in-house pavus' quality
+  // isn't fixed until "Quality being woven" is picked at assignment) — used to
+  // keep the Assign modal's beam list scoped to the loom's assigned quality,
+  // not just ends + yarn count (two different qualities, e.g. white vs black,
+  // can share the same ends and yarn count).
+  const [pavuQualityById, setPavuQualityById] = useState<Map<number, number>>(new Map());
   const [yarnNameById, setYarnNameById] = useState<Map<number, string>>(new Map());
   // pavu id → its position within its sizing set (1, 2, 3… by beam no)
   // and the set's TOTAL beam count. Computed over ALL pavus of the set
@@ -197,8 +204,7 @@ export default function PavuAssignPage() {
       // Jobwork pavus have no sizing_job, so their warp count comes from
       // the linked warp-beam-given row instead.
       sb.from('jobwork_warp_beam')
-        .select('pavu_id, pavu_ids, warp_count_id')
-        .not('warp_count_id', 'is', null),
+        .select('pavu_id, pavu_ids, warp_count_id, fabric_quality_id'),
       sb.from('yarn_count').select('id, display_name'),
       // ALL recent pavus regardless of status — needed to compute each
       // beam's true position within its set (a beam already on loom or
@@ -262,10 +268,19 @@ export default function PavuAssignPage() {
     // pavu id → warp yarn_count id for jobwork pavus (via their linked
     // warp-beam-given row — either the single pavu_id fk or the pavu_ids list).
     const wMap = new Map<number, number>();
-    for (const row of (jwb.data as { pavu_id: number | null; pavu_ids: number[] | null; warp_count_id: number }[] | null) ?? []) {
+    // pavu id → intended fabric_quality_id, same source row.
+    const qualByPavuMap = new Map<number, number>();
+    for (const row of (jwb.data as {
+      pavu_id: number | null; pavu_ids: number[] | null;
+      warp_count_id: number | null; fabric_quality_id: number | null;
+    }[] | null) ?? []) {
       const ids = [row.pavu_id, ...(row.pavu_ids ?? [])].filter((id): id is number => id != null);
-      for (const id of ids) wMap.set(id, Number(row.warp_count_id));
+      for (const id of ids) {
+        if (row.warp_count_id != null) wMap.set(id, Number(row.warp_count_id));
+        if (row.fabric_quality_id != null) qualByPavuMap.set(id, Number(row.fabric_quality_id));
+      }
     }
+    setPavuQualityById(qualByPavuMap);
     setPavuWarpById(wMap);
     setYarnNameById(new Map(
       (((yc.data as { id: number; display_name: string }[] | null) ?? [])).map(r => [Number(r.id), r.display_name]),
@@ -665,6 +680,7 @@ export default function PavuAssignPage() {
           qualities={qualities}
           loomQuality={assignFor.fabric_quality_id ? fabricQualityById.get(assignFor.fabric_quality_id) ?? null : null}
           pavuWarpById={pavuWarpById}
+          pavuQualityById={pavuQualityById}
           yarnNameById={yarnNameById}
           setPosById={setPosById}
           currentAssignment={activeByLoom.get(assignFor.id) ?? null}
@@ -695,7 +711,7 @@ export default function PavuAssignPage() {
 // so the partial-unique-index constraint stays happy.
 // ───────────────────────────────────────────────────────────────────────────
 function AssignModal({
-  loom, stock, qualities, loomQuality, pavuWarpById, yarnNameById, setPosById, currentAssignment, onClose, onDone,
+  loom, stock, qualities, loomQuality, pavuWarpById, pavuQualityById, yarnNameById, setPosById, currentAssignment, onClose, onDone,
 }: {
   loom: Loom;
   stock: PavuInStock[];
@@ -706,6 +722,11 @@ function AssignModal({
   loomQuality: QualityEndsInfo | null;
   /** pavu id → warp yarn_count id (from jobwork_warp_beam, for jobwork pavus). */
   pavuWarpById: Map<number, number>;
+  /** pavu id → intended fabric_quality_id (from jobwork_warp_beam, for jobwork
+   *  pavus) — lets the beam list be narrowed to the loom's exact quality, not
+   *  just its ends + yarn count (two qualities can share both, e.g. white
+   *  2190 vs black 2190, both 20s cotton). */
+  pavuQualityById: Map<number, number>;
   /** yarn_count id → display name, for showing warp count in option labels. */
   yarnNameById: Map<number, string>;
   /** pavu id → position within its full sizing set (all statuses). */
@@ -754,24 +775,40 @@ function AssignModal({
     if (!metresStartTouched) setMetresStartDate(addOneDay(value));
   }
 
+  /** Intended fabric_quality_id for a pavu, from its linked warp-beam-given
+   *  row — jobwork rows only. In-house rows have no entry (their quality
+   *  isn't fixed until "Quality being woven" is picked below), so this
+   *  returns null for them and they're not filtered on this basis. */
+  function pavuQualityId(s: PavuInStock): number | null {
+    return pavuQualityById.get(s.id) ?? null;
+  }
+
   /** Warp yarn_count id for a pavu: in-house rows carry it via sizing_job,
    *  jobwork rows via their linked warp-beam-given row. */
   function pavuWarpId(s: PavuInStock): number | null {
     return s.sizing_job?.warp_count_id ?? pavuWarpById.get(s.id) ?? null;
   }
 
-  // Only pavu whose ends count AND warp yarn count match this loom's
-  // assigned fabric quality are eligible — a loom set up for one quality
-  // shouldn't be offered beams meant for another. Beams whose warp count is
-  // unknown (or a quality without a warp spec) are not hidden on that basis,
-  // only on ends. If the loom has no quality assigned, or the quality has no
-  // expected-ends value configured, matchedStock is empty and the UI below
-  // explains what to fix instead of silently showing everything.
+  // Only pavu whose ends count, warp yarn count, AND (for jobwork beams)
+  // intended fabric quality match this loom's assigned fabric quality are
+  // eligible — a loom set up for one quality shouldn't be offered beams
+  // meant for another. Two different qualities can share the same ends and
+  // yarn count (e.g. white 2190 vs black 2190, both 20s cotton), so ends
+  // alone isn't enough to tell them apart — the quality check catches that.
+  // Beams whose warp count or quality is unknown (in-house beams, whose
+  // quality isn't fixed until "Quality being woven" is picked below) are not
+  // hidden on that basis, only on ends. If the loom has no quality assigned,
+  // or the quality has no expected-ends value configured, matchedStock is
+  // empty and the UI below explains what to fix instead of silently showing
+  // everything.
   const matchedStock = loomQuality?.expectedEnds != null
     ? stock.filter(s => {
         if (s.ends !== loomQuality.expectedEnds) return false;
         const w = pavuWarpId(s);
-        return loomQuality.warpCountId == null || w == null || w === loomQuality.warpCountId;
+        if (loomQuality.warpCountId != null && w != null && w !== loomQuality.warpCountId) return false;
+        const q = pavuQualityId(s);
+        if (loom.fabric_quality_id != null && q != null && q !== loom.fabric_quality_id) return false;
+        return true;
       })
     : [];
 
