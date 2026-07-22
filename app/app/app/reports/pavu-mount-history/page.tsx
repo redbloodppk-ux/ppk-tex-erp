@@ -137,10 +137,13 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   if (rows.length === 0) return [];
 
   // Quality — resolved through costing_id -> fabric_quality (merge-aware),
-  // falling back to costing_master.quality_name. Same resolution as
-  // fn_pavu_stock_report's primary (a_cm/fq_a/qa) branch, applied directly
-  // since each pavu_assign row already carries the specific costing_id it
-  // was mounted under (no "latest assign" lookup needed).
+  // falling back to costing_master.quality_code/quality_name. When a costing's
+  // fabric_quality is merged (is_merged && merged_name), merged_name replaces
+  // the display identity for BOTH quality_code and quality_name — mirroring
+  // the pattern in fn_production_vs_delivery (see
+  // db/migrations/153_production_vs_delivery_label_by_fq_mode.sql), applied
+  // directly here since each pavu_assign row already carries the specific
+  // costing_id it was mounted under (no "latest assign" lookup needed).
   const costingIds = Array.from(
     new Set(rows.map((r) => r.costing_id).filter((v): v is number => v != null)),
   );
@@ -212,9 +215,13 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   return rows.map((r): MountHistoryRow => {
     const cm = r.costing_id != null ? costingById.get(r.costing_id) : undefined;
     const fq = r.costing_id != null ? fqByCostingId.get(r.costing_id) : undefined;
-    const qualityName = fq
-      ? (fq.is_merged && fq.merged_name ? fq.merged_name : fq.name ?? cm?.quality_name ?? null)
-      : cm?.quality_name ?? null;
+    const isMerged = !!(fq?.is_merged && fq.merged_name);
+    const qualityCode = isMerged ? fq!.merged_name : cm?.quality_code ?? null;
+    const qualityName = isMerged
+      ? fq!.merged_name
+      : fq
+        ? fq.name ?? cm?.quality_name ?? null
+        : cm?.quality_name ?? null;
 
     const sizingJobId = r.pavu?.sizing_job_id;
     const sizingWc = sizingJobId != null ? warpCountIdBySizingJob.get(sizingJobId) : undefined;
@@ -241,7 +248,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
       beam_no: r.pavu?.beam_no ?? '—',
       ends: r.pavu?.ends ?? 0,
       yarn_count: yarnCount,
-      quality_code: cm?.quality_code ?? null,
+      quality_code: qualityCode,
       quality_name: qualityName,
       production_mode: r.pavu?.production_mode ?? null,
       loom_id: r.loom_id,
