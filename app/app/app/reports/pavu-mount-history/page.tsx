@@ -136,14 +136,22 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   const rows = (assignData ?? []) as RawAssignRow[];
   if (rows.length === 0) return [];
 
-  // Quality — resolved through costing_id -> fabric_quality (merge-aware),
-  // falling back to costing_master.quality_code/quality_name. When a costing's
-  // fabric_quality is merged (is_merged && merged_name), merged_name replaces
-  // the display identity for BOTH quality_code and quality_name — mirroring
-  // the pattern in fn_production_vs_delivery (see
-  // db/migrations/153_production_vs_delivery_label_by_fq_mode.sql), applied
-  // directly here since each pavu_assign row already carries the specific
-  // costing_id it was mounted under (no "latest assign" lookup needed).
+  // Quality — mirrors the live fn_pavu_stock_report Postgres function's
+  // quality-resolution cascade:
+  //   Tier 1: pavu_assign.costing_id -> costing_master, EXCLUDING the
+  //     'JOBWORK-EXEMPT' placeholder row (that quality_code is a stand-in
+  //     used on jobwork mounts where the specific fabric quality isn't
+  //     costing-tracked, so it must never be treated as a real quality).
+  //   Tier 2: for jobwork mounts where Tier 1 doesn't apply, fall back to
+  //     jobwork_warp_beam.fabric_quality_id (matched to the pavu the same
+  //     way warp_count_id already is, below).
+  // Both tiers are merge-aware: when the resolved fabric_quality row has
+  // is_merged && merged_name, merged_name replaces the display identity for
+  // BOTH quality_code and quality_name. (fn_pavu_stock_report also has a
+  // Tier 3 warp_ends/warp_count_id costing_master fallback, which is out of
+  // scope here — if both tiers above fail to resolve, this falls back to
+  // whatever costing_master itself provides, including the literal
+  // 'JOBWORK-EXEMPT' code/name.)
   const costingIds = Array.from(
     new Set(rows.map((r) => r.costing_id).filter((v): v is number => v != null)),
   );
@@ -187,14 +195,40 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
 
   const { data: jwbData } = await supabase
     .from('jobwork_warp_beam')
-    .select('pavu_id, pavu_ids, warp_count_id');
+    .select('id, pavu_id, pavu_ids, warp_count_id, fabric_quality_id')
+    .order('id', { ascending: true });
   const warpCountIdByPavu = new Map<number, number>();
+  // Ascending id order + plain Map.set (last write wins) replicates
+  // fn_pavu_stock_report's "ORDER BY jwb.id DESC LIMIT 1" — the
+  // highest-id (most recent) jobwork_warp_beam row for a given pavu wins.
+  const fqIdByPavu = new Map<number, number>();
   for (const row of (jwbData ?? []) as Array<{
-    pavu_id: number | null; pavu_ids: number[] | null; warp_count_id: number | null;
+    id: number; pavu_id: number | null; pavu_ids: number[] | null;
+    warp_count_id: number | null; fabric_quality_id: number | null;
   }>) {
-    if (row.warp_count_id == null) continue;
     const ids = [row.pavu_id, ...(row.pavu_ids ?? [])].filter((id): id is number => id != null);
-    for (const id of ids) warpCountIdByPavu.set(id, row.warp_count_id);
+    if (row.warp_count_id != null) {
+      for (const id of ids) warpCountIdByPavu.set(id, row.warp_count_id);
+    }
+    if (row.fabric_quality_id != null) {
+      for (const id of ids) fqIdByPavu.set(id, row.fabric_quality_id);
+    }
+  }
+
+  const jwbFqIds = Array.from(new Set(fqIdByPavu.values()));
+  let fqById = new Map<number, { code: string | null; name: string | null; is_merged: boolean; merged_name: string | null }>();
+  if (jwbFqIds.length > 0) {
+    const { data } = await supabase
+      .from('fabric_quality')
+      .select('id, code, name, is_merged, merged_name')
+      .in('id', jwbFqIds);
+    fqById = new Map(
+      (
+        (data ?? []) as Array<{
+          id: number; code: string | null; name: string | null; is_merged: boolean; merged_name: string | null;
+        }>
+      ).map((f) => [f.id, { code: f.code, name: f.name, is_merged: f.is_merged, merged_name: f.merged_name }]),
+    );
   }
 
   const warpCountIds = new Set<number>();
@@ -215,13 +249,36 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   return rows.map((r): MountHistoryRow => {
     const cm = r.costing_id != null ? costingById.get(r.costing_id) : undefined;
     const fq = r.costing_id != null ? fqByCostingId.get(r.costing_id) : undefined;
-    const isMerged = !!(fq?.is_merged && fq.merged_name);
-    const qualityCode = isMerged ? fq!.merged_name : cm?.quality_code ?? null;
-    const qualityName = isMerged
-      ? fq!.merged_name
-      : fq
-        ? fq.name ?? cm?.quality_name ?? null
-        : cm?.quality_name ?? null;
+    const tier1Applies = !!cm && cm.quality_code !== 'JOBWORK-EXEMPT';
+    const isMerged = tier1Applies && !!(fq?.is_merged && fq.merged_name);
+
+    let qualityCode: string | null;
+    let qualityName: string | null;
+    if (tier1Applies) {
+      // Tier 1 — costing_master via costing_id (real quality, not the
+      // JOBWORK-EXEMPT placeholder), merge-aware via fabric_quality.
+      qualityCode = isMerged ? fq!.merged_name : cm!.quality_code ?? null;
+      qualityName = isMerged
+        ? fq!.merged_name
+        : fq
+          ? fq.name ?? cm!.quality_name ?? null
+          : cm!.quality_name ?? null;
+    } else {
+      // Tier 2 — jobwork_warp_beam.fabric_quality_id fallback (jobwork
+      // mounts where the specific quality isn't costing-tracked).
+      const jwbFqId = fqIdByPavu.get(r.pavu_id);
+      const jwbFq = jwbFqId != null ? fqById.get(jwbFqId) : undefined;
+      const jwbIsMerged = !!(jwbFq?.is_merged && jwbFq.merged_name);
+      if (jwbFq) {
+        qualityCode = jwbIsMerged ? jwbFq.merged_name : jwbFq.code ?? null;
+        qualityName = jwbIsMerged ? jwbFq.merged_name : jwbFq.name ?? jwbFq.code ?? null;
+      } else {
+        // Neither tier resolved — fall back to whatever costing_master
+        // itself provides (may genuinely be the JOBWORK-EXEMPT literal).
+        qualityCode = cm?.quality_code ?? null;
+        qualityName = cm?.quality_name ?? null;
+      }
+    }
 
     const sizingJobId = r.pavu?.sizing_job_id;
     const sizingWc = sizingJobId != null ? warpCountIdBySizingJob.get(sizingJobId) : undefined;
