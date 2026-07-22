@@ -145,10 +145,13 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   //   Tier 2: for jobwork mounts where Tier 1 doesn't apply, fall back to
   //     jobwork_warp_beam.fabric_quality_id (matched to the pavu the same
   //     way warp_count_id already is, below).
-  // Both tiers are merge-aware: when the resolved fabric_quality row has
-  // is_merged && merged_name, merged_name replaces the display identity for
-  // BOTH quality_code and quality_name. (fn_pavu_stock_report also has a
-  // Tier 3 warp_ends/warp_count_id costing_master fallback, which is out of
+  // Both tiers always show the INDIVIDUAL fabric_quality row's own
+  // code/name — never merged_name. Merged names collapse distinct
+  // qualities (e.g. WHITE DHOTIES 2190 / BLACK DHOTIES 2190) into one
+  // group label (20'S DHOTIES), which makes it impossible to tell which
+  // quality was actually mounted, so this report intentionally does not
+  // use merged_name. (fn_pavu_stock_report also has a Tier 3
+  // warp_ends/warp_count_id costing_master fallback, which is out of
   // scope here — if both tiers above fail to resolve, this falls back to
   // whatever costing_master itself provides, including the literal
   // 'JOBWORK-EXEMPT' code/name.)
@@ -250,28 +253,23 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
     const cm = r.costing_id != null ? costingById.get(r.costing_id) : undefined;
     const fq = r.costing_id != null ? fqByCostingId.get(r.costing_id) : undefined;
     const tier1Applies = !!cm && cm.quality_code !== 'JOBWORK-EXEMPT';
-    const isMerged = tier1Applies && !!(fq?.is_merged && fq.merged_name);
 
     let qualityCode: string | null;
     let qualityName: string | null;
     if (tier1Applies) {
       // Tier 1 — costing_master via costing_id (real quality, not the
-      // JOBWORK-EXEMPT placeholder), merge-aware via fabric_quality.
-      qualityCode = isMerged ? fq!.merged_name : cm!.quality_code ?? null;
-      qualityName = isMerged
-        ? fq!.merged_name
-        : fq
-          ? fq.name ?? cm!.quality_name ?? null
-          : cm!.quality_name ?? null;
+      // JOBWORK-EXEMPT placeholder). Always the individual fabric_quality
+      // row's own code/name — never merged_name.
+      qualityCode = cm!.quality_code ?? null;
+      qualityName = fq ? fq.name ?? cm!.quality_name ?? null : cm!.quality_name ?? null;
     } else {
       // Tier 2 — jobwork_warp_beam.fabric_quality_id fallback (jobwork
       // mounts where the specific quality isn't costing-tracked).
       const jwbFqId = fqIdByPavu.get(r.pavu_id);
       const jwbFq = jwbFqId != null ? fqById.get(jwbFqId) : undefined;
-      const jwbIsMerged = !!(jwbFq?.is_merged && jwbFq.merged_name);
       if (jwbFq) {
-        qualityCode = jwbIsMerged ? jwbFq.merged_name : jwbFq.code ?? null;
-        qualityName = jwbIsMerged ? jwbFq.merged_name : jwbFq.name ?? jwbFq.code ?? null;
+        qualityCode = jwbFq.code ?? null;
+        qualityName = jwbFq.name ?? jwbFq.code ?? null;
       } else {
         // Neither tier resolved — fall back to whatever costing_master
         // itself provides (may genuinely be the JOBWORK-EXEMPT literal).
