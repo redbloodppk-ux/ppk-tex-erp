@@ -265,6 +265,118 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   });
 }
 
-export default async function PavuMountHistoryReport() {
-  return <div>Loading…</div>;
+/* ─────────────── page ─────────────── */
+
+interface PageProps {
+  searchParams: Promise<{
+    from?: string;
+    to?: string;
+    loom_id?: string;
+    shed?: string;
+    mode?: string;
+    quality_code?: string;
+    ends?: string;
+  }>;
+}
+
+export default async function PavuMountHistoryReport({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const from = sp.from ?? startOfMonthISO();
+  const to = sp.to ?? todayISO();
+  const loomIdParam = sp.loom_id ?? '';
+  const loomIdNum = loomIdParam && /^\d+$/.test(loomIdParam) ? Number(loomIdParam) : null;
+  const shedParam = sp.shed ?? '';
+  const modeFilter = sp.mode ?? '';
+  const qualityCodeFilter = sp.quality_code ?? '';
+  const endsParam = sp.ends ?? '';
+  const endsNum = endsParam && /^\d+$/.test(endsParam) ? Number(endsParam) : null;
+
+  const supabase = await createClient();
+
+  const [allRows, loomRes] = await Promise.all([
+    loadMountHistory(supabase, from, to).catch((): MountHistoryRow[] => []),
+    supabase.from('loom').select('id, loom_code, shed_no').order('loom_code', { ascending: true }),
+  ]);
+
+  const looms = (loomRes.data as unknown as LoomOpt[]) ?? [];
+  const loadError = loomRes.error?.message ?? null;
+
+  // Filter option lists — derived from the date-filtered rows, mirroring
+  // Beam Stock Report (options computed from the loaded set, not the
+  // post-filter set, so picking one facet doesn't hide the others).
+  const endsOptions = Array.from(new Set(allRows.map((r) => r.ends))).sort((a, b) => a - b);
+  const shedOptions = Array.from(
+    new Set(allRows.map((r) => r.shed_no).filter((v): v is number => v != null)),
+  ).sort((a, b) => a - b);
+  const modeOptions = Array.from(
+    new Set(allRows.map((r) => r.production_mode).filter((v): v is string => !!v)),
+  ).sort();
+  const qualityOptions = Array.from(
+    new Map(
+      allRows
+        .filter((r) => r.quality_code != null)
+        .map((r) => [r.quality_code as string, r.quality_name ?? r.quality_code!]),
+    ).entries(),
+  ).sort((a, b) => a[0].localeCompare(b[0]));
+
+  const rows = allRows.filter((r) => {
+    if (loomIdNum != null && r.loom_id !== loomIdNum) return false;
+    if (shedParam && String(r.shed_no ?? '') !== shedParam) return false;
+    if (modeFilter && r.production_mode !== modeFilter) return false;
+    if (qualityCodeFilter && r.quality_code !== qualityCodeFilter) return false;
+    if (endsNum != null && r.ends !== endsNum) return false;
+    return true;
+  });
+
+  // Summary rolled up by quality — mirrors Beam Stock Report's "Summary by
+  // ends & yarn count" table.
+  const summaryMap = new Map<string, { quality_code: string; quality_name: string | null; count: number; metres: number }>();
+  for (const r of rows) {
+    const key = r.quality_code ?? '—';
+    const cur = summaryMap.get(key) ?? { quality_code: key, quality_name: r.quality_name, count: 0, metres: 0 };
+    cur.count += 1;
+    cur.metres += r.metres_produced;
+    summaryMap.set(key, cur);
+  }
+  const summary = Array.from(summaryMap.values()).sort((a, b) => a.quality_code.localeCompare(b.quality_code));
+
+  const totalMetres = rows.reduce((s, r) => s + r.metres_produced, 0);
+  const stillMounted = rows.filter((r) => r.status === 'mounted' || r.status === 'running').length;
+
+  const exportColumns: ExcelColumn[] = [
+    { key: 'pavu_code', label: 'Pavu Code', type: 'text', width: 14 },
+    { key: 'beam_no', label: 'Beam No', type: 'text', width: 12 },
+    { key: 'ends', label: 'Ends', type: 'number', width: 8 },
+    { key: 'yarn_count', label: 'Yarn Count', type: 'text', width: 12 },
+    { key: 'quality_code', label: 'Quality Code', type: 'text', width: 14 },
+    { key: 'quality_name', label: 'Quality Name', type: 'text', width: 24 },
+    { key: 'mode_label', label: 'Mode', type: 'text', width: 12 },
+    { key: 'loom_code', label: 'Loom', type: 'text', width: 10 },
+    { key: 'shed_no', label: 'Shed', type: 'number', width: 8 },
+    { key: 'mount_date', label: 'Mount Date', type: 'date', width: 13 },
+    { key: 'unmount_date', label: 'Unmount Date', type: 'date', width: 13 },
+    { key: 'days_mounted', label: 'Days Mounted', type: 'number', width: 12 },
+    { key: 'metres_produced', label: 'Metres Produced', type: 'metre', width: 14, total: true },
+    { key: 'actual_metres', label: 'Actual Metres', type: 'metre', width: 14, total: true },
+    { key: 'status', label: 'Status', type: 'text', width: 12 },
+  ];
+  const exportRows = rows.map((r) => ({
+    pavu_code: r.pavu_code,
+    beam_no: r.beam_no,
+    ends: r.ends,
+    yarn_count: r.yarn_count ?? '',
+    quality_code: r.quality_code ?? '',
+    quality_name: r.quality_name ?? '',
+    mode_label: r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : '',
+    loom_code: r.loom_code ?? '',
+    shed_no: r.shed_no ?? '',
+    mount_date: r.mount_date ?? '',
+    unmount_date: r.unmount_date ?? '',
+    days_mounted: r.days_mounted ?? '',
+    metres_produced: r.metres_produced,
+    actual_metres: r.actual_metres,
+    status: r.status,
+  }));
+
+  return <div>Loading…</div>; // JSX body replaced in Task 3
 }
