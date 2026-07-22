@@ -1206,8 +1206,17 @@ interface BeamHistoryRow {
   metres_produced: number | null;
   actual_metres: number | null;
   metre_variance: number | null;
-  pavu: { pavu_code: string; beam_no: string | null; meters: number | null } | null;
+  costing_id: number | null;
+  pavu: { id: number; pavu_code: string; beam_no: string | null; meters: number | null } | null;
   costing: { quality_code: string } | null;
+  // Resolved client-side after fetch — see the effect below. Tier 1: the
+  // real costing_master quality_code (unchanged). Tier 2: for jobwork
+  // mounts where costing is the shared 'JOBWORK-EXEMPT' placeholder (or
+  // missing), the individual fabric_quality row via
+  // jobwork_warp_beam.fabric_quality_id, matching the same fallback used
+  // in fn_pavu_stock_report and the Pavu Mount History report — never the
+  // generic exempt label.
+  quality_label: string | null;
 }
 
 interface ProdLogRow {
@@ -1247,7 +1256,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
       const sb = supabase as any;
       const [b, p, s] = await Promise.all([
         sb.from('pavu_assign')
-          .select('id, status, assigned_date, start_date, end_date, metres_produced, actual_metres, metre_variance, pavu:pavu_id ( pavu_code, beam_no, meters ), costing:costing_id ( quality_code )')
+          .select('id, status, assigned_date, start_date, end_date, metres_produced, actual_metres, metre_variance, costing_id, pavu:pavu_id ( id, pavu_code, beam_no, meters ), costing:costing_id ( quality_code )')
           .eq('loom_id', loom.id)
           .order('id', { ascending: false })
           .limit(50),
@@ -1267,7 +1276,53 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
       if (b.error) setErr(b.error.message);
       else if (p.error) setErr(p.error.message);
       else if (s.error) setErr(s.error.message);
-      setBeams((b.data as BeamHistoryRow[] | null) ?? []);
+
+      const rawBeams = (b.data as BeamHistoryRow[] | null) ?? [];
+
+      // Resolve individual jobwork qualities the same way
+      // fn_pavu_stock_report and the Pavu Mount History report do: fetch
+      // every jobwork_warp_beam row ascending by id and keep the
+      // highest-id (most recent) fabric_quality_id per pavu via plain
+      // Map.set last-write-wins.
+      const pavuIds = rawBeams.map((r) => r.pavu?.id).filter((v): v is number => v != null);
+      let fqIdByPavu = new Map<number, number>();
+      if (pavuIds.length > 0) {
+        const { data: jwbData } = await sb
+          .from('jobwork_warp_beam')
+          .select('id, pavu_id, pavu_ids, fabric_quality_id')
+          .order('id', { ascending: true });
+        for (const row of (jwbData ?? []) as Array<{
+          id: number; pavu_id: number | null; pavu_ids: number[] | null; fabric_quality_id: number | null;
+        }>) {
+          if (row.fabric_quality_id == null) continue;
+          const ids = [row.pavu_id, ...(row.pavu_ids ?? [])].filter((id): id is number => id != null);
+          for (const id of ids) fqIdByPavu.set(id, row.fabric_quality_id);
+        }
+      }
+      const jwbFqIds = Array.from(new Set(fqIdByPavu.values()));
+      let fqById = new Map<number, { code: string | null; name: string | null }>();
+      if (jwbFqIds.length > 0) {
+        const { data } = await sb.from('fabric_quality').select('id, code, name').in('id', jwbFqIds);
+        fqById = new Map(
+          ((data ?? []) as Array<{ id: number; code: string | null; name: string | null }>)
+            .map((f) => [f.id, { code: f.code, name: f.name }]),
+        );
+      }
+
+      const enrichedBeams: BeamHistoryRow[] = rawBeams.map((r) => {
+        const tier1Applies = r.costing_id != null && r.costing?.quality_code !== 'JOBWORK-EXEMPT';
+        let quality_label: string | null;
+        if (tier1Applies) {
+          quality_label = r.costing?.quality_code ?? null;
+        } else {
+          const jwbFqId = r.pavu?.id != null ? fqIdByPavu.get(r.pavu.id) : undefined;
+          const jwbFq = jwbFqId != null ? fqById.get(jwbFqId) : undefined;
+          quality_label = jwbFq ? jwbFq.name ?? jwbFq.code ?? null : r.costing?.quality_code ?? null;
+        }
+        return { ...r, quality_label };
+      });
+
+      setBeams(enrichedBeams);
       setLogs((p.data as ProdLogRow[] | null) ?? []);
       setStatusLogs((s.data as StatusLogRow[] | null) ?? []);
       setLoading(false);
@@ -1331,7 +1386,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
                       </div>
                       <div className="text-xs text-ink-soft">
                         Beam {b.pavu?.beam_no ?? '—'}
-                        {b.costing?.quality_code ? ` · ${b.costing.quality_code}` : ''}
+                        {b.quality_label ? ` · ${b.quality_label}` : ''}
                         {nominal > 0 ? ` · ${nominal.toFixed(0)} m nominal` : ''}
                       </div>
                       <div className="text-xs text-ink-soft">
