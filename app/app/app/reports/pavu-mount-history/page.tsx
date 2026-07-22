@@ -435,5 +435,223 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
     status: r.status,
   }));
 
-  return <div>Loading…</div>; // JSX body replaced in Task 3
+  return (
+    <div>
+      <PageHeader
+        title="Pavu Mount History"
+        crumbs={[{ label: 'Reports', href: '/app/reports' }, { label: 'Pavu Mount History' }]}
+        subtitle={`Every beam mounted between ${from} and ${to} — which loom it went on, what came off it, and how many metres it produced.`}
+        actions={
+          <ExcelExportButton
+            filename="pavu-mount-history"
+            sheetName="Mount History"
+            title={`Pavu Mount History · ${from} to ${to}`}
+            columns={exportColumns}
+            rows={exportRows}
+          />
+        }
+      />
+
+      {/* ─────────────── Filter strip ─────────────── */}
+      <form className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm" action="">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">From</span>
+          <input type="date" name="from" defaultValue={from} className="input" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">To</span>
+          <input type="date" name="to" defaultValue={to} className="input" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Loom</span>
+          <select name="loom_id" defaultValue={loomIdParam} className="input min-w-[140px]">
+            <option value="">All looms</option>
+            {looms.map((l) => (
+              <option key={l.id} value={l.id}>{l.loom_code}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Shed</span>
+          <select name="shed" defaultValue={shedParam} className="input min-w-[110px]">
+            <option value="">All sheds</option>
+            {shedOptions.map((s) => (
+              <option key={s} value={s}>Shed {s}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Mode</span>
+          <select name="mode" defaultValue={modeFilter} className="input min-w-[130px]">
+            <option value="">All modes</option>
+            {modeOptions.map((m) => (
+              <option key={m} value={m}>{MODE_LABEL[m] ?? m}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Quality</span>
+          <select name="quality_code" defaultValue={qualityCodeFilter} className="input min-w-[180px]">
+            <option value="">All qualities</option>
+            {qualityOptions.map(([code, name]) => (
+              <option key={code} value={code}>{code} — {name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Ends</span>
+          <select name="ends" defaultValue={endsParam} className="input min-w-[100px]">
+            <option value="">All</option>
+            {endsOptions.map((e) => (
+              <option key={e} value={e}>{e}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="btn-primary">Apply</button>
+        <a href="/app/reports/pavu-mount-history" className="text-xs text-ink-mute self-center hover:text-ink underline">
+          Reset
+        </a>
+      </form>
+
+      {loadError && (
+        <div className="card p-4 text-sm text-err mb-4">Could not load loom list: {loadError}</div>
+      )}
+
+      {/* ─────────────── KPI strip ─────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+        <Kpi label="Mount events" value={String(rows.length)} icon={History} />
+        <Kpi label="Still mounted" value={String(stillMounted)} icon={Gauge} />
+        <Kpi label="Metres produced" value={formatMetres(totalMetres, 0)} icon={Layers} />
+      </div>
+
+      {/* ─────────────── Summary by quality ─────────────── */}
+      {summary.length > 0 && (
+        <div className="card p-4 mb-4 overflow-x-auto">
+          <div className="text-xs uppercase tracking-wide text-ink-mute mb-2">Summary by quality</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-ink-mute border-b border-line/60">
+                <th className="py-1.5 pr-3">Quality</th>
+                <th className="py-1.5 pr-3 text-right">Mounts</th>
+                <th className="py-1.5 pr-3 text-right">Metres produced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.map((s) => (
+                <tr key={s.quality_code} className="border-b border-line/30 last:border-0">
+                  <td className="py-1.5 pr-3">
+                    {s.quality_code}
+                    {s.quality_name && <span className="text-ink-mute"> — {s.quality_name}</span>}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right num">{s.count}</td>
+                  <td className="py-1.5 pr-3 text-right num">{formatMetres(s.metres, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ─────────────── Detail ─────────────── */}
+      {rows.length === 0 ? (
+        <div className="card p-8 text-center text-sm text-ink-mute">
+          No mount events in this window. Try widening the date range or clearing a filter.
+        </div>
+      ) : (
+        <>
+          <CardFilter placeholder="Search mount history…">
+            {rows.map((r) => (
+              <div key={r.assign_id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink break-words">
+                      {r.pavu_code} <span className="text-ink-mute">/ {r.beam_no}</span>
+                    </div>
+                    <div className="text-[10px] text-ink-mute">
+                      {r.ends} ends · {r.yarn_count ?? '—'}
+                      {r.quality_code ? ` · ${r.quality_code}` : ''}
+                    </div>
+                  </div>
+                  <span className={`pill ${ASSIGN_STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'} text-[11px] uppercase tracking-wide shrink-0`}>
+                    {r.status}
+                  </span>
+                </div>
+                <div className="text-xs text-ink-soft mt-2 space-y-1">
+                  <div>Loom: <span className="text-ink">{r.loom_code ?? '—'}{r.shed_no != null ? ` (Shed ${r.shed_no})` : ''}</span></div>
+                  <div>Mode: {r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : '—'}</div>
+                  <div>Mounted: <span className="num">{fmtDate(r.mount_date)}</span> → Unmounted: <span className="num">{fmtDate(r.unmount_date)}</span></div>
+                  <div>Days mounted: <span className="num">{r.days_mounted ?? '—'}</span></div>
+                  <div>Metres: <span className="num">{formatMetres(r.metres_produced, 1)}</span> produced / <span className="num">{formatMetres(r.actual_metres, 1)}</span> actual</div>
+                </div>
+              </div>
+            ))}
+          </CardFilter>
+
+          <div className="card p-0 overflow-x-auto hidden md:block">
+            <table className="w-full text-sm min-w-[1100px]">
+              <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="text-left px-3 py-3">Beam</th>
+                  <th className="text-left px-3 py-3">Ends</th>
+                  <th className="text-left px-3 py-3">Yarn</th>
+                  <th className="text-left px-3 py-3">Quality</th>
+                  <th className="text-left px-3 py-3">Mode</th>
+                  <th className="text-left px-3 py-3">Loom / Shed</th>
+                  <th className="text-left px-3 py-3">Mounted</th>
+                  <th className="text-left px-3 py-3">Unmounted</th>
+                  <th className="text-right px-3 py-3">Days</th>
+                  <th className="text-right px-3 py-3">Metres</th>
+                  <th className="text-left px-3 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.assign_id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-2 font-mono text-xs">{r.pavu_code} <span className="text-ink-mute">/ {r.beam_no}</span></td>
+                    <td className="px-3 py-2 num text-xs">{r.ends}</td>
+                    <td className="px-3 py-2 text-xs">{r.yarn_count ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {r.quality_code ?? '—'}
+                      {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : '—'}</td>
+                    <td className="px-3 py-2 text-xs">{r.loom_code ?? '—'}{r.shed_no != null ? ` (S${r.shed_no})` : ''}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtDate(r.mount_date)}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtDate(r.unmount_date)}</td>
+                    <td className="px-3 py-2 text-right num text-xs">{r.days_mounted ?? '—'}</td>
+                    <td className="px-3 py-2 text-right num text-xs">{formatMetres(r.metres_produced, 1)}</td>
+                    <td className="px-3 py-2">
+                      <span className={`pill ${ASSIGN_STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'} text-[11px] uppercase tracking-wide`}>
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────── presentational helpers ─────────────── */
+
+interface KpiProps {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+function Kpi({ label, value, icon: Icon }: KpiProps) {
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[11px] uppercase tracking-wider text-ink-mute">{label}</div>
+        <Icon className="w-4 h-4 text-ink-mute" />
+      </div>
+      <div className="num text-xl font-bold">{value}</div>
+    </div>
+  );
 }
