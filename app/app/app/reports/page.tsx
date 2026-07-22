@@ -152,6 +152,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/pavu-mount-history',
+    title: 'Pavu Mount History',
+    description:
+      'History of every beam mount event — which pavu went on which loom, when it mounted and unmounted, and how many metres it produced. Filter by date range, loom, shed, mode, quality and ends.',
+    ready: true,
+  },
+  {
     href: '/app/reports/attendance-daily',
     title: 'Daily Attendance',
     description:
