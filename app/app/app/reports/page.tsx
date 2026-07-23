@@ -207,6 +207,13 @@ const REPORTS: ReportLink[] = [
       'Total metres woven from the shift log for any day, week, month or financial year. Filter by shed, weaver and quality; breaks down by date, shed, quality and weaver.',
     ready: true,
   },
+  {
+    href: '/app/reports/loom-efficiency',
+    title: 'Loom Efficiency & Cost',
+    description:
+      'Actual loom efficiency % and cost/metre vs. the target set on Settings — trended week/month/year, shed-wise, with charts. Answers "how is it going" over time.',
+    ready: true,
+  },
 ];
 
 export default function ReportsIndex() {

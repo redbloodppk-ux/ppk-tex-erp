@@ -261,6 +261,23 @@ export default async function SettingsPage({
             <ChevronRight className="w-4 h-4 text-ink-mute" />
           </div>
         </Link>
+        <Link
+          href="/app/settings/loom-rate-target"
+          className="flex items-center justify-between gap-3 rounded-lg border border-line hover:border-indigo-300 hover:bg-indigo-50/40 p-3 transition mt-3"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Settings2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold">Loom Rate Target</div>
+              <div className="text-xs text-ink-soft">
+                Target loom efficiency % and cost/metre used by the Loom Efficiency &amp; Cost report.
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-ink-mute" />
+        </Link>
       </div>
 
       {/* Expense categories */}
