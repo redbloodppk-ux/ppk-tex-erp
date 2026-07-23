@@ -843,6 +843,24 @@ function AssignModal({
     return String(a.beam_no).localeCompare(String(b.beam_no));
   });
 
+  // filteredStock is already sorted set-by-set, so a single pass grouping
+  // consecutive same-set rows is enough — no separate sort/bucket step
+  // needed. Rows with no set no at all (rare) fall into their own "No set"
+  // group rather than silently joining the group above/below them.
+  const groupedStock = useMemo(() => {
+    const groups: { setNo: string | null; items: typeof filteredStock }[] = [];
+    for (const s of filteredStock) {
+      const key = s.sizing_job?.set_no ?? s.sizing_set_no ?? null;
+      const last = groups[groups.length - 1];
+      if (last && last.setNo === key) {
+        last.items.push(s);
+      } else {
+        groups.push({ setNo: key, items: [s] });
+      }
+    }
+    return groups;
+  }, [filteredStock]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr(null);
@@ -996,21 +1014,28 @@ function AssignModal({
                 <label className="label">Pavu *</label>
                 <select required value={pavuId} onChange={e => setPavuId(e.target.value)} className="input">
                   <option value="" disabled>Select an in-stock pavu…</option>
-                  {filteredStock.map(s => {
-                    const w = pavuWarpId(s);
-                    const warpName = s.sizing_job?.warp_count?.code
-                      ?? (w != null ? yarnNameById.get(w) : null);
-                    const pos = setPosById.get(s.id);
-                    return (
-                      <option key={s.id} value={s.id}>
-                        {s.pavu_code} — Beam {s.beam_no}
-                        {pos ? ` (#${pos.pos}/${pos.total})` : ''}
-                        {warpName ? ` · ${warpName}` : ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
-                        {s.sizing_job?.set_no ? ` · Set ${s.sizing_job.set_no}` : ''}
-                        {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'}${s.sizing_set_no ? `, Set ${s.sizing_set_no}` : ''})` : ''}
-                      </option>
-                    );
-                  })}
+                  {/* Grouped by Set No via <optgroup> — the browser renders a
+                      labeled header + visual break between groups, so beams
+                      from different sizing/jobwork sets are never mistaken
+                      for one continuous run. */}
+                  {groupedStock.map((g, gi) => (
+                    <optgroup key={g.setNo ?? `no-set-${gi}`} label={g.setNo ? `SET ${g.setNo}` : 'No set'}>
+                      {g.items.map(s => {
+                        const w = pavuWarpId(s);
+                        const warpName = s.sizing_job?.warp_count?.code
+                          ?? (w != null ? yarnNameById.get(w) : null);
+                        const pos = setPosById.get(s.id);
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.pavu_code} — Beam {s.beam_no}
+                            {pos ? ` (#${pos.pos}/${pos.total})` : ''}
+                            {warpName ? ` · ${warpName}` : ''} · {s.ends} ends · {Number(s.meters).toFixed(0)} m
+                            {s.production_mode === 'jobwork' ? ` · Jobwork (${s.jobwork_vendor?.name ?? 'Unknown party'})` : ''}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  ))}
                 </select>
                 {filteredStock.length === 0 && (
                   <p className="text-xs text-ink-mute mt-1">
