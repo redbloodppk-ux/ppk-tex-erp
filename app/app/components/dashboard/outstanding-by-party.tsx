@@ -178,7 +178,7 @@ export function OutstandingByParty({
                               </td>
                               <td className="px-3 py-2 text-ink-soft">{fmtDate(b.invoice_date)}</td>
                               <td className={'px-3 py-2 text-right num ' + bTone}>{due}d</td>
-                              <td className="px-3 py-2 text-right num font-semibold">{formatRupee(b.balance)}</td>
+                              <td className={'px-3 py-2 text-right num font-semibold ' + (b.balance < 0 ? 'text-emerald-700' : '')}>{formatRupee(b.balance)}</td>
                             </tr>
                           );
                         })}

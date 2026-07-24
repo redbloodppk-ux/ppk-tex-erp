@@ -14,6 +14,7 @@ export const metadata = { title: 'Dashboard' };
 interface OpenBillRow {
   id: number;
   invoice_no: string;
+  doc_type?: string;
   party_name: string | null;
   invoice_date: string;
   customer_id: number | null;
@@ -207,7 +208,11 @@ function groupByParty(
   const groups = new Map<string, PartyGroup>();
   for (const b of bills) {
     const balance = Number(b.balance ?? 0);
-    if (balance <= 0) continue;
+    // Skip only true zero balances. Negative balances (e.g. a netted
+    // credit note) are kept so they reduce the party's total instead of
+    // silently vanishing — same convention as mergeOpeningLedger /
+    // mergeUnallocatedAdvances below, which also net negative amounts in.
+    if (Math.abs(balance) < 0.005) continue;
     const { id: partyId, label } = partyKeyFn(b);
     const norm = label.trim().toUpperCase();
     const key  = partyId != null ? `id:${partyId}` : `name:${norm}`;
@@ -316,7 +321,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   // Pull headline numbers + every open bill in parallel. RLS scopes
   // each query to what the signed-in user can see.
-  const BILL_COLS = 'id, invoice_no, party_name, invoice_date, customer_id, jobwork_party_id, total, amount_paid, balance';
+  const BILL_COLS = 'id, invoice_no, doc_type, party_name, invoice_date, customer_id, jobwork_party_id, total, amount_paid, balance';
   const [
     { data: outstanding },
     { data: jobworkInvoices },
@@ -354,11 +359,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       .eq('doc_type', 'weaving_bill')
       .gt('balance', 0)
       .order('invoice_date', { ascending: true }),
-    // Every unpaid / part-paid customer sale invoice.
+    // Every unpaid / part-paid customer sale invoice, plus credit/debit
+    // notes (which adjust what the customer owes rather than being a
+    // separate bill). Credit notes are negated below, before grouping,
+    // so they net out of the party's total here — same convention as
+    // the party statement print page and v_customer_outstanding.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('invoice')
       .select(BILL_COLS)
-      .in('doc_type', ['tax_invoice', 'yarn_sale', 'general_sale'])
+      .in('doc_type', ['tax_invoice', 'yarn_sale', 'general_sale', 'credit_note', 'debit_note'])
       .gt('balance', 0)
       .order('invoice_date', { ascending: true }),
     // Party master for name -> id lookup so the "Collect" deep-link
@@ -446,7 +455,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   const openJobworkBills:  OpenBillRow[] = (jobworkInvoices ?? [])     as OpenBillRow[];
   const openWeavingBills:  OpenBillRow[] = (weavingBillInvoices ?? []) as OpenBillRow[];
-  const openCustomerBills: OpenBillRow[] = (customerInvoices ?? [])    as OpenBillRow[];
+  // Credit notes exist to REDUCE what the customer owes — invoice.balance
+  // stores them as a plain positive number like any other doc, so negate
+  // here before grouping (mirrors the party statement print page and
+  // v_customer_outstanding). Debit notes keep their normal positive sign
+  // (they add to what's owed).
+  const openCustomerBills: OpenBillRow[] = ((customerInvoices ?? []) as OpenBillRow[]).map((b) => (
+    b.doc_type === 'credit_note' ? { ...b, balance: -Number(b.balance ?? 0) } : b
+  ));
   const parties: PartyMasterRow[] = (partyMaster ?? []) as unknown as PartyMasterRow[];
   const partyNameById = new Map<number, string>();
   for (const p of parties) partyNameById.set(p.id, p.name);
