@@ -169,13 +169,21 @@ export default async function PartyStatementPrintPage({
   }>)) {
     const bal = Number(r.balance ?? 0);
     if (bal <= 0.005) continue;
+    // Credit notes exist to REDUCE what the party owes (quality claims,
+    // discounts, adjustments against an earlier sale) — they are not a
+    // separate debt. `invoice.balance` stores them as a plain positive
+    // number like any other doc, so we negate here for display, mirroring
+    // the bank_entry convention below ("negative balance = reduces
+    // outstanding"). This matches how the ledger view and Sales Register
+    // already treat credit notes (outflow / netted, not an addend).
+    const isCreditNote = r.doc_type === 'credit_note';
     bills.push({
       doc_no: r.invoice_no,
       doc_date: r.invoice_date,
       doc_type: r.doc_type,
       total: Number(r.total ?? 0),
       paid: Number(r.amount_paid ?? 0),
-      balance: bal,
+      balance: isCreditNote ? -bal : bal,
     });
   }
   for (const r of ((openRes?.data ?? []) as Array<{
