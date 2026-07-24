@@ -47,11 +47,13 @@
  *     direction='out' → Inflow, direction='in' → Outflow.
  */
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, FileDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Combobox, type ComboOption } from '@/app/components/combobox';
 import { CardFilter } from '@/app/components/card-filter';
+import { fetchLedgerView, withRunningBalance, ledgerTotals, type LedgerEntry } from './ledger-view-query';
 
 interface LedgerOpt {
   id: number;
@@ -59,40 +61,6 @@ interface LedgerOpt {
   name: string;
   type_id: number | null;
   type_name: string | null;
-}
-
-interface PaymentRow {
-  id: number;
-  payment_no: string;
-  payment_date: string;
-  direction: 'in' | 'out';
-  amount: number | string;
-  reference: string | null;
-  notes: string | null;
-  party_id: number | null;
-  mode_ledger_id: number | null;
-  mode: string;
-  party: { id: number; code: string; name: string } | null;
-  mode_ledger: { id: number; name: string } | null;
-}
-
-// Unified ledger-entry shape used by the table. Whether the row came
-// from a payment, a wage_entry, an expense_entry, or any of the six
-// bill sources, we project it into this common shape so the table
-// render is a single loop.
-interface LedgerEntry {
-  key:           string;
-  source:        'payment' | 'wage' | 'expense' | 'bill' | 'bank' | 'loan';
-  /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc.
-   *  Bank rows use 'bank_in' / 'bank_out'. */
-  bill_kind?:    string;
-  date:          string;
-  voucher:       string;
-  counterparty:  string;
-  mode:          string;
-  reference:     string | null;
-  inflow:        number;
-  outflow:       number;
 }
 
 interface PartyByLedger {
@@ -215,569 +183,20 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     const numericId = Number(ledgerId);
     const picked = ledgers.find((l) => l.id === numericId) ?? null;
     setShownLedger(picked);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any;
 
-    // Step 1: find every party whose ledger_id == picked ledger.
-    // Also pull their names so we can match invoices by party_name.
-    const { data: matchingParties, error: partyErr } = await sb
-      .from('party')
-      .select('id, ledger_id, name')
-      .eq('ledger_id', numericId);
-    if (partyErr) { setError(partyErr.message); setLoading(false); return; }
-    const partyRows = ((matchingParties ?? []) as Array<{ id: number; ledger_id: number; name: string }>);
-    const partyIds: number[] = partyRows.map((p) => p.id);
-    const partyNames: string[] = partyRows.map((p) => p.name);
-
-    // Step 2: pull every payment that touches this ledger.
-    const orParts: string[] = [`mode_ledger_id.eq.${numericId}`];
-    if (partyIds.length > 0) {
-      orParts.push(`party_id.in.(${partyIds.join(',')})`);
+    try {
+      const all = await fetchLedgerView(supabase, { ledgerId: numericId, startDate, endDate });
+      setEntries(all);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
-    // Synthetic credit-note payments (mode = 'credit_note') are bookkeeping
-    // artifacts, not real party-facing transactions: every credit_note
-    // invoice already appears below via invQ as its own "Credit Note" row,
-    // and this payment is just how that credit gets allocated internally
-    // against a bill / opening balance (see migration 244). Including both
-    // would double-count the same economic event on this page, so they're
-    // excluded here and represented solely by the invoice row.
-    let paymentsQ = sb
-      .from('payment')
-      .select(`
-        id, payment_no, payment_date, direction, amount, reference, notes,
-        party_id, mode_ledger_id, mode,
-        party:party_id ( id, code, name ),
-        mode_ledger:mode_ledger_id ( id, name )
-      `)
-      .eq('status', 'active')
-      .neq('mode', 'credit_note')
-      .or(orParts.join(','));
-    if (startDate) paymentsQ = paymentsQ.gte('payment_date', startDate);
-    if (endDate)   paymentsQ = paymentsQ.lte('payment_date', endDate);
-    const paymentsRes = await paymentsQ;
-    if (paymentsRes.error) { setError(paymentsRes.error.message); setLoading(false); return; }
-    const payments = (paymentsRes.data ?? []) as unknown as PaymentRow[];
-
-    // Step 3: wage + expense entries targeting this ledger, narrowed
-    // by the same date range.
-    let wagesQ = sb.from('wage_entry')
-      .select('id, pay_date, amount, kind, notes, employee:employee_id ( full_name )')
-      .eq('target_ledger_id', numericId);
-    if (startDate) wagesQ = wagesQ.gte('pay_date', startDate);
-    if (endDate)   wagesQ = wagesQ.lte('pay_date', endDate);
-
-    let expensesQ = sb.from('expense_entry')
-      .select('id, pay_date, amount, category, notes')
-      .eq('target_ledger_id', numericId);
-    if (startDate) expensesQ = expensesQ.gte('pay_date', startDate);
-    if (endDate)   expensesQ = expensesQ.lte('pay_date', endDate);
-
-    // Funding (paid-from) side — wages/expenses whose CASH or BANK source
-    // ledger IS this ledger. These project as a CREDIT (outflow): the money
-    // physically left this cash/bank account to pay the wage/expense. Without
-    // this, a CASH ledger would only ever show debits (receipts) and its
-    // balance would climb forever. (migration 218)
-    let wagesSrcQ = sb.from('wage_entry')
-      .select('id, pay_date, amount, kind, notes, loan_deduction, employee:employee_id ( full_name )')
-      .eq('source_ledger_id', numericId);
-    if (startDate) wagesSrcQ = wagesSrcQ.gte('pay_date', startDate);
-    if (endDate)   wagesSrcQ = wagesSrcQ.lte('pay_date', endDate);
-
-    // Employee loans disbursed FROM this cash/bank ledger. Each loan is cash
-    // that physically left this account, so it projects as a CREDIT (outflow),
-    // mirroring the wage/expense funding side. (migration 219)
-    let loanSrcQ = sb.from('employee_loan')
-      .select('id, loan_date, amount, notes, employee:employee_id ( full_name )')
-      .eq('source_ledger_id', numericId);
-    if (startDate) loanSrcQ = loanSrcQ.gte('loan_date', startDate);
-    if (endDate)   loanSrcQ = loanSrcQ.lte('loan_date', endDate);
-
-    let expensesSrcQ = sb.from('expense_entry')
-      .select('id, pay_date, amount, category, notes')
-      .eq('source_ledger_id', numericId);
-    if (startDate) expensesSrcQ = expensesSrcQ.gte('pay_date', startDate);
-    if (endDate)   expensesSrcQ = expensesSrcQ.lte('pay_date', endDate);
-
-    // Bank entries — pull rows where this ledger is either the bank
-    // side (bank_ledger_id) or the contra/offset side (other_ledger_id).
-    // The sign of the inflow/outflow projection depends on which side
-    // matches; see the projection loop below.
-    let bankQ = sb.from('bank_entry')
-      .select(`
-        id, entry_no, entry_date, direction, amount, mode, reference, notes,
-        status, bank_ledger_id, other_ledger_id, category_id,
-        bank:bank_ledger_id ( id, name ),
-        other:other_ledger_id ( id, name ),
-        category:category_id ( id, code, name )
-      `)
-      .eq('status', 'active')
-      .or(`bank_ledger_id.eq.${numericId},other_ledger_id.eq.${numericId}`);
-    if (startDate) bankQ = bankQ.gte('entry_date', startDate);
-    if (endDate)   bankQ = bankQ.lte('entry_date', endDate);
-
-    // Step 3b: bills for the matching parties. Only fires when the
-    // ledger is linked to a party (CUSTOMER / SUPPLIER / MILL / etc.).
-    // BANK / CASH / WAGES ledgers won't have matching parties and
-    // this section is a no-op for them. Same date window applies.
-    let invRes: { data: unknown; error: { message: string } | null } = { data: [], error: null };
-    let openRes: typeof invRes = { data: [], error: null };
-    let sizRes:  typeof invRes = { data: [], error: null };
-    let bobRes:  typeof invRes = { data: [], error: null };
-    let yarnRes: typeof invRes = { data: [], error: null };
-    let fabRes:  typeof invRes = { data: [], error: null };
-    let agentRes: typeof invRes = { data: [], error: null };
-    if (partyIds.length > 0) {
-      // Pull every active invoice where party_name matches any of
-      // the linked party names. Supabase doesn't have a clean
-      // multi-ilike OR, so we use the "in" operator on an
-      // uppercased shadow comparison done client-side after fetch.
-      let invQ = sb.from('invoice')
-        .select('id, invoice_no, invoice_date, doc_type, total, party_name')
-        .neq('status', 'cancelled')
-        .in('party_name', partyNames);
-      if (startDate) invQ = invQ.gte('invoice_date', startDate);
-      if (endDate)   invQ = invQ.lte('invoice_date', endDate);
-
-      let openQ = sb.from('party_opening_ledger')
-        .select('id, invoice_no, invoice_date, direction, amount')
-        .eq('status', 'active')
-        .in('party_id', partyIds);
-      if (startDate) openQ = openQ.gte('invoice_date', startDate);
-      if (endDate)   openQ = openQ.lte('invoice_date', endDate);
-
-      let sizQ = sb.from('sizing_job')
-        .select('id, bill_no, bill_date, total_amount')
-        .not('bill_no', 'is', null)
-        .in('party_id', partyIds);
-      if (startDate) sizQ = sizQ.gte('bill_date', startDate);
-      if (endDate)   sizQ = sizQ.lte('bill_date', endDate);
-
-      let bobQ = sb.from('bobbin_purchase')
-        .select('id, invoice_no, purchase_date, total_amount')
-        .in('vendor_id', partyIds);
-      if (startDate) bobQ = bobQ.gte('purchase_date', startDate);
-      if (endDate)   bobQ = bobQ.lte('purchase_date', endDate);
-
-      let yarnQ = sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, total_amount')
-        .in('supplier_party_id', partyIds);
-      if (startDate) yarnQ = yarnQ.gte('received_date', startDate);
-      if (endDate)   yarnQ = yarnQ.lte('received_date', endDate);
-
-      // Supplier-mode fabric resale only. Customer-mode rows are
-      // accounted for via the synthetic payment created at entry.
-      let fabQ = sb.from('fabric_purchase')
-        .select('id, code, invoice_no, received_date, total_amount')
-        .eq('source', 'supplier')
-        .eq('status', 'active')
-        .in('supplier_party_id', partyIds);
-      if (startDate) fabQ = fabQ.gte('received_date', startDate);
-      if (endDate)   fabQ = fabQ.lte('received_date', endDate);
-
-      // Agent / broker commission we owe this party. The amount is a
-      // payable (what WE owe the agent) earned on a fabric sales invoice
-      // OR a yarn / fabric purchase. It has no date column of its own, so
-      // we carry the source document's date and number and filter by the
-      // chosen range client-side below.
-      const agentCommQ = sb.from('agent_commission')
-        .select('id, amount, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
-        .eq('status', 'active')
-        .in('agent_party_id', partyIds);
-
-      const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ, agentCommQ]);
-      [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = billRes;
-    }
-
-    // Ledger opening balance (migration 203) — a single as-on-date figure
-    // carried on the ledger row itself. Surfaced for every ledger type that
-    // isn't party-backed; the form blanks it for CUSTOMER / SUPPLIER, so the
-    // query is naturally a no-op for those.
-    const openingLedgerQ = sb.from('ledger')
-      .select('opening_date, opening_amount, opening_dr_cr')
-      .eq('id', numericId)
-      .maybeSingle();
-
-    const [wagesRes, expensesRes, wagesSrcRes, expensesSrcRes, loanSrcRes, bankRes, openingLedgerRes] = await Promise.all([wagesQ, expensesQ, wagesSrcQ, expensesSrcQ, loanSrcQ, bankQ, openingLedgerQ]);
-    if (wagesRes.error)    { setError(wagesRes.error.message);    setLoading(false); return; }
-    if (expensesRes.error) { setError(expensesRes.error.message); setLoading(false); return; }
-    if (wagesSrcRes.error)    { setError(wagesSrcRes.error.message);    setLoading(false); return; }
-    if (expensesSrcRes.error) { setError(expensesSrcRes.error.message); setLoading(false); return; }
-    if (loanSrcRes.error)  { setError(loanSrcRes.error.message);  setLoading(false); return; }
-    if (bankRes.error)     { setError(bankRes.error.message);     setLoading(false); return; }
-
-    // Step 4: project into LedgerEntry, sort, store.
-    const all: LedgerEntry[] = [];
-
-    // Ledger opening balance row. Dr → grows the running balance (inflow),
-    // Cr → reduces it (outflow), mirroring the trial-balance sense. We carry
-    // it as a normal dated row so it sorts into place; same date-range filter
-    // as every other source.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const openRow = (openingLedgerRes?.data ?? null) as { opening_date: string | null; opening_amount: number | string | null; opening_dr_cr: 'Dr' | 'Cr' | null } | null;
-    if (openRow && openRow.opening_date && openRow.opening_dr_cr) {
-      const oAmt = Number(openRow.opening_amount ?? 0);
-      const oDate = openRow.opening_date;
-      const inRange = (!startDate || oDate >= startDate) && (!endDate || oDate <= endDate);
-      if (oAmt > 0 && inRange) {
-        const isDr = openRow.opening_dr_cr === 'Dr';
-        all.push({
-          key:          'ledopen',
-          source:       'bill',
-          bill_kind:    'opening',
-          date:         oDate,
-          voucher:      'OPENING',
-          counterparty: '—',
-          mode:         isDr ? 'Opening (Dr)' : 'Opening (Cr)',
-          reference:    null,
-          inflow:       isDr ? oAmt : 0,
-          outflow:      isDr ? 0    : oAmt,
-        });
-      }
-    }
-
-    for (const p of payments) {
-      const amt = Number(p.amount);
-      // A payment touches this ledger from one of two sides, and the
-      // inflow/outflow sense flips depending on which one (mirrors the
-      // bank_entry bank-side vs. contra-side projection below):
-      //   - MODE side: this ledger IS the bank / cash account the money
-      //     moved through. Use the cash POV — in → inflow, out → outflow.
-      //   - PARTY side: this ledger is the customer / supplier / agent the
-      //     payment is FOR. Use the party POV, which is INVERTED. A payment
-      //     we paid out to them (out) settles what we owe → reads as Inflow
-      //     here; a payment they paid us (in) settles what they owe →
-      //     reads as Outflow. So paying an agent their commission shows in
-      //     the Inflow column and nets against the commission outflow.
-      const isModeSide = Number(p.mode_ledger_id) === numericId;
-      const isInflow = isModeSide
-        ? p.direction === 'in'
-        : p.direction === 'out';
-      all.push({
-        key:          `pay-${p.id}`,
-        source:       'payment',
-        date:         p.payment_date,
-        voucher:      p.payment_no,
-        counterparty: p.party?.name ?? '-',
-        mode:         p.mode_ledger?.name ?? '-',
-        reference:    p.reference,
-        inflow:       isInflow ? amt : 0,
-        outflow:      isInflow ? 0   : amt,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const w of ((wagesRes.data ?? []) as any[])) {
-      all.push({
-        key:          `wage-${w.id}`,
-        source:       'wage',
-        date:         w.pay_date,
-        voucher:      `WAGE/${w.id}`,
-        counterparty: w.employee?.full_name ?? '-',
-        mode:         '-',
-        reference:    w.kind ?? null,
-        inflow:       0,
-        outflow:      Number(w.amount ?? 0),
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const x of ((expensesRes.data ?? []) as any[])) {
-      all.push({
-        key:          `exp-${x.id}`,
-        source:       'expense',
-        date:         x.pay_date,
-        voucher:      `EXP/${x.id}`,
-        counterparty: x.category ?? '-',
-        mode:         '-',
-        reference:    null,
-        inflow:       0,
-        outflow:      Number(x.amount ?? 0),
-      });
-    }
-
-    // Funding side: this cash/bank ledger PAID these wages/expenses, so each
-    // shows as a Credit (outflow) — money leaving the account. (migration 218)
-    // For wages, the cash that actually leaves is (amount − loan_deduction):
-    // any loan repayment is withheld from the wage, so it never leaves this
-    // account. (migration 219)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const w of ((wagesSrcRes.data ?? []) as any[])) {
-      const cashPaid = Number(w.amount ?? 0) - Number(w.loan_deduction ?? 0);
-      if (cashPaid <= 0) continue;
-      all.push({
-        key:          `wage-src-${w.id}`,
-        source:       'wage',
-        date:         w.pay_date,
-        voucher:      `WAGE/${w.id}`,
-        counterparty: w.employee?.full_name ?? 'Wages',
-        mode:         'Wages paid',
-        reference:    w.kind ?? null,
-        inflow:       0,
-        outflow:      cashPaid,
-      });
-    }
-    // Employee loans disbursed FROM this ledger — cash handed to the worker,
-    // a Credit (outflow). Repayments aren't projected here: they're withheld
-    // from wages, so they reduce the wage outflow above rather than appearing
-    // as a separate inflow. (migration 219)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const l of ((loanSrcRes.data ?? []) as any[])) {
-      all.push({
-        key:          `loan-src-${l.id}`,
-        source:       'loan',
-        date:         l.loan_date,
-        voucher:      `LOAN/${l.id}`,
-        counterparty: l.employee?.full_name ?? 'Employee loan',
-        mode:         'Loan given',
-        reference:    l.notes ?? null,
-        inflow:       0,
-        outflow:      Number(l.amount ?? 0),
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const x of ((expensesSrcRes.data ?? []) as any[])) {
-      all.push({
-        key:          `exp-src-${x.id}`,
-        source:       'expense',
-        date:         x.pay_date,
-        voucher:      `EXP/${x.id}`,
-        counterparty: x.category ?? 'Expense',
-        mode:         'Expense paid',
-        reference:    null,
-        inflow:       0,
-        outflow:      Number(x.amount ?? 0),
-      });
-    }
-
-    // Bank entries. The same bank_entry row can appear on either side
-    // of the contra (bank or offset). We figure out which side this
-    // ledger sits on and project the amount with the right sign:
-    //   - On the BANK side: in → inflow, out → outflow (matches the
-    //     bank account's POV).
-    //   - On the OTHER side: in → outflow, out → inflow (the contra
-    //     account moves opposite to the bank).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const be of ((bankRes.data ?? []) as any[])) {
-      const amt = Number(be.amount ?? 0);
-      if (!Number.isFinite(amt) || amt === 0) continue;
-      const isBankSide  = Number(be.bank_ledger_id)  === numericId;
-      const isOtherSide = Number(be.other_ledger_id) === numericId;
-      // Defensive: skip rows that don't actually touch this ledger
-      // (shouldn't happen given the .or filter, but keeps the math
-      // honest if Supabase returns something unexpected).
-      if (!isBankSide && !isOtherSide) continue;
-
-      let inflow = 0;
-      let outflow = 0;
-      if (isBankSide) {
-        if (be.direction === 'in') inflow = amt;
-        else                       outflow = amt;
-      } else {
-        // isOtherSide — sign inverted relative to bank POV.
-        if (be.direction === 'out') inflow = amt;
-        else                        outflow = amt;
-      }
-
-      // Counterparty label: when we're on the bank side, the
-      // interesting "who" is the offset ledger; when we're on the
-      // offset side, it's the bank account. Fall back to the
-      // category name, then a generic placeholder.
-      const counterparty =
-        isBankSide
-          ? (be.other?.name ?? be.category?.name ?? '(bank entry)')
-          : (be.bank?.name  ?? be.category?.name ?? '(bank entry)');
-
-      all.push({
-        key:          `bank-${be.id}`,
-        source:       'bank',
-        bill_kind:    be.direction === 'in' ? 'bank_in' : 'bank_out',
-        date:         be.entry_date,
-        voucher:      be.entry_no ?? `BE-${be.id}`,
-        counterparty,
-        mode:         be.mode ?? (be.category?.name ?? '-'),
-        reference:    be.reference ?? be.notes ?? null,
-        inflow,
-        outflow,
-      });
-    }
-
-    // Bills — direction depends on doc kind.
-    //   Inflow (running balance UP for a customer ledger): sale,
-    //   jobwork bill, debit note, opening receivable.
-    //   Outflow (running balance DOWN — or UP for a supplier
-    //   payable): credit note, sizing bill, bobbin / yarn / fabric
-    //   purchase, opening payable.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((invRes.data ?? []) as any[])) {
-      const amt = Number(r.total ?? 0);
-      const doc: string = r.doc_type;
-      const isCredit = doc === 'credit_note';
-      const isDebitNote = doc === 'debit_note';
-      const label = doc === 'tax_invoice'     ? 'Fabric Sale'
-                  : doc === 'yarn_sale'       ? 'Yarn Sale'
-                  : doc === 'general_sale'    ? 'General Sale'
-                  : doc === 'jobwork_invoice' ? 'Jobwork Bill'
-                  : doc === 'weaving_bill'    ? 'Weaving Bill'
-                  : doc === 'credit_note'     ? 'Credit Note'
-                  : doc === 'debit_note'      ? 'Debit Note'
-                  : doc;
-      all.push({
-        key:          `inv-${r.id}`,
-        source:       'bill',
-        bill_kind:    isCredit ? 'credit' : isDebitNote ? 'debit' : 'sale',
-        date:         r.invoice_date,
-        voucher:      r.invoice_no,
-        counterparty: r.party_name ?? '-',
-        mode:         label,
-        reference:    null,
-        inflow:       isCredit ? 0   : amt,
-        outflow:      isCredit ? amt : 0,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((openRes.data ?? []) as any[])) {
-      const amt = Number(r.amount ?? 0);
-      const isReceivable = r.direction === 'receivable';
-      all.push({
-        key:          `open-${r.id}`,
-        source:       'bill',
-        bill_kind:    'opening',
-        date:         r.invoice_date,
-        voucher:      r.invoice_no,
-        counterparty: '—',
-        mode:         isReceivable ? 'Opening (Receivable)' : 'Opening (Payable)',
-        reference:    null,
-        inflow:       isReceivable ? amt : 0,
-        outflow:      isReceivable ? 0   : amt,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((sizRes.data ?? []) as any[])) {
-      const amt = Number(r.total_amount ?? 0);
-      if (amt <= 0) continue;
-      all.push({
-        key:          `siz-${r.id}`,
-        source:       'bill',
-        bill_kind:    'sizing',
-        date:         r.bill_date,
-        voucher:      r.bill_no ?? `SZ-${r.id}`,
-        counterparty: '—',
-        mode:         'Sizing Bill',
-        reference:    null,
-        inflow:       0,
-        outflow:      amt,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((bobRes.data ?? []) as any[])) {
-      const amt = Number(r.total_amount ?? 0);
-      if (amt <= 0) continue;
-      all.push({
-        key:          `bob-${r.id}`,
-        source:       'bill',
-        bill_kind:    'bobbin',
-        date:         r.purchase_date,
-        voucher:      r.invoice_no ?? `BB-${r.id}`,
-        counterparty: '—',
-        mode:         'Bobbin Purchase',
-        reference:    null,
-        inflow:       0,
-        outflow:      amt,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((yarnRes.data ?? []) as any[])) {
-      const amt = Number(r.total_amount ?? 0);
-      if (amt <= 0) continue;
-      all.push({
-        key:          `yarn-${r.id}`,
-        source:       'bill',
-        bill_kind:    'yarn',
-        date:         r.received_date,
-        voucher:      r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
-        counterparty: '—',
-        mode:         'Yarn Purchase',
-        reference:    null,
-        inflow:       0,
-        outflow:      amt,
-      });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((fabRes.data ?? []) as any[])) {
-      const amt = Number(r.total_amount ?? 0);
-      if (amt <= 0) continue;
-      all.push({
-        key:          `fab-${r.id}`,
-        source:       'bill',
-        bill_kind:    'fabric',
-        date:         r.received_date,
-        voucher:      r.invoice_no ?? r.code ?? `FP-${r.id}`,
-        counterparty: '—',
-        mode:         'Fabric Purchase',
-        reference:    null,
-        inflow:       0,
-        outflow:      amt,
-      });
-    }
-
-    // Agent commission — a payable we owe the agent (a cash outflow),
-    // on both sales and purchases. Recorded as Outflow, matching the
-    // opening-Cr convention. Settlement payments to the agent arrive as
-    // Inflow and net against it, so the running balance reads:
-    // payments made − commission owed (negative = we still owe).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((agentRes.data ?? []) as any[])) {
-      const amt = Number(r.amount ?? 0);
-      if (amt <= 0) continue;
-      // The commission points at exactly one source document: a fabric
-      // sales invoice, a yarn lot, or a fabric purchase. Pull the date
-      // and voucher from whichever one is set.
-      const inv  = r.invoice ?? null;
-      const yarn = r.yarn_lot ?? null;
-      const fab  = r.fabric_purchase ?? null;
-      let date: string | null = null;
-      let voucher = `AC-${r.id}`;
-      if (inv) { date = inv.invoice_date ?? null; voucher = inv.invoice_no ?? voucher; }
-      else if (yarn) { date = yarn.received_date ?? null; voucher = yarn.lot_code ?? voucher; }
-      else if (fab)  { date = fab.received_date ?? null;  voucher = fab.code ?? voucher; }
-      if (!date) continue;
-      if (startDate && date < startDate) continue;
-      if (endDate && date > endDate) continue;
-      all.push({
-        key:          `agentcomm-${r.id}`,
-        source:       'bill',
-        bill_kind:    'commission',
-        date,
-        voucher,
-        counterparty: '—',
-        mode:         'Agent Commission',
-        reference:    null,
-        inflow:       0,
-        outflow:      amt,
-      });
-    }
-
-    all.sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date);
-      return a.key.localeCompare(b.key);
-    });
-
-    setEntries(all);
-    setLoading(false);
   }
 
   // Compute running balance per row + grand totals.
-  const ledger = useMemo(() => {
-    let running = 0;
-    return entries.map((e) => {
-      running += e.inflow - e.outflow;
-      return { ...e, balance: running };
-    });
-  }, [entries]);
-
-  const totals = useMemo(() => {
-    const inflow  = ledger.reduce((s, r) => s + r.inflow,  0);
-    const outflow = ledger.reduce((s, r) => s + r.outflow, 0);
-    return { inflow, outflow, balance: inflow - outflow };
-  }, [ledger]);
+  const ledger = useMemo(() => withRunningBalance(entries), [entries]);
+  const totals = useMemo(() => ledgerTotals(entries), [entries]);
 
   // Display order: running balances are always computed oldest→newest,
   // but the table can show newest→oldest without changing the math.
@@ -854,19 +273,31 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <div className="px-4 py-3 border-b border-line/40 bg-cloud/40">
-            <div className="text-xs uppercase tracking-wider text-ink-mute">Transaction ledger for</div>
-            <div className="font-semibold text-ink flex flex-wrap items-center gap-2">
-              {shownLedger?.name}
-              {shownLedger?.type_name && (
-                <span className="pill bg-indigo-50 text-indigo-700">{shownLedger.type_name}</span>
-              )}
-              {(startDate || endDate) && (
-                <span className="text-[11px] text-ink-mute font-normal">
-                  · {startDate ? fmtDate(startDate) : 'beginning'} → {endDate ? fmtDate(endDate) : 'today'}
-                </span>
-              )}
+          <div className="px-4 py-3 border-b border-line/40 bg-cloud/40 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-ink-mute">Transaction ledger for</div>
+              <div className="font-semibold text-ink flex flex-wrap items-center gap-2">
+                {shownLedger?.name}
+                {shownLedger?.type_name && (
+                  <span className="pill bg-indigo-50 text-indigo-700">{shownLedger.type_name}</span>
+                )}
+                {(startDate || endDate) && (
+                  <span className="text-[11px] text-ink-mute font-normal">
+                    · {startDate ? fmtDate(startDate) : 'beginning'} → {endDate ? fmtDate(endDate) : 'today'}
+                  </span>
+                )}
+              </div>
             </div>
+            {shownLedger && (
+              <Link
+                href={`/app/ledgers/print?ledger_id=${shownLedger.id}${startDate ? `&from=${startDate}` : ''}${endDate ? `&to=${endDate}` : ''}`}
+                target="_blank"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                Download PDF
+              </Link>
+            )}
           </div>
           {/* Mobile / PWA: card view. The running-balance table is wide;
               below md each transaction renders as a tap-friendly card. The
