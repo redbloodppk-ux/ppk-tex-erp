@@ -71,6 +71,7 @@ interface PaymentRow {
   notes: string | null;
   party_id: number | null;
   mode_ledger_id: number | null;
+  mode: string;
   party: { id: number; code: string; name: string } | null;
   mode_ledger: { id: number; name: string } | null;
 }
@@ -233,15 +234,23 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
     if (partyIds.length > 0) {
       orParts.push(`party_id.in.(${partyIds.join(',')})`);
     }
+    // Synthetic credit-note payments (mode = 'credit_note') are bookkeeping
+    // artifacts, not real party-facing transactions: every credit_note
+    // invoice already appears below via invQ as its own "Credit Note" row,
+    // and this payment is just how that credit gets allocated internally
+    // against a bill / opening balance (see migration 244). Including both
+    // would double-count the same economic event on this page, so they're
+    // excluded here and represented solely by the invoice row.
     let paymentsQ = sb
       .from('payment')
       .select(`
         id, payment_no, payment_date, direction, amount, reference, notes,
-        party_id, mode_ledger_id,
+        party_id, mode_ledger_id, mode,
         party:party_id ( id, code, name ),
         mode_ledger:mode_ledger_id ( id, name )
       `)
       .eq('status', 'active')
+      .neq('mode', 'credit_note')
       .or(orParts.join(','));
     if (startDate) paymentsQ = paymentsQ.gte('payment_date', startDate);
     if (endDate)   paymentsQ = paymentsQ.lte('payment_date', endDate);
