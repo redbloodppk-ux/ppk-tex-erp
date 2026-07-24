@@ -1052,14 +1052,31 @@ SELECT
 FROM v_costing_computed c;
 
 -- Customer outstanding balance
-CREATE OR REPLACE VIEW v_customer_outstanding AS
+-- Credit notes net out (signed negative) — see migration 242. Mirrors the
+-- same convention used by v_customer_ageing (013_customer_ageing_view.sql).
+CREATE OR REPLACE VIEW v_customer_outstanding
+WITH (security_invoker = on)
+AS
+WITH signed AS (
+  SELECT
+    i.customer_id,
+    i.status,
+    i.due_date,
+    CASE
+      WHEN i.doc_type = 'credit_note' THEN -i.balance
+      ELSE i.balance
+    END AS signed_balance,
+    i.invoice_date
+  FROM invoice i
+  WHERE i.customer_id IS NOT NULL
+)
 SELECT
   c.id AS customer_id, c.code, c.name,
-  COALESCE(SUM(i.balance) FILTER (WHERE i.status NOT IN ('paid','cancelled')), 0) AS outstanding,
-  COALESCE(SUM(i.balance) FILTER (WHERE i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE), 0) AS overdue,
-  MAX(i.invoice_date) AS last_invoice_date
+  COALESCE(SUM(s.signed_balance) FILTER (WHERE s.status NOT IN ('paid','cancelled')), 0) AS outstanding,
+  COALESCE(SUM(s.signed_balance) FILTER (WHERE s.status NOT IN ('paid','cancelled') AND s.due_date < CURRENT_DATE), 0) AS overdue,
+  MAX(s.invoice_date) AS last_invoice_date
 FROM customer c
-LEFT JOIN invoice i ON i.customer_id = c.id
+LEFT JOIN signed s ON s.customer_id = c.id
 GROUP BY c.id, c.code, c.name;
 
 -- Days-of-cover per yarn count (reorder forecasting — Master Spec v3.0 §2.7)
