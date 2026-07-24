@@ -1054,6 +1054,9 @@ FROM v_costing_computed c;
 -- Customer outstanding balance
 -- Credit notes net out (signed negative) — see migration 242. Mirrors the
 -- same convention used by v_customer_ageing (013_customer_ageing_view.sql).
+-- Overdue falls back to invoice_date+30 when due_date is null (credit/debit
+-- notes carry no due_date), so credit notes also net out of the overdue
+-- bucket, not just the total.
 CREATE OR REPLACE VIEW v_customer_outstanding
 WITH (security_invoker = on)
 AS
@@ -1061,7 +1064,7 @@ WITH signed AS (
   SELECT
     i.customer_id,
     i.status,
-    i.due_date,
+    COALESCE(i.due_date, i.invoice_date + 30) AS effective_due_date,
     CASE
       WHEN i.doc_type = 'credit_note' THEN -i.balance
       ELSE i.balance
@@ -1073,7 +1076,7 @@ WITH signed AS (
 SELECT
   c.id AS customer_id, c.code, c.name,
   COALESCE(SUM(s.signed_balance) FILTER (WHERE s.status NOT IN ('paid','cancelled')), 0) AS outstanding,
-  COALESCE(SUM(s.signed_balance) FILTER (WHERE s.status NOT IN ('paid','cancelled') AND s.due_date < CURRENT_DATE), 0) AS overdue,
+  COALESCE(SUM(s.signed_balance) FILTER (WHERE s.status NOT IN ('paid','cancelled') AND s.effective_due_date < CURRENT_DATE), 0) AS overdue,
   MAX(s.invoice_date) AS last_invoice_date
 FROM customer c
 LEFT JOIN signed s ON s.customer_id = c.id
