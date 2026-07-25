@@ -299,19 +299,19 @@ export default async function InvoicesPage({
 
       <div className="card overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="text-left  px-4 py-3">Doc No</th>
-                <th className="text-left  px-4 py-3">Type</th>
-                <th className="text-left  px-4 py-3">Date</th>
-                <th className="text-left  px-4 py-3">Party</th>
-                <th className="text-right px-4 py-3 hidden md:table-cell">Taxable</th>
-                <th className="text-right px-4 py-3 hidden lg:table-cell">GST</th>
-                <th className="text-right px-4 py-3">Total</th>
-                <th className="text-right px-4 py-3 hidden md:table-cell">Balance</th>
-                <th className="text-left  px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3" />
+                <th className="text-left  px-2.5 py-2.5">Doc No</th>
+                <th className="text-left  px-2.5 py-2.5">Type</th>
+                <th className="text-left  px-2.5 py-2.5">Date</th>
+                <th className="text-left  px-2.5 py-2.5">Party</th>
+                <th className="text-right px-2.5 py-2.5 hidden md:table-cell">Taxable</th>
+                <th className="text-right px-2.5 py-2.5 hidden lg:table-cell">GST</th>
+                <th className="text-right px-2.5 py-2.5">Total</th>
+                <th className="text-right px-2.5 py-2.5 hidden md:table-cell">Balance</th>
+                <th className="text-left  px-2.5 py-2.5">Status</th>
+                <th className="text-right px-2 py-2.5 w-[92px]" />
               </tr>
             </thead>
             <tbody>
@@ -338,74 +338,76 @@ export default async function InvoicesPage({
                 ].join('\n');
                 return (
                   <tr key={inv.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-4 py-3 font-mono text-xs font-semibold text-ink">
+                    <td className="px-2.5 py-2.5 font-mono text-xs font-semibold text-ink whitespace-nowrap">
                       <Link href={`/app/invoices/${inv.id}`} className="hover:text-indigo">
                         {inv.invoice_no}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2.5 py-2.5">
                       <span className={`pill ${DOC_PILL[inv.doc_type] ?? ''}`}>
                         {DOC_LABEL[inv.doc_type] ?? inv.doc_type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-ink-soft">{inv.invoice_date}</td>
-                    <td className="px-4 py-3">
-                      {partyName}
+                    <td className="px-2.5 py-2.5 text-xs text-ink-soft whitespace-nowrap">{inv.invoice_date}</td>
+                    <td className="px-2.5 py-2.5 max-w-[170px]">
+                      <div className="truncate" title={partyName}>{partyName}</div>
                       {comm && (
                         comm.status === 'cancelled' ? (
-                          <div className="text-[10px] text-ink-mute mt-0.5 line-through">
-                            Agent: {comm.agent} · commission cancelled (lot returned)
+                          <div className="text-[10px] text-ink-mute mt-0.5 line-through truncate" title={`Agent: ${comm.agent} · commission cancelled (lot returned)`}>
+                            Agent: {comm.agent} · commission cancelled
                           </div>
                         ) : (
-                          <div className="text-[10px] text-amber-700 mt-0.5">
-                            Agent: {comm.agent} · ₹{comm.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <div className="text-[10px] text-amber-700 mt-0.5 truncate" title={`Agent: ${comm.agent} · ₹${comm.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}>
+                            Agent: {comm.agent} · ₹{comm.amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                           </div>
                         )
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right num hidden md:table-cell">{Number(inv.taxable_value).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right num hidden lg:table-cell">{gst.toFixed(2)}</td>
+                    <td className="px-2.5 py-2.5 text-right num hidden md:table-cell">{Number(inv.taxable_value).toFixed(2)}</td>
+                    <td className="px-2.5 py-2.5 text-right num hidden lg:table-cell">{gst.toFixed(2)}</td>
                     {/* Bill total shown rounded — matches the figure
                         printed on the bill itself. */}
-                    <td className="px-4 py-3 text-right num font-semibold">{Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                    <td className="px-4 py-3 text-right num hidden md:table-cell">
+                    <td className="px-2.5 py-2.5 text-right num font-semibold">{Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-2.5 py-2.5 text-right num hidden md:table-cell">
                       {inv.doc_type === 'debit_note' || inv.doc_type === 'credit_note'
                         ? '—'
                         : Number(inv.balance ?? 0).toFixed(2)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2.5 py-2.5">
                       <span className={`pill ${fullyReturned ? 'bg-rose-50 text-rose-700' : STATUS_STYLE[inv.status] ?? ''}`}>
                         {fullyReturned ? 'returned' : inv.status.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <WhatsAppShareButton phone={partyWhatsApp} message={waMessage} variant="icon" />
-                      <Link
-                        href={`/app/invoices/${inv.id}/print`}
-                        target="_blank"
-                        className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex mr-1"
-                        title="View / Print / PDF"
-                      >
-                        <Printer className="w-4 h-4" />
-                      </Link>
-                      <Link
-                        href={`/app/invoices/${inv.id}`}
-                        className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex mr-1"
-                        title="Edit invoice"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Link>
-                      <DeleteInvoiceButton
-                        invoiceId={inv.id}
-                        invoiceNo={inv.invoice_no}
-                        variant="icon"
-                      />
+                    <td className="px-2 py-2.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <WhatsAppShareButton phone={partyWhatsApp} message={waMessage} variant="icon" />
+                        <Link
+                          href={`/app/invoices/${inv.id}/print`}
+                          target="_blank"
+                          className="p-1 rounded hover:bg-emerald-50 text-emerald-700 inline-flex"
+                          title="View / Print / PDF"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          href={`/app/invoices/${inv.id}`}
+                          className="p-1 rounded hover:bg-indigo-50 text-indigo-700 inline-flex"
+                          title="Edit invoice"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Link>
+                        <DeleteInvoiceButton
+                          invoiceId={inv.id}
+                          invoiceNo={inv.invoice_no}
+                          variant="icon"
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
               }) : (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-soft">
+                  <td colSpan={10} className="px-2.5 py-10 text-center text-sm text-ink-soft">
                     No invoices in this view yet.{' '}
                     <Link
                       href={activeTab === 'jobwork_invoice'
