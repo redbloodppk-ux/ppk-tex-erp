@@ -223,6 +223,13 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ledgerWarning, setLedgerWarning] = useState<string | null>(null);
+  // Raw text the operator is typing into a bundle's "No. of pieces" box,
+  // keyed by bundle index. Committed to the real pieces array only on
+  // blur/Enter (see commitBundlePieceCount) — wiring the array length
+  // directly to onChange meant typing "12" over "7" passed through "1"
+  // first and instantly discarded pieces 2-7 before the second digit
+  // ever landed.
+  const [pieceCountDrafts, setPieceCountDrafts] = useState<Record<number, string>>({});
 
   // ── load master data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -417,6 +424,16 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
         return { ...b, pieces: next };
       }),
     );
+  }
+  function commitBundlePieceCount(idx: number, text: string): void {
+    const n = Number(text);
+    setBundlePieceCount(idx, Number.isFinite(n) ? n : 1);
+    setPieceCountDrafts((d) => {
+      if (!(idx in d)) return d;
+      const next = { ...d };
+      delete next[idx];
+      return next;
+    });
   }
   function setPieceValue(bundleIdx: number, pieceIdx: number, value: string): void {
     setBundles((bs) =>
@@ -1115,15 +1132,17 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                         step={1}
                         data-piece-count-input
                         className="input h-7 text-xs num w-16 text-right"
-                        value={b.pieces.length}
+                        value={pieceCountDrafts[bIdx] ?? String(b.pieces.length)}
                         onChange={(e) =>
-                          setBundlePieceCount(bIdx, Number(e.target.value) || 1)
+                          setPieceCountDrafts((d) => ({ ...d, [bIdx]: e.target.value }))
                         }
+                        onBlur={(e) => commitBundlePieceCount(bIdx, e.target.value)}
                         onKeyDown={(e) => {
-                          // Enter on the count = jump into this bundle's
-                          // first metre field (skip the Remove button).
+                          // Enter on the count = commit, then jump into this
+                          // bundle's first metre field (skip the Remove button).
                           if (e.key !== 'Enter') return;
                           e.preventDefault();
+                          commitBundlePieceCount(bIdx, e.currentTarget.value);
                           const card = e.currentTarget.closest('[data-bundle-card]');
                           const first = card?.querySelector<HTMLInputElement>('input[data-piece-input]');
                           if (first) {

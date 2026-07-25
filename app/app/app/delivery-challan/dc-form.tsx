@@ -278,6 +278,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   // entry is the full list of that batch's leftover pieces, each flagged
   // selected / unselected and tagged with the DC bundle number it should
   // land in. Only populated for detailed-mode batches in the picker.
+  // Raw text the operator is currently typing into a "No. of bundles" /
+  // "No. of pieces" box, keyed by "<itemIdx>" or "<itemIdx>-<bundleIdx>".
+  // We only grow/shrink the real bundles/pieces array on blur (see
+  // commitBundleCount / commitPieceCount below) — committing on every
+  // keystroke made typing "12" over "16" pass through "1" and instantly
+  // discard bundles 2-16 before the second digit ever landed.
+  const [countDrafts, setCountDrafts] = useState<Record<string, string>>({});
   const [batchSel, setBatchSel] = useState<Record<number, PieceSel[]>>({});
   // Keys "<batchId>:<dcBundleNo>" for bundle rows expanded in the
   // selection panel so the operator can see/toggle individual pieces.
@@ -1216,6 +1223,46 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       }),
     }));
   }
+
+  // ---- Count-picker draft helpers (bundles + pieces) ----
+  // The "No. of bundles" / "No. of pieces" boxes only commit (grow/shrink
+  // the real array) on blur or Enter. While the operator is typing, the
+  // box shows their in-progress text via `countDrafts` instead of being
+  // wired straight to the array length, so a half-typed value like "1"
+  // (on the way to "12") never triggers a premature shrink that would
+  // wipe out already-entered pieces/metres.
+  function draftKey(itemIdx: number, bundleIdx?: number): string {
+    return bundleIdx === undefined ? `${itemIdx}` : `${itemIdx}-${bundleIdx}`;
+  }
+  function setDraft(key: string, value: string): void {
+    setCountDrafts((d) => ({ ...d, [key]: value }));
+  }
+  function clearDraft(key: string): void {
+    setCountDrafts((d) => {
+      if (!(key in d)) return d;
+      const next = { ...d };
+      delete next[key];
+      return next;
+    });
+  }
+  function commitBundleCount(itemIdx: number, text: string): void {
+    const key = draftKey(itemIdx);
+    const n = Number(text);
+    setBundleCount(itemIdx, Number.isFinite(n) ? n : items0Count(itemIdx));
+    clearDraft(key);
+  }
+  function commitPieceCount(itemIdx: number, bundleIdx: number, text: string): void {
+    const key = draftKey(itemIdx, bundleIdx);
+    const n = Number(text);
+    setPieceCount(itemIdx, bundleIdx, Number.isFinite(n) ? n : 1);
+    clearDraft(key);
+  }
+  // Fallback used only if a commit somehow fires with unparsable text —
+  // keeps the current bundle count instead of accidentally zeroing it.
+  function items0Count(itemIdx: number): number {
+    return form.items[itemIdx]?.bundles.length ?? 0;
+  }
+
   function addPiece(itemIdx: number, bundleIdx: number): void {
     setForm((f) => ({
       ...f,
@@ -2237,8 +2284,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     <label className="label text-[10px]">No. of bundles</label>
                     <input type="number" min={0} max={200} step={1}
                       className="input h-9 text-sm num w-28 text-right"
-                      value={it.bundles.length}
-                      onChange={(e) => setBundleCount(itemIdx, Number(e.target.value) || 0)} />
+                      value={countDrafts[draftKey(itemIdx)] ?? String(it.bundles.length)}
+                      onChange={(e) => setDraft(draftKey(itemIdx), e.target.value)}
+                      onBlur={(e) => commitBundleCount(itemIdx, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                   </div>
                   <p className="text-[11px] text-ink-mute pb-2">
                     Type the bundle count, then inside each bundle type its piece count and fill the metres for each piece.
@@ -2266,8 +2315,10 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                             <input
                               type="number" min={1} max={200} step={1}
                               className="input h-7 text-xs num w-16 text-right"
-                              value={b.pieces.length}
-                              onChange={(e) => setPieceCount(itemIdx, bundleIdx, Number(e.target.value) || 1)}
+                              value={countDrafts[draftKey(itemIdx, bundleIdx)] ?? String(b.pieces.length)}
+                              onChange={(e) => setDraft(draftKey(itemIdx, bundleIdx), e.target.value)}
+                              onBlur={(e) => commitPieceCount(itemIdx, bundleIdx, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                             />
                           </div>
                           <div className="space-y-1">
