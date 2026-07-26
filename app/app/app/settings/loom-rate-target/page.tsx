@@ -25,12 +25,13 @@ const INCHES_PER_METRE = 39.37;
 type Target = {
   picks_per_min: string;
   shift_hours: string;
+  sunday_shift_hours: string; // optional — falls back to shift_hours when blank
   efficiency_pct: string; // stored as 0-1, edited as 0-100
   target_cost_per_m: string;
 };
 
 const EMPTY: Target = {
-  picks_per_min: '', shift_hours: '', efficiency_pct: '', target_cost_per_m: '',
+  picks_per_min: '', shift_hours: '', sunday_shift_hours: '', efficiency_pct: '', target_cost_per_m: '',
 };
 
 const dec = (s: string): number => {
@@ -63,6 +64,7 @@ export default function LoomRateTargetPage() {
         setValues({
           picks_per_min:      String(v.picks_per_min ?? ''),
           shift_hours:        String(v.shift_hours ?? ''),
+          sunday_shift_hours: v.sunday_shift_hours != null ? String(v.sunday_shift_hours) : '',
           efficiency_pct:     v.efficiency_pct != null ? String(Number(v.efficiency_pct) * 100) : '',
           target_cost_per_m:  String(v.target_cost_per_m ?? ''),
         });
@@ -92,6 +94,17 @@ export default function LoomRateTargetPage() {
     check('shift_hours', 1, 24);
     check('efficiency_pct', 1, 100);
     check('target_cost_per_m', 0, 1000);
+
+    // Sunday shift hours is optional — falls back to the normal Shift
+    // hours above when left blank — so only validate the range if the
+    // owner has typed something in.
+    const sundayRaw = values.sunday_shift_hours.trim();
+    if (sundayRaw !== '') {
+      const n = parseFloat(sundayRaw);
+      if (!Number.isFinite(n))    out.sunday_shift_hours = 'Must be a number';
+      else if (n < 1)              out.sunday_shift_hours = 'Must be at least 1';
+      else if (n > 24)             out.sunday_shift_hours = 'Looks too high (max 24)';
+    }
     return out;
   }, [values]);
   const hasErrors = Object.keys(errors).length > 0;
@@ -118,11 +131,12 @@ export default function LoomRateTargetPage() {
     setSaving(true);
 
     const payload = {
-      picks_per_min:     dec(values.picks_per_min),
-      shift_hours:        dec(values.shift_hours),
-      efficiency_pct:     dec(values.efficiency_pct) / 100,
-      target_cost_per_m:  dec(values.target_cost_per_m),
-      inches_per_metre:   INCHES_PER_METRE,
+      picks_per_min:       dec(values.picks_per_min),
+      shift_hours:          dec(values.shift_hours),
+      sunday_shift_hours:   values.sunday_shift_hours.trim() === '' ? null : dec(values.sunday_shift_hours),
+      efficiency_pct:       dec(values.efficiency_pct) / 100,
+      target_cost_per_m:    dec(values.target_cost_per_m),
+      inches_per_metre:     INCHES_PER_METRE,
     };
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -216,6 +230,22 @@ export default function LoomRateTargetPage() {
             />
             <p className="text-[11px] text-ink-mute mt-1">Hours counted for one shift-log entry (one loom, one day).</p>
             {errors.shift_hours && <p className="text-[11px] text-red-600 mt-1 font-semibold">{errors.shift_hours}</p>}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Sunday shift hours <span className="normal-case font-normal text-ink-mute">(optional)</span></label>
+            <input
+              type="number" step="0.5" min="0"
+              value={values.sunday_shift_hours}
+              onChange={(e) => setValues(v => ({ ...v, sunday_shift_hours: e.target.value }))}
+              className={`input mt-1 ${errors.sunday_shift_hours ? 'border-red-400 focus:ring-red-300' : ''}`}
+              placeholder="10"
+            />
+            <p className="text-[11px] text-ink-mute mt-1">
+              Sunday morning shift is shorter (e.g. 8am-6pm = 10 hrs). Leave blank to use the
+              normal Shift hours above for Sundays too.
+            </p>
+            {errors.sunday_shift_hours && <p className="text-[11px] text-red-600 mt-1 font-semibold">{errors.sunday_shift_hours}</p>}
           </div>
 
           <div>

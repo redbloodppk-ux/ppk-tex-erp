@@ -185,10 +185,10 @@ function bucketKeyForDate(kind: PeriodKind, dateIso: string): string {
 
 const SHEDS = [1, 2, 3, 4] as const;
 
-interface LoomMeta { id: number; shed_no: number | null; fabric_quality_id: number | null }
+interface LoomMeta { id: number; shed_no: number | null; fabric_quality_id: number | null; status: string | null }
 interface QualityMeta { id: number; pick_per_inch: number | string | null }
 interface ShiftLogRow { id: number; loom_id: number; log_date: string }
-interface WeaverRow { shift_log_id: number; metres_woven: number | string | null }
+interface WeaverRow { shift_log_id: number; metres_woven: number | string | null; employee_id: number | null }
 interface EmployeeMeta { id: number; home_shed_no: string | null; default_sheds: string[] | null }
 interface WageRow { employee_id: number; pay_date: string; amount: number | string | null }
 interface ExpenseRow { pay_date: string; amount: number | string | null }
@@ -197,12 +197,19 @@ interface AttendanceRow {
   shed_no: string | null;
   shed_nos: string[] | null;
   day_weight: number | string | null;
-  attendance_day: { attendance_date: string } | { attendance_date: string }[] | null;
+  status: string | null;
+  actual_in_time: string | null;
+  actual_out_time: string | null;
+  attendance_day:
+    | { attendance_date: string; shift: string }
+    | { attendance_date: string; shift: string }[]
+    | null;
 }
 
 interface RateTarget {
   picks_per_min: number;
   shift_hours: number;
+  sunday_shift_hours: number | null; // optional override for Sunday's shorter shift
   efficiency_pct: number; // 0-1
   target_cost_per_m: number;
   inches_per_metre: number;
@@ -213,12 +220,84 @@ interface ShedBucketStat {
   theoreticalMetres: number; // at target efficiency
   maxMetres100: number;      // at 100% loom speed
   shiftLogs: number;
+  shiftsAbsent: number;      // shed+date+shift combos with nobody present
   wageCost: number;
   expenseCost: number;
 }
 
 function emptyStat(): ShedBucketStat {
-  return { metres: 0, theoreticalMetres: 0, maxMetres100: 0, shiftLogs: 0, wageCost: 0, expenseCost: 0 };
+  return { metres: 0, theoreticalMetres: 0, maxMetres100: 0, shiftLogs: 0, shiftsAbsent: 0, wageCost: 0, expenseCost: 0 };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Shift-timing helpers — Sunday's morning shift is shorter (business rule:
+// 8am-6pm instead of the normal full shift). Attendance still splits
+// morning/night, so 'late' and 'early leave' proration uses the real
+// shift clock (morning starts 8am, night starts 8pm) while production
+// logging itself doesn't split by shift (one entry per loom per day), so
+// the Sunday-hours override there just keys off the date.
+// ──────────────────────────────────────────────────────────────────────────
+
+const PRESENT_STATUSES = new Set(['present', 'late', 'early_leave']);
+
+function isSundayISO(dateIso: string): boolean {
+  return parseISO(dateIso).getDay() === 0;
+}
+
+/** Target hours for one production shift-log entry on this date. */
+function shiftHoursForLog(dateIso: string, target: RateTarget): number {
+  if (isSundayISO(dateIso) && target.sunday_shift_hours && target.sunday_shift_hours > 0) {
+    return target.sunday_shift_hours;
+  }
+  return target.shift_hours;
+}
+
+/** Target hours for one attendance shift (morning/night) on this date — Sunday override only applies to the morning shift, per the business rule. */
+function hoursForAttendanceShift(dateIso: string, shift: string, target: RateTarget): number {
+  if (shift === 'morning') return shiftHoursForLog(dateIso, target);
+  return target.shift_hours;
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+interface AttnDetail {
+  shift: string;
+  status: string;
+  actualInTime: string | null;
+  actualOutTime: string | null;
+}
+
+/** Fraction of a shift actually worked, based on attendance status/clock times. 1 when present or when there's nothing to prorate from. */
+function attendanceWorkedFraction(detail: AttnDetail, dateIso: string, target: RateTarget): number {
+  const hours = hoursForAttendanceShift(dateIso, detail.shift, target);
+  if (hours <= 0) return 1;
+  const startMin = detail.shift === 'night' ? 20 * 60 : 8 * 60;
+  const endMin = startMin + hours * 60;
+  const totalMin = hours * 60;
+
+  switch (detail.status) {
+    case 'present': return 1;
+    case 'half_day': return 0.5;
+    case 'absent': return 0;
+    case 'late': {
+      if (!detail.actualInTime) return 1;
+      let inMin = timeToMinutes(detail.actualInTime);
+      if (inMin < startMin) inMin += 1440; // clock time landed after midnight
+      const worked = endMin - inMin;
+      return Math.max(0, Math.min(1, worked / totalMin));
+    }
+    case 'early_leave': {
+      if (!detail.actualOutTime) return 1;
+      let outMin = timeToMinutes(detail.actualOutTime);
+      if (outMin < startMin) outMin += 1440; // clock time landed after midnight
+      const worked = outMin - startMin;
+      return Math.max(0, Math.min(1, worked / totalMin));
+    }
+    default: return 1; // 'none' / unmarked — don't penalize when there's no data
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -245,7 +324,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
   const sb = supabase as any;
 
   const [loomRes, qualityRes, configRes, employeeRes] = await Promise.all([
-    sb.from('loom').select('id, shed_no, fabric_quality_id'),
+    sb.from('loom').select('id, shed_no, fabric_quality_id, status'),
     sb.from('fabric_quality').select('id, pick_per_inch'),
     sb.from('system_config').select('value').eq('key', 'loom_rate_target').maybeSingle(),
     sb.from('employee').select('id, home_shed_no, default_sheds'),
@@ -266,11 +345,18 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
   const target: RateTarget | null = configValue && Number(configValue.picks_per_min) > 0 ? {
     picks_per_min: Number(configValue.picks_per_min ?? 0),
     shift_hours: Number(configValue.shift_hours ?? 0),
+    sunday_shift_hours: configValue.sunday_shift_hours != null ? Number(configValue.sunday_shift_hours) : null,
     efficiency_pct: Number(configValue.efficiency_pct ?? 0),
     target_cost_per_m: Number(configValue.target_cost_per_m ?? 0),
     inches_per_metre: Number(configValue.inches_per_metre ?? 39.37),
   } : null;
   const hasTarget = target != null && target.picks_per_min > 0 && target.shift_hours > 0 && target.efficiency_pct > 0;
+
+  const loomStatusCounts = looms.reduce((acc, l) => {
+    const key = l.status && ['running', 'idle', 'maintenance', 'breakdown'].includes(l.status) ? l.status : 'unknown';
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   const allLoomIds = looms.map((l) => l.id);
 
@@ -292,7 +378,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
     const shiftLogIds = shiftLogs.map((s) => s.id);
     const wRes = await sb
       .from('production_shift_log_weaver')
-      .select('shift_log_id, metres_woven')
+      .select('shift_log_id, metres_woven, employee_id')
       .in('shift_log_id', shiftLogIds);
     weaverRows = (wRes.data ?? []) as WeaverRow[];
   }
@@ -302,7 +388,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
     sb.from('wage_entry').select('employee_id, pay_date, amount').gte('pay_date', rangeStart).lte('pay_date', rangeEnd),
     sb.from('expense_entry').select('pay_date, amount').gte('pay_date', rangeStart).lte('pay_date', rangeEnd),
     sb.from('attendance_entry')
-      .select('employee_id, shed_no, shed_nos, day_weight, attendance_day:attendance_day_id!inner ( attendance_date )')
+      .select('employee_id, shed_no, shed_nos, day_weight, status, actual_in_time, actual_out_time, attendance_day:attendance_day_id!inner ( attendance_date, shift )')
       .gte('attendance_day.attendance_date', rangeStart)
       .lte('attendance_day.attendance_date', rangeEnd),
   ]);
@@ -313,10 +399,50 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
 
   // ───── Aggregate actual + theoretical production per bucket+shed ─────
   const metresByShiftLog = new Map<number, number>();
+  const employeesByShiftLog = new Map<number, number[]>();
   for (const w of weaverRows) {
     const m = Number(w.metres_woven ?? 0);
-    if (!Number.isFinite(m) || m <= 0) continue;
-    metresByShiftLog.set(w.shift_log_id, (metresByShiftLog.get(w.shift_log_id) ?? 0) + m);
+    if (Number.isFinite(m) && m > 0) {
+      metresByShiftLog.set(w.shift_log_id, (metresByShiftLog.get(w.shift_log_id) ?? 0) + m);
+    }
+    if (w.employee_id != null) {
+      const list = employeesByShiftLog.get(w.shift_log_id);
+      if (list) list.push(w.employee_id); else employeesByShiftLog.set(w.shift_log_id, [w.employee_id]);
+    }
+  }
+
+  // ───── Attendance detail per employee+date (any shift that day), and
+  // shed+date+shift presence — built once, used for both the late/early
+  // proration below and the "shifts absent" stat further down. ─────
+  const attnDetailByEmpDate = new Map<string, AttnDetail[]>(); // `${employee_id}|${date}`
+  const shedShiftKeys = new Set<string>();    // `${shed}|${date}|${shift}` — attendance was marked
+  const shedShiftPresent = new Set<string>(); // same key — someone was actually present
+  for (const a of attendanceRows) {
+    const dayField = Array.isArray(a.attendance_day) ? a.attendance_day[0] : a.attendance_day;
+    const date = dayField?.attendance_date;
+    const shift = dayField?.shift;
+    if (!date || !shift) continue;
+
+    const status = a.status ?? 'none';
+    const detail: AttnDetail = { shift, status, actualInTime: a.actual_in_time, actualOutTime: a.actual_out_time };
+    const empKey = `${a.employee_id}|${date}`;
+    const list = attnDetailByEmpDate.get(empKey);
+    if (list) list.push(detail); else attnDetailByEmpDate.set(empKey, [detail]);
+
+    let sheds: number[] = [];
+    if (a.shed_nos && a.shed_nos.length > 0) {
+      sheds = a.shed_nos.map(Number).filter((n) => Number.isFinite(n));
+    } else if (a.shed_no) {
+      const n = Number(a.shed_no);
+      if (Number.isFinite(n)) sheds = [n];
+    }
+    const dw = Number(a.day_weight ?? 0);
+    const isPresent = PRESENT_STATUSES.has(status) && Number.isFinite(dw) && dw > 0;
+    for (const s of sheds) {
+      const key = `${s}|${date}|${shift}`;
+      shedShiftKeys.add(key);
+      if (isPresent) shedShiftPresent.add(key);
+    }
   }
 
   const stats = new Map<string, ShedBucketStat>(); // `${bucketKey}|${shed}`
@@ -340,11 +466,43 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
       const quality = qualityById.get(loom.fabric_quality_id);
       const pickPerInch = quality?.pick_per_inch != null ? Number(quality.pick_per_inch) : null;
       if (pickPerInch && pickPerInch > 0) {
-        const max100 = (target.picks_per_min * 60 * target.shift_hours) / target.inches_per_metre / pickPerInch;
+        const hoursForLog = shiftHoursForLog(log.log_date, target);
+
+        // Late arrival / early leave: shrink the target by how much of the
+        // shift the weaver(s) on this log actually worked, so a partial
+        // day isn't compared against a full day's target. Average across
+        // weavers/attendance rows found; default to 1 (no penalty) when
+        // there's no attendance data to go on.
+        const employeeIds = employeesByShiftLog.get(log.id) ?? [];
+        const fractions: number[] = [];
+        for (const empId of employeeIds) {
+          const details = attnDetailByEmpDate.get(`${empId}|${log.log_date}`);
+          if (!details) continue;
+          for (const d of details) fractions.push(attendanceWorkedFraction(d, log.log_date, target));
+        }
+        const workedFraction = fractions.length > 0
+          ? fractions.reduce((s, f) => s + f, 0) / fractions.length
+          : 1;
+
+        const max100 = ((target.picks_per_min * 60 * hoursForLog) / target.inches_per_metre / pickPerInch) * workedFraction;
         stat.maxMetres100 += max100;
         stat.theoreticalMetres += max100 * target.efficiency_pct;
       }
     }
+  }
+
+  // ───── Shifts absent: shed+date+shift combos where attendance was
+  // marked but nobody was present/late/early-leave — i.e. no weaver in
+  // the shed that shift. Doesn't affect efficiency % (there's no shift
+  // log either way), just makes the gap visible. ─────
+  for (const key of shedShiftKeys) {
+    if (shedShiftPresent.has(key)) continue;
+    const [shedStr, date] = key.split('|');
+    const shed = Number(shedStr);
+    if (!Number.isFinite(shed) || !date) continue;
+    if (date < rangeStart || date > rangeEnd) continue;
+    const bKey = bucketKeyForDate(kind, date);
+    statFor(bKey, shed).shiftsAbsent += 1;
   }
 
   // ───── Attendance -> employee shed weight per bucket ─────
@@ -437,6 +595,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
       out.theoreticalMetres += stat.theoreticalMetres;
       out.maxMetres100 += stat.maxMetres100;
       out.shiftLogs += stat.shiftLogs;
+      out.shiftsAbsent += stat.shiftsAbsent;
       out.wageCost += stat.wageCost;
       out.expenseCost += stat.expenseCost;
     }
@@ -497,6 +656,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
         acc.wageCost += stat.wageCost;
         acc.expenseCost += stat.expenseCost;
         acc.shiftLogs += stat.shiftLogs;
+        acc.shiftsAbsent += stat.shiftsAbsent;
       }
       return acc;
     }, emptyStat());
@@ -504,6 +664,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
       shed: s,
       metres: r.metres,
       shiftLogs: r.shiftLogs,
+      shiftsAbsent: r.shiftsAbsent,
       efficiencyPct: r.maxMetres100 > 0 ? (r.metres / r.maxMetres100) * 100 : null,
       vsTargetPct: r.theoreticalMetres > 0 ? (r.metres / r.theoreticalMetres) * 100 : null,
       costPerM: r.metres > 0 ? (r.wageCost + r.expenseCost) / r.metres : null,
@@ -586,6 +747,15 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
         </div>
       </div>
 
+      {/* ───── Loom status (current — not tied to the selected period) ───── */}
+      <div className="card p-3 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span className="text-xs font-semibold text-ink-mute">Looms right now:</span>
+        <StatusChip label="Running" count={loomStatusCounts.running ?? 0} color="emerald" />
+        <StatusChip label="Idle" count={loomStatusCounts.idle ?? 0} color="amber" />
+        <StatusChip label="Maintenance" count={loomStatusCounts.maintenance ?? 0} color="sky" />
+        <StatusChip label="Breakdown" count={loomStatusCounts.breakdown ?? 0} color="red" />
+      </div>
+
       {/* ───── KPI cards ───── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <KpiCard label="Total metres" value={fmtNum(overall.metres)} suffix="m" highlight />
@@ -666,6 +836,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
                   <div className="text-xs text-ink-soft mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
                     <div>Efficiency: <span className="num">{fmtPct(r.efficiencyPct)}</span></div>
                     <div>Cost/m: <span className="num">{fmtCost(r.costPerM)}</span></div>
+                    <div>Shifts absent: <span className="num">{fmtInt(r.shiftsAbsent)}</span></div>
                   </div>
                 </div>
               ))}
@@ -680,6 +851,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
                 <tr>
                   <th className="text-left px-4 py-2.5">Shed</th>
                   <th className="text-right px-4 py-2.5">Shift logs</th>
+                  <th className="text-right px-4 py-2.5">Shifts absent</th>
                   <th className="text-right px-4 py-2.5">Metres</th>
                   <th className="text-right px-4 py-2.5">Efficiency %</th>
                   <th className="text-right px-4 py-2.5">vs Target output</th>
@@ -691,6 +863,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
                   <tr key={r.shed} className="hover:bg-haze/40">
                     <td className="px-4 py-2 font-medium">Shed {r.shed}</td>
                     <td className="px-4 py-2 text-right num text-ink-soft">{fmtInt(r.shiftLogs)}</td>
+                    <td className="px-4 py-2 text-right num text-ink-soft">{fmtInt(r.shiftsAbsent)}</td>
                     <td className="px-4 py-2 text-right num font-semibold">{fmtNum(r.metres)}</td>
                     <td className="px-4 py-2 text-right num text-ink-soft">{fmtPct(r.efficiencyPct)}</td>
                     <td className="px-4 py-2 text-right num text-ink-soft">{fmtPct(r.vsTargetPct, 0)}</td>
@@ -709,6 +882,23 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
 // ──────────────────────────────────────────────────────────────────────────
 // Small UI bits
 // ──────────────────────────────────────────────────────────────────────────
+
+const STATUS_CHIP_COLORS: Record<string, string> = {
+  emerald: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  sky: 'bg-sky-500',
+  red: 'bg-red-500',
+};
+
+function StatusChip({ label, count, color }: { label: string; count: number; color: keyof typeof STATUS_CHIP_COLORS }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs">
+      <span className={`w-2 h-2 rounded-full ${STATUS_CHIP_COLORS[color] ?? 'bg-ink-mute'}`} />
+      <span className="num font-semibold">{count}</span>
+      <span className="text-ink-mute">{label}</span>
+    </span>
+  );
+}
 
 function KpiCard({ label, value, suffix, sub, highlight = false }: { label: string; value: string; suffix?: string; sub?: string; highlight?: boolean }) {
   return (
