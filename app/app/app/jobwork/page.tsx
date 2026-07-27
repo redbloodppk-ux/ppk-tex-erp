@@ -480,7 +480,7 @@ export default function JobworkPage(): React.ReactElement {
       ) : tab === 'bobbin' ? (
         <BobbinTab
           rows={bobbins.filter((b) => b.jobwork_party_id != null && partyById.has(b.jobwork_party_id))}
-          returns={bobbinReturns}
+          returns={bobbinReturns.filter((r) => r.jobwork_party_id != null && partyById.has(r.jobwork_party_id))}
           partyById={partyById}
           bobbinSuppliers={bobbinSuppliers}
           allParties={allParties}
@@ -686,11 +686,12 @@ function WeaversTab({ parties }: { parties: PartyOpt[] }): React.ReactElement {
 }
 
 /* ===== Restock mini-form (popover under a row) ===== */
-function RestockForm({ onCancel, onSave, parties, qtyFields }: {
+function RestockForm({ onCancel, onSave, parties, qtyFields, submitLabel }: {
   onCancel: () => void;
   onSave: (data: { given_date: string; supplier_party_id: string; qty: Record<string, string> }) => Promise<void>;
   parties: PartyOpt[];
   qtyFields: { key: string; label: string; step?: number }[];
+  submitLabel?: string;
 }) {
   const [date, setDate] = useState(todayISO());
   const [supplier, setSupplier] = useState('');
@@ -727,7 +728,7 @@ function RestockForm({ onCancel, onSave, parties, qtyFields }: {
           await onSave({ given_date: date, supplier_party_id: supplier, qty });
           setBusy(false);
         }} className="btn-primary h-8 text-xs whitespace-nowrap">
-          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Restock
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} {submitLabel ?? 'Restock'}
         </button>
       </div>
     </div>
@@ -814,7 +815,24 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       (returnedByBobbinId.get(r.bobbin_id) ?? 0) + Number(r.quantity_pcs ?? 0),
     );
   }
-  void allParties;
+  // Lookups for the Returns to Supplier report below: bobbin master
+  // (code/ends) by canonical id, and party name by id (suppliers may
+  // be any party, not just the ones in bobbinSuppliers).
+  const bobbinMasterById = new Map(bobbinMasters.map((b) => [b.id, b]));
+  const allPartyById = new Map(allParties.map((p) => [p.id, p]));
+  const [deletingReturnId, setDeletingReturnId] = useState<number | null>(null);
+  async function deleteReturn(id: number): Promise<void> {
+    if (!window.confirm('Delete this return entry? This cannot be undone.')) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    setDeletingReturnId(id);
+    // Soft-delete by status flip, matching del() above and the
+    // .eq('status', 'active') filter used to load `returns`.
+    const { error } = await sb.from('bobbin_return').update({ status: 'archived' }).eq('id', id);
+    setDeletingReturnId(null);
+    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    onChanged();
+  }
   // Add-new form state. The form panel only renders when showAdd=true so
   // the table isn't pushed down by an empty form on first load.
   const [showAdd, setShowAdd] = useState<boolean>(false);
@@ -1055,7 +1073,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     const qty = Math.trunc(Number(data.qty.qty ?? 0));
     if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
     const payload = {
-      bobbin_id: parent.id,
+      bobbin_id: parent.bobbin_id,
       supplier_party_id: data.supplier_party_id === '' ? (parent.supplier_party_id ?? null) : Number(data.supplier_party_id),
       jobwork_party_id: parent.jobwork_party_id,
       return_date: data.given_date,
@@ -1305,7 +1323,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
           const perPcForRow = Number(r.bobbin_metre ?? 0);
           const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
-          const returnedRow = returnedByBobbinId.get(r.id) ?? 0;
+          const returnedRow = returnedByBobbinId.get(r.bobbin_id) ?? 0;
           const balanceRow = qtyForRow - returnedRow;
           return (
             <div key={r.id} className={`card p-3 ${editingId === r.id ? 'border-indigo/40 bg-indigo-50/40' : ''}`}>
@@ -1344,7 +1362,8 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                   <RestockForm parties={bobbinSuppliers}
                     qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
                     onCancel={() => setReturnId(null)}
-                    onSave={(data) => logReturn(r, data)} />
+                    onSave={(data) => logReturn(r, data)}
+                    submitLabel="Return" />
                 </div>
               )}
             </div>
@@ -1378,7 +1397,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
               const perPcForRow = Number(r.bobbin_metre ?? 0);
               const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
-              const returnedRow = returnedByBobbinId.get(r.id) ?? 0;
+              const returnedRow = returnedByBobbinId.get(r.bobbin_id) ?? 0;
               const balanceRow = qtyForRow - returnedRow;
               return (
                 <React.Fragment key={r.id}>
@@ -1417,7 +1436,8 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                       <RestockForm parties={bobbinSuppliers}
                         qtyFields={[{ key: 'qty', label: 'Returned pcs', step: 1 }]}
                         onCancel={() => setReturnId(null)}
-                        onSave={(data) => logReturn(r, data)} />
+                        onSave={(data) => logReturn(r, data)}
+                        submitLabel="Return" />
                     </td></tr>
                   )}
                 </React.Fragment>
@@ -1435,10 +1455,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-amber-700">
-                  {rows.reduce((s, r) => s + (returnedByBobbinId.get(r.id) ?? 0), 0).toLocaleString('en-IN')}
+                  {rows.reduce((s, r) => s + (returnedByBobbinId.get(r.bobbin_id) ?? 0), 0).toLocaleString('en-IN')}
                 </td>
                 <td className="px-3 py-3 text-right num font-bold">
-                  {rows.reduce((s, r) => s + (Number((r.original_quantity ?? r.quantity) ?? 0) - (returnedByBobbinId.get(r.id) ?? 0)), 0).toLocaleString('en-IN')}
+                  {rows.reduce((s, r) => s + (Number((r.original_quantity ?? r.quantity) ?? 0) - (returnedByBobbinId.get(r.bobbin_id) ?? 0)), 0).toLocaleString('en-IN')}
                 </td>
                 <td />
               </tr>
@@ -1446,6 +1466,127 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           )}
         </table>
       </div>
+
+      {/* Returns history — empty bobbin pieces sent back to the
+          supplier. Shows past bobbin_return rows for this tab's
+          parties, with a delete button so mistakes can be rolled
+          back. Mirrors the in-house bobbin page's own section. */}
+      {returns.length > 0 && (
+        <>
+        {/* Mobile / PWA: card view for returns. */}
+        <div className="md:hidden mt-4">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+            <ArrowLeft className="h-4 w-4 text-amber-700" />
+            Returns to Supplier
+          </h3>
+          <CardFilter placeholder="Search returns…">
+            {returns.map((r) => {
+              const bm = bobbinMasterById.get(r.bobbin_id) ?? null;
+              const party = r.jobwork_party_id != null ? partyById.get(r.jobwork_party_id) : null;
+              const sup = r.supplier_party_id != null ? allPartyById.get(r.supplier_party_id) : null;
+              const lbl = bm ? `${bm.code} (${bm.ends_per_bobbin} ends)` : `Bobbin #${r.bobbin_id}`;
+              return (
+                <div key={r.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-ink break-words">{lbl}</div>
+                      <div className="text-xs text-ink-soft mt-0.5">{fmtDate(r.return_date)}</div>
+                    </div>
+                    <div className="num font-semibold text-amber-700 shrink-0">
+                      {Number(r.quantity_pcs ?? 0).toLocaleString('en-IN')} pcs
+                    </div>
+                  </div>
+                  <div className="text-xs text-ink-soft mt-2">
+                    <span className="text-ink-mute">{partyLabel}: </span>{party?.name ?? '—'}
+                  </div>
+                  <div className="text-xs text-ink-soft mt-1">
+                    <span className="text-ink-mute">Supplier: </span>{sup?.name ?? '—'}
+                  </div>
+                  {r.reference_no && (
+                    <div className="text-xs mt-1">
+                      <span className="text-ink-mute">Reference: </span><span className="font-mono">{r.reference_no}</span>
+                    </div>
+                  )}
+                  {r.notes && (
+                    <div className="text-xs text-ink-soft mt-1 break-words">{r.notes}</div>
+                  )}
+                  <div className="flex items-center gap-4 mt-2 pt-2 border-t border-line/40">
+                    <button
+                      type="button"
+                      onClick={() => deleteReturn(r.id)}
+                      disabled={deletingReturnId === r.id}
+                      title="Delete this return"
+                      className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 inline-flex items-center gap-1 text-xs"
+                    >
+                      {deletingReturnId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardFilter>
+        </div>
+
+        <div className="card mt-4 overflow-x-auto hidden md:block">
+          <div className="px-3 py-2 border-b border-line/40 flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-1.5">
+              <ArrowLeft className="h-4 w-4 text-amber-700" />
+              Returns to Supplier
+            </h3>
+            <span className="text-[11px] text-ink-mute">
+              {returns.length} {returns.length === 1 ? 'return' : 'returns'} ·{' '}
+              {returns.reduce((s, r) => s + Number(r.quantity_pcs ?? 0), 0).toLocaleString('en-IN')} pcs total
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left  px-3 py-3">Date</th>
+                <th className="text-left  px-3 py-3">Bobbin</th>
+                <th className="text-left  px-3 py-3">{partyLabel}</th>
+                <th className="text-left  px-3 py-3">Supplier</th>
+                <th className="text-right px-3 py-3">Qty (pcs)</th>
+                <th className="text-left  px-3 py-3">Reference</th>
+                <th className="text-left  px-3 py-3">Notes</th>
+                <th className="text-right px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {returns.map((r) => {
+                const bm = bobbinMasterById.get(r.bobbin_id) ?? null;
+                const party = r.jobwork_party_id != null ? partyById.get(r.jobwork_party_id) : null;
+                const sup = r.supplier_party_id != null ? allPartyById.get(r.supplier_party_id) : null;
+                const lbl = bm ? `${bm.code} (${bm.ends_per_bobbin} ends)` : `Bobbin #${r.bobbin_id}`;
+                return (
+                  <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{fmtDate(r.return_date)}</td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold">{lbl}</td>
+                    <td className="px-3 py-2 text-xs">{party?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs">{sup?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-right num font-semibold text-amber-700">
+                      {Number(r.quantity_pcs ?? 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs text-ink-soft">{r.notes ?? ''}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => deleteReturn(r.id)}
+                        disabled={deletingReturnId === r.id}
+                        title="Delete this return"
+                        className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                      >
+                        {deletingReturnId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        </>
+      )}
     </div>
   );
 }
