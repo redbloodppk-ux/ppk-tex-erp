@@ -805,15 +805,43 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   // Row being edited via the Add form (Edit reopens the form pre-filled
   // instead of inline row inputs). null = the form is in "add new" mode.
   const [editingId, setEditingId] = useState<number | null>(null);
-  // Total qty returned per bobbin_id - shown alongside the "given" qty
-  // so the operator sees the outstanding balance with the supplier.
-  const returnedByBobbinId = new Map<number, number>();
+  // bobbin_return rows aren't linked to a specific "give" transaction —
+  // they only record (party, bobbin spec, qty). So a return can never be
+  // attributed to one exact row; the running total is a property of the
+  // whole (party, bobbin spec) group, not of an individual issue event.
+  // To avoid stamping the same aggregate onto every historical row (which
+  // looked like every row had "changed"), we compute the group totals
+  // once and only display them on the single most-recent row of each
+  // group. Every older row for that same party+spec shows its own
+  // original qty, untouched.
+  const groupKey = (partyId: number | null, bobbinId: number): string => `${partyId ?? 'x'}:${bobbinId}`;
+  const issuedByGroup = new Map<string, number>();
+  for (const r of rows) {
+    const key = groupKey(r.jobwork_party_id, r.bobbin_id);
+    const qty = Number((r.original_quantity ?? r.quantity) ?? 0);
+    issuedByGroup.set(key, (issuedByGroup.get(key) ?? 0) + qty);
+  }
+  const returnedByGroup = new Map<string, number>();
   for (const r of returns) {
     if (r.bobbin_id == null) continue;
-    returnedByBobbinId.set(
-      r.bobbin_id,
-      (returnedByBobbinId.get(r.bobbin_id) ?? 0) + Number(r.quantity_pcs ?? 0),
-    );
+    const key = groupKey(r.jobwork_party_id, r.bobbin_id);
+    returnedByGroup.set(key, (returnedByGroup.get(key) ?? 0) + Number(r.quantity_pcs ?? 0));
+  }
+  // rows is already sorted newest-first, so the first row encountered
+  // per group here is the current/most-recent one for that group.
+  const latestRowIdByGroup = new Map<string, number>();
+  for (const r of rows) {
+    const key = groupKey(r.jobwork_party_id, r.bobbin_id);
+    if (!latestRowIdByGroup.has(key)) latestRowIdByGroup.set(key, r.id);
+  }
+  function returnedAndBalanceFor(r: BobbinRow): { returnedRow: number; balanceRow: number } {
+    const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
+    const key = groupKey(r.jobwork_party_id, r.bobbin_id);
+    const isLatestOfGroup = latestRowIdByGroup.get(key) === r.id;
+    if (!isLatestOfGroup) return { returnedRow: 0, balanceRow: qtyForRow };
+    const returnedRow = returnedByGroup.get(key) ?? 0;
+    const balanceRow = (issuedByGroup.get(key) ?? qtyForRow) - returnedRow;
+    return { returnedRow, balanceRow };
   }
   // Lookups for the Returns to Supplier report below: bobbin master
   // (code/ends) by canonical id, and party name by id (suppliers may
@@ -1323,8 +1351,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
           const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
           const perPcForRow = Number(r.bobbin_metre ?? 0);
           const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
-          const returnedRow = returnedByBobbinId.get(r.bobbin_id) ?? 0;
-          const balanceRow = qtyForRow - returnedRow;
+          const { returnedRow, balanceRow } = returnedAndBalanceFor(r);
           return (
             <div key={r.id} className={`card p-3 ${editingId === r.id ? 'border-indigo/40 bg-indigo-50/40' : ''}`}>
               <div className="flex items-start justify-between gap-2">
@@ -1397,8 +1424,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               const qtyForRow = Number((r.original_quantity ?? r.quantity) ?? 0);
               const perPcForRow = Number(r.bobbin_metre ?? 0);
               const totalMRow = perPcForRow > 0 ? qtyForRow * perPcForRow : 0;
-              const returnedRow = returnedByBobbinId.get(r.bobbin_id) ?? 0;
-              const balanceRow = qtyForRow - returnedRow;
+              const { returnedRow, balanceRow } = returnedAndBalanceFor(r);
               return (
                 <React.Fragment key={r.id}>
                   <tr className={`border-t border-line/40 ${editingId === r.id ? 'bg-indigo-50/50' : ''}`}>
@@ -1455,10 +1481,10 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                   {rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0) * Number(r.bobbin_metre ?? 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                 </td>
                 <td className="px-3 py-3 text-right num font-bold text-amber-700">
-                  {rows.reduce((s, r) => s + (returnedByBobbinId.get(r.bobbin_id) ?? 0), 0).toLocaleString('en-IN')}
+                  {Array.from(returnedByGroup.values()).reduce((s, v) => s + v, 0).toLocaleString('en-IN')}
                 </td>
                 <td className="px-3 py-3 text-right num font-bold">
-                  {rows.reduce((s, r) => s + (Number((r.original_quantity ?? r.quantity) ?? 0) - (returnedByBobbinId.get(r.bobbin_id) ?? 0)), 0).toLocaleString('en-IN')}
+                  {(rows.reduce((s, r) => s + Number((r.original_quantity ?? r.quantity) ?? 0), 0) - Array.from(returnedByGroup.values()).reduce((s, v) => s + v, 0)).toLocaleString('en-IN')}
                 </td>
                 <td />
               </tr>
