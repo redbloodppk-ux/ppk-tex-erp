@@ -400,12 +400,18 @@ export default function AttendanceMarkPage() {
       for (const e of employees) {
         if (e.id === selfId) continue;
         if (e.role.toLowerCase() !== 'weaver') continue;
+        // Only weavers actually rostered on THIS shift can block a shed.
+        // Without this check, a night-shift weaver's default shed (pre-filled
+        // from employee.default_sheds so supervisors don't re-tick it every
+        // shift) would falsely "claim" that shed on the Morning screen too,
+        // even though that weaver never appears there.
+        if (!inThisShift(e)) continue;
         const shed = shedByEmp[e.id];
         if (shed) taken.add(shed);
       }
       return taken;
     },
-    [employees, shedByEmp],
+    [employees, shedByEmp, inThisShift],
   );
 
   function setStatus(empId: number, status: AttendanceStatus): void {
