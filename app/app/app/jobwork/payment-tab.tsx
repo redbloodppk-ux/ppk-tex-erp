@@ -183,10 +183,16 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
   }, [bills]);
 
   /** Recording happens on the Payments page — jump there with the
-   *  party pre-selected so the open bills show up for adjustment. */
+   *  party pre-selected so the open bills show up for adjustment.
+   *  Direction depends on which side of the job-work relationship
+   *  this party is on: a Jobwork Party sends us their own material
+   *  and we bill them for the work — they owe us, so it's a receipt
+   *  (direction=in). An Outsource Weaver does our production for us
+   *  and bills us — we owe them, so it's a payment (direction=out). */
+  const paymentDirection: 'in' | 'out' = props.kind === 'outsource' ? 'out' : 'in';
   function gotoPayments(b: BillRow): void {
     const party = b.jobwork_party_id != null ? `&party=${b.jobwork_party_id}` : '';
-    router.push(`/app/payments?tab=new&direction=in${party}`);
+    router.push(`/app/payments?tab=new&direction=${paymentDirection}${party}`);
   }
 
   return (
@@ -202,7 +208,7 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
           <div className="num text-xl font-bold">{fmtRs(totals.billed)}</div>
         </div>
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total received</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">{paymentDirection === 'in' ? 'Total received' : 'Total paid'}</div>
           <div className="num text-xl font-bold text-emerald-700">{fmtRs(totals.paid)}</div>
         </div>
         <div className="card p-3">
@@ -281,7 +287,7 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
                   <div className="flex items-center gap-4 mt-3 pt-2 border-t border-line/40">
                     <button type="button" onClick={() => gotoPayments(b)} className="btn-primary text-xs"
                       title="Opens the Payments page with this party pre-selected">
-                      <Wallet className="w-3.5 h-3.5" /> Record payment
+                      <Wallet className="w-3.5 h-3.5" /> {paymentDirection === 'in' ? 'Record receipt' : 'Record payment'}
                     </button>
                   </div>
                 )}
@@ -332,7 +338,7 @@ export function JobworkPaymentTab(props: JobworkPaymentTabProps): React.ReactEle
                         {due > 0 && (
                           <button type="button" onClick={() => gotoPayments(b)} className="btn-primary text-xs"
                             title="Opens the Payments page with this party pre-selected">
-                            <Wallet className="w-3.5 h-3.5" /> Record payment
+                            <Wallet className="w-3.5 h-3.5" /> {paymentDirection === 'in' ? 'Record receipt' : 'Record payment'}
                           </button>
                         )}
                       </td>
