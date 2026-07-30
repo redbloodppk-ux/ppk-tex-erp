@@ -1,35 +1,53 @@
 'use client';
 /**
- * ReminderForm — add a new office/factory reminder (migration 245).
+ * ReminderForm — add a new office/factory reminder (migrations 245, 246).
  * Plain insert into the `reminder` table; owner-only per RLS.
+ *
+ * Categories are owner-managed (migration 246) and passed in as a prop
+ * fetched server-side by ./page.tsx, rather than imported as a fixed list.
+ *
+ * 'twice_weekly' repeat requires picking exactly 2 weekdays — the picker
+ * only appears once that repeat is selected, and submit is blocked until
+ * exactly 2 are checked.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import {
-  REMINDER_CATEGORIES, CATEGORY_LABEL, REPEAT_LABEL,
-  type ReminderCategory, type ReminderRepeat,
+  REPEAT_LABEL, WEEKDAY_OPTIONS,
+  type ReminderCategory, type ReminderRepeat, type ReminderCategoryRow,
 } from '@/lib/reminders/constants';
 
-const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'monthly'];
+const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'twice_weekly', 'monthly'];
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function ReminderForm(): React.ReactElement {
+export function ReminderForm({ categories }: { categories: ReminderCategoryRow[] }): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
 
+  const fallbackCategory = categories[0]?.key ?? 'other';
+
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [category, setCategory] = useState<ReminderCategory>('other');
+  const [category, setCategory] = useState<ReminderCategory>(fallbackCategory);
   const [dueDate, setDueDate] = useState<string>(todayISO());
   const [repeat, setRepeat] = useState<ReminderRepeat>('none');
+  const [weekdays, setWeekdays] = useState<number[]>([]);
 
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleWeekday(value: number): void {
+    setWeekdays((prev) => {
+      if (prev.includes(value)) return prev.filter((d) => d !== value);
+      if (prev.length >= 2) return prev; // only 2 allowed
+      return [...prev, value];
+    });
+  }
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -37,6 +55,10 @@ export function ReminderForm(): React.ReactElement {
 
     if (!title.trim()) {
       setError('Please enter what this reminder is about.');
+      return;
+    }
+    if (repeat === 'twice_weekly' && weekdays.length !== 2) {
+      setError('Pick exactly 2 weekdays for a twice-a-week reminder.');
       return;
     }
 
@@ -52,6 +74,7 @@ export function ReminderForm(): React.ReactElement {
       category,
       due_date: dueDate,
       repeat,
+      repeat_weekdays: repeat === 'twice_weekly' ? [...weekdays].sort((a, b) => a - b) : null,
       status: 'active',
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
@@ -91,8 +114,8 @@ export function ReminderForm(): React.ReactElement {
             value={category}
             onChange={(e) => setCategory(e.target.value as ReminderCategory)}
           >
-            {REMINDER_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>
+            {categories.map((c) => (
+              <option key={c.key} value={c.key}>{c.label}</option>
             ))}
           </select>
         </div>
@@ -115,7 +138,10 @@ export function ReminderForm(): React.ReactElement {
           id="repeat"
           className="input"
           value={repeat}
-          onChange={(e) => setRepeat(e.target.value as ReminderRepeat)}
+          onChange={(e) => {
+            setRepeat(e.target.value as ReminderRepeat);
+            setWeekdays([]);
+          }}
         >
           {REPEATS.map((r) => (
             <option key={r} value={r}>{REPEAT_LABEL[r]}</option>
@@ -126,6 +152,35 @@ export function ReminderForm(): React.ReactElement {
           just moves its due date to the next cycle.
         </p>
       </div>
+
+      {repeat === 'twice_weekly' && (
+        <div>
+          <label className="label">Pick 2 weekdays</label>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAY_OPTIONS.map((w) => {
+              const checked = weekdays.includes(w.value);
+              return (
+                <button
+                  key={w.value}
+                  type="button"
+                  onClick={() => toggleWeekday(w.value)}
+                  className={
+                    'px-2.5 py-1 rounded-md border text-xs font-semibold transition ' +
+                    (checked
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-paper text-ink-soft border-line hover:bg-cloud/60')
+                  }
+                >
+                  {w.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-ink-mute mt-1">
+            {weekdays.length}/2 selected
+          </p>
+        </div>
+      )}
 
       <div>
         <label className="label" htmlFor="description">Notes (optional)</label>

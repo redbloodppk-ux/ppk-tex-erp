@@ -20,7 +20,7 @@
  * happens after the clear (new bill, new pending costing) reappears.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CATEGORY_LABEL } from '@/lib/reminders/constants';
+import { fetchCategoryLabelMap } from '@/lib/reminders/constants';
 
 export type NotificationKind = 'costing_approval' | 'bill_due' | 'reminder';
 
@@ -209,13 +209,16 @@ async function fetchBillDues(sb: any): Promise<NotificationItem[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchDueReminders(sb: any): Promise<NotificationItem[]> {
   const today = new Date().toISOString().slice(0, 10);
-  const { data } = await sb
-    .from('reminder')
-    .select('id, title, description, category, due_date, repeat')
-    .eq('status', 'active')
-    .lte('due_date', today)
-    .order('due_date', { ascending: true })
-    .limit(50);
+  const [{ data }, categoryLabels] = await Promise.all([
+    sb
+      .from('reminder')
+      .select('id, title, description, category, due_date, repeat')
+      .eq('status', 'active')
+      .lte('due_date', today)
+      .order('due_date', { ascending: true })
+      .limit(50),
+    fetchCategoryLabelMap(sb),
+  ]);
 
   return ((data ?? []) as Array<{
     id: number; title: string; description: string | null;
@@ -227,7 +230,7 @@ async function fetchDueReminders(sb: any): Promise<NotificationItem[]> {
       id: `reminder:${r.id}`,
       kind: 'reminder' as const,
       title: r.title,
-      body: `${(CATEGORY_LABEL as Record<string, string>)[r.category] ?? r.category} — ${dueLabel}`,
+      body: `${categoryLabels[r.category] ?? r.category} — ${dueLabel}`,
       link: `/app/reminders?focus=${r.id}`,
       occurred_at: `${r.due_date}T00:00:00Z`,
       severity: overdue ? ('critical' as const) : ('warn' as const),

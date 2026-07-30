@@ -12,7 +12,10 @@ import Link from 'next/link';
 import { AlarmClock, AlertTriangle, ArrowRight, Repeat } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { formatDate } from '@/lib/utils';
-import { CATEGORY_LABEL, REPEAT_LABEL, type ReminderCategory } from '@/lib/reminders/constants';
+import {
+  REPEAT_LABEL, formatWeekdays, fetchCategoryLabelMap,
+  type ReminderCategory,
+} from '@/lib/reminders/constants';
 import { MarkDoneButton } from '@/app/components/reminders/mark-done-button';
 import { DeleteReminderButton } from '@/app/components/reminders/delete-reminder-button';
 
@@ -24,7 +27,8 @@ interface ReminderRow {
   title: string;
   category: ReminderCategory;
   due_date: string;
-  repeat: 'none' | 'daily' | 'weekly' | 'monthly';
+  repeat: 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly';
+  repeat_weekdays: number[] | null;
 }
 
 export async function RemindersWidget(): Promise<React.ReactElement> {
@@ -36,13 +40,16 @@ export async function RemindersWidget(): Promise<React.ReactElement> {
   const windowEnd = new Date(Date.now() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000)
     .toISOString().slice(0, 10);
 
-  const { data, error } = await sb
-    .from('reminder')
-    .select('id, title, category, due_date, repeat')
-    .eq('status', 'active')
-    .lte('due_date', windowEnd)
-    .order('due_date', { ascending: true })
-    .limit(MAX_ROWS);
+  const [{ data, error }, categoryLabels] = await Promise.all([
+    sb
+      .from('reminder')
+      .select('id, title, category, due_date, repeat, repeat_weekdays')
+      .eq('status', 'active')
+      .lte('due_date', windowEnd)
+      .order('due_date', { ascending: true })
+      .limit(MAX_ROWS),
+    fetchCategoryLabelMap(sb),
+  ]);
 
   const rows = (data as ReminderRow[] | null) ?? [];
   const overdueCount = rows.filter((r) => r.due_date < todayIso).length;
@@ -83,7 +90,7 @@ export async function RemindersWidget(): Promise<React.ReactElement> {
       ) : (
         <div className="space-y-2">
           {rows.map((r) => (
-            <ReminderRowItem key={r.id} r={r} todayIso={todayIso} />
+            <ReminderRowItem key={r.id} r={r} todayIso={todayIso} categoryLabel={categoryLabels[r.category] ?? r.category} />
           ))}
         </div>
       )}
@@ -91,7 +98,7 @@ export async function RemindersWidget(): Promise<React.ReactElement> {
   );
 }
 
-function ReminderRowItem({ r, todayIso }: { r: ReminderRow; todayIso: string }): React.ReactElement {
+function ReminderRowItem({ r, todayIso, categoryLabel }: { r: ReminderRow; todayIso: string; categoryLabel: string }): React.ReactElement {
   const overdue = r.due_date < todayIso;
   const dueToday = r.due_date === todayIso;
   const tone = overdue
@@ -99,6 +106,10 @@ function ReminderRowItem({ r, todayIso }: { r: ReminderRow; todayIso: string }):
     : dueToday
       ? 'border-amber-200 bg-amber-50/60'
       : 'border-line/60 bg-cloud/10';
+
+  const repeatLabel = r.repeat === 'twice_weekly'
+    ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
+    : REPEAT_LABEL[r.repeat];
 
   return (
     <div className={`flex items-start justify-between gap-2 rounded-lg border p-2.5 ${tone}`}>
@@ -110,7 +121,7 @@ function ReminderRowItem({ r, todayIso }: { r: ReminderRow; todayIso: string }):
           <span className="text-sm font-medium text-ink truncate">{r.title}</span>
         </div>
         <div className="text-xs text-ink-mute mt-0.5">
-          {CATEGORY_LABEL[r.category]}
+          {categoryLabel}
           <span> · </span>
           <span className={overdue ? 'text-rose-700 font-semibold' : dueToday ? 'text-amber-700 font-semibold' : ''}>
             {overdue ? `Overdue since ${formatDate(r.due_date)}` : dueToday ? 'Due today' : formatDate(r.due_date)}
@@ -118,7 +129,7 @@ function ReminderRowItem({ r, todayIso }: { r: ReminderRow; todayIso: string }):
           {r.repeat !== 'none' && (
             <>
               <span> · </span>
-              <span className="inline-flex items-center gap-1"><Repeat className="w-3 h-3" /> {REPEAT_LABEL[r.repeat]}</span>
+              <span className="inline-flex items-center gap-1"><Repeat className="w-3 h-3" /> {repeatLabel}</span>
             </>
           )}
         </div>

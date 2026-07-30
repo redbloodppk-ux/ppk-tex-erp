@@ -13,11 +13,11 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { formatDate } from '@/lib/utils';
-import { Plus, Repeat, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Plus, Repeat, CheckCircle2, AlertTriangle, Settings } from 'lucide-react';
 import { MarkDoneButton } from '@/app/components/reminders/mark-done-button';
 import { DeleteReminderButton } from '@/app/components/reminders/delete-reminder-button';
 import {
-  REMINDER_CATEGORIES, CATEGORY_LABEL, REPEAT_LABEL,
+  REPEAT_LABEL, formatWeekdays, fetchAllCategories, fetchCategoryLabelMap,
   type ReminderCategory,
 } from '@/lib/reminders/constants';
 
@@ -30,7 +30,8 @@ interface ReminderRow {
   description: string | null;
   category: ReminderCategory;
   due_date: string;
-  repeat: 'none' | 'daily' | 'weekly' | 'monthly';
+  repeat: 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly';
+  repeat_weekdays: number[] | null;
   status: 'active' | 'done' | 'archived';
 }
 
@@ -40,18 +41,23 @@ interface PageProps {
 
 export default async function RemindersPage({ searchParams }: PageProps): Promise<React.ReactElement> {
   const sp = await searchParams;
-  const categoryFilter = REMINDER_CATEGORIES.includes(sp.category as ReminderCategory)
-    ? (sp.category as ReminderCategory)
-    : null;
   const statusFilter = (sp.status === 'done' || sp.status === 'archived' || sp.status === 'all')
     ? sp.status
     : 'active';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query = (supabase as any)
+  const sb = supabase as any;
+
+  const [categories, categoryLabels] = await Promise.all([
+    fetchAllCategories(sb),
+    fetchCategoryLabelMap(sb),
+  ]);
+  const categoryFilter = categories.some((c) => c.key === sp.category) ? (sp.category as string) : null;
+
+  let query = sb
     .from('reminder')
-    .select('id, title, description, category, due_date, repeat, status')
+    .select('id, title, description, category, due_date, repeat, repeat_weekdays, status')
     .order('due_date', { ascending: true })
     .limit(300);
   if (statusFilter !== 'all') query = query.eq('status', statusFilter);
@@ -83,9 +89,14 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
         title="Reminders"
         subtitle="Office & factory to-dos — maintenance, supplier calls, bill payments, purchases. Due/overdue ones also show in the bell; a wider window shows on the dashboard."
         actions={
-          <Link href="/app/reminders/new" className="btn-primary">
-            <Plus className="w-4 h-4" /> New Reminder
-          </Link>
+          <>
+            <Link href="/app/reminders/categories" className="btn-secondary">
+              <Settings className="w-4 h-4" /> Manage Categories
+            </Link>
+            <Link href="/app/reminders/new" className="btn-primary">
+              <Plus className="w-4 h-4" /> New Reminder
+            </Link>
+          </>
         }
       />
 
@@ -113,8 +124,8 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex flex-wrap items-center gap-2">
           <FilterPill href={baseHref({ category: null })} active={!categoryFilter} label="All categories" />
-          {REMINDER_CATEGORIES.map((c) => (
-            <FilterPill key={c} href={baseHref({ category: c })} active={categoryFilter === c} label={CATEGORY_LABEL[c]} />
+          {categories.filter((c) => c.active).map((c) => (
+            <FilterPill key={c.key} href={baseHref({ category: c.key })} active={categoryFilter === c.key} label={c.label} />
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -139,7 +150,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
         <>
         <CardFilter placeholder="Search reminders…">
           {rows.map((r) => (
-            <ReminderCard key={r.id} r={r} todayIso={todayIso} />
+            <ReminderCard key={r.id} r={r} todayIso={todayIso} categoryLabel={categoryLabels[r.category] ?? r.category} />
           ))}
         </CardFilter>
 
@@ -160,7 +171,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
                   <td className="px-3 py-3">
                     <DueBadge dueDate={r.due_date} todayIso={todayIso} status={r.status} />
                   </td>
-                  <td className="px-3 py-3 text-xs text-ink-soft">{CATEGORY_LABEL[r.category]}</td>
+                  <td className="px-3 py-3 text-xs text-ink-soft">{categoryLabels[r.category] ?? r.category}</td>
                   <td className="px-3 py-3">
                     <div className="font-medium text-sm text-ink">{r.title}</div>
                     {r.description && <div className="text-xs text-ink-mute mt-0.5">{r.description}</div>}
@@ -168,7 +179,10 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
                   <td className="px-3 py-3 text-xs text-ink-soft">
                     {r.repeat !== 'none' && (
                       <span className="inline-flex items-center gap-1">
-                        <Repeat className="w-3 h-3" /> {REPEAT_LABEL[r.repeat]}
+                        <Repeat className="w-3 h-3" />
+                        {r.repeat === 'twice_weekly'
+                          ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
+                          : REPEAT_LABEL[r.repeat]}
                       </span>
                     )}
                   </td>
@@ -191,7 +205,11 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
   );
 }
 
-function ReminderCard({ r, todayIso }: { r: ReminderRow; todayIso: string }): React.ReactElement {
+function ReminderCard({ r, todayIso, categoryLabel }: { r: ReminderRow; todayIso: string; categoryLabel: string }): React.ReactElement {
+  const repeatLabel = r.repeat === 'twice_weekly'
+    ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
+    : REPEAT_LABEL[r.repeat];
+
   return (
     <div className="card p-3">
       <div className="flex items-start justify-between gap-2">
@@ -204,11 +222,11 @@ function ReminderCard({ r, todayIso }: { r: ReminderRow; todayIso: string }): Re
         </div>
       </div>
       <div className="text-xs text-ink-soft mt-1">
-        <span className="text-ink-mute">Category: </span>{CATEGORY_LABEL[r.category]}
+        <span className="text-ink-mute">Category: </span>{categoryLabel}
         {r.repeat !== 'none' && (
           <>
             <span className="text-ink-mute"> · </span>
-            <span className="inline-flex items-center gap-1"><Repeat className="w-3 h-3" /> {REPEAT_LABEL[r.repeat]}</span>
+            <span className="inline-flex items-center gap-1"><Repeat className="w-3 h-3" /> {repeatLabel}</span>
           </>
         )}
       </div>
