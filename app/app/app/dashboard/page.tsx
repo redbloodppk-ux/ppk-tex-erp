@@ -6,6 +6,7 @@ import {
   Wallet, Landmark, ClipboardList, ClockArrowUp, ShoppingCart,
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
+import { RemindersWidget } from '@/app/components/dashboard/reminders-widget';
 import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
 import { ProductionAnalytics } from './production-analytics';
 
@@ -741,6 +742,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </Link>
         ))}
       </section>
+
+      {/* Reminders — office/factory to-dos (maintenance, supplier calls,
+          bill payments, purchases) due or coming up in the next 7 days.
+          Placed right after the headline KPIs so nothing due gets missed. */}
+      <RemindersWidget />
 
       {/* Quick Entry — shortcuts to the screens the operator hits every
           day. */}

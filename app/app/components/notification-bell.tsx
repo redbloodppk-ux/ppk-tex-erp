@@ -26,7 +26,7 @@ type Severity = 'info' | 'warn' | 'critical';
 
 interface FeedItem {
   id: string;
-  kind: 'costing_approval' | 'bill_due';
+  kind: 'costing_approval' | 'bill_due' | 'reminder';
   title: string;
   body: string;
   link: string;

@@ -8,6 +8,9 @@
  *   - Bills due (payable)    — one item per jobwork party with unpaid
  *     weaver bills we still owe.
  *   - Pending costing approvals — costing_master.approval_status='pending'.
+ *   - Reminders due/overdue — reminder table, status='active' and
+ *     due_date <= today. Upcoming (not-yet-due) reminders are left out of
+ *     the bell on purpose; they only show on the dashboard widget.
  *
  * Yarn low-stock was removed by request (12-06-2026) — the operator
  * tracks cover from the Days-of-Cover report instead.
@@ -17,8 +20,9 @@
  * happens after the clear (new bill, new pending costing) reappears.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { CATEGORY_LABEL } from '@/lib/reminders/constants';
 
-export type NotificationKind = 'costing_approval' | 'bill_due';
+export type NotificationKind = 'costing_approval' | 'bill_due' | 'reminder';
 
 export interface NotificationItem {
   /** Stable composite id for keys + dedup. Not a DB row id. */
@@ -56,13 +60,14 @@ export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [pendingApprovals, billDues, clearedAt] = await Promise.all([
+  const [pendingApprovals, billDues, dueReminders, clearedAt] = await Promise.all([
     fetchPendingApprovals(sb),
     fetchBillDues(sb),
+    fetchDueReminders(sb),
     fetchClearedAt(sb),
   ]);
 
-  const items = [...pendingApprovals, ...billDues]
+  const items = [...pendingApprovals, ...billDues, ...dueReminders]
     .filter((i) => clearedAt == null || i.occurred_at > clearedAt)
     // Most urgent first, then most recent.
     .sort((a, b) => {
@@ -194,6 +199,40 @@ async function fetchBillDues(sb: any): Promise<NotificationItem[]> {
     occurred_at: p.latest,
     severity: 'warn' as const,
   }));
+}
+
+/** Reminders that are due today or overdue — active only. Upcoming (not
+ *  yet due) reminders don't clutter the bell; they still show on the
+ *  dashboard widget's wider window. occurred_at = due_date, so a
+ *  recurring reminder's next cycle (new due_date after Mark Done) reads
+ *  as a fresh event and resurfaces past a Clear-all automatically. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchDueReminders(sb: any): Promise<NotificationItem[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await sb
+    .from('reminder')
+    .select('id, title, description, category, due_date, repeat')
+    .eq('status', 'active')
+    .lte('due_date', today)
+    .order('due_date', { ascending: true })
+    .limit(50);
+
+  return ((data ?? []) as Array<{
+    id: number; title: string; description: string | null;
+    category: string; due_date: string; repeat: string;
+  }>).map((r) => {
+    const overdue = r.due_date < today;
+    const dueLabel = overdue ? `Overdue since ${r.due_date}` : 'Due today';
+    return {
+      id: `reminder:${r.id}`,
+      kind: 'reminder' as const,
+      title: r.title,
+      body: `${(CATEGORY_LABEL as Record<string, string>)[r.category] ?? r.category} — ${dueLabel}`,
+      link: `/app/reminders?focus=${r.id}`,
+      occurred_at: `${r.due_date}T00:00:00Z`,
+      severity: overdue ? ('critical' as const) : ('warn' as const),
+    };
+  });
 }
 
 function sevRank(s: 'info' | 'warn' | 'critical'): number {

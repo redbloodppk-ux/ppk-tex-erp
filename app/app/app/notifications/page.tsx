@@ -24,6 +24,7 @@ export const dynamic = 'force-dynamic';
 const KIND_LABEL: Record<NotificationItem['kind'], string> = {
   costing_approval: 'Costing approval',
   bill_due:         'Bill due',
+  reminder:         'Reminder',
 };
 
 interface PageProps {
@@ -35,7 +36,7 @@ interface PageProps {
 
 export default async function NotificationsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const kindFilter     = (sp.kind === 'costing_approval' || sp.kind === 'bill_due') ? sp.kind : null;
+  const kindFilter     = (sp.kind === 'costing_approval' || sp.kind === 'bill_due' || sp.kind === 'reminder') ? sp.kind : null;
   const sevFilter      = (sp.severity === 'info' || sp.severity === 'warn' || sp.severity === 'critical') ? sp.severity : null;
 
   const supabase = await createClient();
@@ -97,6 +98,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <FilterPill href="/app/notifications" active={!kindFilter && !sevFilter} label="All sources" />
         <FilterPill href="/app/notifications?kind=bill_due" active={kindFilter === 'bill_due'} label="Bill dues" />
         <FilterPill href="/app/notifications?kind=costing_approval" active={kindFilter === 'costing_approval'} label="Costing approvals" />
+        <FilterPill href="/app/notifications?kind=reminder" active={kindFilter === 'reminder'} label="Reminders" />
       </div>
 
       {items.length === 0 ? (

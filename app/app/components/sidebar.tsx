@@ -10,7 +10,7 @@ import {
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck, UserCog,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
-  ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins,
+  ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins, AlarmClock,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -121,6 +121,8 @@ const NAV: NavItem[] = [
   // calibration page header for context.
   { href: '/app/settings/looms-calibration/history', label: 'LOOMS History', icon: BookCheck,       group: 'insights',   roles: ['owner','auditor'] },
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
+  // Owner-only, matching the reminder table's RLS (current_user_role() = 'owner').
+  { href: '/app/reminders',     label: 'Reminders',          icon: AlarmClock,      group: 'insights',   roles: ['owner'] },
 
   // Admin
   { href: '/app/parties',       label: 'Parties',            icon: Users,           group: 'admin',      roles: ['owner','sales_manager','mill_manager','accounts','auditor'] },
