@@ -13,8 +13,8 @@ import { AlarmClock, AlertTriangle, ArrowRight, Repeat } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { formatDate } from '@/lib/utils';
 import {
-  REPEAT_LABEL, formatWeekdays, fetchCategoryLabelMap,
-  type ReminderCategory,
+  formatRepeatLabel, fetchCategoryLabelMap,
+  type ReminderCategory, type ReminderRepeat,
 } from '@/lib/reminders/constants';
 import { MarkDoneButton } from '@/app/components/reminders/mark-done-button';
 import { DeleteReminderButton } from '@/app/components/reminders/delete-reminder-button';
@@ -27,8 +27,9 @@ interface ReminderRow {
   title: string;
   category: ReminderCategory;
   due_date: string;
-  repeat: 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly';
+  repeat: ReminderRepeat;
   repeat_weekdays: number[] | null;
+  repeat_monthdays: number[] | null;
 }
 
 export async function RemindersWidget(): Promise<React.ReactElement> {
@@ -43,7 +44,7 @@ export async function RemindersWidget(): Promise<React.ReactElement> {
   const [{ data, error }, categoryLabels] = await Promise.all([
     sb
       .from('reminder')
-      .select('id, title, category, due_date, repeat, repeat_weekdays')
+      .select('id, title, category, due_date, repeat, repeat_weekdays, repeat_monthdays')
       .eq('status', 'active')
       .lte('due_date', windowEnd)
       .order('due_date', { ascending: true })
@@ -107,9 +108,7 @@ function ReminderRowItem({ r, todayIso, categoryLabel }: { r: ReminderRow; today
       ? 'border-amber-200 bg-amber-50/60'
       : 'border-line/60 bg-cloud/10';
 
-  const repeatLabel = r.repeat === 'twice_weekly'
-    ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
-    : REPEAT_LABEL[r.repeat];
+  const repeatLabel = formatRepeatLabel(r.repeat, r.repeat_weekdays, r.repeat_monthdays);
 
   return (
     <div className={`flex items-start justify-between gap-2 rounded-lg border p-2.5 ${tone}`}>

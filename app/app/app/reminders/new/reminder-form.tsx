@@ -6,20 +6,21 @@
  * Categories are owner-managed (migration 246) and passed in as a prop
  * fetched server-side by ./page.tsx, rather than imported as a fixed list.
  *
- * 'twice_weekly' repeat requires picking exactly 2 weekdays — the picker
- * only appears once that repeat is selected, and submit is blocked until
- * exactly 2 are checked.
+ * 'twice_weekly' repeat requires picking exactly 2 weekdays, and
+ * 'twice_monthly' requires picking exactly 2 days of month (1-31, full
+ * custom selection) — each picker only appears once its repeat is
+ * selected, and submit is blocked until exactly 2 are checked.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import {
-  REPEAT_LABEL, WEEKDAY_OPTIONS,
+  REPEAT_LABEL, WEEKDAY_OPTIONS, MONTHDAY_OPTIONS,
   type ReminderCategory, type ReminderRepeat, type ReminderCategoryRow,
 } from '@/lib/reminders/constants';
 
-const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'twice_weekly', 'monthly'];
+const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'twice_weekly', 'monthly', 'twice_monthly'];
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -37,12 +38,13 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
   const [dueDate, setDueDate] = useState<string>(todayISO());
   const [repeat, setRepeat] = useState<ReminderRepeat>('none');
   const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [monthdays, setMonthdays] = useState<number[]>([]);
 
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  function toggleWeekday(value: number): void {
-    setWeekdays((prev) => {
+  function toggleFromPair(value: number, setter: React.Dispatch<React.SetStateAction<number[]>>): void {
+    setter((prev) => {
       if (prev.includes(value)) return prev.filter((d) => d !== value);
       if (prev.length >= 2) return prev; // only 2 allowed
       return [...prev, value];
@@ -61,6 +63,10 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
       setError('Pick exactly 2 weekdays for a twice-a-week reminder.');
       return;
     }
+    if (repeat === 'twice_monthly' && monthdays.length !== 2) {
+      setError('Pick exactly 2 days of the month for a twice-a-month reminder.');
+      return;
+    }
 
     setBusy(true);
     const {
@@ -75,6 +81,7 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
       due_date: dueDate,
       repeat,
       repeat_weekdays: repeat === 'twice_weekly' ? [...weekdays].sort((a, b) => a - b) : null,
+      repeat_monthdays: repeat === 'twice_monthly' ? [...monthdays].sort((a, b) => a - b) : null,
       status: 'active',
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
@@ -141,6 +148,7 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
           onChange={(e) => {
             setRepeat(e.target.value as ReminderRepeat);
             setWeekdays([]);
+            setMonthdays([]);
           }}
         >
           {REPEATS.map((r) => (
@@ -163,7 +171,7 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
                 <button
                   key={w.value}
                   type="button"
-                  onClick={() => toggleWeekday(w.value)}
+                  onClick={() => toggleFromPair(w.value, setWeekdays)}
                   className={
                     'px-2.5 py-1 rounded-md border text-xs font-semibold transition ' +
                     (checked
@@ -178,6 +186,35 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
           </div>
           <p className="text-[11px] text-ink-mute mt-1">
             {weekdays.length}/2 selected
+          </p>
+        </div>
+      )}
+
+      {repeat === 'twice_monthly' && (
+        <div>
+          <label className="label">Pick 2 days of the month</label>
+          <div className="flex flex-wrap gap-1.5">
+            {MONTHDAY_OPTIONS.map((m) => {
+              const checked = monthdays.includes(m.value);
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => toggleFromPair(m.value, setMonthdays)}
+                  className={
+                    'px-2 py-1 rounded-md border text-xs font-semibold transition ' +
+                    (checked
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-paper text-ink-soft border-line hover:bg-cloud/60')
+                  }
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-ink-mute mt-1">
+            {monthdays.length}/2 selected. A day beyond a shorter month (e.g. 31st in April) falls on that month&apos;s last day instead.
           </p>
         </div>
       )}

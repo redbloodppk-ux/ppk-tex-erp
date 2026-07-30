@@ -1,5 +1,5 @@
 /**
- * Shared constants for the reminders feature (migrations 245, 246).
+ * Shared constants for the reminders feature (migrations 245, 246, 247).
  *
  * Categories used to be a fixed list; migration 246 moved them into the
  * reminder_category table so the owner can add/rename/delete categories
@@ -7,18 +7,24 @@
  * therefore fetched at request time via the helpers below rather than
  * a static Record. Repeat/status stay as fixed literal unions since
  * they're wired into app logic (nextDueDate, filters, form UI).
+ *
+ * Migration 247 added 'twice_monthly' — a custom pick of any 2 days of
+ * the month (1-31). A day beyond a given month's length (e.g. 31 in
+ * April) is clamped to that month's last day by nextDueDate, so every
+ * month still gets a match.
  */
 
 export type ReminderCategory = string;
-export type ReminderRepeat = 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly';
+export type ReminderRepeat = 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly' | 'twice_monthly';
 export type ReminderStatus = 'active' | 'done' | 'archived';
 
 export const REPEAT_LABEL: Record<ReminderRepeat, string> = {
-  none:         'One-time',
-  daily:        'Repeats daily',
-  weekly:       'Repeats weekly',
-  twice_weekly: 'Twice a week',
-  monthly:      'Repeats monthly',
+  none:          'One-time',
+  daily:         'Repeats daily',
+  weekly:        'Repeats weekly',
+  twice_weekly:  'Twice a week',
+  monthly:       'Repeats monthly',
+  twice_monthly: 'Twice a month',
 };
 
 /** ISO weekday numbers (1=Mon .. 7=Sun) -> short label, used by the
@@ -38,6 +44,43 @@ export function formatWeekdays(days: number[] | null | undefined): string {
   if (!days || days.length !== 2) return '';
   const sorted = [...days].sort((a, b) => a - b);
   return sorted.map((d) => WEEKDAY_LABEL[d] ?? '?').join(' & ');
+}
+
+/** Day-of-month options for the twice-monthly picker — full custom
+ *  selection, 1st through 31st, labelled with ordinal suffixes. */
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+export const MONTHDAY_OPTIONS: Array<{ value: number; label: string }> =
+  Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: ordinal(i + 1) }));
+
+/** "1st & 15th" from [1, 15] (order-independent). Returns '' if `days`
+ *  isn't a valid twice-monthly pair. */
+export function formatMonthdays(days: number[] | null | undefined): string {
+  if (!days || days.length !== 2) return '';
+  const sorted = [...days].sort((a, b) => a - b);
+  return sorted.map((d) => ordinal(d)).join(' & ');
+}
+
+/** Full repeat label for a reminder row, e.g. "Twice a week (Tue & Fri)"
+ *  or "Twice a month (1st & 15th)" — single source of truth so the
+ *  reminders page, dashboard widget, and any future call site render
+ *  twice_weekly/twice_monthly the same way. */
+export function formatRepeatLabel(
+  repeat: ReminderRepeat,
+  weekdays: number[] | null | undefined,
+  monthdays: number[] | null | undefined,
+): string {
+  if (repeat === 'twice_weekly') return `${REPEAT_LABEL[repeat]} (${formatWeekdays(weekdays)})`;
+  if (repeat === 'twice_monthly') return `${REPEAT_LABEL[repeat]} (${formatMonthdays(monthdays)})`;
+  return REPEAT_LABEL[repeat];
 }
 
 export interface ReminderCategoryRow {

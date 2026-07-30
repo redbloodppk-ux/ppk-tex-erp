@@ -17,8 +17,8 @@ import { Plus, Repeat, CheckCircle2, AlertTriangle, Settings } from 'lucide-reac
 import { MarkDoneButton } from '@/app/components/reminders/mark-done-button';
 import { DeleteReminderButton } from '@/app/components/reminders/delete-reminder-button';
 import {
-  REPEAT_LABEL, formatWeekdays, fetchAllCategories, fetchCategoryLabelMap,
-  type ReminderCategory,
+  formatRepeatLabel, fetchAllCategories, fetchCategoryLabelMap,
+  type ReminderCategory, type ReminderRepeat,
 } from '@/lib/reminders/constants';
 
 export const metadata = { title: 'Reminders' };
@@ -30,8 +30,9 @@ interface ReminderRow {
   description: string | null;
   category: ReminderCategory;
   due_date: string;
-  repeat: 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly';
+  repeat: ReminderRepeat;
   repeat_weekdays: number[] | null;
+  repeat_monthdays: number[] | null;
   status: 'active' | 'done' | 'archived';
 }
 
@@ -57,7 +58,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
 
   let query = sb
     .from('reminder')
-    .select('id, title, description, category, due_date, repeat, repeat_weekdays, status')
+    .select('id, title, description, category, due_date, repeat, repeat_weekdays, repeat_monthdays, status')
     .order('due_date', { ascending: true })
     .limit(300);
   if (statusFilter !== 'all') query = query.eq('status', statusFilter);
@@ -180,9 +181,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
                     {r.repeat !== 'none' && (
                       <span className="inline-flex items-center gap-1">
                         <Repeat className="w-3 h-3" />
-                        {r.repeat === 'twice_weekly'
-                          ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
-                          : REPEAT_LABEL[r.repeat]}
+                        {formatRepeatLabel(r.repeat, r.repeat_weekdays, r.repeat_monthdays)}
                       </span>
                     )}
                   </td>
@@ -206,9 +205,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
 }
 
 function ReminderCard({ r, todayIso, categoryLabel }: { r: ReminderRow; todayIso: string; categoryLabel: string }): React.ReactElement {
-  const repeatLabel = r.repeat === 'twice_weekly'
-    ? `${REPEAT_LABEL[r.repeat]} (${formatWeekdays(r.repeat_weekdays)})`
-    : REPEAT_LABEL[r.repeat];
+  const repeatLabel = formatRepeatLabel(r.repeat, r.repeat_weekdays, r.repeat_monthdays);
 
   return (
     <div className="card p-3">

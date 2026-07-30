@@ -1,12 +1,13 @@
 'use server';
 /**
- * Server actions for the reminders register (migrations 245, 246).
+ * Server actions for the reminders register (migrations 245, 246, 247).
  *
  * "Mark done" behaves differently depending on whether the reminder
  * repeats: a one-time reminder just flips to status='done'. A repeating
- * reminder (daily/weekly/twice_weekly/monthly) instead rolls due_date
- * forward to the next cycle and stays 'active' — so "Pay EB bill"
- * (monthly) never needs re-entering, it just reappears next month.
+ * reminder (daily/weekly/twice_weekly/monthly/twice_monthly) instead
+ * rolls due_date forward to the next cycle and stays 'active' — so
+ * "Pay EB bill" (monthly) never needs re-entering, it just reappears
+ * next month.
  *
  * Delete is a soft delete (status='archived') so a mis-added reminder can
  * be hidden without losing the audit trail, matching the rest of the app's
@@ -25,12 +26,31 @@ function isoWeekday(d: Date): number {
   return wd === 0 ? 7 : wd;
 }
 
+/** Number of days in the UTC month `d` falls in. */
+function daysInMonth(d: Date): number {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
+/** Does `d`'s day-of-month match `target`? A target beyond the month's
+ *  length (e.g. 31 in April) clamps to that month's last day, so a
+ *  reminder scheduled for the 31st still fires on April 30. */
+function matchesMonthday(d: Date, target: number): boolean {
+  return d.getUTCDate() === Math.min(target, daysInMonth(d));
+}
+
 /** Advance due_date by one repeat cycle, then keep advancing (guarded)
  *  until the result is in the future — so a reminder that's been overdue
  *  for several cycles doesn't pop right back up as overdue the instant
  *  it's marked done. For 'twice_weekly', `weekdays` holds the two ISO
- *  weekday numbers (1=Mon..7=Sun) the reminder is scheduled on. */
-function nextDueDate(dueDate: string, repeat: string, weekdays: number[] | null): string {
+ *  weekday numbers (1=Mon..7=Sun) the reminder is scheduled on. For
+ *  'twice_monthly', `monthdays` holds the two day-of-month numbers
+ *  (1-31) the reminder is scheduled on. */
+function nextDueDate(
+  dueDate: string,
+  repeat: string,
+  weekdays: number[] | null,
+  monthdays: number[] | null,
+): string {
   const todayIso = new Date().toISOString().slice(0, 10);
   let d = new Date(`${dueDate}T00:00:00Z`);
 
@@ -51,6 +71,13 @@ function nextDueDate(dueDate: string, repeat: string, weekdays: number[] | null)
       do {
         d = new Date(d.getTime() + ONE_DAY_MS);
       } while (!weekdays.includes(isoWeekday(d)));
+    } else if (repeat === 'twice_monthly' && monthdays && monthdays.length === 2) {
+      // Same catch-up pattern as twice_weekly, but matching day-of-month
+      // instead of weekday (with month-length clamping — see matchesMonthday).
+      const [firstMonthday, secondMonthday] = monthdays as [number, number];
+      do {
+        d = new Date(d.getTime() + ONE_DAY_MS);
+      } while (!matchesMonthday(d, firstMonthday) && !matchesMonthday(d, secondMonthday));
     }
   }
 
@@ -72,7 +99,7 @@ export async function markReminderDone(id: number): Promise<ActionResult> {
 
   const { data: row, error: fetchErr } = await sb
     .from('reminder')
-    .select('due_date, repeat, repeat_weekdays')
+    .select('due_date, repeat, repeat_weekdays, repeat_monthdays')
     .eq('id', id)
     .maybeSingle();
   if (fetchErr) return { ok: false, error: fetchErr.message };
@@ -88,6 +115,7 @@ export async function markReminderDone(id: number): Promise<ActionResult> {
           row.due_date as string,
           row.repeat as string,
           (row.repeat_weekdays as number[] | null) ?? null,
+          (row.repeat_monthdays as number[] | null) ?? null,
         ),
         updated_by,
       };
