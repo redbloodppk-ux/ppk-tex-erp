@@ -12,10 +12,14 @@
  * the month (1-31). A day beyond a given month's length (e.g. 31 in
  * April) is clamped to that month's last day by nextDueDate, so every
  * month still gets a match.
+ *
+ * Migration 248 added 'biweekly' — once every 2 weeks (distinct from
+ * 'twice_weekly', which fires twice within the same week). No picker
+ * needed: nextDueDate just adds 14 days each cycle.
  */
 
 export type ReminderCategory = string;
-export type ReminderRepeat = 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'monthly' | 'twice_monthly';
+export type ReminderRepeat = 'none' | 'daily' | 'weekly' | 'twice_weekly' | 'biweekly' | 'monthly' | 'twice_monthly';
 export type ReminderStatus = 'active' | 'done' | 'archived';
 
 export const REPEAT_LABEL: Record<ReminderRepeat, string> = {
@@ -23,6 +27,7 @@ export const REPEAT_LABEL: Record<ReminderRepeat, string> = {
   daily:         'Repeats daily',
   weekly:        'Repeats weekly',
   twice_weekly:  'Twice a week',
+  biweekly:      'Repeats every 2 weeks',
   monthly:       'Repeats monthly',
   twice_monthly: 'Twice a month',
 };

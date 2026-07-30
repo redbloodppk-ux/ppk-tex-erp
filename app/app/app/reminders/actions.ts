@@ -1,10 +1,10 @@
 'use server';
 /**
- * Server actions for the reminders register (migrations 245, 246, 247).
+ * Server actions for the reminders register (migrations 245, 246, 247, 248).
  *
  * "Mark done" behaves differently depending on whether the reminder
  * repeats: a one-time reminder just flips to status='done'. A repeating
- * reminder (daily/weekly/twice_weekly/monthly/twice_monthly) instead
+ * reminder (daily/weekly/biweekly/twice_weekly/monthly/twice_monthly) instead
  * rolls due_date forward to the next cycle and stays 'active' — so
  * "Pay EB bill" (monthly) never needs re-entering, it just reappears
  * next month.
@@ -59,6 +59,8 @@ function nextDueDate(
       d = new Date(d.getTime() + ONE_DAY_MS);
     } else if (repeat === 'weekly') {
       d = new Date(d.getTime() + 7 * ONE_DAY_MS);
+    } else if (repeat === 'biweekly') {
+      d = new Date(d.getTime() + 14 * ONE_DAY_MS);
     } else if (repeat === 'monthly') {
       const next = new Date(d);
       next.setUTCMonth(next.getUTCMonth() + 1);
