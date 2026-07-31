@@ -141,6 +141,11 @@ interface WarpBeamGroup {
    *  or the historical backfill assigned them the same number). Null
    *  only in the same defensive edge case as WarpBeamRow.batch_no. */
   batchNo: number | null;
+  /** total_ends, if every beam in the group agrees on one value
+   *  (including all-null). `undefined` means the beams disagree — the
+   *  group summary row shows "Mixed" in that case instead of picking
+   *  one beam's number arbitrarily. */
+  commonEnds: number | null | undefined;
 }
 type WarpBeamItem =
   | { kind: 'single'; row: WarpBeamRow }
@@ -177,6 +182,7 @@ function groupWarpBeamRows(list: WarpBeamRow[]): WarpBeamItem[] {
     }
     if (emitted.has(key)) continue;
     emitted.add(key);
+    const distinctEnds = new Set(bucket.map((x) => x.total_ends));
     items.push({
       kind: 'group',
       group: {
@@ -185,6 +191,7 @@ function groupWarpBeamRows(list: WarpBeamRow[]): WarpBeamItem[] {
         totalBeams: bucket.length,
         totalMetres: bucket.reduce((s, x) => s + Number((x.original_metres ?? x.total_metres) ?? 0), 0),
         batchNo: bucket[0]?.batch_no ?? null,
+        commonEnds: distinctEnds.size === 1 ? (bucket[0]?.total_ends ?? null) : undefined,
       },
     });
   }
@@ -1727,6 +1734,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   // Row being edited via the Add form (Edit reopens the form pre-filled
   // instead of inline row inputs). null = the form is in "add new" mode.
   const [editingId, setEditingId] = useState<number | null>(null);
+  // Ids of every row in a batch when editing a whole group at once (see
+  // startEditBatch) — mutually exclusive with editingId. Only the fields
+  // that define the group's key (date/party/quality/warp count/sizing
+  // party/reference) are editable here, since those are guaranteed equal
+  // across every row in the group; per-beam fields (ends, metres, notes)
+  // still require expanding the group and editing that one beam.
+  const [editingGroupIds, setEditingGroupIds] = useState<number[] | null>(null);
   const [restockId, setRestockId] = useState<number | null>(null);
   // Row id currently showing the "Split into beams" popover (jobwork
   // manual entries only — pavu-linked outsource rows are excluded so
@@ -1756,6 +1770,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setBeamNoStart('');
     setBeamGenCount('1');
     setEditingId(null);
+    setEditingGroupIds(null);
   }
 
   /** Edit = reopen the Add form pre-filled with this row's values.
@@ -1777,6 +1792,35 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       reference_no: r.reference_no ?? '',
       notes: r.notes ?? '',
       supplier_party_id: r.supplier_party_id != null ? String(r.supplier_party_id) : '',
+      sizing_job_id: '',
+      sizingSetNo: '',
+    });
+    setShowAdd(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /** Edit a whole batch group at once. Pre-fills the shared fields every
+   *  row in the group already agrees on (they're literally the group's
+   *  key — see groupWarpBeamRows) and, on save, updates all of them in
+   *  one UPDATE ... WHERE id IN (...). Per-beam fields (ends, metres,
+   *  notes) are left out of this form entirely — those still vary beam
+   *  to beam, so they're edited by expanding the group and using the
+   *  regular per-row Edit. */
+  function startEditBatch(g: WarpBeamGroup): void {
+    const first = g.rows[0];
+    if (!first) return;
+    setEditingGroupIds(g.rows.map((r) => r.id));
+    setForm({
+      given_date: first.given_date,
+      jobwork_party_id: String(first.jobwork_party_id),
+      fabric_quality_id: first.fabric_quality_id != null ? String(first.fabric_quality_id) : '',
+      warp_count_id: first.warp_count_id != null ? String(first.warp_count_id) : '',
+      total_ends: '',
+      beam_count: String(g.totalBeams),
+      total_metres: '',
+      reference_no: first.reference_no ?? '',
+      notes: '',
+      supplier_party_id: first.supplier_party_id != null ? String(first.supplier_party_id) : '',
       sizing_job_id: '',
       sizingSetNo: '',
     });
@@ -2109,6 +2153,30 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   async function add() {
     setErr(null);
     if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
+
+    // Batch-edit mode — the form was reopened from a group's Edit
+    // button (startEditBatch), so UPDATE every row in that batch at
+    // once. Only the group's key fields are written — total_ends,
+    // beam_count and total_metres are per-beam and untouched here.
+    if (editingGroupIds !== null) {
+      setBusy(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const { error } = await sb.from('jobwork_warp_beam').update({
+        jobwork_party_id: Number(form.jobwork_party_id),
+        fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
+        warp_count_id: form.warp_count_id === '' ? null : Number(form.warp_count_id),
+        given_date: form.given_date,
+        reference_no: form.reference_no.trim() || null,
+        supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+      }).in('id', editingGroupIds);
+      setBusy(false);
+      if (error) { setErr(error.message); return; }
+      resetForm();
+      setShowAdd(false);
+      onChanged();
+      return;
+    }
 
     // Edit mode — the form was reopened from a row's Edit button, so
     // UPDATE that row instead of inserting new ones. Same columns the
@@ -2639,14 +2707,56 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
       {showAdd && (
       <div className="card p-4 mb-4 space-y-4">
-        <h3 className="font-display font-bold text-sm">{editingId !== null ? 'Edit warp beam given' : 'Add warp beam given'}</h3>
-        {editingId !== null && (
+        <h3 className="font-display font-bold text-sm">
+          {editingGroupIds !== null
+            ? `Edit batch (${editingGroupIds.length} beams)`
+            : editingId !== null ? 'Edit warp beam given' : 'Add warp beam given'}
+        </h3>
+        {editingGroupIds !== null && (
+          <div className="text-xs font-semibold text-indigo bg-indigo-50 border border-indigo/20 rounded-md px-3 py-2">
+            Editing every beam in this batch at once — Save applies these fields to all {editingGroupIds.length} beams. Ends and metres stay per-beam; expand the batch to edit those.
+          </div>
+        )}
+        {editingGroupIds === null && editingId !== null && (
           <div className="text-xs font-semibold text-indigo bg-indigo-50 border border-indigo/20 rounded-md px-3 py-2">
             Editing an existing entry — Save will update it, not create a new one.
           </div>
         )}
 
-        {editingId !== null ? (
+        {editingGroupIds !== null ? (
+        <>
+        {/* Batch-edit mode — only the fields that define the group's key
+            are shown, since those are the only ones guaranteed the same
+            across every beam in it. No Ends/Beams/Metres/Notes here —
+            those vary per beam and are edited by expanding the batch. */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div><label className="label text-xs">Date *</label>
+            <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
+          <div><label className="label text-xs">{partyLabel} *</label>
+            <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+              <option value="">--- pick ---</option>
+              {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            </select></div>
+          <div><label className="label text-xs">Fabric quality</label>
+            <select className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}>
+              <option value="">---</option>
+              {qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+            </select></div>
+          <div><label className="label text-xs">Warp count</label>
+            <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
+              <option value="">---</option>
+              {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
+            </select></div>
+          <div><label className="label text-xs">Sizing party</label>
+            <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
+              <option value="">---</option>
+              {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            </select></div>
+          <div className="md:col-span-2"><label className="label text-xs">Reference / DC no</label>
+            <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
+        </div>
+        </>
+        ) : editingId !== null ? (
         <>
         {/* Edit mode — flat fields covering exactly the columns the
             update writes. Warp count + Ends auto-fill from the picked
@@ -2990,8 +3100,8 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <button type="button" onClick={add} disabled={busy} className="btn-primary">
             {busy
               ? <Loader2 className="w-4 h-4 animate-spin" />
-              : editingId !== null ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {editingId !== null ? 'Update' : 'Add warp beam'}
+              : editingGroupIds !== null || editingId !== null ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {editingGroupIds !== null ? 'Update batch' : editingId !== null ? 'Update' : 'Add warp beam'}
           </button>
         </div>
       </div>
@@ -3063,11 +3173,15 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                       <div className="text-xs text-ink-soft">{fmtDate(first.given_date)}</div>
                     </div>
                   </button>
+                  <button type="button" onClick={() => startEditBatch(g)} className="text-indigo-700 shrink-0" title="Edit this whole batch">
+                    <Pencil className="w-4 h-4 inline" />
+                  </button>
                 </div>
                 <div className="mt-1 text-sm">{partyById.get(first.jobwork_party_id)?.name ?? '-'}</div>
                 <div className="text-xs text-ink-soft">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                   <div><div className="text-ink-mute">Warp count</div><div>{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+                  <div><div className="text-ink-mute">Ends</div><div className="num">{g.commonEnds === undefined ? 'Mixed' : (g.commonEnds ?? '-')}</div></div>
                   <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{g.totalBeams}</div></div>
                   <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{g.totalMetres}</div></div>
                   <div className="col-span-2"><div className="text-ink-mute">Sizing party</div><div>{first.supplier_party_id ? sizingParties.find((p) => p.id === first.supplier_party_id)?.name ?? '#' + first.supplier_party_id : '-'}</div></div>
@@ -3122,11 +3236,18 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     <td className="px-3 py-2">{partyById.get(first.jobwork_party_id)?.name ?? '-'}</td>
                     <td className="px-3 py-2">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</td>
                     <td className="px-3 py-2">{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</td>
-                    <td className="px-3 py-2 text-right num text-ink-mute">&mdash;</td>
+                    <td className="px-3 py-2 text-right num text-ink-mute">
+                      {g.commonEnds === undefined ? 'Mixed' : (g.commonEnds ?? '-')}
+                    </td>
                     <td className="px-3 py-2 text-right num font-semibold">{g.totalBeams}</td>
                     <td className="px-3 py-2 text-right num font-semibold text-indigo-700">{g.totalMetres}</td>
                     <td className="px-3 py-2 text-ink-soft">{first.supplier_party_id ? sizingParties.find((p) => p.id === first.supplier_party_id)?.name ?? '#' + first.supplier_party_id : '-'}</td>
-                    <td className="px-3 py-2 text-right text-[11px] text-ink-mute">{g.rows.length} beams</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button type="button" onClick={() => startEditBatch(g)} className="text-indigo-700 hover:text-indigo-900 mr-2" title="Edit this whole batch">
+                        <Pencil className="w-4 h-4 inline" />
+                      </button>
+                      <span className="text-[11px] text-ink-mute">{g.rows.length} beams</span>
+                    </td>
                   </tr>
                   {isOpen && g.rows.map((gr) => renderDesktopRow(gr, { indent: true }))}
                 </React.Fragment>
