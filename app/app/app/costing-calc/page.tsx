@@ -295,9 +295,9 @@ export default function CostingCalcPage() {
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                      <Row>
-                        <L>Bobbin</L>
-                        <select className="input h-8 text-sm w-56"
+                      <div className="col-span-2">
+                        <div className="text-xs text-ink-soft mb-1">Bobbin</div>
+                        <select className="input h-8 text-sm w-full"
                           value={row.bobbinId}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -310,7 +310,7 @@ export default function CostingCalcPage() {
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
                         </select>
-                      </Row>
+                      </div>
                       <Row>
                         <L>Bobbin price (Rs)</L>
                         <Num value={row.price} step={50}
