@@ -294,10 +294,10 @@ export default function CostingCalcPage() {
                         Remove
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                      <Row>
+                    <div className="space-y-2">
+                      <div>
                         <L>Bobbin</L>
-                        <select className="input h-8 text-sm w-56"
+                        <select className="input h-8 text-sm w-full mt-1"
                           value={row.bobbinId}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -310,28 +310,30 @@ export default function CostingCalcPage() {
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
                         </select>
-                      </Row>
-                      <Row>
-                        <L>Bobbin price (Rs)</L>
-                        <Num value={row.price} step={50}
-                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
-                            i === idx ? { ...rw, price: n } : rw,
-                          ))} />
-                      </Row>
-                      <Row>
-                        <L>Bobbin metres</L>
-                        <Num value={row.metres} step={50}
-                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
-                            i === idx ? { ...rw, metres: n } : rw,
-                          ))} />
-                      </Row>
-                      <Row>
-                        <L>Waste add (Rs/m)</L>
-                        <Num value={row.waste} step={0.05}
-                          set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
-                            i === idx ? { ...rw, waste: n } : rw,
-                          ))} />
-                      </Row>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                        <Row>
+                          <L>Bobbin price (Rs)</L>
+                          <Num value={row.price} step={50}
+                            set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                              i === idx ? { ...rw, price: n } : rw,
+                            ))} />
+                        </Row>
+                        <Row>
+                          <L>Bobbin metres</L>
+                          <Num value={row.metres} step={50}
+                            set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                              i === idx ? { ...rw, metres: n } : rw,
+                            ))} />
+                        </Row>
+                        <Row>
+                          <L>Waste add (Rs/m)</L>
+                          <Num value={row.waste} step={0.05}
+                            set={(n) => setBobbinRows((prev) => prev.map((rw, i) =>
+                              i === idx ? { ...rw, waste: n } : rw,
+                            ))} />
+                        </Row>
+                      </div>
                     </div>
                   </div>
                 ))}

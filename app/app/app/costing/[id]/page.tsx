@@ -744,12 +744,12 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
                         Remove
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                      <Row>
+                    <div className="space-y-2">
+                      <div>
                         <L>Bobbin</L>
                         <select
                           className={
-                            'input h-8 text-sm w-56 ' +
+                            'input h-8 text-sm w-full mt-1 ' +
                             (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
                           }
                           disabled={lockConstruction}
@@ -765,28 +765,30 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
                         </select>
-                      </Row>
-                      <Row>
-                        <L>Bobbin price (Rs)</L>
-                        <Num value={row.price} step={50} lock={lockRates}
-                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
-                            i === idx ? { ...r, price: n } : r,
-                          ))} />
-                      </Row>
-                      <Row>
-                        <L>Bobbin metres</L>
-                        <Num value={row.metres} step={50} lock={lockConstruction}
-                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
-                            i === idx ? { ...r, metres: n } : r,
-                          ))} />
-                      </Row>
-                      <Row>
-                        <L>Waste add (Rs/m)</L>
-                        <Num value={row.waste} step={0.05} lock={lockRates}
-                          set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
-                            i === idx ? { ...r, waste: n } : r,
-                          ))} />
-                      </Row>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                        <Row>
+                          <L>Bobbin price (Rs)</L>
+                          <Num value={row.price} step={50} lock={lockRates}
+                            set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                              i === idx ? { ...r, price: n } : r,
+                            ))} />
+                        </Row>
+                        <Row>
+                          <L>Bobbin metres</L>
+                          <Num value={row.metres} step={50} lock={lockConstruction}
+                            set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                              i === idx ? { ...r, metres: n } : r,
+                            ))} />
+                        </Row>
+                        <Row>
+                          <L>Waste add (Rs/m)</L>
+                          <Num value={row.waste} step={0.05} lock={lockRates}
+                            set={(n) => setBobbinRows((prev) => prev.map((r, i) =>
+                              i === idx ? { ...r, waste: n } : r,
+                            ))} />
+                        </Row>
+                      </div>
                     </div>
                   </div>
                 ))}
