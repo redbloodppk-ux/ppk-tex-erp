@@ -905,7 +905,7 @@ export function FabricPurchaseLog(): React.ReactElement {
           No fabric purchases recorded yet. Click <strong>Add Purchase</strong> to log the first one.
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>

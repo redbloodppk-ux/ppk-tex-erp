@@ -19,6 +19,7 @@ import { InstallPrompt } from './install-prompt';
 import { EnterNav } from './enter-nav';
 import { AppLock } from './app-lock';
 import { ThemeInit } from './theme-init';
+import { TableScrollSync } from './table-scroll-sync';
 
 type Role = 'owner' | 'mill_manager' | 'sales_manager' | 'accounts' | 'floor_operator' | 'auditor';
 
@@ -124,6 +125,12 @@ export function AppShell({
       {/* Global "Enter moves to the next field" handler. Renders nothing
           — just attaches a document-level keydown listener. */}
       <EnterNav />
+      {/* Keeps the horizontal scrollbar of whatever wide table is on
+          screen reachable at the bottom of the viewport, instead of
+          making the user scroll to the very bottom of a long table to
+          find it. Renders nothing on its own page/table — it just watches
+          and draws a synced proxy bar when needed. */}
+      <TableScrollSync />
     </div>
   );
 }
