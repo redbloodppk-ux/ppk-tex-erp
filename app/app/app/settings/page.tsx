@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked, ShieldAlert, Users } from 'lucide-react';
+import { ChevronRight, Settings2, Factory, Wallet, Layers, Ruler, Boxes, Store, BookOpen, BookMarked, ShieldAlert, Users, Save } from 'lucide-react';
 import { NightShiftToggle } from './night-shift-toggle';
 import { CostingDefaults } from './costing-defaults';
 import { ThemeSettings } from '@/app/components/theme-settings';
@@ -46,6 +46,7 @@ export default async function SettingsPage({
   const role = (me as { role: string } | null)?.role;
   const canEditNight = role === 'owner';
   const canEditCosting = role === 'owner';
+  const isOwner = role === 'owner';
 
   return (
     <div className="space-y-6">
@@ -412,6 +413,21 @@ export default async function SettingsPage({
           Owners can add new users, change roles and archive accounts via the <Link href="/app/settings/users" className="text-indigo-700 underline font-semibold">Manage</Link> page.
         </p>
       </div>
+
+      {isOwner && (
+        <div className="card p-5">
+          <div className="flex items-start justify-between mb-3">
+            <h2 className="font-display font-bold text-base">Backup &amp; Restore</h2>
+            <Link href="/app/settings/backup-restore" className="btn-secondary text-xs">
+              <Save className="w-3.5 h-3.5" /> Open
+            </Link>
+          </div>
+          <p className="text-xs text-ink-soft">
+            Download a full copy of your ERP data any time, and restore from one if something goes seriously
+            wrong. Owner-only.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
