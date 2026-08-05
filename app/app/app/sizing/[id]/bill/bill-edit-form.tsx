@@ -17,6 +17,8 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, RotateCcw } from 'lucide-react';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 
 export interface BillEditSeed {
   id: number;
@@ -28,6 +30,7 @@ export interface BillEditSeed {
   sizing_rate_per_kg: number;
   gst_pct: number;
   round_off?: number;
+  party_id: number | null;
 }
 
 interface Props {
@@ -53,6 +56,10 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
 
   const [busy,  setBusy]  = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Advance the sizing mill may already have on file — offered for
+  // allocation against this bill so nobody has to remember it exists.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
 
   // Charges = Yarn Used (kg) × Rate (rounded to whole rupee). The base total
   // keeps 2 decimals; Round Off (auto = nearest rupee, editable) is added on
@@ -95,6 +102,19 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
       setError(updErr.message);
       return;
     }
+
+    // Apply any advance we'd already paid this sizing mill, if opted in.
+    if (advanceAllocations.length > 0) {
+      const { error: advErr } = await applyAdvanceAllocations(
+        sb, 'payment_sizing_allocation', 'sizing_job_id', seed.id, advanceAllocations,
+      );
+      if (advErr) {
+        setBusy(false);
+        setError(`Bill saved, but applying the advance failed: ${advErr}`);
+        return;
+      }
+    }
+
     router.push('/app/sizing?tab=bills');
     router.refresh();
   }
@@ -200,6 +220,15 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
           Charges = Yarn Used (kg) × Rate. Grand Total = Charges + GST + Round Off (auto-set to the nearest rupee, editable).
         </p>
       </div>
+
+      {seed.party_id != null && (
+        <AdvanceAllocationBox
+          partyId={seed.party_id}
+          billAmount={grandTotal}
+          onAllocationsChange={setAdvanceAllocations}
+          direction="out"
+        />
+      )}
 
       <div className="card p-3 text-xs text-ink-mute bg-amber-50/40 border-amber-200">
         Bills can&rsquo;t be deleted on their own. To remove this bill, delete the

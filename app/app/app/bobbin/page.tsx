@@ -30,6 +30,8 @@ import { InhouseStockTabs } from '@/app/components/inhouse-stock-tabs';
 import { Loader2, Plus, CheckCircle2, Trash2, X, Save, Pencil, Check, ArrowLeft, RotateCcw } from 'lucide-react';
 import React from 'react';
 import { CardFilter } from '@/app/components/card-filter';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -193,6 +195,12 @@ export default function BobbinPurchasePage() {
   // but stays editable. Stored on the first line of the invoice.
   const [roundOffTouched, setRoundOffTouched] = useState<boolean>(false);
 
+  // Advance we may have already paid this supplier — offered for allocation
+  // against this new purchase invoice. Only meaningful on brand-new
+  // invoices (not row edits or invoice edits), applied to the first line's
+  // bobbin_purchase row, same row round-off already rides on.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -303,6 +311,7 @@ export default function BobbinPurchasePage() {
     setRoundOffTouched(false);
     setEditInvoiceIds(null);
     setEditingId(null);
+    setAdvanceAllocations([]);
   }
 
   /** Click on an invoice number in the log → reopen the big purchase
@@ -458,9 +467,26 @@ export default function BobbinPurchasePage() {
       const payloads = validItems.map(toPayload);
       const firstPayload = payloads[0];
       if (firstPayload) firstPayload.round_off = effectiveRoundOff;
-      const { error: err } = await sb.from('bobbin_purchase').insert(payloads);
+      const { data: insertedRows, error: err } = await sb.from('bobbin_purchase').insert(payloads).select('id');
+      if (err) { setBusy(false); setError(err.message); return; }
+
+      // Apply any advance we'd already paid this supplier — attached to
+      // the first line's row, same one round-off rides on.
+      if (advanceAllocations.length > 0) {
+        const firstRow = (insertedRows as Array<{ id: number }> | null)?.[0];
+        if (firstRow) {
+          const { error: advErr } = await applyAdvanceAllocations(
+            sb, 'payment_bobbin_allocation', 'bobbin_purchase_id', firstRow.id, advanceAllocations,
+          );
+          if (advErr) {
+            setBusy(false);
+            setError(`Purchase saved, but applying the advance failed: ${advErr}`);
+            return;
+          }
+        }
+      }
+
       setBusy(false);
-      if (err) { setError(err.message); return; }
       setSavedMsg(`Saved ${payloads.length} purchase line${payloads.length === 1 ? '' : 's'}.`);
     } else {
       // Invoice edit — update the lines that were loaded in, insert any
@@ -864,6 +890,15 @@ export default function BobbinPurchasePage() {
               </tfoot>
             </table>
           </div>
+
+          {editingId === null && editInvoiceIds === null && form.supplier_party_id !== '' && (
+            <AdvanceAllocationBox
+              partyId={form.supplier_party_id}
+              billAmount={invoiceGrandTotal}
+              onAllocationsChange={setAdvanceAllocations}
+              direction="out"
+            />
+          )}
 
           {/* Invoice round-off — snaps the payable total (Σ pcs × price)
               to a whole rupee. Auto by default, editable. */}

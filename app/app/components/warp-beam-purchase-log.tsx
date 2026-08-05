@@ -16,6 +16,8 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect } from '@/app/components/search-select';
 import { CardFilter } from '@/app/components/card-filter';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
 
 interface BeamRow {
@@ -115,6 +117,9 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form,      setForm]      = useState<FormState>(EMPTY);
   const [busy,      setBusy]      = useState(false);
+  // Advance we may have already paid this supplier — offered for allocation
+  // against this new purchase. Only meaningful when creating a new row.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -228,6 +233,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
   function openNewForm(): void {
     setEditingId(null);
     setForm({ ...EMPTY, purchase_date: todayISO() });
+    setAdvanceAllocations([]);
     setFormOpen(true);
     setSavedMsg(null);
     setError(null);
@@ -268,6 +274,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     setFormOpen(false);
     setEditingId(null);
     setForm(EMPTY);
+    setAdvanceAllocations([]);
   }
 
   async function handleSave(): Promise<void> {
@@ -305,11 +312,30 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     };
 
     setBusy(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
     if (editingId === null) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any).from('inhouse_warp_beam_purchase').insert(payload);
+      const { data: inserted, error: err } = await sb
+        .from('inhouse_warp_beam_purchase')
+        .insert(payload)
+        .select('id')
+        .single();
+      if (err) { setBusy(false); setError(err.message); return; }
+
+      // Apply any advance we'd already paid this supplier, if opted in.
+      if (advanceAllocations.length > 0) {
+        const { error: advErr } = await applyAdvanceAllocations(
+          sb, 'payment_warp_beam_allocation', 'warp_beam_purchase_id', inserted.id as number, advanceAllocations,
+        );
+        if (advErr) {
+          setBusy(false);
+          setError(`Purchase saved, but applying the advance failed: ${advErr}`);
+          await load();
+          return;
+        }
+      }
+
       setBusy(false);
-      if (err) { setError(err.message); return; }
       setSavedMsg('Added warp beam purchase.');
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -476,6 +502,15 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
+
+          {editingId === null && form.supplier_party_id !== '' && (
+            <AdvanceAllocationBox
+              partyId={form.supplier_party_id}
+              billAmount={totalPreview}
+              onAllocationsChange={setAdvanceAllocations}
+              direction="out"
+            />
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn-ghost" onClick={closeForm} disabled={busy}>Cancel</button>

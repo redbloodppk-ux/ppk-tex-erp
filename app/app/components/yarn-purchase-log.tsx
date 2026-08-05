@@ -24,6 +24,8 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 
 type YarnKind = 'yarn' | 'porvai';
 type Delivery = 'in_house' | 'sizing';
@@ -161,6 +163,10 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   // Round Off: auto-fills to the nearest rupee but stays editable.
   const [roundOffTouched, setRoundOffTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Advance we may have already paid this supplier — offered for allocation
+  // against this new purchase, applied to the new yarn_lot row. Only
+  // meaningful when creating a new lot, not editing an existing one.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -309,6 +315,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
     setFormOpen(false);
     setEditingId(null);
     setForm(EMPTY);
+    setAdvanceAllocations([]);
   }
 
   async function handleSave() {
@@ -411,6 +418,19 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
         amount:          commAmt,
       });
       if (insErr) { setBusy(false); setError(insErr.message); return; }
+    }
+
+    // Apply any advance we'd already paid this supplier, if opted in.
+    // Only offered on brand-new purchases, not when editing an existing lot.
+    if (editingId === null && advanceAllocations.length > 0) {
+      const { error: advErr } = await applyAdvanceAllocations(
+        sb, 'payment_yarn_allocation', 'yarn_lot_id', lotId, advanceAllocations,
+      );
+      if (advErr) {
+        setBusy(false);
+        setError(`Purchase saved, but applying the advance failed: ${advErr}`);
+        return;
+      }
     }
 
     setBusy(false);
@@ -596,6 +616,15 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 onChange={(e) => setForm((f) => ({ ...f, invoice_no: e.target.value }))} />
             </div>
           </div>
+
+          {editingId === null && form.supplier_party_id !== '' && (
+            <AdvanceAllocationBox
+              partyId={form.supplier_party_id}
+              billAmount={grandTotal}
+              onAllocationsChange={setAdvanceAllocations}
+              direction="out"
+            />
+          )}
 
           {/* ───── Agent commission (optional · payable to the agent) ───── */}
           <div className="rounded-lg border border-line/60 bg-haze/40 p-3 space-y-2">

@@ -24,6 +24,8 @@ import { createClient } from '@/lib/supabase/client';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { useColumnHistory } from '@/app/components/use-column-history';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Save, AlertTriangle } from 'lucide-react';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -193,6 +195,9 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
   const [shipTo, setShipTo]     = useState<ShipToValue>(EMPTY_SHIP_TO);
   const [busy, setBusy]         = useState<boolean>(false);
   const [error, setError]       = useState<string | null>(null);
+  // Advance the party may already have on file — offered for allocation
+  // against this bill so nobody has to remember it exists.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
   /** Preview of the bill code the trigger will generate on save
    *  (e.g. "JB/26-27/0004"). Read from doc_sequence on mount. */
   const [nextInvoiceCode, setNextInvoiceCode] = useState<string>('');
@@ -684,6 +689,18 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       return;
     }
 
+    // ── 4. Apply any advance the party had on file, if the operator opted in ──
+    if (advanceAllocations.length > 0) {
+      const { error: advErr } = await applyAdvanceAllocations(
+        sb, 'payment_allocation', 'invoice_id', invoiceId, advanceAllocations,
+      );
+      if (advErr) {
+        setBusy(false);
+        setError(`Invoice ${invRow.invoice_no} saved, but applying the advance failed: ${advErr}`);
+        return;
+      }
+    }
+
     setBusy(false);
     router.push(`/app/invoices?type=${docType}`);
     router.refresh();
@@ -943,6 +960,14 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
             </div>
           </div>
         </div>
+      )}
+
+      {party && (
+        <AdvanceAllocationBox
+          partyId={party.id}
+          billAmount={totals.grand}
+          onAllocationsChange={setAdvanceAllocations}
+        />
       )}
 
       <div className="card p-4">
