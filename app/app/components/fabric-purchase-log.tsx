@@ -22,6 +22,8 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '@/app/components/unpaid-bills-picker';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 
 type RateUnit = 'm' | 'pcs';
@@ -174,6 +176,10 @@ export function FabricPurchaseLog(): React.ReactElement {
   const [roundOffTouched, setRoundOffTouched] = useState(false);
   // Customer-mode allocation state — emitted from UnpaidBillsPicker.
   const [customerAllocs, setCustomerAllocs] = useState<BillAllocation[]>([]);
+  // Advance we may have already paid this supplier — offered for allocation
+  // against this new purchase. Only meaningful in supplier mode, on a
+  // brand-new purchase (not edits, not customer-adjustment rows).
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,6 +301,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     setForm({ ...EMPTY, received_date: todayISO() });
     setRoundOffTouched(false);
     setCustomerAllocs([]);
+    setAdvanceAllocations([]);
     setFormOpen(true);
     setSavedMsg(null);
     setError(null);
@@ -349,6 +356,7 @@ export function FabricPurchaseLog(): React.ReactElement {
     setEditingId(null);
     setForm(EMPTY);
     setCustomerAllocs([]);
+    setAdvanceAllocations([]);
   }
 
   /** Picker options depend on the source mode. */
@@ -553,6 +561,20 @@ export function FabricPurchaseLog(): React.ReactElement {
         // Supplier purchase: record the optional agent commission.
         const commErr = await upsertCommission(inserted.id as number);
         if (commErr) { setBusy(false); setError(`Purchase saved, but the commission failed: ${commErr}`); await load(); return; }
+
+        // Apply any advance we'd already paid this supplier, if opted in.
+        if (advanceAllocations.length > 0) {
+          const { error: advErr } = await applyAdvanceAllocations(
+            sb, 'payment_fabric_allocation', 'fabric_purchase_id', inserted.id as number, advanceAllocations,
+          );
+          if (advErr) {
+            setBusy(false);
+            setError(`Purchase saved, but applying the advance failed: ${advErr}`);
+            await load();
+            return;
+          }
+        }
+
         setSavedMsg('Added purchase.');
       }
       setBusy(false);
@@ -870,6 +892,15 @@ export function FabricPurchaseLog(): React.ReactElement {
                 </p>
               )}
             </div>
+          )}
+
+          {editingId === null && form.source === 'supplier' && pickedPartyId !== null && (
+            <AdvanceAllocationBox
+              partyId={pickedPartyId}
+              billAmount={grandTotal}
+              onAllocationsChange={setAdvanceAllocations}
+              direction="out"
+            />
           )}
 
           {/* Customer-adjustment: pick which unpaid bills this fabric

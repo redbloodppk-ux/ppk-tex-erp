@@ -34,7 +34,7 @@ export default async function EditSizingBillPage({ params }: PageProps) {
     .from('sizing_job')
     .select(`
       id, job_code, yarn_used_kg, bill_no, bill_date,
-      sizing_rate_per_kg, gst_pct, round_off,
+      sizing_rate_per_kg, gst_pct, round_off, party_id,
       sizing_vendor:sizing_ledger_id ( name )
     `)
     .eq('id', id)
@@ -52,6 +52,7 @@ export default async function EditSizingBillPage({ params }: PageProps) {
     sizing_rate_per_kg: Number(data.sizing_rate_per_kg ?? 0),
     gst_pct:            Number(data.gst_pct ?? 0),
     round_off:          Number(data.round_off ?? 0),
+    party_id:           data.party_id ?? null,
   };
 
   return (

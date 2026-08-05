@@ -21,6 +21,8 @@ import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/
 import { useColumnHistory } from '@/app/components/use-column-history';
 import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation, type SelectedBill } from '@/app/components/unpaid-bills-picker';
 import { HsnDatalist } from '@/app/components/hsn-datalist';
+import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
+import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -226,6 +228,12 @@ export default function NewInvoicePage() {
   // this, the picker queries against a stale id and returns
   // nothing even when unpaid invoices exist.
   const [partyByName, setPartyByName] = useState<Map<string, number>>(new Map());
+
+  // Advance the customer may already have on file — offered for allocation
+  // against this bill so nobody has to remember it exists. Only meaningful
+  // for customer-facing bills (tax_invoice/yarn_sale/general_sale); debit
+  // notes are vendor-side and credit notes are returns, not new bills.
+  const [advanceAllocations, setAdvanceAllocations] = useState<Array<{ paymentId: number; amount: number }>>([]);
 
   // ── source masters ─────────────────────────────────────────────────────────
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
@@ -1641,6 +1649,19 @@ export default function NewInvoicePage() {
       }
     }
 
+    // Apply any advance the customer had on file, if the operator opted in.
+    // Only for customer bills — not debit notes (vendor-side) or credit
+    // notes (a return, not a new charge).
+    if (advanceAllocations.length > 0 && docType !== 'debit_note' && docType !== 'credit_note') {
+      const { error: advErr } = await applyAdvanceAllocations(
+        supabase, 'payment_allocation', 'invoice_id', inv.id, advanceAllocations,
+      );
+      if (advErr) {
+        setBusy(false);
+        return setError(`Invoice ${inv.invoice_no} saved, but applying the advance failed: ${advErr}`);
+      }
+    }
+
     router.push('/app/invoices');
     router.refresh();
   }
@@ -1769,6 +1790,16 @@ export default function NewInvoicePage() {
                 Credit notes inherit Ship-To (and Bill-To) from the
                 original invoice and can't override either, so the
                 picker is hidden in that mode. */}
+            {docType !== 'credit_note' && docType !== 'debit_note' && customerPartyId != null && (
+              <div className="border-t border-line/40 pt-4">
+                <AdvanceAllocationBox
+                  partyId={customerPartyId}
+                  billAmount={totals.total}
+                  onAllocationsChange={setAdvanceAllocations}
+                />
+              </div>
+            )}
+
             {docType !== 'credit_note' && (
               <div className="border-t border-line/40 pt-4">
                 <ShipToPicker value={shipTo} onChange={setShipTo} />
