@@ -172,6 +172,13 @@ function round2(n: number): number {
 
 const PPKTEX_STATE_CODE = '33'; // Tamil Nadu
 
+// Job work / weaving is a service (manufacturing on physical inputs owned
+// by others), not a sale of goods — so its bill lines always carry the SAC
+// code 9988 under GST, regardless of whatever HSN code is set on the
+// fabric quality or DC item (those HSNs are for the fabric itself, used on
+// goods-sale invoices, and don't apply here).
+const JOBWORK_SAC = '9988';
+
 // ────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────
@@ -493,7 +500,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           fq_id: fq.id,
           fq_code: display.code,
           fq_name: display.name,
-          hsn: it.hsn ?? fq.hsn ?? '',
+          hsn: JOBWORK_SAC,
           base_rate: baseRate,
           towel_length: towelLength,
           rate: effectiveRate,
