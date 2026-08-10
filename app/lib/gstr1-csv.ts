@@ -59,6 +59,22 @@ function isInterState(itms: { itm_det: { iamt: number } }[]): boolean {
   return (itms[0]?.itm_det.iamt ?? 0) > 0;
 }
 
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Convert the portal-JSON date format ('DD-MM-YYYY', e.g. '05-07-2026') to the
+ * Returns Offline Tool's CSV/Excel import date format ('DD-Mon-YYYY', e.g.
+ * '05-Jul-2026'). The offline tool rejects the whole file ("Data Invalid")
+ * if dates aren't in this format — it doesn't accept numeric months.
+ */
+function csvDate(d: string): string {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(d);
+  if (!m) return d;
+  const [, dd, mm, yyyy] = m;
+  const mon = MONTH_ABBR[Number(mm) - 1] ?? mm;
+  return `${dd}-${mon}-${yyyy}`;
+}
+
 /* ─────────────────────────── section builders ────────────────────────── */
 
 const B2B_HEADER = [
@@ -86,7 +102,7 @@ export function toB2bCsv(b2b: B2bGroup[]): string | null {
           g.ctin,
           '',
           inv.inum,
-          inv.idt,
+          csvDate(inv.idt),
           r2(inv.val),
           inv.pos,
           inv.rchrg,
@@ -121,7 +137,7 @@ export function toB2clCsv(b2cl: B2clGroup[]): string | null {
       for (const it of inv.itms) {
         rows.push([
           inv.inum,
-          inv.idt,
+          csvDate(inv.idt),
           r2(inv.val),
           g.pos,
           '',
@@ -171,7 +187,7 @@ export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
           g.ctin,
           '',
           nt.nt_num,
-          nt.nt_dt,
+          csvDate(nt.nt_dt),
           'Credit Note',
           nt.pos,
           nt.rchrg,
@@ -211,7 +227,7 @@ export function toCdnurCsv(cdnur: CdnurNote[]): string | null {
       rows.push([
         n.typ,
         n.nt_num,
-        n.nt_dt,
+        csvDate(n.nt_dt),
         'Credit Note',
         n.pos,
         r2(n.val),
