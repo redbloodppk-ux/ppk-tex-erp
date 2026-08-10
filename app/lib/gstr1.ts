@@ -56,7 +56,7 @@ export interface Gstr1Company {
 
 /* ───────────────────────── tax-rate item block ───────────────────────── */
 
-interface ItmDet {
+export interface ItmDet {
   txval: number;
   rt: number;
   iamt: number;
@@ -64,12 +64,12 @@ interface ItmDet {
   samt: number;
   csamt: number;
 }
-interface Itm {
+export interface Itm {
   num: number;
   itm_det: ItmDet;
 }
 
-interface B2bInv {
+export interface B2bInv {
   inum: string;
   idt: string;
   val: number;
@@ -78,23 +78,23 @@ interface B2bInv {
   inv_typ: 'R';
   itms: Itm[];
 }
-interface B2bGroup {
+export interface B2bGroup {
   ctin: string;
   inv: B2bInv[];
 }
 
-interface B2clInv {
+export interface B2clInv {
   inum: string;
   idt: string;
   val: number;
   itms: Itm[];
 }
-interface B2clGroup {
+export interface B2clGroup {
   pos: string;
   inv: B2clInv[];
 }
 
-interface B2csEntry {
+export interface B2csEntry {
   sply_ty: 'INTRA' | 'INTER';
   pos: string;
   typ: 'OE';
@@ -106,7 +106,7 @@ interface B2csEntry {
   csamt: number;
 }
 
-interface Note {
+export interface Note {
   ntty: 'C';
   nt_num: string;
   nt_dt: string;
@@ -116,11 +116,11 @@ interface Note {
   inv_typ: 'R';
   itms: Itm[];
 }
-interface CdnrGroup {
+export interface CdnrGroup {
   ctin: string;
   nt: Note[];
 }
-interface CdnurNote {
+export interface CdnurNote {
   typ: 'B2CL' | 'B2CS';
   ntty: 'C';
   nt_num: string;
@@ -130,7 +130,7 @@ interface CdnurNote {
   itms: Itm[];
 }
 
-interface HsnRow {
+export interface HsnRow {
   num: number;
   hsn_sc: string;
   desc: string;
@@ -143,7 +143,7 @@ interface HsnRow {
   samt: number;
   csamt: number;
 }
-interface DocRange {
+export interface DocRange {
   num: number;
   from: string;
   to: string;
@@ -151,7 +151,7 @@ interface DocRange {
   cancel: number;
   net_issue: number;
 }
-interface DocDet {
+export interface DocDet {
   doc_num: number;
   docs: DocRange[];
 }
@@ -188,7 +188,7 @@ const INVOICE_DOC_TYPES = new Set([
 ]);
 
 /** State name → 2-digit GST state code (all states + UTs). */
-const STATE_CODE_BY_NAME: Record<string, string> = {
+export const STATE_CODE_BY_NAME: Record<string, string> = {
   'JAMMU AND KASHMIR': '01',
   'HIMACHAL PRADESH': '02',
   'PUNJAB': '03',

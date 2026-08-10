@@ -1,9 +1,10 @@
 /**
  * GSTR-1 Export
  *
- * Pick a return period (month) and download a JSON file in the GST portal's
- * GSTR-1 upload format. Builds the return from billed invoices + credit
- * notes (draft / cancelled excluded) for the chosen month.
+ * Pick a return period (month) and download a ZIP of per-section CSV files
+ * in the GST portal's Returns Offline Tool import format. Builds the return
+ * from billed invoices + credit notes (draft / cancelled excluded) for the
+ * chosen month.
  *
  * Query string:  ?period=YYYY-MM   (defaults to the current month)
  *
@@ -16,9 +17,9 @@ import { fmtRupees } from '@/lib/format';
 import { PageHeader } from '@/app/components/page-header';
 import { buildGstr1, buildReportTables, summarise } from '@/lib/gstr1';
 import type { Gstr1Invoice, Gstr1Line } from '@/lib/gstr1';
-import { DownloadJsonButton } from './download-json-button';
+import { DownloadCsvButton } from './download-csv-button';
 import { ReportTables } from './report-tables';
-import { AlertCircle, FileJson, Info } from 'lucide-react';
+import { AlertCircle, FileSpreadsheet, Info } from 'lucide-react';
 
 export const metadata = { title: 'GSTR-1 Export' };
 export const dynamic = 'force-dynamic';
@@ -143,9 +144,9 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
       <PageHeader
         title="GSTR-1 Export"
         crumbs={[{ label: 'Reports', href: '/app/reports' }, { label: 'GSTR-1 Export' }]}
-        subtitle={`Download a GST-portal-ready JSON for ${label}. Built from billed invoices and credit notes — drafts and cancelled documents are left out.`}
+        subtitle={`Download a GST-portal-ready CSV ZIP for ${label}. Built from billed invoices and credit notes — drafts and cancelled documents are left out.`}
         actions={
-          <DownloadJsonButton data={gstr1} fp={fp} gstin={company.gstin} disabled={nothing || gstinMissing} />
+          <DownloadCsvButton data={gstr1} fp={fp} gstin={company.gstin} disabled={nothing || gstinMissing} />
         }
       />
 
@@ -189,7 +190,7 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">
           <div className="flex items-center gap-1.5 text-xs text-ink-mute">
-            <FileJson className="w-4 h-4" />
+            <FileSpreadsheet className="w-4 h-4" />
             <span>Documents</span>
           </div>
           <div className="text-lg font-semibold mt-1">{rows.length}</div>
@@ -226,8 +227,10 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
             Place-of-supply codes come from the buyer&apos;s GSTIN, falling back to the state name.
           </p>
           <p>
-            After downloading, open the GST portal&apos;s Returns Offline Tool (or GSTR-1 → Import), upload this
-            JSON, and review before filing. Always verify totals against the Sales Register.
+            After downloading, unzip the file. In the GST portal&apos;s Returns Offline Tool, go to GSTR-1/IFF →
+            Import Data Using Excel and CSV Import → One section at a time, and upload each CSV into its matching
+            section (b2b.csv → B2B, hsn.csv → HSN Summary, and so on). Review every section before filing, and
+            always verify totals against the Sales Register.
           </p>
         </div>
       </div>
