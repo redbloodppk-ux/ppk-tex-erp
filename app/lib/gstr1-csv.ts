@@ -87,6 +87,7 @@ const B2B_HEADER = [
   'Reverse Charge',
   'Applicable % of Tax Rate',
   'Invoice Type',
+  'E-Commerce GSTIN',
   'Rate',
   'Taxable Value',
   'Cess Amount',
@@ -108,6 +109,7 @@ export function toB2bCsv(b2b: B2bGroup[]): string | null {
           inv.rchrg,
           '',
           inv.inv_typ === 'R' ? 'Regular' : inv.inv_typ,
+          '',
           it.itm_det.rt,
           r2(it.itm_det.txval),
           r2(it.itm_det.csamt),
@@ -123,6 +125,7 @@ const B2CL_HEADER = [
   'Invoice date',
   'Invoice Value',
   'Place Of Supply',
+  'E-Commerce GSTIN',
   'Applicable % of Tax Rate',
   'Rate',
   'Taxable Value',
@@ -141,6 +144,7 @@ export function toB2clCsv(b2cl: B2clGroup[]): string | null {
           r2(inv.val),
           g.pos,
           '',
+          '',
           it.itm_det.rt,
           r2(it.itm_det.txval),
           r2(it.itm_det.csamt),
@@ -151,11 +155,19 @@ export function toB2clCsv(b2cl: B2clGroup[]): string | null {
   return csvText(B2CL_HEADER, rows);
 }
 
-const B2CS_HEADER = ['Type', 'Place Of Supply', 'Applicable % of Tax Rate', 'Rate', 'Taxable Value', 'Cess Amount'];
+const B2CS_HEADER = [
+  'Type',
+  'Place Of Supply',
+  'E-Commerce GSTIN',
+  'Applicable % of Tax Rate',
+  'Rate',
+  'Taxable Value',
+  'Cess Amount',
+];
 
 export function toB2csCsv(b2cs: B2csEntry[]): string | null {
   if (b2cs.length === 0) return null;
-  const rows = b2cs.map((e) => [e.typ, e.pos, '', e.rt, r2(e.txval), r2(e.csamt)]);
+  const rows = b2cs.map((e) => [e.typ, e.pos, '', '', e.rt, r2(e.txval), r2(e.csamt)]);
   return csvText(B2CS_HEADER, rows);
 }
 

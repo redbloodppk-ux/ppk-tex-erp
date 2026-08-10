@@ -45,8 +45,8 @@ describe('toB2bCsv', () => {
     const csv = toB2bCsv(b2b);
     expect(csv).toBe(
       [
-        'GSTIN/UIN of Recipient,Receiver Name,Invoice Number,Invoice date,Invoice Value,Place Of Supply,Reverse Charge,Applicable % of Tax Rate,Invoice Type,Rate,Taxable Value,Cess Amount',
-        '33AAAAA0000A1Z5,,INV-1,05-Jul-2026,1180,33,N,,Regular,18,1000,0',
+        'GSTIN/UIN of Recipient,Receiver Name,Invoice Number,Invoice date,Invoice Value,Place Of Supply,Reverse Charge,Applicable % of Tax Rate,Invoice Type,E-Commerce GSTIN,Rate,Taxable Value,Cess Amount',
+        '33AAAAA0000A1Z5,,INV-1,05-Jul-2026,1180,33,N,,Regular,,18,1000,0',
       ].join('\r\n'),
     );
   });
@@ -73,8 +73,8 @@ describe('toB2bCsv', () => {
     ];
     const rows = (toB2bCsv(b2b) ?? '').split('\r\n');
     expect(rows).toHaveLength(3);
-    expect(rows[1]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,5,1000,0');
-    expect(rows[2]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,12,500,0');
+    expect(rows[1]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,,5,1000,0');
+    expect(rows[2]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,,12,500,0');
   });
 });
 
@@ -101,8 +101,8 @@ describe('toB2clCsv', () => {
     ];
     expect(toB2clCsv(b2cl)).toBe(
       [
-        'Invoice Number,Invoice date,Invoice Value,Place Of Supply,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        'INV-3,07-Jul-2026,150000,27,,18,125000,0',
+        'Invoice Number,Invoice date,Invoice Value,Place Of Supply,E-Commerce GSTIN,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
+        'INV-3,07-Jul-2026,150000,27,,,18,125000,0',
       ].join('\r\n'),
     );
   });
@@ -119,8 +119,8 @@ describe('toB2csCsv', () => {
     ];
     expect(toB2csCsv(b2cs)).toBe(
       [
-        'Type,Place Of Supply,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        'OE,33,,5,4000,0',
+        'Type,Place Of Supply,E-Commerce GSTIN,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
+        'OE,33,,,5,4000,0',
       ].join('\r\n'),
     );
   });
