@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildReportTables } from './gstr1';
-import type { Gstr1Return } from './gstr1';
+import { buildGstr1, buildReportTables } from './gstr1';
+import type { Gstr1Company, Gstr1Invoice, Gstr1Line, Gstr1Return } from './gstr1';
 
 describe('buildReportTables', () => {
   it('builds table 4A from b2b groups with per-invoice detail', () => {
@@ -143,5 +143,95 @@ describe('buildReportTables', () => {
     expect(tables.find((t) => t.tableNo === '9B')).toBeUndefined();
     expect(tables.find((t) => t.tableNo === '12')).toBeUndefined();
     expect(tables.find((t) => t.tableNo === '13')).toBeUndefined();
+  });
+});
+
+const COMPANY: Gstr1Company = { gstin: '33CKBPP6334H1Z8', stateCode: '33' };
+
+function line(overrides: Partial<Gstr1Line> = {}): Gstr1Line {
+  return {
+    hsn_sac: '5208',
+    description: 'Cotton fabric',
+    quantity: 100,
+    uom: 'MTR',
+    gst_rate_pct: 5,
+    taxable_amount: 1000,
+    cgst_amount: 25,
+    sgst_amount: 25,
+    igst_amount: 0,
+    ...overrides,
+  };
+}
+
+function invoice(overrides: Partial<Gstr1Invoice> = {}): Gstr1Invoice {
+  return {
+    invoice_no: 'INV-1',
+    invoice_date: '2026-07-05',
+    doc_type: 'tax_invoice',
+    party_gstin: '33AAAAA0000A1Z5',
+    party_state: 'TAMIL NADU',
+    place_of_supply: 'TAMIL NADU',
+    is_interstate: false,
+    total: 1050,
+    lines: [line()],
+    ...overrides,
+  };
+}
+
+describe('buildGstr1 — jobwork billed without GST', () => {
+  it('excludes a 0%-GST jobwork invoice from B2B, HSN, and doc-issue entirely', () => {
+    const jobworkNoGst = invoice({
+      doc_type: 'jobwork_invoice',
+      invoice_no: 'JB-1',
+      lines: [line({ gst_rate_pct: 0, cgst_amount: 0, sgst_amount: 0 })],
+    });
+    const ret = buildGstr1(COMPANY, [jobworkNoGst], '072026');
+
+    expect(ret.b2b).toBeUndefined();
+    expect(ret.hsn).toBeUndefined();
+    // No document at all should be counted for the GST-free jobwork bill.
+    const docNums = (ret.doc_issue?.doc_det ?? []).flatMap((d) => d.docs.flatMap((r) => [r.from, r.to]));
+    expect(docNums).not.toContain('JB-1');
+  });
+
+  it('still includes a jobwork invoice that does charge GST', () => {
+    const jobworkWithGst = invoice({
+      doc_type: 'jobwork_invoice',
+      invoice_no: 'JWB-1',
+      lines: [line({ gst_rate_pct: 5 })],
+    });
+    const ret = buildGstr1(COMPANY, [jobworkWithGst], '072026');
+
+    expect(ret.b2b).toHaveLength(1);
+    expect(ret.b2b?.[0]?.inv[0]?.inum).toBe('JWB-1');
+    expect(ret.hsn?.data).toHaveLength(1);
+    const docNums = (ret.doc_issue?.doc_det ?? []).flatMap((d) => d.docs.flatMap((r) => [r.from, r.to]));
+    expect(docNums).toContain('JWB-1');
+  });
+
+  it('only special-cases jobwork_invoice — a 0%-GST tax_invoice is untouched', () => {
+    const zeroRateSale = invoice({
+      doc_type: 'tax_invoice',
+      invoice_no: 'INV-9',
+      lines: [line({ gst_rate_pct: 0, cgst_amount: 0, sgst_amount: 0 })],
+    });
+    const ret = buildGstr1(COMPANY, [zeroRateSale], '072026');
+
+    expect(ret.b2b).toHaveLength(1);
+    expect(ret.b2b?.[0]?.inv[0]?.inum).toBe('INV-9');
+  });
+
+  it('leaves a normal (GST-charging) invoice mix unaffected alongside an excluded jobwork bill', () => {
+    const normalSale = invoice({ invoice_no: 'INV-2' });
+    const jobworkNoGst = invoice({
+      doc_type: 'jobwork_invoice',
+      invoice_no: 'JB-2',
+      lines: [line({ gst_rate_pct: 0, cgst_amount: 0, sgst_amount: 0 })],
+    });
+    const ret = buildGstr1(COMPANY, [normalSale, jobworkNoGst], '072026');
+
+    expect(ret.b2b).toHaveLength(1);
+    expect(ret.b2b?.[0]?.inv).toHaveLength(1);
+    expect(ret.b2b?.[0]?.inv[0]?.inum).toBe('INV-2');
   });
 });

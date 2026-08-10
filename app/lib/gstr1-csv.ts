@@ -54,11 +54,6 @@ function csvText(header: string[], rows: (string | number)[][]): string {
   return [csvRow(header), ...rows.map(csvRow)].join('\r\n');
 }
 
-/** Whether a note/invoice's tax split (by its first tax-rate block) is inter-state. */
-function isInterState(itms: { itm_det: { iamt: number } }[]): boolean {
-  return (itms[0]?.itm_det.iamt ?? 0) > 0;
-}
-
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
@@ -192,7 +187,6 @@ export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
   const rows: (string | number)[][] = [];
   for (const g of cdnr) {
     for (const nt of g.nt) {
-      const supplyType = isInterState(nt.itms) ? 'Inter-State' : 'Intra-State';
       for (const it of nt.itms) {
         rows.push([
           g.ctin,
@@ -202,7 +196,7 @@ export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
           'Credit Note',
           nt.pos,
           nt.rchrg,
-          supplyType,
+          'Regular B2B',
           r2(nt.val),
           '',
           it.itm_det.rt,

@@ -131,7 +131,7 @@ describe('toCdnrCsv', () => {
     expect(toCdnrCsv([])).toBeNull();
   });
 
-  it('marks intra-state notes and builds a row per item', () => {
+  it('builds a row per item with the literal Regular B2B supply type', () => {
     const cdnr: CdnrGroup[] = [
       {
         ctin: '33AAAAA0000A1Z5',
@@ -154,12 +154,12 @@ describe('toCdnrCsv', () => {
     expect(toCdnrCsv(cdnr)).toBe(
       [
         'GSTIN/UIN of Recipient,Receiver Name,Note Number,Note Date,Note Type,Place Of Supply,Reverse Charge,Note Supply Type,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,Credit Note,33,N,Intra-State,590,,18,500,0',
+        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,Credit Note,33,N,Regular B2B,590,,18,500,0',
       ].join('\r\n'),
     );
   });
 
-  it('marks inter-state notes when igst is present', () => {
+  it('still writes Regular B2B when igst is present (no inter/intra split in this column)', () => {
     const cdnr: CdnrGroup[] = [
       {
         ctin: '27BBBBB0000B1Z1',
@@ -180,7 +180,9 @@ describe('toCdnrCsv', () => {
       },
     ];
     const rows = (toCdnrCsv(cdnr) ?? '').split('\r\n');
-    expect(rows[1]).toContain('Inter-State');
+    expect(rows[1]).toContain('Regular B2B');
+    expect(rows[1]).not.toContain('Inter-State');
+    expect(rows[1]).not.toContain('Intra-State');
   });
 });
 

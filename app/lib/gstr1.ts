@@ -276,6 +276,19 @@ function isValidGstin(g: string | null | undefined): boolean {
   return !!g && /^[0-9]{2}[A-Z0-9]{13}$/.test(g.trim().toUpperCase());
 }
 
+/**
+ * A jobwork bill raised without charging GST (every line at 0% — kept only
+ * for the business's own internal records, per the owner's filing practice).
+ * These must not appear anywhere in the GSTR-1 report: not in B2B/B2CL/B2CS,
+ * not in the HSN summary, not in Documents Issued, and not in the on-screen
+ * totals. `buildHsn()` already skipped the individual 0% lines; this drops
+ * the whole invoice upstream so every section (and the summary) stays
+ * consistent.
+ */
+function isGstFreeJobwork(inv: Gstr1Invoice): boolean {
+  return inv.doc_type === 'jobwork_invoice' && inv.lines.every((l) => num(l.gst_rate_pct) === 0);
+}
+
 /** Place-of-supply 2-digit code: buyer GSTIN prefix wins, else state name. */
 function posCode(inv: Gstr1Invoice): string {
   const g = (inv.party_gstin ?? '').trim().toUpperCase();
@@ -529,7 +542,7 @@ export function buildGstr1(
   rows: Gstr1Invoice[],
   fp: string,
 ): Gstr1Return {
-  const invoices = rows.filter((r) => INVOICE_DOC_TYPES.has(r.doc_type));
+  const invoices = rows.filter((r) => INVOICE_DOC_TYPES.has(r.doc_type) && !isGstFreeJobwork(r));
   const notes = rows.filter((r) => r.doc_type === 'credit_note');
 
   const b2bInv = invoices.filter((i) => isValidGstin(i.party_gstin));

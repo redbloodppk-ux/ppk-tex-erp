@@ -136,6 +136,13 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
 
   const gstr1 = buildGstr1({ gstin: company.gstin, stateCode: company.stateCode }, rows, fp);
   const sum = summarise(gstr1);
+  // "Documents" count should match what's actually in the filed return —
+  // not the raw fetched rows, which can include jobwork bills billed
+  // without GST (excluded from GSTR-1 entirely; see isGstFreeJobwork in lib/gstr1.ts).
+  const totalDocs = (gstr1.doc_issue?.doc_det ?? []).reduce(
+    (sum, d) => sum + d.docs.reduce((s, r) => s + r.totnum, 0),
+    0,
+  );
   const nothing = rows.length === 0;
   const gstinMissing = !/^[0-9]{2}[A-Z0-9]{13}$/.test(company.gstin.trim().toUpperCase());
 
@@ -193,7 +200,7 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
             <FileSpreadsheet className="w-4 h-4" />
             <span>Documents</span>
           </div>
-          <div className="text-lg font-semibold mt-1">{rows.length}</div>
+          <div className="text-lg font-semibold mt-1">{totalDocs}</div>
         </div>
         <div className="card p-3">
           <div className="text-xs text-ink-mute">Total taxable</div>
