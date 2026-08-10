@@ -235,3 +235,46 @@ describe('buildGstr1 — jobwork billed without GST', () => {
     expect(ret.b2b?.[0]?.inv[0]?.inum).toBe('INV-2');
   });
 });
+
+describe('buildGstr1 — Documents Issued groups by numbering series', () => {
+  it('emits one doc-range row per series instead of one merged alphabetical row', () => {
+    const invs = [
+      invoice({ invoice_no: 'INV/26-27/0054' }),
+      invoice({ invoice_no: 'INV/26-27/0055' }),
+      invoice({ invoice_no: 'INV/26-27/0056' }),
+      invoice({ invoice_no: 'INV/26-27/0057' }),
+      invoice({ invoice_no: 'YS/26-27/0003', doc_type: 'yarn_sale' }),
+      invoice({
+        invoice_no: 'JWB/26-27/0001',
+        doc_type: 'jobwork_invoice',
+        lines: [line({ gst_rate_pct: 5 })],
+      }),
+    ];
+    const ret = buildGstr1(COMPANY, invs, '072026');
+
+    const invDocDet = ret.doc_issue?.doc_det.find((d) => d.doc_num === 1);
+    expect(invDocDet?.docs).toHaveLength(3);
+
+    const bySeries = new Map(invDocDet?.docs.map((r) => [`${r.from}|${r.to}`, r.totnum]));
+    expect(bySeries.get('INV/26-27/0054|INV/26-27/0057')).toBe(4);
+    expect(bySeries.get('YS/26-27/0003|YS/26-27/0003')).toBe(1);
+    expect(bySeries.get('JWB/26-27/0001|JWB/26-27/0001')).toBe(1);
+
+    // No row should ever span two different series.
+    for (const r of invDocDet?.docs ?? []) {
+      expect(r.from.slice(0, r.from.lastIndexOf('/'))).toBe(r.to.slice(0, r.to.lastIndexOf('/')));
+    }
+  });
+
+  it('sorts numerically within a series even with mixed zero-padding', () => {
+    const invs = [
+      invoice({ invoice_no: 'RN/26-27/007' }),
+      invoice({ invoice_no: 'RN/26-27/008' }),
+    ];
+    const ret = buildGstr1(COMPANY, invs, '072026');
+    const invDocDet = ret.doc_issue?.doc_det.find((d) => d.doc_num === 1);
+    expect(invDocDet?.docs).toEqual([
+      expect.objectContaining({ from: 'RN/26-27/007', to: 'RN/26-27/008', totnum: 2 }),
+    ]);
+  });
+});

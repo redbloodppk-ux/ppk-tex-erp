@@ -2,8 +2,9 @@
  * Sales Register (CORR-R1)
  *
  * Owner / accountant view of every billed invoice (tax invoices, general
- * sales, yarn sales, credit + debit notes — excluding draft and cancelled
- * documents). Source: view `public.v_sales_register` from migration 011.
+ * sales, yarn sales, jobwork invoices, credit + debit notes — excluding
+ * draft and cancelled documents). Source: view `public.v_sales_register`
+ * from migration 011 (jobwork invoices added in migration 250).
  *
  * Filters via querystring:
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this month → today)
@@ -118,6 +119,8 @@ function docLabel(d: string | null): string {
       return 'Gen Sale';
     case 'yarn_sale':
       return 'Yarn';
+    case 'jobwork_invoice':
+      return 'Jobwork';
     case 'credit_note':
       return 'Cr Note';
     case 'debit_note':
@@ -130,6 +133,7 @@ function docLabel(d: string | null): string {
 function docTone(d: string | null): string {
   if (d === 'credit_note') return 'bg-rose-50 text-rose-700 border-rose-200';
   if (d === 'yarn_sale') return 'bg-amber-50 text-amber-700 border-amber-200';
+  if (d === 'jobwork_invoice') return 'bg-violet-50 text-violet-700 border-violet-200';
   return 'bg-sky-50 text-sky-700 border-sky-200';
 }
 

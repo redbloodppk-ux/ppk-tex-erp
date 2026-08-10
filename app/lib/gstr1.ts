@@ -503,26 +503,54 @@ function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
   }));
 }
 
-/** Serial range of a set of document numbers (sorted). */
-function docRange(docNum: number, nums: string[]): DocRange[] {
+/** Numbering-series key for a document number, e.g. 'INV/26-27/0054' -> 'INV/26-27'.
+ *  Different doc types (and even the same doc type split by GST, e.g. the
+ *  JB vs JWB jobwork series) run their own independent sequences, so the
+ *  GST portal's Documents Issued table requires a separate serial range
+ *  per series -- never one row spanning two different prefixes. */
+function docSeriesKey(docNo: string): string {
+  const i = docNo.lastIndexOf('/');
+  return i === -1 ? docNo : docNo.slice(0, i);
+}
+
+/** Last run of digits in a doc number, e.g. 'INV/26-27/0054' -> 54. Used to
+ *  sort within a series correctly even when zero-padding width differs. */
+function docSeq(docNo: string): number {
+  const m = /(\d+)(?!.*\d)/.exec(docNo);
+  return m ? Number(m[1]) : 0;
+}
+
+/** One row per numbering series (sorted by series key), each with its own
+ *  serial range + count. The GST Offline Tool rejects a single row whose
+ *  from/to span two different series (e.g. INV/... to YS/...). */
+function docRange(nums: string[]): DocRange[] {
   if (nums.length === 0) return [];
-  const sorted = [...nums].sort();
-  return [
-    {
-      num: docNum,
-      from: sorted[0] ?? '',
-      to: sorted[sorted.length - 1] ?? '',
-      totnum: sorted.length,
-      cancel: 0,
-      net_issue: sorted.length,
-    },
-  ];
+  const bySeries = new Map<string, string[]>();
+  for (const n of nums) {
+    const key = docSeriesKey(n);
+    const arr = bySeries.get(key);
+    if (arr) arr.push(n);
+    else bySeries.set(key, [n]);
+  }
+  return [...bySeries.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, group], idx) => {
+      const sorted = [...group].sort((a, b) => docSeq(a) - docSeq(b));
+      return {
+        num: idx + 1,
+        from: sorted[0] ?? '',
+        to: sorted[sorted.length - 1] ?? '',
+        totnum: sorted.length,
+        cancel: 0,
+        net_issue: sorted.length,
+      };
+    });
 }
 
 function buildDocIssue(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): DocDet[] {
   const det: DocDet[] = [];
-  const invDocs = docRange(1, invoices.map((i) => i.invoice_no)); // 1 = Invoices for outward supply
-  const cnDocs = docRange(5, notes.map((n) => n.invoice_no)); // 5 = Credit note
+  const invDocs = docRange(invoices.map((i) => i.invoice_no)); // 1 = Invoices for outward supply
+  const cnDocs = docRange(notes.map((n) => n.invoice_no)); // 5 = Credit note
   if (invDocs.length) det.push({ doc_num: 1, docs: invDocs });
   if (cnDocs.length) det.push({ doc_num: 5, docs: cnDocs });
   return det;
