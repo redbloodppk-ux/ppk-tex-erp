@@ -46,7 +46,7 @@ describe('toB2bCsv', () => {
     expect(csv).toBe(
       [
         'GSTIN/UIN of Recipient,Receiver Name,Invoice Number,Invoice date,Invoice Value,Place Of Supply,Reverse Charge,Applicable % of Tax Rate,Invoice Type,E-Commerce GSTIN,Rate,Taxable Value,Cess Amount',
-        '33AAAAA0000A1Z5,,INV-1,05-Jul-2026,1180,33,N,,Regular,,18,1000,0',
+        '33AAAAA0000A1Z5,,INV-1,05-Jul-2026,1180,33,N,,Regular B2B,,18,1000,0',
       ].join('\r\n'),
     );
   });
@@ -73,8 +73,8 @@ describe('toB2bCsv', () => {
     ];
     const rows = (toB2bCsv(b2b) ?? '').split('\r\n');
     expect(rows).toHaveLength(3);
-    expect(rows[1]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,,5,1000,0');
-    expect(rows[2]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular,,12,500,0');
+    expect(rows[1]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular B2B,,5,1000,0');
+    expect(rows[2]).toBe('33AAAAA0000A1Z5,,INV-2,06-Jul-2026,2000,33,N,,Regular B2B,,12,500,0');
   });
 });
 

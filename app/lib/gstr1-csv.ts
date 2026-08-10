@@ -108,7 +108,7 @@ export function toB2bCsv(b2b: B2bGroup[]): string | null {
           inv.pos,
           inv.rchrg,
           '',
-          inv.inv_typ === 'R' ? 'Regular' : inv.inv_typ,
+          inv.inv_typ === 'R' ? 'Regular B2B' : inv.inv_typ,
           '',
           it.itm_det.rt,
           r2(it.itm_det.txval),
