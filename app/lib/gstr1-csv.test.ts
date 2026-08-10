@@ -101,8 +101,8 @@ describe('toB2clCsv', () => {
     ];
     expect(toB2clCsv(b2cl)).toBe(
       [
-        'Invoice Number,Invoice date,Invoice Value,Place Of Supply,E-Commerce GSTIN,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        'INV-3,07-Jul-2026,150000,27,,,18,125000,0',
+        'Invoice Number,Invoice date,Invoice Value,Place Of Supply,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount,E-Commerce GSTIN',
+        'INV-3,07-Jul-2026,150000,27,,18,125000,0,',
       ].join('\r\n'),
     );
   });
@@ -119,8 +119,8 @@ describe('toB2csCsv', () => {
     ];
     expect(toB2csCsv(b2cs)).toBe(
       [
-        'Type,Place Of Supply,E-Commerce GSTIN,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        'OE,33,,,5,4000,0',
+        'Type,Place Of Supply,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount,E-Commerce GSTIN',
+        'OE,33,,5,4000,0,',
       ].join('\r\n'),
     );
   });
@@ -153,8 +153,8 @@ describe('toCdnrCsv', () => {
     ];
     expect(toCdnrCsv(cdnr)).toBe(
       [
-        'GSTIN/UIN of Recipient,Receiver Name,Note Number,Note Date,Note Type,Place Of Supply,Reverse Charge,Note Supply Type,Applicable % of Tax Rate,Note Value,Rate,Taxable Value,Cess Amount,Pre GST',
-        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,Credit Note,33,N,Intra-State,,590,18,500,0,N',
+        'GSTIN/UIN of Recipient,Receiver Name,Note Number,Note Date,Note Type,Place Of Supply,Reverse Charge,Note Supply Type,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
+        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,Credit Note,33,N,Intra-State,590,,18,500,0',
       ].join('\r\n'),
     );
   });
@@ -205,8 +205,8 @@ describe('toCdnurCsv', () => {
     ];
     expect(toCdnurCsv(cdnur)).toBe(
       [
-        'UR Type,Note Number,Note Date,Note Type,Place Of Supply,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount,Pre GST',
-        'B2CL,CN-3,10-Jul-2026,Credit Note,33,590,,18,500,0,N',
+        'UR Type,Note Number,Note Date,Note Type,Place Of Supply,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
+        'B2CL,CN-3,10-Jul-2026,Credit Note,33,590,,18,500,0',
       ].join('\r\n'),
     );
   });
@@ -274,9 +274,9 @@ describe('toDocsCsv', () => {
       { doc_num: 9, docs: [{ num: 1, from: 'X-1', to: 'X-1', totnum: 1, cancel: 0, net_issue: 1 }] },
     ];
     const rows = (toDocsCsv(docDet) ?? '').split('\r\n');
-    expect(rows[0]).toBe('Nature of Document,Sr. No. From,Sr. No. To,Total Number,Cancelled,Net Issued');
-    expect(rows[1]).toBe('Invoices for outward supply,INV-1,INV-10,10,0,10');
-    expect(rows[2]).toBe('Credit Note,CN-1,CN-2,2,1,1');
-    expect(rows[3]).toBe('Doc type 9,X-1,X-1,1,0,1');
+    expect(rows[0]).toBe('Nature of Document,Sr. No. From,Sr. No. To,Total Number,Cancelled');
+    expect(rows[1]).toBe('Invoices for outward supply,INV-1,INV-10,10,0');
+    expect(rows[2]).toBe('Credit Note,CN-1,CN-2,2,1');
+    expect(rows[3]).toBe('Doc type 9,X-1,X-1,1,0');
   });
 });

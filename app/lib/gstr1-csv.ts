@@ -125,11 +125,11 @@ const B2CL_HEADER = [
   'Invoice date',
   'Invoice Value',
   'Place Of Supply',
-  'E-Commerce GSTIN',
   'Applicable % of Tax Rate',
   'Rate',
   'Taxable Value',
   'Cess Amount',
+  'E-Commerce GSTIN',
 ];
 
 export function toB2clCsv(b2cl: B2clGroup[]): string | null {
@@ -144,10 +144,10 @@ export function toB2clCsv(b2cl: B2clGroup[]): string | null {
           r2(inv.val),
           g.pos,
           '',
-          '',
           it.itm_det.rt,
           r2(it.itm_det.txval),
           r2(it.itm_det.csamt),
+          '',
         ]);
       }
     }
@@ -158,16 +158,16 @@ export function toB2clCsv(b2cl: B2clGroup[]): string | null {
 const B2CS_HEADER = [
   'Type',
   'Place Of Supply',
-  'E-Commerce GSTIN',
   'Applicable % of Tax Rate',
   'Rate',
   'Taxable Value',
   'Cess Amount',
+  'E-Commerce GSTIN',
 ];
 
 export function toB2csCsv(b2cs: B2csEntry[]): string | null {
   if (b2cs.length === 0) return null;
-  const rows = b2cs.map((e) => [e.typ, e.pos, '', '', e.rt, r2(e.txval), r2(e.csamt)]);
+  const rows = b2cs.map((e) => [e.typ, e.pos, '', e.rt, r2(e.txval), r2(e.csamt), '']);
   return csvText(B2CS_HEADER, rows);
 }
 
@@ -180,12 +180,11 @@ const CDNR_HEADER = [
   'Place Of Supply',
   'Reverse Charge',
   'Note Supply Type',
-  'Applicable % of Tax Rate',
   'Note Value',
+  'Applicable % of Tax Rate',
   'Rate',
   'Taxable Value',
   'Cess Amount',
-  'Pre GST',
 ];
 
 export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
@@ -204,12 +203,11 @@ export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
           nt.pos,
           nt.rchrg,
           supplyType,
-          '',
           r2(nt.val),
+          '',
           it.itm_det.rt,
           r2(it.itm_det.txval),
           r2(it.itm_det.csamt),
-          'N',
         ]);
       }
     }
@@ -228,7 +226,6 @@ const CDNUR_HEADER = [
   'Rate',
   'Taxable Value',
   'Cess Amount',
-  'Pre GST',
 ];
 
 export function toCdnurCsv(cdnur: CdnurNote[]): string | null {
@@ -247,7 +244,6 @@ export function toCdnurCsv(cdnur: CdnurNote[]): string | null {
         it.itm_det.rt,
         r2(it.itm_det.txval),
         r2(it.itm_det.csamt),
-        'N',
       ]);
     }
   }
@@ -277,7 +273,7 @@ export function toHsnCsv(hsn: HsnRow[]): string | null {
   return csvText(HSN_HEADER, rows);
 }
 
-const DOCS_HEADER = ['Nature of Document', 'Sr. No. From', 'Sr. No. To', 'Total Number', 'Cancelled', 'Net Issued'];
+const DOCS_HEADER = ['Nature of Document', 'Sr. No. From', 'Sr. No. To', 'Total Number', 'Cancelled'];
 
 /** doc_num → human label, per the GSTR-1 "Documents Issued" table (1 = outward invoices, 5 = credit notes). */
 function docNatureLabel(docNum: number): string {
@@ -291,7 +287,7 @@ export function toDocsCsv(docDet: DocDet[]): string | null {
   const rows: (string | number)[][] = [];
   for (const d of docDet) {
     for (const r of d.docs) {
-      rows.push([docNatureLabel(d.doc_num), r.from, r.to, r.totnum, r.cancel, r.net_issue]);
+      rows.push([docNatureLabel(d.doc_num), r.from, r.to, r.totnum, r.cancel]);
     }
   }
   if (rows.length === 0) return null;
