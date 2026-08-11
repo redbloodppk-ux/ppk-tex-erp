@@ -12,6 +12,18 @@ interface ReportTablesProps {
   tables: ReportTable[];
 }
 
+/** Tables 4A/9B show a derived "gross value" column (taxable + all tax) alongside the
+ *  taxable/tax breakdown — this is the actual invoice/note total, which is what most
+ *  owners actually think of as "the amount on the bill". */
+const GROSS_VALUE_LABEL: Record<string, string> = {
+  '4A': 'Total Invoice Value',
+  '9B': 'Total Notes Value',
+};
+
+function grossValue(r: { taxableValue: number; igst: number; cgst: number; sgst: number }): number {
+  return r.taxableValue + r.igst + r.cgst + r.sgst;
+}
+
 export function ReportTables({ tables }: ReportTablesProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -40,6 +52,8 @@ export function ReportTables({ tables }: ReportTablesProps) {
     <div className="space-y-4">
       {tables.map((table) => {
         const canExpand = EXPANDABLE_TABLES.has(table.tableNo);
+        const grossLabel = GROSS_VALUE_LABEL[table.tableNo];
+        const showQty = table.tableNo === '12';
         return (
           <div key={table.tableNo} className="card p-0 overflow-x-auto">
             <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2 bg-cloud/40 border-b border-line/40">
@@ -50,6 +64,13 @@ export function ReportTables({ tables }: ReportTablesProps) {
                 {table.totals.count} record{table.totals.count === 1 ? '' : 's'} · Taxable{' '}
                 {fmtRupees(table.totals.taxableValue)} · IGST {fmtRupees(table.totals.igst)} · CGST{' '}
                 {fmtRupees(table.totals.cgst)} · SGST {fmtRupees(table.totals.sgst)}
+                {grossLabel && (
+                  <>
+                    {' '}
+                    · {grossLabel} {fmtRupees(grossValue(table.totals))}
+                  </>
+                )}
+                {showQty && <> · Qty {table.totals.qty.toLocaleString('en-IN')}</>}
               </div>
             </div>
             <table className="w-full text-sm">
@@ -62,6 +83,8 @@ export function ReportTables({ tables }: ReportTablesProps) {
                   <th className="text-right px-4 py-2">IGST</th>
                   <th className="text-right px-4 py-2">CGST</th>
                   <th className="text-right px-4 py-2">SGST</th>
+                  {grossLabel && <th className="text-right px-4 py-2">{grossLabel}</th>}
+                  {showQty && <th className="text-right px-4 py-2">Qty</th>}
                 </tr>
               </thead>
               <tbody>
@@ -91,11 +114,15 @@ export function ReportTables({ tables }: ReportTablesProps) {
                         <td className="px-4 py-2 text-right num">{fmtRupees(row.igst)}</td>
                         <td className="px-4 py-2 text-right num">{fmtRupees(row.cgst)}</td>
                         <td className="px-4 py-2 text-right num">{fmtRupees(row.sgst)}</td>
+                        {grossLabel && <td className="px-4 py-2 text-right num">{fmtRupees(grossValue(row))}</td>}
+                        {showQty && (
+                          <td className="px-4 py-2 text-right num">{(row.qty ?? 0).toLocaleString('en-IN')}</td>
+                        )}
                       </tr>
                       {canExpand && isOpen && (
                         <tr className="bg-cloud/20">
                           <td />
-                          <td colSpan={6} className="px-4 py-2">
+                          <td colSpan={grossLabel ? 7 : 6} className="px-4 py-2">
                             <table className="w-full text-xs">
                               <thead className="text-ink-mute">
                                 <tr>
@@ -106,6 +133,7 @@ export function ReportTables({ tables }: ReportTablesProps) {
                                   <th className="text-right py-1">IGST</th>
                                   <th className="text-right py-1">CGST</th>
                                   <th className="text-right py-1">SGST</th>
+                                  {grossLabel && <th className="text-right py-1">{grossLabel}</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -118,6 +146,9 @@ export function ReportTables({ tables }: ReportTablesProps) {
                                     <td className="py-1 text-right num">{fmtRupees(d.igst)}</td>
                                     <td className="py-1 text-right num">{fmtRupees(d.cgst)}</td>
                                     <td className="py-1 text-right num">{fmtRupees(d.sgst)}</td>
+                                    {grossLabel && (
+                                      <td className="py-1 text-right num">{fmtRupees(grossValue(d))}</td>
+                                    )}
                                   </tr>
                                 ))}
                               </tbody>

@@ -108,9 +108,11 @@ describe('buildReportTables', () => {
     const tables = buildReportTables(ret);
     const t12 = tables.find((t) => t.tableNo === '12');
     expect(t12).toBeDefined();
-    expect(t12?.rows[0]?.label).toBe('5208 — Woven fabrics of cotton');
+    expect(t12?.rows[0]?.label).toBe('5208 - Woven fabrics of cotton');
     expect(t12?.rows[0]?.detail).toHaveLength(0);
     expect(t12?.rows[0]?.taxableValue).toBeCloseTo(750900.3, 2);
+    expect(t12?.rows[0]?.qty).toBeCloseTo(21226.24, 2);
+    expect(t12?.totals.qty).toBeCloseTo(21226.24, 2);
   });
 
   it('omits a table entirely when its source section is absent', () => {
@@ -276,5 +278,42 @@ describe('buildGstr1 — Documents Issued groups by numbering series', () => {
     expect(invDocDet?.docs).toEqual([
       expect.objectContaining({ from: 'RN/26-27/007', to: 'RN/26-27/008', totnum: 2 }),
     ]);
+  });
+});
+
+describe('buildGstr1 — HSN summary description uses plain category labels', () => {
+  it('classifies towel, yarn, and other descriptions into Towels / Yarn / Fabric with no special characters', () => {
+    const towelInv = invoice({
+      invoice_no: 'INV-10',
+      lines: [line({ hsn_sac: '6302', description: 'Cotton Bath Towel, 500 GSM' })],
+    });
+    const yarnInv = invoice({
+      invoice_no: 'INV-11',
+      lines: [line({ hsn_sac: '5205', description: 'Cotton Yarn 40s' })],
+    });
+    const fabricInv = invoice({
+      invoice_no: 'INV-12',
+      lines: [line({ hsn_sac: '5208', description: 'Printed "Dobby" fabric, grey' })],
+    });
+    const ret = buildGstr1(COMPANY, [towelInv, yarnInv, fabricInv], '072026');
+
+    const byHsn = new Map(ret.hsn?.data.map((h) => [h.hsn_sc, h.desc]));
+    expect(byHsn.get('6302')).toBe('Towels');
+    expect(byHsn.get('5205')).toBe('Yarn');
+    expect(byHsn.get('5208')).toBe('Fabric');
+    for (const desc of byHsn.values()) {
+      expect(desc).not.toMatch(/[,"/]/);
+    }
+  });
+
+  it('feeds the same plain label into the on-screen table 12 row (hyphen separator, no em-dash)', () => {
+    const towelInv = invoice({
+      invoice_no: 'INV-20',
+      lines: [line({ hsn_sac: '6302', description: 'Hand Towel — Set of 2' })],
+    });
+    const ret = buildGstr1(COMPANY, [towelInv], '072026');
+    const tables = buildReportTables(ret);
+    const t12 = tables.find((t) => t.tableNo === '12');
+    expect(t12?.rows[0]?.label).toBe('6302 - Towels');
   });
 });

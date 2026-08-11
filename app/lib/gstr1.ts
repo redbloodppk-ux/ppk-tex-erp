@@ -447,6 +447,19 @@ function buildCdnur(notes: Gstr1Invoice[]): CdnurNote[] {
   }));
 }
 
+/** Classifies an HSN line into one of three plain-language product categories for
+ *  the GSTR-1 HSN summary. Raw invoice descriptions are free text typed on the
+ *  billing screen and often carry commas/quotes/slashes, which reads badly on the
+ *  report and can trip up the GST Offline Tool's import validation. This business
+ *  only ever bills towels, other woven fabric, or yarn, so a plain keyword match
+ *  is enough -- no punctuation, no truncation. */
+function hsnCategoryLabel(description: string | null): string {
+  const d = (description ?? '').toLowerCase();
+  if (d.includes('towel')) return 'Towels';
+  if (d.includes('yarn')) return 'Yarn';
+  return 'Fabric';
+}
+
 /** HSN summary across invoices (+) and credit notes (−). */
 function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
   interface Agg {
@@ -475,7 +488,7 @@ function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
       const key = `${hsn}|${uqc}|${rt}`;
       const cur =
         map.get(key) ??
-        ({ hsn, uqc, rt, desc: (l.description ?? '').trim().slice(0, 30), qty: 0, txval: 0, iamt: 0, camt: 0, samt: 0 } as Agg);
+        ({ hsn, uqc, rt, desc: hsnCategoryLabel(l.description), qty: 0, txval: 0, iamt: 0, camt: 0, samt: 0 } as Agg);
       cur.qty += sign * num(l.quantity);
       cur.txval += sign * num(l.taxable_amount);
       if (inter) cur.iamt += sign * num(l.igst_amount);
@@ -681,6 +694,8 @@ export interface ReportTableRow {
   igst: number;
   cgst: number;
   sgst: number;
+  /** Quantity, only populated for table 12 (HSN-wise Summary) — other tables mix UOMs across rows so a summed qty wouldn't mean anything. */
+  qty?: number;
   /** underlying invoice/note rows for the expand view; empty when the source data has already been consolidated (tables 7, 12, 13) */
   detail: ReportDetailRow[];
 }
@@ -689,7 +704,7 @@ export interface ReportTable {
   tableNo: string; // '4A' | '5' | '7' | '9B' | '12' | '13'
   title: string;
   rows: ReportTableRow[];
-  totals: { count: number; taxableValue: number; igst: number; cgst: number; sgst: number };
+  totals: { count: number; taxableValue: number; igst: number; cgst: number; sgst: number; qty: number };
 }
 
 function sumItms2(itms: Itm[]): { taxableValue: number; igst: number; cgst: number; sgst: number } {
@@ -724,8 +739,9 @@ function totalsOfRows(rows: ReportTableRow[]): ReportTable['totals'] {
       igst: r2(a.igst + r.igst),
       cgst: r2(a.cgst + r.cgst),
       sgst: r2(a.sgst + r.sgst),
+      qty: r2(a.qty + (r.qty ?? 0)),
     }),
-    { count: 0, taxableValue: 0, igst: 0, cgst: 0, sgst: 0 },
+    { count: 0, taxableValue: 0, igst: 0, cgst: 0, sgst: 0, qty: 0 },
   );
 }
 
@@ -819,12 +835,13 @@ function build12(hsn: HsnRow[]): ReportTable | null {
   if (hsn.length === 0) return null;
   const rows: ReportTableRow[] = hsn.map((h) => ({
     key: `${h.hsn_sc}-${h.uqc}-${h.rt}`,
-    label: `${h.hsn_sc} — ${h.desc}`,
+    label: `${h.hsn_sc} - ${h.desc}`,
     count: 1,
     taxableValue: r2(h.txval),
     igst: r2(h.iamt),
     cgst: r2(h.camt),
     sgst: r2(h.samt),
+    qty: r2(h.qty),
     detail: [],
   }));
   return { tableNo: '12', title: 'HSN-wise Summary', rows, totals: totalsOfRows(rows) };
