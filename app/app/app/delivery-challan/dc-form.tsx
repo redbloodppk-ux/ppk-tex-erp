@@ -205,6 +205,24 @@ function num(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Strips anything that isn't a digit or a single decimal point from a
+ *  numeric-input keystroke. <input type="number"> still lets some browsers
+ *  type +, -, e (scientific notation) or other letters into the box even
+ *  though they don't form a valid number — which left junk like "58+"
+ *  sitting in a piece's metres field instead of being rejected outright. */
+function sanitizeNumericInput(raw: string): string {
+  let s = raw.replace(/[^0-9.]/g, '');
+  const dot = s.indexOf('.');
+  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+  return s;
+}
+
+/** Same idea, but for whole-count fields (bundle/piece counts) that should
+ *  never contain a decimal point either. */
+function sanitizeIntegerInput(raw: string): string {
+  return raw.replace(/[^0-9]/g, '');
+}
+
 /** Sum of piece metres across one bundle. */
 function bundleMetres(b: Bundle): number {
   return b.pieces.reduce((s, p) => s + num(p), 0);
@@ -2250,7 +2268,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                         value={it.summary_metres}
                         onChange={(e) => setForm({
                           ...form,
-                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_metres: e.target.value } : x),
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_metres: sanitizeNumericInput(e.target.value) } : x),
                         })} />
                     </div>
                     <div>
@@ -2261,7 +2279,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                         value={it.summary_pieces}
                         onChange={(e) => setForm({
                           ...form,
-                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_pieces: e.target.value } : x),
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_pieces: sanitizeIntegerInput(e.target.value) } : x),
                         })} />
                     </div>
                     <div>
@@ -2272,7 +2290,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                         value={it.summary_bundles}
                         onChange={(e) => setForm({
                           ...form,
-                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_bundles: e.target.value } : x),
+                          items: form.items.map((x, i) => i === itemIdx ? { ...x, summary_bundles: sanitizeIntegerInput(e.target.value) } : x),
                         })} />
                     </div>
                   </div>
@@ -2285,7 +2303,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     <input type="number" min={0} max={200} step={1}
                       className="input h-9 text-sm num w-28 text-right"
                       value={countDrafts[draftKey(itemIdx)] ?? String(it.bundles.length)}
-                      onChange={(e) => setDraft(draftKey(itemIdx), e.target.value)}
+                      onChange={(e) => setDraft(draftKey(itemIdx), sanitizeIntegerInput(e.target.value))}
                       onBlur={(e) => commitBundleCount(itemIdx, e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                   </div>
@@ -2316,7 +2334,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                               type="number" min={1} max={200} step={1}
                               className="input h-7 text-xs num w-16 text-right"
                               value={countDrafts[draftKey(itemIdx, bundleIdx)] ?? String(b.pieces.length)}
-                              onChange={(e) => setDraft(draftKey(itemIdx, bundleIdx), e.target.value)}
+                              onChange={(e) => setDraft(draftKey(itemIdx, bundleIdx), sanitizeIntegerInput(e.target.value))}
                               onBlur={(e) => commitPieceCount(itemIdx, bundleIdx, e.target.value)}
                               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                             />
@@ -2331,7 +2349,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                                   placeholder="metres"
                                   className="input h-8 text-xs num flex-1 text-right"
                                   value={p}
-                                  onChange={(e) => setPiece(itemIdx, bundleIdx, pieceIdx, e.target.value)}
+                                  onChange={(e) => setPiece(itemIdx, bundleIdx, pieceIdx, sanitizeNumericInput(e.target.value))}
                                 />
                                 <button type="button"
                                   onClick={() => removePiece(itemIdx, bundleIdx, pieceIdx)}

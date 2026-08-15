@@ -444,6 +444,19 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
     );
   }
 
+  // Strip anything that isn't a digit or a single decimal point, so typed
+  // input can never contain letters or symbols like "+"/"-"/"e" (browsers
+  // allow those into type="number" fields even though they don't parse).
+  function sanitizeNumericInput(raw: string): string {
+    let s = raw.replace(/[^0-9.]/g, '');
+    const dot = s.indexOf('.');
+    if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+    return s;
+  }
+  function sanitizeIntegerInput(raw: string): string {
+    return raw.replace(/[^0-9]/g, '');
+  }
+
   // ── react to pavu_assign selection: auto-fill loom + warp_lot ─────────────
   useEffect(() => {
     if (!pavuAssignId) return;
@@ -1068,7 +1081,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                 step="1"
                 placeholder="0"
                 value={summaryTotalBundles}
-                onChange={(e) => setSummaryTotalBundles(e.target.value)}
+                onChange={(e) => setSummaryTotalBundles(sanitizeIntegerInput(e.target.value))}
                 className="input num text-right"
               />
             </div>
@@ -1080,7 +1093,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                 step="1"
                 placeholder="0"
                 value={summaryTotalPieces}
-                onChange={(e) => setSummaryTotalPieces(e.target.value)}
+                onChange={(e) => setSummaryTotalPieces(sanitizeIntegerInput(e.target.value))}
                 className="input num text-right"
               />
             </div>
@@ -1092,7 +1105,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                 step="0.01"
                 placeholder="0.00"
                 value={summaryTotalMetres}
-                onChange={(e) => setSummaryTotalMetres(e.target.value)}
+                onChange={(e) => setSummaryTotalMetres(sanitizeNumericInput(e.target.value))}
                 className="input num text-right"
               />
             </div>
@@ -1134,7 +1147,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                         className="input h-7 text-xs num w-16 text-right"
                         value={pieceCountDrafts[bIdx] ?? String(b.pieces.length)}
                         onChange={(e) =>
-                          setPieceCountDrafts((d) => ({ ...d, [bIdx]: e.target.value }))
+                          setPieceCountDrafts((d) => ({ ...d, [bIdx]: sanitizeIntegerInput(e.target.value) }))
                         }
                         onBlur={(e) => commitBundlePieceCount(bIdx, e.target.value)}
                         onKeyDown={(e) => {
@@ -1176,7 +1189,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                           className="input h-8 text-xs num flex-1 text-right"
                           value={p}
                           onChange={(e) =>
-                            setPieceValue(bIdx, pIdx, e.target.value)
+                            setPieceValue(bIdx, pIdx, sanitizeNumericInput(e.target.value))
                           }
                           onKeyDown={(e) => {
                             // Enter = jump straight to the next metre field
@@ -1269,7 +1282,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
               min="0"
               step="0.01"
               value={rejectedM}
-              onChange={e => setRejectedM(e.target.value)}
+              onChange={e => setRejectedM(sanitizeNumericInput(e.target.value))}
               className="input num"
             />
           </div>
@@ -1305,7 +1318,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                 min="0"
                 step="0.01"
                 value={towelLength}
-                onChange={e => setTowelLength(e.target.value)}
+                onChange={e => setTowelLength(sanitizeNumericInput(e.target.value))}
                 className="input num"
                 placeholder="leave blank for non-towel"
               />

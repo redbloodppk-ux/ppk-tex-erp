@@ -59,6 +59,7 @@ interface RegisterRow {
   signed_gst: number | null;
   signed_total: number | null;
   total_quantity: number | null;
+  hsn_codes: string | null;
 }
 
 interface CustomerOpt {
@@ -77,6 +78,18 @@ function startOfMonthISO(): string {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Formats a YYYY-MM-DD date as "JULY-26" (month name + 2-digit year),
+ *  used to build the exported Excel filename. Parsed as a local calendar
+ *  date (not UTC) so it can't roll back a day near midnight. */
+function monthYearLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return 'REPORT';
+  const date = new Date(y, m - 1, d);
+  const month = date.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
+  const yy = String(y % 100).padStart(2, '0');
+  return `${month}-${yy}`;
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {
@@ -205,6 +218,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
     { key: 'customer', label: 'Customer', type: 'text', width: 28 },
     { key: 'party_gstin', label: 'GSTIN', type: 'text', width: 18 },
     { key: 'party_state', label: 'State', type: 'text', width: 16 },
+    { key: 'hsn_codes', label: 'HSN', type: 'text', width: 14 },
     { key: 'total_quantity', label: 'Qty', type: 'number', width: 10, total: true },
     { key: 'signed_taxable', label: 'Taxable', type: 'rupee', width: 14, total: true },
     { key: 'signed_cgst', label: 'CGST', type: 'rupee', width: 12, total: true },
@@ -222,6 +236,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
       : r.customer_name ?? '',
     party_gstin: r.party_gstin ?? '',
     party_state: r.party_state ?? '',
+    hsn_codes: r.hsn_codes ?? '',
     total_quantity: Number(r.total_quantity ?? 0),
     signed_taxable: Number(r.signed_taxable ?? 0),
     signed_cgst: Number(r.signed_cgst ?? 0),
@@ -275,7 +290,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
         subtitle={`Every billed invoice between ${from} and ${to}. Credit notes net out automatically — totals here equal what goes on your GSTR-1 summary.`}
         actions={
           <ExcelExportButton
-            filename="sales-register"
+            filename={`${monthYearLabel(from)}-SALES-REGISTER`}
             sheetName="Sales Register"
             title={`Sales Register · ${from} to ${to}`}
             columns={exportColumns}
