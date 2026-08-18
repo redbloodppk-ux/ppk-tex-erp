@@ -495,10 +495,13 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
           sb.from('inhouse_warp_beam_purchase')
             .select('metres, yarn_count_id, ends:ends_id ( ends_count )')
             .eq('status', 'active'),
+          // Every in-house beam counts as inflow whatever its current
+          // status — the receipt outflow below already accounts for
+          // what was woven. Filtering to 'in_stock' deducted each beam
+          // twice. Same fix as the Warehouse warp pivot (268b492).
           sb.from('pavu')
             .select('meters, ends, sizing_job_id, sizing_job:sizing_job_id ( warp_count_id )')
             .eq('production_mode', 'in_house')
-            .eq('status', 'in_stock')
             .eq('ends', ends),
           sb.from('fabric_receipt_item')
             .select('received_metres, fabric_quality_id, receipt:receipt_id!inner ( id, status, dc:dc_id!inner ( production_mode ) )')

@@ -122,8 +122,8 @@ async function resolveKeysForQualities(
 /** Measure the current IN-HOUSE stock balance across all four buckets
  *  for the union of the provided fabric qualities (pooled with merged-
  *  delivery siblings). Mirrors the Warehouse → In-house pivots:
- *    warp   = opening stock + warp beam purchases + in-stock pavu
- *             − previous in-house receipt items
+ *    warp   = opening stock + warp beam purchases + ALL in-house pavu
+ *             (any status) − previous in-house receipt items
  *    weft   = opening stock + in-house yarn_lot.current_kg (kind=yarn)
  *    porvai = opening stock + in-house yarn_lot.current_kg (kind=porvai)
  *    bobbin = opening stock + purchases − returns − in-house ledger outs */
@@ -170,10 +170,16 @@ async function measureInhouseStock(sb: Sb, fabricQualityIds: number[]): Promise<
       sb.from('inhouse_warp_beam_purchase')
         .select('metres, yarn_count_id, ends:ends_id ( ends_count )')
         .eq('status', 'active'),
+      // Every in-house beam that ever came out of sizing counts as
+      // inflow, regardless of its CURRENT status. Outflows (fabric
+      // receipts) are a permanent ledger that never forgets a beam once
+      // it's used, so filtering inflow to status='in_stock' subtracted
+      // each beam twice: its inflow vanished the moment it moved to
+      // on_loom/finished, while its consumption kept being deducted.
+      // Same fix as the Warehouse warp pivot (commit 268b492).
       sb.from('pavu')
         .select('meters, ends, sizing_job:sizing_job_id ( warp_count_id )')
-        .eq('production_mode', 'in_house')
-        .eq('status', 'in_stock'),
+        .eq('production_mode', 'in_house'),
       sb.from('fabric_receipt_item')
         .select('received_metres, receipt:receipt_id!inner ( status, dc:dc_id!inner ( production_mode ) )')
         .in('fabric_quality_id', pooledQIds),
