@@ -56,6 +56,11 @@ interface RegisterRow {
   quantity: number | string | null;
   qty_uom: string | null;
   gst_pct: number | string | null;
+  /** Distinct line-level GST rates, e.g. '18 / 5', set ONLY when a bill
+   *  mixes rates. On those bills gst_pct is a blended average (17.05%)
+   *  and is not a real rate, so the UI shows "Mixed" instead. */
+  gst_rates: string | null;
+  is_mixed_gst: boolean | null;
   taxable: number | string | null;
   gst_amount: number | string | null;
   total: number | string | null;
@@ -248,7 +253,9 @@ export default async function PurchaseRegisterReport({
     { key: 'party_state', label: 'State', type: 'text', width: 16 },
     { key: 'quantity', label: 'Qty', type: 'number', width: 10, total: true },
     { key: 'qty_uom', label: 'UoM', type: 'text', width: 7 },
-    { key: 'gst_pct', label: 'GST %', type: 'number', width: 8 },
+    // Text, not number: a mixed-rate bill has no single rate, so this
+    // column carries e.g. "18 / 5% (mixed)" rather than a fake average.
+    { key: 'gst_pct', label: 'GST %', type: 'text', width: 14 },
     { key: 'taxable', label: 'Taxable', type: 'rupee', width: 14, total: true },
     { key: 'cgst_amount', label: 'CGST', type: 'rupee', width: 12, total: true },
     { key: 'sgst_amount', label: 'SGST', type: 'rupee', width: 12, total: true },
@@ -269,7 +276,11 @@ export default async function PurchaseRegisterReport({
     party_state: r.party_state ?? '',
     quantity: Number(r.quantity ?? 0),
     qty_uom: r.qty_uom ?? '',
-    gst_pct: Number(r.gst_pct ?? 0),
+    gst_pct: r.is_mixed_gst
+      ? `${r.gst_rates}% (mixed)`
+      : Number(r.gst_pct ?? 0) > 0
+        ? `${Number(r.gst_pct)}%`
+        : '',
     taxable: Number(r.taxable ?? 0),
     cgst_amount: Number(r.cgst_amount ?? 0),
     sgst_amount: Number(r.sgst_amount ?? 0),
@@ -503,7 +514,12 @@ export default async function PurchaseRegisterReport({
                       <span className="text-ink-mute">{r.qty_uom ?? ''}</span>
                     </div>
                     <div>Taxable: <span className="num">{fmtRupees(r.taxable, 2)}</span></div>
-                    <div>GST: <span className="num">{fmtRupees(Number(r.cgst_amount ?? 0) + Number(r.sgst_amount ?? 0) + Number(r.igst_amount ?? 0), 2)}</span></div>
+                    <div>
+                      GST: <span className="num">{fmtRupees(Number(r.cgst_amount ?? 0) + Number(r.sgst_amount ?? 0) + Number(r.igst_amount ?? 0), 2)}</span>
+                      {r.is_mixed_gst ? (
+                        <span className="ml-1 text-[10px] text-amber-700">({r.gst_rates}% mixed)</span>
+                      ) : null}
+                    </div>
                     {Number(r.balance ?? 0) > 0 ? (
                       <div className="text-rose-700">Balance: <span className="num">{fmtRupees(r.balance, 2)}</span></div>
                     ) : null}
@@ -589,9 +605,20 @@ export default async function PurchaseRegisterReport({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right num text-xs">
-                      {Number(r.gst_pct ?? 0) > 0
-                        ? `${fmtNum(r.gst_pct, 0)}%`
-                        : '—'}
+                      {r.is_mixed_gst ? (
+                        // Blended header rate is meaningless (e.g. 17.05%
+                        // for an 18% + 5% bill) — show the real rates.
+                        <span
+                          title={`Mixed rates: ${r.gst_rates}%`}
+                          className="inline-block px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 text-[10px] font-medium cursor-help"
+                        >
+                          {r.gst_rates}%
+                        </span>
+                      ) : Number(r.gst_pct ?? 0) > 0 ? (
+                        `${fmtNum(r.gst_pct, 0)}%`
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {fmtRupees(r.taxable, 2)}
