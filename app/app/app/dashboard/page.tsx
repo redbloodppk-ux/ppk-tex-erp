@@ -342,9 +342,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     { data: openingPaymentAllocs },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
-    // Every unpaid / part-paid JOB WORK bill, oldest first. These are
-    // the older jobwork_invoice doc type — bills WE owe an outside
-    // jobworker for work done on our cloth. Shown in its own card.
+    // Every unpaid / part-paid JOB WORK bill, oldest first — the
+    // jobwork_invoice doc type. These are RECEIVABLES: a Jobwork Party
+    // sends us their own material, we weave it and bill them, so THEY
+    // OWE US. (Bills we owe for work done on our cloth are the
+    // weaving_bill doc type, loaded separately below.) The bill form
+    // enforces the split: party.kind === 'outsource' → weaving_bill,
+    // otherwise jobwork_invoice.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('invoice')
       .select(BILL_COLS)
@@ -642,17 +646,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     now,
   );
 
-  // Total of every open supplier-side bill across the three sections
-  // below it (outsource-weaving + sizing/bobbin/yarn/fabric + opening
-  // payables). Drives the new Outstanding Payable KPI card replacing
-  // the Active-Customers count the operator wasn't using day to day.
+  // Total of every open supplier-side bill (outsource-weaving +
+  // sizing/bobbin/yarn/fabric + opening payables). Drives the
+  // Outstanding Payable KPI card.
+  //
+  // jobworkGroups is deliberately NOT here: a jobwork bill is money
+  // owed TO us, not BY us. It used to be included, which overstated
+  // payables and understated receivables by the same amount.
   const totalPayable =
-      jobworkGroups .reduce((s, g) => s + g.total, 0)
-    + weavingGroups .reduce((s, g) => s + g.total, 0)
+      weavingGroups .reduce((s, g) => s + g.total, 0)
     + supplierGroups.reduce((s, g) => s + g.total, 0);
 
+  // Jobwork receivables sit outside v_customer_outstanding because
+  // those bills carry jobwork_party_id, not customer_id — so they have
+  // to be added to the receivable KPI explicitly or they vanish from
+  // both totals.
+  const totalJobworkReceivable = jobworkGroups.reduce((s, g) => s + g.total, 0);
+
   const cards = [
-    { label: 'Outstanding Receivable (Rs)', value: formatRupee(totalOutstanding, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
+    { label: 'Outstanding Receivable (Rs)', value: formatRupee(totalOutstanding + totalJobworkReceivable, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
     { label: 'Outstanding Payable (Rs)',    value: formatRupee(totalPayable,     { compact: true }), icon: Truck,   href: '/app/payments?direction=out', tone: 'from-violet-500 to-fuchsia-500' },
   ];
 
@@ -913,7 +925,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       </section>
 
       {/* Outstanding Job Work Bills — grouped by the jobwork party.
-          These are the older jobwork_invoice doc type. */}
+          RECEIVABLE: the party sent us their material, we wove it and
+          billed them, so we COLLECT. Contrast with the weaving-bill
+          card below, which is money we owe an outsource weaver. */}
       <section className="card p-4 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -924,10 +938,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <OutstandingByParty
           groups={jobworkGroups}
-          direction="out"
-          actionLabel="Pay"
-          emptyText="No outstanding job work bills — every jobworker is paid up."
-          footnote={'Job work parties with one or more open bills against work they did on our cloth. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
+          direction="in"
+          actionLabel="Collect"
+          emptyText="No outstanding job work bills — every jobwork party has settled."
+          footnote={'Job work parties with one or more open bills for work we did on THEIR cloth — this money is owed to us. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
         />
       </section>
 
