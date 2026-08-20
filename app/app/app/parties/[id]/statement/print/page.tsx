@@ -24,6 +24,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
+import { ALL_STREAMS, STREAM_META, streamForBillKind } from '@/lib/party-streams';
 
 export const dynamic = 'force-dynamic';
 
@@ -308,8 +309,72 @@ export default async function PartyStatementPrintPage({
   bills.sort((a, b) => (a.doc_date ?? '').localeCompare(b.doc_date ?? ''));
 
   const totalOutstanding = bills.reduce((s, b) => s + b.balance, 0);
-  const billedTotal      = bills.reduce((s, b) => s + b.total,   0);
-  const paidTotal        = bills.reduce((s, b) => s + b.paid,    0);
+  // Billed / paid totals are now computed per account section below,
+  // since a single merged figure across a party's separate accounts is
+  // not a number anyone can act on.
+
+  // ── Split into per-account sections ────────────────────────────────
+  // A party can trade with us in several capacities at once, and those
+  // balances are settled separately (see migration 254). Showing one
+  // merged running total hides, for example, that BMPT TEXTILES owes us
+  // on job work while we owe them for yarn.
+  //
+  // Bank entries are deliberately NOT forced into a stream: a direct
+  // bank<->party movement carries no document telling us which account
+  // it belongs to, so guessing would silently move money between
+  // accounts. They get their own section.
+  const BANK_TYPES = new Set(['bank_in', 'bank_out']);
+  const sections: Array<{
+    key: string; label: string; blurb: string;
+    bills: Bill[]; billed: number; paid: number; balance: number;
+  }> = [];
+
+  for (const s of ALL_STREAMS) {
+    const rows = bills.filter(
+      (b) => !BANK_TYPES.has(b.doc_type) && streamForBillKind(b.doc_type) === s,
+    );
+    if (rows.length === 0) continue;
+    sections.push({
+      key: s,
+      label: STREAM_META[s].label,
+      blurb: STREAM_META[s].blurb,
+      bills: rows,
+      billed:  rows.reduce((t, b) => t + b.total, 0),
+      paid:    rows.reduce((t, b) => t + b.paid, 0),
+      balance: rows.reduce((t, b) => t + b.balance, 0),
+    });
+  }
+
+  const bankRows = bills.filter((b) => BANK_TYPES.has(b.doc_type));
+  if (bankRows.length > 0) {
+    sections.push({
+      key: 'bank',
+      label: 'Direct Bank Movements',
+      blurb: 'Bank transactions posted straight against this party, not tied to a specific account.',
+      bills: bankRows,
+      billed:  bankRows.reduce((t, b) => t + b.total, 0),
+      paid:    bankRows.reduce((t, b) => t + b.paid, 0),
+      balance: bankRows.reduce((t, b) => t + b.balance, 0),
+    });
+  }
+
+  /** More than one account in play — worth showing the summary block. */
+  const multiAccount = sections.length > 1;
+
+  // Net across accounts must be SIGNED. Each section total is a positive
+  // "outstanding on this account" figure, so adding them straight up
+  // would sum money we owe together with money we are owed — for BMPT
+  // TEXTILES that produced 52,402.13, a number meaning nothing. Money
+  // owed to us counts positive, money we owe counts negative.
+  const netSigned = sections.reduce((t, s) => {
+    if (s.key === 'bank') return t + s.balance; // already signed
+    const dir = STREAM_META[s.key as keyof typeof STREAM_META]?.direction;
+    return t + (dir === 'out' ? -s.balance : s.balance);
+  }, 0);
+
+  /** Headline figure: the signed net once several accounts are in play,
+   *  otherwise the single account's outstanding. */
+  const headline = multiAccount ? netSigned : totalOutstanding;
 
   const companyAddress = [cp.address_line1, cp.address_line2, [cp.city, cp.state, cp.pincode].filter(Boolean).join(' ')]
     .filter(Boolean).join('\n');
@@ -349,22 +414,75 @@ export default async function PartyStatementPrintPage({
             {party.phone && <div className="text-xs text-ink-soft">Phone: {party.phone}</div>}
           </div>
           <div className="rounded-md border border-line/60 p-3 text-right bg-cloud/20">
-            <div className="text-[10px] uppercase tracking-wide text-ink-mute">Total outstanding</div>
-            <div className={'text-3xl font-extrabold tabular-nums num ' + (totalOutstanding < 0 ? 'text-emerald-700' : 'text-rose-700')}>
-              Rs {fmtINR(totalOutstanding)}
+            <div className="text-[10px] uppercase tracking-wide text-ink-mute">
+              {multiAccount ? 'Net position' : 'Total outstanding'}
             </div>
+            <div className={'text-3xl font-extrabold tabular-nums num ' + (headline < 0 ? 'text-emerald-700' : 'text-rose-700')}>
+              Rs {fmtINR(Math.abs(headline))}
+            </div>
+            {multiAccount && (
+              <div className="text-[10px] font-semibold text-ink-soft mt-0.5">
+                {headline < 0 ? 'payable by us' : 'receivable from them'}
+              </div>
+            )}
             <div className="text-[10px] text-ink-mute mt-0.5">
               Across {bills.length} bill{bills.length === 1 ? '' : 's'}
+              {multiAccount ? ` in ${sections.length} accounts` : ''}
             </div>
           </div>
         </div>
 
-        {/* Bills table */}
+        {/* Per-account summary — only when this party trades with us in
+            more than one capacity, which is where a single merged total
+            is actively misleading. */}
+        {multiAccount && (
+          <div className="mb-4 border border-line/60 rounded-md overflow-hidden">
+            <div className="px-2 py-1.5 bg-cloud/50 text-[10px] uppercase tracking-wide text-ink-soft">
+              Account summary — these balances are settled separately
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {sections.map((s) => (
+                  <tr key={s.key} className="border-t border-line/40">
+                    <td className="px-2 py-1.5 font-semibold">{s.label}</td>
+                    <td className="px-2 py-1.5 text-[11px] text-ink-soft">
+                      {s.bills.length} bill{s.bills.length === 1 ? '' : 's'}
+                    </td>
+                    <td className={'px-2 py-1.5 text-right num font-semibold ' + (s.balance < 0 ? 'text-emerald-700' : 'text-rose-700')}>
+                      {fmtINR(s.balance)}
+                    </td>
+                    <td className="px-2 py-1.5 text-[11px] text-ink-mute w-24">
+                      {s.balance < 0 ? 'in credit' : 'outstanding'}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-line/60 bg-cloud/30 font-bold">
+                  <td className="px-2 py-2" colSpan={2}>Net position</td>
+                  <td className={'px-2 py-2 text-right num ' + (netSigned < 0 ? 'text-emerald-700' : 'text-rose-700')}>
+                    {fmtINR(Math.abs(netSigned))}
+                  </td>
+                  <td className="px-2 py-1.5 text-[11px] text-ink-mute">
+                    {netSigned < 0 ? 'we owe' : 'they owe'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Bills — one table per account */}
         {bills.length === 0 ? (
           <div className="p-8 text-center text-ink-soft border border-line/60 rounded-md">
             No outstanding bills against this party — fully settled.
           </div>
-        ) : (
+        ) : sections.map((section) => (
+          <div key={section.key} className="mb-5 break-inside-avoid">
+            {multiAccount && (
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <h2 className="text-sm font-bold">{section.label}</h2>
+                <span className="text-[10px] text-ink-mute italic">{section.blurb}</span>
+              </div>
+            )}
           <table className="w-full text-sm border border-line/60">
             <thead className="bg-cloud/50 text-[10px] uppercase tracking-wide text-ink-soft">
               <tr>
@@ -379,7 +497,7 @@ export default async function PartyStatementPrintPage({
               </tr>
             </thead>
             <tbody>
-              {bills.map((b, i) => {
+              {section.bills.map((b, i) => {
                 const days = daysBetween(b.doc_date);
                 // Negative balance = the row REDUCES the outstanding
                 // sum (a bank-side settlement). Show it in emerald so
@@ -403,13 +521,29 @@ export default async function PartyStatementPrintPage({
             </tbody>
             <tfoot className="bg-cloud/40 font-bold">
               <tr>
-                <td className="px-2 py-2" colSpan={5}>Totals</td>
-                <td className="px-2 py-2 text-right num">{fmtINR(billedTotal)}</td>
-                <td className="px-2 py-2 text-right num text-emerald-700">{fmtINR(paidTotal)}</td>
-                <td className={'px-2 py-2 text-right num ' + (totalOutstanding < 0 ? 'text-emerald-700' : 'text-rose-700')}>{fmtINR(totalOutstanding)}</td>
+                <td className="px-2 py-2" colSpan={5}>
+                  {multiAccount ? `${section.label} total` : 'Totals'}
+                </td>
+                <td className="px-2 py-2 text-right num">{fmtINR(section.billed)}</td>
+                <td className="px-2 py-2 text-right num text-emerald-700">{fmtINR(section.paid)}</td>
+                <td className={'px-2 py-2 text-right num ' + (section.balance < 0 ? 'text-emerald-700' : 'text-rose-700')}>{fmtINR(section.balance)}</td>
               </tr>
             </tfoot>
           </table>
+          </div>
+        ))}
+
+        {/* Net line — only meaningful once the sections above have each
+            shown their own total. */}
+        {multiAccount && (
+          <div className="flex items-baseline justify-end gap-3 border-t-2 border-line/60 pt-2 mb-2">
+            <span className="text-sm font-bold">
+              Net position — {netSigned < 0 ? 'payable by us' : 'receivable from them'}
+            </span>
+            <span className={'text-lg font-extrabold num ' + (netSigned < 0 ? 'text-emerald-700' : 'text-rose-700')}>
+              Rs {fmtINR(Math.abs(netSigned))}
+            </span>
+          </div>
         )}
 
         {/* Footer note */}
