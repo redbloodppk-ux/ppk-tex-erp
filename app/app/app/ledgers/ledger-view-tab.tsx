@@ -54,6 +54,7 @@ import { cn } from '@/lib/utils';
 import { Combobox, type ComboOption } from '@/app/components/combobox';
 import { CardFilter } from '@/app/components/card-filter';
 import { fetchLedgerView, withRunningBalance, ledgerTotals, type LedgerEntry } from './ledger-view-query';
+import { ALL_STREAMS, STREAM_META, type PartyStream } from '@/lib/party-streams';
 
 interface LedgerOpt {
   id: number;
@@ -197,6 +198,35 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   // Compute running balance per row + grand totals.
   const ledger = useMemo(() => withRunningBalance(entries), [entries]);
   const totals = useMemo(() => ledgerTotals(entries), [entries]);
+
+  /** Per-account split of the rows that belong to a party account.
+   *  A party can trade with us in several capacities at once and those
+   *  balances are settled separately, so a single running total can
+   *  hide that they owe us on one account while we owe them on another.
+   *  Rows with no stream (wages, expenses, loans, direct bank movements)
+   *  are not party-account rows and are excluded. */
+  const streamSplit = useMemo(() => {
+    const acc = new Map<PartyStream, { inflow: number; outflow: number }>();
+    for (const e of entries) {
+      if (!e.stream) continue;
+      const cur = acc.get(e.stream) ?? { inflow: 0, outflow: 0 };
+      cur.inflow  += Number(e.inflow  ?? 0);
+      cur.outflow += Number(e.outflow ?? 0);
+      acc.set(e.stream, cur);
+    }
+    return ALL_STREAMS
+      .filter((s) => acc.has(s))
+      .map((s) => {
+        const v = acc.get(s)!;
+        return {
+          stream: s,
+          label: STREAM_META[s].label,
+          inflow: v.inflow,
+          outflow: v.outflow,
+          balance: Math.round((v.inflow - v.outflow) * 100) / 100,
+        };
+      });
+  }, [entries]);
 
   // Display order: running balances are always computed oldest→newest,
   // but the table can show newest→oldest without changing the math.
@@ -479,6 +509,36 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
               </tfoot>
             </table>
           </div>
+          {/* Per-account split — only when the bills on this ledger span
+              more than one of the party's accounts, which is exactly when
+              a single running total stops being actionable. */}
+          {streamSplit.length > 1 && (
+            <div className="px-4 py-3 border-t border-line/40 bg-amber-50/50">
+              <div className="text-[10px] uppercase tracking-wide text-amber-900 font-semibold mb-2">
+                This party trades with us on more than one account — settled separately
+              </div>
+              <table className="w-full text-xs">
+                <tbody>
+                  {streamSplit.map((s) => (
+                    <tr key={s.stream} className="border-t border-amber-200/60">
+                      <td className="py-1.5 font-semibold">{s.label}</td>
+                      <td className="py-1.5 text-right num text-emerald-700 w-32">{fmtINR(s.inflow)}</td>
+                      <td className="py-1.5 text-right num text-rose-700 w-32">{fmtINR(s.outflow)}</td>
+                      <td className={cn(
+                        'py-1.5 text-right num font-bold w-32',
+                        s.balance > 0 ? 'text-emerald-700' : s.balance < 0 ? 'text-rose-700' : 'text-ink-soft',
+                      )}>
+                        {fmtINR(s.balance)}
+                      </td>
+                      <td className="py-1.5 pl-3 text-[10px] text-ink-mute w-24">
+                        {s.balance > 0 ? 'they owe' : s.balance < 0 ? 'we owe' : 'settled'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="px-4 py-3 border-t border-line/40 bg-cloud/20 text-[11px] text-ink-mute">
             Showing {sortDir === 'asc' ? 'oldest → newest' : 'newest → oldest'} (running balance is always built oldest → newest). Debit raises the running balance (Dr); Credit lowers it (Cr). A positive running balance means the party owes you (Dr); negative means you owe the party (Cr).
           </div>

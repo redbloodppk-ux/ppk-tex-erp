@@ -56,6 +56,8 @@
  * credit_note-mode payments are excluded here.
  */
 
+import { streamForDocType, type PartyStream } from '@/lib/party-streams';
+
 // Unified ledger-entry shape used by both the tab table and the print page.
 export interface LedgerEntry {
   key:           string;
@@ -63,6 +65,11 @@ export interface LedgerEntry {
   /** Sub-kind for bill rows so the pill says "sale" / "sizing" / etc.
    *  Bank rows use 'bank_in' / 'bank_out'. */
   bill_kind?:    string;
+  /** Which of the party's accounts this row belongs to, where that is
+   *  knowable. Undefined for wages, expenses, loans and direct bank
+   *  movements, which are not tied to a party account. See
+   *  app/lib/party-streams.ts. */
+  stream?:       PartyStream;
   date:          string;
   voucher:       string;
   counterparty:  string;
@@ -122,7 +129,7 @@ export async function fetchLedgerView(
     .from('payment')
     .select(`
       id, payment_no, payment_date, direction, amount, reference, notes,
-      party_id, mode_ledger_id, mode,
+      party_id, mode_ledger_id, mode, stream,
       party:party_id ( id, code, name ),
       mode_ledger:mode_ledger_id ( id, name )
     `)
@@ -300,6 +307,8 @@ export async function fetchLedgerView(
         key:          'ledopen',
         source:       'bill',
         bill_kind:    'opening',
+        // Ledger-master opening balance, not a party bill — it belongs
+        // to no party account, so no stream.
         date:         oDate,
         voucher:      'OPENING',
         counterparty: '—',
@@ -499,6 +508,7 @@ export async function fetchLedgerView(
       key:          `inv-${r.id}`,
       source:       'bill',
       bill_kind:    isCredit ? 'credit' : isDebitNote ? 'debit' : 'sale',
+      stream:       streamForDocType(doc),
       date:         r.invoice_date,
       voucher:      r.invoice_no,
       counterparty: r.party_name ?? '-',
@@ -516,6 +526,7 @@ export async function fetchLedgerView(
       key:          `open-${r.id}`,
       source:       'bill',
       bill_kind:    'opening',
+      stream:       isReceivable ? 'customer' : 'supplier',
       date:         r.invoice_date,
       voucher:      r.invoice_no,
       counterparty: '—',
@@ -533,6 +544,7 @@ export async function fetchLedgerView(
       key:          `siz-${r.id}`,
       source:       'bill',
       bill_kind:    'sizing',
+      stream:       'supplier',
       date:         r.bill_date,
       voucher:      r.bill_no ?? `SZ-${r.id}`,
       counterparty: '—',
@@ -550,6 +562,7 @@ export async function fetchLedgerView(
       key:          `bob-${r.id}`,
       source:       'bill',
       bill_kind:    'bobbin',
+      stream:       'supplier',
       date:         r.purchase_date,
       voucher:      r.invoice_no ?? `BB-${r.id}`,
       counterparty: '—',
@@ -567,6 +580,7 @@ export async function fetchLedgerView(
       key:          `yarn-${r.id}`,
       source:       'bill',
       bill_kind:    'yarn',
+      stream:       'supplier',
       date:         r.received_date,
       voucher:      r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
       counterparty: '—',
@@ -584,6 +598,7 @@ export async function fetchLedgerView(
       key:          `fab-${r.id}`,
       source:       'bill',
       bill_kind:    'fabric',
+      stream:       'supplier',
       date:         r.received_date,
       voucher:      r.invoice_no ?? r.code ?? `FP-${r.id}`,
       counterparty: '—',
@@ -621,6 +636,7 @@ export async function fetchLedgerView(
       key:          `agentcomm-${r.id}`,
       source:       'bill',
       bill_kind:    'commission',
+      stream:       'supplier',
       date,
       voucher,
       counterparty: '—',
