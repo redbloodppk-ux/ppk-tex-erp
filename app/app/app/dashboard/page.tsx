@@ -9,8 +9,19 @@ import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendan
 import { RemindersWidget } from '@/app/components/dashboard/reminders-widget';
 import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
 import { ProductionAnalytics } from './production-analytics';
+import { directionForStream, type PartyStream } from '@/lib/party-streams';
 
 export const metadata = { title: 'Dashboard' };
+
+/** Button wording per account. The DIRECTION is never written by hand —
+ *  it comes from party-streams, which is what stops a card claiming a
+ *  job work bill is payable (the bug fixed in 4325b3a). */
+const ACTION_LABEL: Record<PartyStream, string> = {
+  customer:  'Collect',
+  jobwork:   'Collect',
+  outsource: 'Pay',
+  supplier:  'Pay',
+};
 
 interface OpenBillRow {
   id: number;
@@ -917,8 +928,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <OutstandingByParty
           groups={customerGroups}
-          direction="in"
-          actionLabel="Collect"
+          direction={directionForStream('customer')}
+          actionLabel={ACTION_LABEL.customer}
           emptyText="No outstanding customer invoices — everything is collected."
           footnote={'Customers with one or more open sale invoices, netted against any pre-ERP opening balance (due or credit) — matches the Ledger page\u2019s running balance. Parties fully settled or in credit are hidden here (see the Ledger page for those). Click a row to see the bills. "Days due" = days since the invoice date.'}
         />
@@ -938,8 +949,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <OutstandingByParty
           groups={jobworkGroups}
-          direction="in"
-          actionLabel="Collect"
+          direction={directionForStream('jobwork')}
+          actionLabel={ACTION_LABEL.jobwork}
           emptyText="No outstanding job work bills — every jobwork party has settled."
           footnote={'Job work parties with one or more open bills for work we did on THEIR cloth — this money is owed to us. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
         />
@@ -957,8 +968,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <OutstandingByParty
           groups={weavingGroups}
-          direction="out"
-          actionLabel="Pay"
+          direction={directionForStream('outsource')}
+          actionLabel={ACTION_LABEL.outsource}
           emptyText="No outstanding outsourcing weaving bills — every weaver is paid up."
           footnote={'Outsource weavers with one or more open bills against work they did on our cloth. Click a row to see their unpaid bills. "Days due" = days since the bill date.'}
         />
@@ -978,8 +989,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <OutstandingByParty
           groups={supplierGroups}
-          direction="out"
-          actionLabel="Pay"
+          direction={directionForStream('supplier')}
+          actionLabel={ACTION_LABEL.supplier}
           emptyText="No outstanding supplier bills — every sizing / bobbin / yarn / fabric purchase is settled."
           footnote={'Suppliers with one or more open bills across sizing, bobbin, yarn, fabric purchases, and opening payables. Click a row to see the individual bills. "Days due" = days since the bill date.'}
         />
