@@ -28,6 +28,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink, IndianRupee } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ContraTab } from './contra-tab';
 import {
   STREAM_META, streamForBillKind, streamsForDirection, directionForStream,
   type PartyStream,
@@ -183,7 +184,7 @@ function fmtDate(s: string | null): string {
 
 // ── Page shell ──────────────────────────────────────────────────────────────
 
-type Tab = 'new' | 'status';
+type Tab = 'new' | 'status' | 'contra';
 
 export default function PaymentsPage() {
   const router = useRouter();
@@ -207,9 +208,10 @@ export default function PaymentsPage() {
       <div className="border-b border-line mb-4 flex gap-1 flex-wrap">
         <TabButton active={tab === 'new'}    onClick={() => setTab('new')}>New Payment</TabButton>
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>Payment Transaction</TabButton>
+        <TabButton active={tab === 'contra'} onClick={() => setTab('contra')}>Contra / Set-off</TabButton>
       </div>
 
-      {tab === 'new' ? <NewPaymentTab /> : <StatusTab />}
+      {tab === 'new' ? <NewPaymentTab /> : tab === 'contra' ? <ContraTab /> : <StatusTab />}
     </div>
   );
 }
