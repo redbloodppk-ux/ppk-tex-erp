@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { STREAM_META, streamForBillKind, type PartyStream } from '@/lib/party-streams';
 
 // ── Public types ───────────────────────────────────────────────────
 
@@ -50,8 +51,15 @@ export interface UnpaidBillsPickerProps {
   partyId: number | null;
   /** How much money is being allocated (fabric value / credit value / payment amount). */
   totalAmount: number;
-  /** Affects the heading text only. */
+  /** Affects the heading text only. Derive it with
+   *  directionForStream(stream) rather than hardcoding a literal. */
   direction: 'in' | 'out';
+  /** Which party account these bills belong to. Bills outside this
+   *  stream are NOT loaded: a receipt must never be able to settle a
+   *  payable. A party can be customer, jobwork party and supplier at
+   *  once (BMPT TEXTILES is all three), so without this every one of
+   *  their bills appears on every screen. */
+  stream: PartyStream;
   /** Emits the current allocations array to the parent every time it changes. */
   onAllocationsChange: (allocs: BillAllocation[]) => void;
   /** Optional: emits the list of TICKED bills regardless of amount.
@@ -117,6 +125,7 @@ export function UnpaidBillsPicker({
   partyId,
   totalAmount,
   direction,
+  stream,
   onAllocationsChange,
   onSelectionChange,
   showAdvanceHint = true,
@@ -303,6 +312,11 @@ export function UnpaidBillsPicker({
       }));
 
     const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...warpBeamBills]
+      // Keep only the account being settled. A party can be customer,
+      // jobwork party and supplier at once, and without this filter all
+      // of their bills show on every screen — letting an incoming
+      // receipt be ticked against a bill we OWE them.
+      .filter((b) => streamForBillKind(b.doc_type) === stream)
       .sort((a, b) => {
         const dc = (a.doc_date ?? '').localeCompare(b.doc_date ?? '');
         return dc !== 0 ? dc : a.id - b.id;
@@ -311,7 +325,7 @@ export function UnpaidBillsPicker({
     setCheckedBills(new Set());
     setAlloc({});
     setLoading(false);
-  }, [partyId, supabase]);
+  }, [partyId, supabase, stream]);
 
   useEffect(() => { void loadBills(); }, [loadBills]);
 
@@ -428,7 +442,9 @@ export function UnpaidBillsPicker({
     );
   }
 
-  const title = heading ?? 'Unpaid bills';
+  // Name the account so it is obvious which of a multi-role party's
+  // balances is being settled.
+  const title = heading ?? `Unpaid ${STREAM_META[stream].label} bills`;
 
   return (
     <div className="border border-line/40 rounded-md overflow-hidden">

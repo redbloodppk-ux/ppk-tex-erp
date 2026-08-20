@@ -911,6 +911,9 @@ export function FabricPurchaseLog(): React.ReactElement {
                 partyId={pickedPartyId}
                 totalAmount={grandTotal}
                 direction="in"
+                // Cloth taken back from a CUSTOMER offsets what they owe
+                // us on the customer account only.
+                stream="customer"
                 heading="Customer's unpaid bills"
                 onAllocationsChange={setCustomerAllocs}
               />

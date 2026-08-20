@@ -21,9 +21,19 @@ const INVOICE_DOC_TYPES = [
   'weaving_bill',
 ] as const;
 
-/** Every bill kind the UnpaidBillsPicker can produce. */
+/**
+ * Every `doc_type` value UnpaidBillsPicker can put on a row — i.e. the
+ * keys of its DOC_TYPE_LABEL map. Note this includes the real sales
+ * doc_types, because the picker stores invoice.doc_type verbatim rather
+ * than a generic 'invoice' literal.
+ */
 const BILL_KINDS = [
   'invoice',
+  'tax_invoice',
+  'yarn_sale',
+  'general_sale',
+  'credit_note',
+  'debit_note',
   'jobwork_invoice',
   'weaving_bill',
   'opening_receivable',
@@ -74,6 +84,24 @@ describe('party-streams', () => {
 
   it('keeps opening receivables on the customer stream', () => {
     expect(streamForBillKind('opening_receivable')).toBe('customer');
+  });
+
+  it('classifies sales doc_types as customer, not supplier', () => {
+    // The picker stores invoice.doc_type verbatim, so streamForBillKind
+    // sees 'tax_invoice' rather than 'invoice'. Falling through to the
+    // supplier default would put a fabric sale on the payables side and
+    // let a payment settle it.
+    expect(streamForBillKind('tax_invoice')).toBe('customer');
+    expect(streamForBillKind('yarn_sale')).toBe('customer');
+    expect(streamForBillKind('general_sale')).toBe('customer');
+    expect(streamForBillKind('credit_note')).toBe('customer');
+    expect(streamForBillKind('debit_note')).toBe('customer');
+  });
+
+  it('agrees with streamForDocType on every shared doc_type', () => {
+    for (const dt of INVOICE_DOC_TYPES) {
+      expect(streamForBillKind(dt)).toBe(streamForDocType(dt));
+    }
   });
 
   it('gives jobwork an INBOUND direction — they owe us', () => {

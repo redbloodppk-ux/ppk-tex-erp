@@ -96,13 +96,22 @@ export function streamForDocType(docType: string): PartyStream {
  */
 export function streamForBillKind(kind: string): PartyStream {
   switch (kind) {
-    case 'invoice':
-    case 'opening_receivable':
-      return 'customer';
     case 'jobwork_invoice':
       return 'jobwork';
     case 'weaving_bill':
       return 'outsource';
+    // Sales-side documents. UnpaidBillsPicker stores the real
+    // invoice.doc_type here, so every sales doc_type must be listed —
+    // falling through to the 'supplier' default would put a fabric sale
+    // on the payables side.
+    case 'invoice':
+    case 'tax_invoice':
+    case 'yarn_sale':
+    case 'general_sale':
+    case 'credit_note':
+    case 'debit_note':
+    case 'opening_receivable':
+      return 'customer';
     default:
       // sizing_bill, bobbin_purchase, yarn_purchase, fabric_purchase,
       // warp_beam_purchase, general_purchase, opening_payable

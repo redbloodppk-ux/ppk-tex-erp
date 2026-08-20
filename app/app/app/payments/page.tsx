@@ -28,6 +28,10 @@ import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink, IndianRupee } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  STREAM_META, streamForBillKind, streamsForDirection, directionForStream,
+  type PartyStream,
+} from '@/lib/party-streams';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -251,6 +255,13 @@ function NewPaymentTab(): React.ReactElement {
   const initialNotes: string = searchParams.get('pnotes') ?? '';
 
   const [direction,    setDirection]   = useState<Direction>(initialDirection);
+  /** Which of the party's accounts this receipt / payment settles.
+   *  A party can be customer, jobwork party AND supplier at once
+   *  (BMPT TEXTILES is all three), and those balances must not net
+   *  silently — so the bill list below is scoped to this stream. */
+  const [stream,       setStream]      = useState<PartyStream>(
+    initialDirection === 'in' ? 'customer' : 'supplier',
+  );
   const [partyTypeId,  setPartyTypeId] = useState<string>('');
   const [partyId,      setPartyId]     = useState<string>(initialParty);
   const [date,         setDate]        = useState<string>(initialDate);
@@ -563,8 +574,48 @@ function NewPaymentTab(): React.ReactElement {
       const dc = a.invoice_date.localeCompare(b.invoice_date);
       return dc !== 0 ? dc : a.id - b.id;
     });
+    // Keep every open bill for the party so the stream selector can tell
+    // which accounts are actually in use; the visible list is filtered
+    // to the chosen stream in `streamBills` below. Without that split a
+    // receipt could be ticked against a bill we OWE the party.
     setBills(merged);
   }, [partyId, parties, supabase]);
+
+  /** Bills belonging to the account currently being settled. */
+  const streamBills = useMemo(
+    () => bills.filter((b) => streamForBillKind(b.doc_type) === stream),
+    [bills, stream],
+  );
+
+  // Switching account drops any ticks and amounts from the previous one —
+  // they belong to a different balance and must not carry over.
+  useEffect(() => {
+    setCheckedBills(new Set());
+    setAlloc({});
+  }, [stream]);
+
+  /** Streams this party actually has open bills on, in canonical order.
+   *  Drives the selector, which stays hidden for the single-role parties
+   *  that make up almost every payment. */
+  const availableStreams = useMemo(() => {
+    const present = new Set(bills.map((b) => streamForBillKind(b.doc_type)));
+    return streamsForDirection(direction).filter((s) => present.has(s));
+  }, [bills, direction]);
+
+  // Keep the stream valid: follow the direction toggle, and snap to the
+  // party's only open account when there is exactly one.
+  useEffect(() => {
+    const allowed = streamsForDirection(direction);
+    // streamsForDirection always yields two entries, but the index
+    // signature is optional under noUncheckedIndexedAccess.
+    const fallback: PartyStream = allowed[0] ?? (direction === 'in' ? 'customer' : 'supplier');
+    if (!allowed.includes(stream)) {
+      setStream(availableStreams[0] ?? fallback);
+      return;
+    }
+    const only = availableStreams.length === 1 ? availableStreams[0] : undefined;
+    if (only !== undefined && only !== stream) setStream(only);
+  }, [direction, stream, availableStreams]);
 
   useEffect(() => { void loadBills(); }, [loadBills]);
 
@@ -574,7 +625,7 @@ function NewPaymentTab(): React.ReactElement {
   function distribute(amt: number, billKeys: Set<string>): Record<string, string> {
     const next: Record<string, string> = {};
     let remaining = amt;
-    for (const b of bills) {
+    for (const b of streamBills) {
       const k = billKey(b);
       if (!billKeys.has(k)) continue;
       const bal = Number(b.balance);
@@ -597,7 +648,7 @@ function NewPaymentTab(): React.ReactElement {
       // Bill-to-bill mode: the operator hasn't typed a custom amount, so
       // AMOUNT tracks the ticked bills — each new tick GROWS the total to
       // the sum of all ticked bills' balances, fully adjusted.
-      const sum = bills.filter((x) => next.has(billKey(x)))
+      const sum = streamBills.filter((x) => next.has(billKey(x)))
         .reduce((s, x) => s + Number(x.balance), 0);
       setAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
       setAlloc(distribute(sum, next));
@@ -624,14 +675,14 @@ function NewPaymentTab(): React.ReactElement {
 
   const allocatedTotal = useMemo<number>(() => {
     let s = 0;
-    for (const b of bills) {
+    for (const b of streamBills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
       const n = Number(alloc[k] ?? '');
       if (Number.isFinite(n) && n > 0) s += n;
     }
     return Math.round(s * 100) / 100;
-  }, [bills, checkedBills, alloc]);
+  }, [streamBills, checkedBills, alloc]);
 
   const unallocated = useMemo<number>(() => {
     const amt = Number(amount);
@@ -681,7 +732,9 @@ function NewPaymentTab(): React.ReactElement {
     const fabricAllocs:   { fabric_purchase_id: number; amount: number }[] = [];
     const agentAllocs:    { agent_commission_id: number; amount: number }[] = [];
     const warpBeamAllocs: { warp_beam_purchase_id: number; amount: number }[] = [];
-    for (const b of bills) {
+    // streamBills, not bills: a ticked row can never belong to another
+    // of this party's accounts, even if the stream was switched mid-entry.
+    for (const b of streamBills) {
       const k = billKey(b);
       if (!checkedBills.has(k)) continue;
       const raw = (alloc[k] ?? '').trim();
@@ -714,7 +767,7 @@ function NewPaymentTab(): React.ReactElement {
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
     if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
-      setError(bills.length > 0
+      setError(streamBills.length > 0
         ? 'Tick the bill(s) this payment settles — or tick "Advance payment" to post it to the party ledger without adjusting a bill.'
         : 'This party has no unpaid bills. Tick "Advance payment" to confirm posting this amount to the party ledger.');
       return;
@@ -766,6 +819,9 @@ function NewPaymentTab(): React.ReactElement {
       mode_ledger_id: Number(modeLedgerId),
       reference:      reference.trim() || null,
       notes:          notes.trim() || null,
+      // Which of the party's accounts this settles. Required: an
+      // on-account advance has no allocations to infer it from later.
+      stream,
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error: err } = await (supabase as any)
@@ -1037,21 +1093,56 @@ function NewPaymentTab(): React.ReactElement {
         </div>
       </div>
 
+      {/* ── Account selector — only for parties that trade with us in
+          more than one capacity. BMPT TEXTILES is a customer, a jobwork
+          party and a yarn supplier at once; those balances are settled
+          separately, so the operator must say which one this is. Hidden
+          for the single-role parties that make up almost every payment. */}
+      {partyId !== '' && availableStreams.length > 1 && (
+        <div className="border border-amber-300 bg-amber-50/60 rounded-md p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-2">
+            This party has more than one account — pick the one being settled
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {availableStreams.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStream(s)}
+                className={cn(
+                  'px-3 py-1.5 rounded border text-xs font-medium transition',
+                  s === stream
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-ink-soft border-line hover:border-indigo-400',
+                )}
+              >
+                {STREAM_META[s].label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-amber-900/80 mt-2">
+            {STREAM_META[stream].blurb} Only this account&rsquo;s bills are listed below.
+          </p>
+        </div>
+      )}
+
       {/* ── Unpaid bills of the picked party — bill-to-bill adjustment ── */}
       {partyId !== '' && (
         billsLoading ? (
           <div className="border border-line/40 rounded-md p-4 flex items-center gap-2 text-sm text-ink-mute">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading unpaid bills…
           </div>
-        ) : bills.length === 0 ? (
+        ) : streamBills.length === 0 ? (
           <div className="border border-line/40 rounded-md p-4 text-sm text-ink-soft">
-            No unpaid bills for this party — the payment will be saved on account.
+            {bills.length > 0
+              ? `No unpaid ${STREAM_META[stream].label} bills for this party — the ${direction === 'in' ? 'receipt' : 'payment'} will be saved on account. (They do have open bills on another account.)`
+              : 'No unpaid bills for this party — the payment will be saved on account.'}
           </div>
         ) : (
           <div className="border border-line/40 rounded-md overflow-hidden">
             <div className="px-3 py-2 bg-cloud/40 border-b border-line/40 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                Unpaid bills — tick to adjust this {direction === 'in' ? 'receipt' : 'payment'} against them
+                Unpaid {STREAM_META[stream].label} bills — tick to adjust this {direction === 'in' ? 'receipt' : 'payment'} against them
               </span>
               <span className="text-xs text-ink-mute">
                 Tick bills with no amount typed → amount auto-fills from the bills.
@@ -1073,7 +1164,7 @@ function NewPaymentTab(): React.ReactElement {
                   </tr>
                 </thead>
                 <tbody>
-                  {bills.map((b) => {
+                  {streamBills.map((b) => {
                     const k = billKey(b);
                     const isChecked = checkedBills.has(k);
                     const allocNum = Number(alloc[k] ?? '');
@@ -1178,7 +1269,7 @@ function NewPaymentTab(): React.ReactElement {
           <span>
             <span className="font-semibold text-amber-800">Advance payment — no bill adjusted.</span>{' '}
             <span className="text-ink-soft">
-              {bills.length > 0
+              {streamBills.length > 0
                 ? 'This party has unpaid bills. Tick bills above to adjust, or confirm here to post the amount to the party ledger as an advance.'
                 : 'Post this amount to the party ledger as an advance.'}
             </span>

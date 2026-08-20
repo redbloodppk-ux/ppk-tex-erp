@@ -1846,6 +1846,10 @@ export default function NewInvoicePage() {
                       partyId={customerPartyId}
                       totalAmount={totals.total}
                       direction="in"
+                      // A credit note reduces what they owe us as a
+                      // CUSTOMER; it must not touch their jobwork or
+                      // supplier balance even when they are also both.
+                      stream="customer"
                       heading="Customer's unpaid invoices"
                       onAllocationsChange={setCreditAllocs}
                       onSelectionChange={setCreditPicks}
