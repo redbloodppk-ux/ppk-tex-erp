@@ -202,12 +202,25 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     }
     const taxable = effectiveTaxable;
     if (!Number.isFinite(taxable) || taxable < 0) { setError('Taxable amount must be zero or more.'); return; }
-    // Bill-level gst_pct: with items it's the blended rate (informational —
-    // the register's gst_amount comes from total - taxable, which is exact).
-    const gst = hasItems
-      ? (itemsTotal > 0 ? Math.round((itemsGstTotal / itemsTotal) * 10000) / 100 : 0)
-      : Number(form.gst_pct);
-    if (!Number.isFinite(gst) || gst < 0) { setError('GST % must be zero or more.'); return; }
+    // Bill-level gst_pct means ONE thing: this bill has a single GST rate
+    // and it is this. It used to store a weighted average when the items
+    // disagreed, which produced values like 17.05% — not a GST rate, and
+    // impossible to reconcile against GSTR-2B, which reports rate-wise.
+    //
+    // So: all items on the same rate -> store that rate. Items on
+    // different rates -> NULL, meaning "no single rate; the per-line
+    // gst_pct is the truth". NULL rather than 0 because 0 already means
+    // zero-rated. See migration 260.
+    let gst: number | null;
+    if (hasItems) {
+      const rates = Array.from(new Set(items.map((r) => Number(r.gst) || 0)));
+      gst = rates.length === 1 ? (rates[0] ?? 0) : null;
+    } else {
+      gst = Number(form.gst_pct);
+    }
+    if (gst !== null && (!Number.isFinite(gst) || gst < 0)) {
+      setError('GST % must be zero or more.'); return;
+    }
 
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
