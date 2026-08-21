@@ -24,7 +24,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { STREAM_META, streamForBillKind, type PartyStream } from '@/lib/party-streams';
+import { STREAM_META, type PartyStream } from '@/lib/party-streams';
+import { loadPartyBills, DOC_TYPE_LABEL, billKey, type OpenBill } from '@/lib/party-bills';
 
 // ── Public types ───────────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ export type BillAllocation =
   | { kind: 'bobbin';  bobbin_purchase_id: number; amount: number }
   | { kind: 'yarn';    yarn_lot_id:       number; amount: number }
   | { kind: 'fabric';  fabric_purchase_id: number; amount: number }
+  | { kind: 'agent';   agent_commission_id: number; amount: number }
   | { kind: 'warp_beam'; warp_beam_purchase_id: number; amount: number };
 
 /** Lightweight identifier for a ticked bill — emitted regardless of
@@ -75,35 +77,8 @@ export interface UnpaidBillsPickerProps {
 
 // ── Internal types ─────────────────────────────────────────────────
 
-interface UnpaidBill {
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'warp_beam';
-  id: number;
-  doc_no: string;
-  doc_date: string;
-  doc_type: string;
-  total: number;
-  amount_paid: number;
-  balance: number;
-}
-
-const DOC_TYPE_LABEL: Record<string, string> = {
-  tax_invoice:        'Fabric Sale',
-  yarn_sale:          'Yarn Sale',
-  general_sale:       'General Sale',
-  credit_note:        'Credit Note',
-  debit_note:         'Debit Note',
-  jobwork_invoice:    'Jobwork Bill',
-  weaving_bill:       'Weaving Bill',
-  opening_receivable: 'Opening (Receivable)',
-  opening_payable:    'Opening (Payable)',
-  sizing_bill:        'Sizing Bill',
-  bobbin_purchase:    'Bobbin Purchase',
-  yarn_purchase:      'Yarn Purchase',
-  fabric_purchase:    'Fabric Purchase',
-  warp_beam_purchase: 'Warp Beam Purchase',
-};
-
-function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
+/** Rows come straight from the shared loader. */
+type UnpaidBill = OpenBill;
 
 function fmtINR(n: number | string | null | undefined): string {
   const x = Number(n ?? 0);
@@ -140,188 +115,29 @@ export function UnpaidBillsPicker({
   const [alloc,        setAlloc]        = useState<Record<string, string>>({});
 
   // ── Fetch ────────────────────────────────────────────────────────
+  // Bills come from the SHARED loader (lib/party-bills.ts) so this
+  // picker, the Payments page and the contra tab can never disagree
+  // about what a party owes. This component used to carry its own copy
+  // of the query set and was missing agent_commission entirely
+  // (Rs 9,247.19 across 38 rows at the 2026-08-20 audit), so a credit
+  // note raised here could not be adjusted against a commission though
+  // a payment on the Payments page could.
   const loadBills = useCallback(async (): Promise<void> => {
     if (partyId == null) { setBills([]); setCheckedBills(new Set()); setAlloc({}); return; }
     setLoading(true);
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Pull invoices by party_name (legacy) — we look up the party name
-    // first so the existing ilike-by-name path keeps working.
+
     const partyRes = await sb.from('party').select('name').eq('id', partyId).maybeSingle();
     const partyName: string = partyRes?.data?.name ?? '';
 
-    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
-      sb.from('invoice')
-        .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
-        .ilike('party_name', partyName)
-        .in('status', ['issued', 'partial_paid', 'overdue'])
-        // Exclude reduction-type documents from the unpaid-bills list.
-        // A credit note REDUCES what the customer owes; it's not
-        // itself a debt to be settled, so it shouldn't show up as a
-        // tickable bill. Same for debit notes on the supplier side.
-        .not('doc_type', 'in', '(credit_note,debit_note)')
-        .gt('balance', 0)
-        .order('invoice_date', { ascending: true })
-        .order('id', { ascending: true }),
-      sb.from('party_opening_ledger')
-        .select('id, invoice_no, invoice_date, direction, amount, amount_paid, balance')
-        .eq('party_id', partyId)
-        .eq('status', 'active')
-        .gt('balance', 0)
-        .order('invoice_date', { ascending: true })
-        .order('id', { ascending: true }),
-      sb.from('sizing_job')
-        .select('id, bill_no, bill_date, total_amount, amount_paid')
-        .eq('party_id', partyId)
-        .not('bill_no', 'is', null)
-        .gt('total_amount', 0),
-      sb.from('bobbin_purchase')
-        .select('id, invoice_no, purchase_date, total_amount, amount_paid')
-        .eq('vendor_id', partyId)
-        .gt('total_amount', 0),
-      sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId)
-        .gt('total_amount', 0),
-      // Supplier-purchase fabric_purchase rows are payables to the
-      // fabric supplier. Customer-adjustment rows (source='customer')
-      // are excluded — they're already accounted for via the
-      // synthetic payment created at the time of entry.
-      sb.from('fabric_purchase')
-        .select('id, code, invoice_no, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId)
-        .eq('source', 'supplier')
-        .eq('status', 'active')
-        .gt('total_amount', 0),
-      sb.from('inhouse_warp_beam_purchase')
-        .select('id, code, invoice_no, purchase_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId)
-        .eq('status', 'active')
-        .gt('total_amount', 0),
-    ]);
+    const { bills: all, error: loadErr } = await loadPartyBills(sb, partyId, partyName);
+    if (loadErr) { setError(loadErr); setLoading(false); return; }
 
-    if (invRes.error) { setError(invRes.error.message); setLoading(false); return; }
-
-    const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
-      id: number; invoice_no: string; invoice_date: string; doc_type: string;
-      total: number | string; amount_paid: number | string; balance: number | string;
-    }>).map((r) => ({
-      kind: 'invoice',
-      id: r.id,
-      doc_no: r.invoice_no,
-      doc_date: r.invoice_date,
-      doc_type: r.doc_type,
-      total: Number(r.total ?? 0),
-      amount_paid: Number(r.amount_paid ?? 0),
-      balance: Number(r.balance ?? 0),
-    }));
-
-    const openBills: UnpaidBill[] = ((openRes?.data ?? []) as Array<{
-      id: number; invoice_no: string; invoice_date: string; direction: string;
-      amount: number | string; amount_paid: number | string; balance: number | string;
-    }>).map((r) => ({
-      kind: 'opening',
-      id: r.id,
-      doc_no: r.invoice_no,
-      doc_date: r.invoice_date,
-      doc_type: `opening_${r.direction}`,
-      total: Number(r.amount ?? 0),
-      amount_paid: Number(r.amount_paid ?? 0),
-      balance: Number(r.balance ?? 0),
-    }));
-
-    const sizingBills: UnpaidBill[] = ((sizRes?.data ?? []) as Array<{
-      id: number; bill_no: string | null; bill_date: string | null;
-      total_amount: number | string; amount_paid: number | string;
-    }>)
-      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-      .map((r) => ({
-        kind: 'sizing',
-        id: r.id,
-        doc_no: r.bill_no ?? `SZ-${r.id}`,
-        doc_date: r.bill_date ?? '',
-        doc_type: 'sizing_bill',
-        total: Number(r.total_amount ?? 0),
-        amount_paid: Number(r.amount_paid ?? 0),
-        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      }));
-
-    const bobbinBills: UnpaidBill[] = ((bobRes?.data ?? []) as Array<{
-      id: number; invoice_no: string | null; purchase_date: string | null;
-      total_amount: number | string; amount_paid: number | string;
-    }>)
-      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-      .map((r) => ({
-        kind: 'bobbin',
-        id: r.id,
-        doc_no: r.invoice_no ?? `BB-${r.id}`,
-        doc_date: r.purchase_date ?? '',
-        doc_type: 'bobbin_purchase',
-        total: Number(r.total_amount ?? 0),
-        amount_paid: Number(r.amount_paid ?? 0),
-        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      }));
-
-    const yarnBills: UnpaidBill[] = ((yarnRes?.data ?? []) as Array<{
-      id: number; lot_code: string | null; invoice_no: string | null;
-      received_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>)
-      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-      .map((r) => ({
-        kind: 'yarn',
-        id: r.id,
-        doc_no: r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
-        doc_date: r.received_date ?? '',
-        doc_type: 'yarn_purchase',
-        total: Number(r.total_amount ?? 0),
-        amount_paid: Number(r.amount_paid ?? 0),
-        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      }));
-
-    const fabricBills: UnpaidBill[] = ((fabRes?.data ?? []) as Array<{
-      id: number; code: string; invoice_no: string | null;
-      received_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>)
-      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-      .map((r) => ({
-        kind: 'fabric',
-        id: r.id,
-        doc_no: r.invoice_no ?? r.code ?? `FP-${r.id}`,
-        doc_date: r.received_date ?? '',
-        doc_type: 'fabric_purchase',
-        total: Number(r.total_amount ?? 0),
-        amount_paid: Number(r.amount_paid ?? 0),
-        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      }));
-
-    const warpBeamBills: UnpaidBill[] = ((wbRes?.data ?? []) as Array<{
-      id: number; code: string | null; invoice_no: string | null;
-      purchase_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>)
-      .filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-      .map((r) => ({
-        kind: 'warp_beam',
-        id: r.id,
-        doc_no: r.invoice_no ?? r.code ?? `WB-${r.id}`,
-        doc_date: r.purchase_date ?? '',
-        doc_type: 'warp_beam_purchase',
-        total: Number(r.total_amount ?? 0),
-        amount_paid: Number(r.amount_paid ?? 0),
-        balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      }));
-
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...warpBeamBills]
-      // Keep only the account being settled. A party can be customer,
-      // jobwork party and supplier at once, and without this filter all
-      // of their bills show on every screen — letting an incoming
-      // receipt be ticked against a bill we OWE them.
-      .filter((b) => streamForBillKind(b.doc_type) === stream)
-      .sort((a, b) => {
-        const dc = (a.doc_date ?? '').localeCompare(b.doc_date ?? '');
-        return dc !== 0 ? dc : a.id - b.id;
-      });
-    setBills(merged);
+    // Keep only the account being settled — a receipt must never be able
+    // to settle a payable.
+    setBills(all.filter((b) => b.stream === stream));
     setCheckedBills(new Set());
     setAlloc({});
     setLoading(false);
@@ -382,6 +198,7 @@ export function UnpaidBillsPicker({
         case 'bobbin':  out.push({ kind: 'bobbin',  bobbin_purchase_id: b.id, amount }); break;
         case 'yarn':    out.push({ kind: 'yarn',    yarn_lot_id:        b.id, amount }); break;
         case 'fabric':  out.push({ kind: 'fabric',  fabric_purchase_id: b.id, amount }); break;
+        case 'agent':   out.push({ kind: 'agent',   agent_commission_id: b.id, amount }); break;
         case 'warp_beam': out.push({ kind: 'warp_beam', warp_beam_purchase_id: b.id, amount }); break;
       }
     }
@@ -554,6 +371,7 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
   bobbins:  { bobbin_purchase_id: number; amount: number }[];
   yarns:    { yarn_lot_id: number;        amount: number }[];
   fabrics:  { fabric_purchase_id: number; amount: number }[];
+  agents:   { agent_commission_id: number; amount: number }[];
   warpBeams: { warp_beam_purchase_id: number; amount: number }[];
 } {
   const invoices: { invoice_id: number;         amount: number }[] = [];
@@ -562,6 +380,7 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
   const bobbins:  { bobbin_purchase_id: number; amount: number }[] = [];
   const yarns:    { yarn_lot_id: number;        amount: number }[] = [];
   const fabrics:  { fabric_purchase_id: number; amount: number }[] = [];
+  const agents:   { agent_commission_id: number; amount: number }[] = [];
   const warpBeams: { warp_beam_purchase_id: number; amount: number }[] = [];
   for (const a of allocations) {
     switch (a.kind) {
@@ -571,8 +390,9 @@ export function splitAllocationsByKind(allocations: BillAllocation[]): {
       case 'bobbin':  bobbins .push({ bobbin_purchase_id: a.bobbin_purchase_id, amount: a.amount }); break;
       case 'yarn':    yarns   .push({ yarn_lot_id:        a.yarn_lot_id,        amount: a.amount }); break;
       case 'fabric':  fabrics .push({ fabric_purchase_id: a.fabric_purchase_id, amount: a.amount }); break;
+      case 'agent':   agents  .push({ agent_commission_id: a.agent_commission_id, amount: a.amount }); break;
       case 'warp_beam': warpBeams.push({ warp_beam_purchase_id: a.warp_beam_purchase_id, amount: a.amount }); break;
     }
   }
-  return { invoices, openings, sizings, bobbins, yarns, fabrics, warpBeams };
+  return { invoices, openings, sizings, bobbins, yarns, fabrics, agents, warpBeams };
 }

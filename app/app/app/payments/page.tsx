@@ -33,6 +33,7 @@ import {
   STREAM_META, streamForBillKind, streamsForDirection, directionForStream,
   type PartyStream,
 } from '@/lib/party-streams';
+import { loadPartyBills } from '@/lib/party-bills';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -361,8 +362,12 @@ function NewPaymentTab(): React.ReactElement {
   }, [filteredParties, partyId, partyTypeId]);
 
   // ── Load the party's unpaid bills whenever the party changes ─────────────
-  // Invoices stamp party_name at creation, so we match the picked party
-  // by name (case-insensitive). Only open bills with a balance left.
+  // Bills come from the SHARED loader (lib/party-bills.ts). This page
+  // used to carry its own copy of the eight queries; the bill picker and
+  // the contra tab each carried another, and the three had already
+  // drifted apart (see docs/superpowers/specs/2026-08-20-erp-audit.md).
+  // Rows are mapped onto this page's existing field names so the rest of
+  // the file is untouched.
   const loadBills = useCallback(async (): Promise<void> => {
     setCheckedBills(new Set());
     setAlloc({});
@@ -375,212 +380,21 @@ function NewPaymentTab(): React.ReactElement {
     setBillsLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    // Pull every unpaid bill against this party from the five sources
-    // in parallel. After migration 165 the Payments page is the unified
-    // settlement screen for invoices + opening ledger + sizing bills +
-    // bobbin purchases + yarn purchases.
-    const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, wbRes] = await Promise.all([
-      sb.from('invoice')
-        .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
-        .ilike('party_name', party.name)
-        .in('status', ['issued', 'partial_paid', 'overdue'])
-        // Exclude reduction-type docs — credit / debit notes aren't
-        // themselves debts, so they don't belong in a "tick to settle"
-        // list.
-        .not('doc_type', 'in', '(credit_note,debit_note)')
-        .gt('balance', 0)
-        .order('invoice_date', { ascending: true })
-        .order('id', { ascending: true }),
-      sb.from('party_opening_ledger')
-        .select('id, invoice_no, invoice_date, direction, amount, amount_paid, balance')
-        .eq('party_id', party.id)
-        .eq('status', 'active')
-        .gt('balance', 0)
-        .order('invoice_date', { ascending: true })
-        .order('id', { ascending: true }),
-      // Sizing bills (party_id linked via migration 165 backfill).
-      // Only billed jobs with a remaining balance.
-      sb.from('sizing_job')
-        .select('id, bill_no, bill_date, total_amount, amount_paid')
-        .eq('party_id', party.id)
-        .not('bill_no', 'is', null)
-        .gt('total_amount', 0),
-      // Bobbin purchases against this supplier.
-      sb.from('bobbin_purchase')
-        .select('id, invoice_no, purchase_date, total_amount, amount_paid')
-        .eq('vendor_id', party.id)
-        .gt('total_amount', 0),
-      // Yarn lots against this supplier.
-      sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', party.id)
-        .gt('total_amount', 0),
-      // Fabric resale purchases (migration 170). Only supplier-mode
-      // rows are payable bills; customer-adjustment rows already have
-      // a synthetic payment so they're excluded.
-      sb.from('fabric_purchase')
-        .select('id, code, invoice_no, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', party.id)
-        .eq('source', 'supplier')
-        .eq('status', 'active')
-        .gt('total_amount', 0),
-      // Agent / broker commission owed to this party (from fabric invoices).
-      sb.from('agent_commission')
-        .select('id, amount, amount_paid, balance, invoice:invoice_id ( invoice_no, invoice_date ), yarn_lot:yarn_lot_id ( lot_code, received_date ), fabric_purchase:fabric_purchase_id ( code, received_date )')
-        .eq('agent_party_id', party.id)
-        .eq('status', 'active')
-        .gt('balance', 0),
-      // In-house warp beam purchases against this supplier.
-      sb.from('inhouse_warp_beam_purchase')
-        .select('id, code, invoice_no, purchase_date, total_amount, amount_paid')
-        .eq('supplier_party_id', party.id)
-        .eq('status', 'active')
-        .gt('total_amount', 0),
-    ]);
+
+    const { bills: shared, error: loadErr } = await loadPartyBills(sb, party.id, party.name);
     setBillsLoading(false);
-    if (invRes.error) { setError(invRes.error.message); return; }
-    if (openRes.error) {
-      // eslint-disable-next-line no-console
-      console.warn('opening_ledger not available:', openRes.error.message);
-    }
-    if (sizRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('sizing_job not loadable:', sizRes.error.message); }
-    if (bobRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('bobbin_purchase not loadable:', bobRes.error.message); }
-    if (yarnRes?.error) { /* eslint-disable-next-line no-console */ console.warn('yarn_lot not loadable:', yarnRes.error.message); }
-    if (fabRes?.error)  { /* eslint-disable-next-line no-console */ console.warn('fabric_purchase not loadable:', fabRes.error.message); }
-    if (agentRes?.error){ /* eslint-disable-next-line no-console */ console.warn('agent_commission not loadable:', agentRes.error.message); }
-    if (wbRes?.error)   { /* eslint-disable-next-line no-console */ console.warn('inhouse_warp_beam_purchase not loadable:', wbRes.error.message); }
+    if (loadErr) { setError(loadErr); return; }
 
-    const liveBills: UnpaidBill[] = ((invRes.data ?? []) as Array<{
-      id: number; invoice_no: string; invoice_date: string; doc_type: string;
-      total: number | string; amount_paid: number | string; balance: number | string;
-    }>).map((r) => ({ ...r, kind: 'invoice' }));
-
-    const openBills: UnpaidBill[] = ((openRes?.data ?? []) as Array<{
-      id: number; invoice_no: string; invoice_date: string; direction: string;
-      amount: number | string; amount_paid: number | string; balance: number | string;
-    }>).map((r) => ({
-      kind: 'opening',
-      id: r.id,
-      invoice_no: r.invoice_no,
-      invoice_date: r.invoice_date,
-      doc_type: `opening_${r.direction}`,
-      total: r.amount,
-      amount_paid: r.amount_paid,
-      balance: r.balance,
-    }));
-
-    // sizing / bobbin / yarn bills — balance computed on the fly
-    // because their parent total_amount columns are GENERATED, which
-    // PG won't let us reference from another generated column.
-    const sizingBills: UnpaidBill[] = ((sizRes?.data ?? []) as Array<{
-      id: number; bill_no: string | null; bill_date: string | null;
-      total_amount: number | string; amount_paid: number | string;
-    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'sizing',
-         id: r.id,
-         invoice_no: r.bill_no ?? `SZ-${r.id}`,
-         invoice_date: r.bill_date ?? '',
-         doc_type: 'sizing_bill',
-         total: r.total_amount,
-         amount_paid: r.amount_paid,
-         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-       }));
-
-    const bobbinBills: UnpaidBill[] = ((bobRes?.data ?? []) as Array<{
-      id: number; invoice_no: string | null; purchase_date: string | null;
-      total_amount: number | string; amount_paid: number | string;
-    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'bobbin',
-         id: r.id,
-         invoice_no: r.invoice_no ?? `BB-${r.id}`,
-         invoice_date: r.purchase_date ?? '',
-         doc_type: 'bobbin_purchase',
-         total: r.total_amount,
-         amount_paid: r.amount_paid,
-         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-       }));
-
-    const yarnBills: UnpaidBill[] = ((yarnRes?.data ?? []) as Array<{
-      id: number; lot_code: string | null; invoice_no: string | null;
-      received_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'yarn',
-         id: r.id,
-         invoice_no: r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
-         invoice_date: r.received_date ?? '',
-         doc_type: 'yarn_purchase',
-         total: r.total_amount,
-         amount_paid: r.amount_paid,
-         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-       }));
-
-    const fabricBills: UnpaidBill[] = ((fabRes?.data ?? []) as Array<{
-      id: number; code: string; invoice_no: string | null;
-      received_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'fabric',
-         id: r.id,
-         invoice_no: r.invoice_no ?? r.code ?? `FP-${r.id}`,
-         invoice_date: r.received_date ?? '',
-         doc_type: 'fabric_purchase',
-         total: r.total_amount,
-         amount_paid: r.amount_paid,
-         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-       }));
-
-    const agentBills: UnpaidBill[] = ((agentRes?.data ?? []) as Array<{
-      id: number; amount: number | string; amount_paid: number | string; balance: number | string;
-      invoice: { invoice_no: string | null; invoice_date: string | null } | null;
-      yarn_lot: { lot_code: string | null; received_date: string | null } | null;
-      fabric_purchase: { code: string | null; received_date: string | null } | null;
-    }>).filter((r) => Number(r.balance ?? 0) > 0.005)
-       .map((r) => {
-         // Commission points at one source: fabric sales invoice, yarn
-         // lot, or fabric purchase. Label + date come from whichever set.
-         const srcNo = r.invoice?.invoice_no ?? r.yarn_lot?.lot_code ?? r.fabric_purchase?.code ?? null;
-         const srcDate = r.invoice?.invoice_date ?? r.yarn_lot?.received_date ?? r.fabric_purchase?.received_date ?? '';
-         return {
-           kind: 'agent' as const,
-           id: r.id,
-           invoice_no: srcNo ? `${srcNo} (Comm)` : `COMM-${r.id}`,
-           invoice_date: srcDate,
-           doc_type: 'agent_commission',
-           total: r.amount,
-           amount_paid: r.amount_paid,
-           balance: r.balance,
-         };
-       });
-
-    const warpBeamBills: UnpaidBill[] = ((wbRes?.data ?? []) as Array<{
-      id: number; code: string | null; invoice_no: string | null;
-      purchase_date: string | null; total_amount: number | string; amount_paid: number | string;
-    }>).filter((r) => Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0) > 0.005)
-       .map((r) => ({
-         kind: 'warp_beam',
-         id: r.id,
-         invoice_no: r.invoice_no ?? r.code ?? `WB-${r.id}`,
-         invoice_date: r.purchase_date ?? '',
-         doc_type: 'warp_beam_purchase',
-         total: r.total_amount,
-         amount_paid: r.amount_paid,
-         balance: Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-       }));
-
-    // Sort merged list by date (oldest first) so the operator's mental
-    // model is "settle the oldest bill first" regardless of source.
-    const merged = [...liveBills, ...openBills, ...sizingBills, ...bobbinBills, ...yarnBills, ...fabricBills, ...agentBills, ...warpBeamBills].sort((a, b) => {
-      const dc = a.invoice_date.localeCompare(b.invoice_date);
-      return dc !== 0 ? dc : a.id - b.id;
-    });
-    // Keep every open bill for the party so the stream selector can tell
-    // which accounts are actually in use; the visible list is filtered
-    // to the chosen stream in `streamBills` below. Without that split a
-    // receipt could be ticked against a bill we OWE the party.
-    setBills(merged);
+    setBills(shared.map((b) => ({
+      kind: b.kind,
+      id: b.id,
+      invoice_no: b.doc_no,
+      invoice_date: b.doc_date,
+      doc_type: b.doc_type,
+      total: b.total,
+      amount_paid: b.amount_paid,
+      balance: b.balance,
+    })));
   }, [partyId, parties, supabase]);
 
   /** Bills belonging to the account currently being settled. */

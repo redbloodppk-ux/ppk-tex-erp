@@ -30,21 +30,10 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, ArrowLeftRight, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
-import {
-  STREAM_META, streamForBillKind, streamsForDirection, type PartyStream,
-} from '@/lib/party-streams';
+import { STREAM_META, streamsForDirection, type PartyStream } from '@/lib/party-streams';
+import { loadPartyBills, allocationPayloads, type OpenBill } from '@/lib/party-bills';
 
 interface PartyOpt { id: number; code: string | null; name: string }
-
-/** An open bill that a contra half can be allocated against. */
-interface OpenBill {
-  /** Which allocation table this settles through. */
-  kind: 'invoice' | 'yarn' | 'sizing' | 'bobbin' | 'fabric' | 'warp_beam';
-  id: number;
-  date: string;
-  balance: number;
-  stream: PartyStream;
-}
 
 /** One of a party's accounts with its current open balance. */
 interface AccountBalance {
@@ -54,16 +43,6 @@ interface AccountBalance {
   balance: number;
   bills: number;
 }
-
-/** Allocation table + foreign-key column for each bill kind. */
-const ALLOC_TABLE: Record<OpenBill['kind'], { table: string; col: string }> = {
-  invoice:   { table: 'payment_allocation',            col: 'invoice_id' },
-  yarn:      { table: 'payment_yarn_allocation',       col: 'yarn_lot_id' },
-  sizing:    { table: 'payment_sizing_allocation',     col: 'sizing_job_id' },
-  bobbin:    { table: 'payment_bobbin_allocation',     col: 'bobbin_purchase_id' },
-  fabric:    { table: 'payment_fabric_allocation',     col: 'fabric_purchase_id' },
-  warp_beam: { table: 'payment_warp_beam_allocation',  col: 'warp_beam_purchase_id' },
-};
 
 function fmtINR(n: number): string {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -100,8 +79,11 @@ export function ContraTab(): React.ReactElement {
   }, [supabase]);
 
   // ── Open bills per account for the picked party ──────────────────
-  // Bill-level, not just totals: each contra half is allocated against
-  // real bills oldest-first, which is what actually moves the balances.
+  // Uses the shared loader so this tab sees exactly what the Payments
+  // page and the bill picker see. Before that existed, this tab was
+  // missing party_opening_ledger and agent_commission entirely, which
+  // understated any account holding an opening balance (Rs 21,177 across
+  // 6 parties at the time of the 2026-08-20 audit).
   const loadAccounts = useCallback(async (): Promise<void> => {
     if (partyId === '') { setAccounts([]); setOpenBills([]); return; }
     setLoading(true);
@@ -109,57 +91,13 @@ export function ContraTab(): React.ReactElement {
     const sb = supabase as any;
 
     const partyName = parties.find((p) => p.id === partyId)?.name ?? '';
+    const { bills, error: loadErr } = await loadPartyBills(sb, Number(partyId), partyName);
+    if (loadErr) { setError(loadErr); setLoading(false); return; }
 
-    const [invRes, yarnRes, sizRes, bobRes, fabRes, wbRes] = await Promise.all([
-      sb.from('invoice')
-        .select('id, invoice_date, doc_type, balance')
-        .ilike('party_name', partyName)
-        .in('status', ['issued', 'partial_paid', 'overdue'])
-        .not('doc_type', 'in', '(credit_note,debit_note)')
-        .gt('balance', 0),
-      sb.from('yarn_lot').select('id, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId),
-      sb.from('sizing_job').select('id, bill_date, total_amount, amount_paid')
-        .eq('party_id', partyId).not('bill_no', 'is', null),
-      sb.from('bobbin_purchase').select('id, purchase_date, total_amount, amount_paid')
-        .eq('vendor_id', partyId),
-      sb.from('fabric_purchase').select('id, received_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId).eq('source', 'supplier').eq('status', 'active'),
-      sb.from('inhouse_warp_beam_purchase').select('id, purchase_date, total_amount, amount_paid')
-        .eq('supplier_party_id', partyId).eq('status', 'active'),
-    ]);
-
-    const found: OpenBill[] = [];
-    for (const r of ((invRes?.data ?? []) as Array<{ id: number; invoice_date: string; doc_type: string; balance: number | string }>)) {
-      const bal = Number(r.balance ?? 0);
-      if (bal > 0.005) {
-        found.push({ kind: 'invoice', id: r.id, date: r.invoice_date, balance: bal, stream: streamForBillKind(r.doc_type) });
-      }
-    }
-    const purchaseSets: Array<[OpenBill['kind'], unknown[], string]> = [
-      ['yarn',      (yarnRes?.data ?? []) as unknown[], 'received_date'],
-      ['sizing',    (sizRes?.data  ?? []) as unknown[], 'bill_date'],
-      ['bobbin',    (bobRes?.data  ?? []) as unknown[], 'purchase_date'],
-      ['fabric',    (fabRes?.data  ?? []) as unknown[], 'received_date'],
-      ['warp_beam', (wbRes?.data   ?? []) as unknown[], 'purchase_date'],
-    ];
-    for (const [kind, rows, dateCol] of purchaseSets) {
-      for (const raw of rows) {
-        const r = raw as Record<string, unknown>;
-        const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
-        if (bal > 0.005) {
-          found.push({
-            kind, id: Number(r.id), date: String(r[dateCol] ?? ''),
-            balance: Math.round(bal * 100) / 100, stream: 'supplier',
-          });
-        }
-      }
-    }
-    found.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.id - b.id);
-    setOpenBills(found);
+    setOpenBills(bills);
 
     const acc = new Map<PartyStream, { balance: number; bills: number }>();
-    for (const b of found) {
+    for (const b of bills) {
       const cur = acc.get(b.stream) ?? { balance: 0, bills: 0 };
       cur.balance += b.balance; cur.bills += 1;
       acc.set(b.stream, cur);
@@ -225,20 +163,17 @@ export function ContraTab(): React.ReactElement {
     // invisible on the statement.
     const rows = (data ?? []) as Array<{ id: number; payment_no: string; stream: PartyStream }>;
     for (const row of rows) {
+      // FIFO across that account's own bills, oldest first.
       let remaining = amt;
-      const queue = openBills.filter((b) => b.stream === row.stream);
-      const byTable = new Map<string, Array<Record<string, number>>>();
-      for (const b of queue) {
+      const allocs: Array<{ kind: OpenBill['kind']; id: number; amount: number }> = [];
+      for (const b of openBills.filter((x) => x.stream === row.stream)) {
         if (remaining <= 0.005) break;
         const take = Math.round(Math.min(b.balance, remaining) * 100) / 100;
         if (take <= 0.005) continue;
-        const { table, col } = ALLOC_TABLE[b.kind];
-        const list = byTable.get(table) ?? [];
-        list.push({ payment_id: row.id, [col]: b.id, amount: take });
-        byTable.set(table, list);
+        allocs.push({ kind: b.kind, id: b.id, amount: take });
         remaining = Math.round((remaining - take) * 100) / 100;
       }
-      for (const [table, payload] of byTable.entries()) {
+      for (const { table, rows: payload } of allocationPayloads(row.id, allocs)) {
         const { error: aErr } = await sb.from(table).insert(payload);
         if (aErr) {
           setBusy(false);
@@ -248,9 +183,7 @@ export function ContraTab(): React.ReactElement {
         }
       }
       if (remaining > 0.005) {
-        // Shouldn't happen — the amount is capped at the smaller balance —
-        // but say so rather than leaving a silent part-allocated contra.
-        setError(`₹${fmtINR(remaining)} of the ${STREAM_META[row.stream].label} side could not be matched to a bill and is sitting on account.`);
+        setError(`\u20b9${fmtINR(remaining)} of the ${STREAM_META[row.stream].label} side could not be matched to a bill and is sitting on account.`);
       }
     }
 
