@@ -4,7 +4,7 @@ import { PageHeader } from '@/app/components/page-header';
 import {
   FabricQualityForm,
   type EndsRowOption, type YarnCountOption,
-  type FabricQualityHeader, type FQEndsLine, type FQWarpLine, type FQWeftLine, type FQRateLine,
+  type FabricQualityHeader,
 } from '../fabric-quality-form';
 
 export const metadata = { title: 'Edit Fabric Quality' };
@@ -50,13 +50,16 @@ export default async function EditFabricQualityPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [hdrRes, endsRowsRes, warpRowsRes, weftRowsRes, rateRowsRes, endsOptRes, countOptRes] =
+  // The fabric_quality_ends / _warp_count / _weft / _weaving_rate link
+  // tables were queried here and passed to the form as endsLines /
+  // warpLines / weftLines / rateLines. Both halves were dead: the tables
+  // are permanently empty (the form writes only to calc_snapshot and
+  // never inserts into them), AND the form declared those props without
+  // ever reading them — it rebuilds its state from calc_snapshot.
+  // Four queries removed in the 2026-08-20 audit.
+  const [hdrRes, endsOptRes, countOptRes] =
     await Promise.all([
       sb.from('fabric_quality').select('*').eq('id', numericId).maybeSingle(),
-      sb.from('fabric_quality_ends').select('sno, ends_id').eq('fabric_quality_id', numericId).order('sno'),
-      sb.from('fabric_quality_warp_count').select('sno, yarn_count_id').eq('fabric_quality_id', numericId).order('sno'),
-      sb.from('fabric_quality_weft').select('sno, yarn_count_id, wgt_per_mtr_actual, meter_per_kg, wgt_per_mtr_manual').eq('fabric_quality_id', numericId).order('sno'),
-      sb.from('fabric_quality_weaving_rate').select('sno, fabric_type, rate_per_meter').eq('fabric_quality_id', numericId).order('sno'),
       sb.from('ends_master').select('id, code, name').eq('active', true).order('ends_count'),
       sb.from('yarn_count').select('id, code, display_name').neq('status', 'archived').order('code'),
     ]);
@@ -87,35 +90,6 @@ export default async function EditFabricQualityPage({
     notes:             fq.notes ?? '',
   };
 
-  const endsLines: FQEndsLine[] = (endsRowsRes.data ?? []).map(
-    (r: { sno: number; ends_id: number | null }) => ({ sno: r.sno, ends_id: r.ends_id }),
-  );
-  const warpLines: FQWarpLine[] = (warpRowsRes.data ?? []).map(
-    (r: { sno: number; yarn_count_id: number | null }) => ({ sno: r.sno, yarn_count_id: r.yarn_count_id }),
-  );
-  const weftLines: FQWeftLine[] = (weftRowsRes.data ?? []).map(
-    (r: {
-      sno: number;
-      yarn_count_id: number | null;
-      wgt_per_mtr_actual: number | string | null;
-      meter_per_kg: number | string | null;
-      wgt_per_mtr_manual: number | string | null;
-    }) => ({
-      sno: r.sno,
-      yarn_count_id: r.yarn_count_id,
-      wgt_per_mtr_actual: s(r.wgt_per_mtr_actual),
-      meter_per_kg: s(r.meter_per_kg),
-      wgt_per_mtr_manual: s(r.wgt_per_mtr_manual),
-    }),
-  );
-  const rateLines: FQRateLine[] = (rateRowsRes.data ?? []).map(
-    (r: { sno: number; fabric_type: string | null; rate_per_meter: number | string | null }) => ({
-      sno: r.sno,
-      fabric_type: r.fabric_type ?? '',
-      rate_per_meter: s(r.rate_per_meter),
-    }),
-  );
-
   const endsOptions = (endsOptRes.data ?? []) as unknown as EndsRowOption[];
   const countOptions = (countOptRes.data ?? []) as unknown as YarnCountOption[];
 
@@ -134,10 +108,6 @@ export default async function EditFabricQualityPage({
         fabricQualityId={fq.id}
         code={fq.code}
         header={header}
-        endsLines={endsLines}
-        warpLines={warpLines}
-        weftLines={weftLines}
-        rateLines={rateLines}
         endsOptions={endsOptions}
         countOptions={countOptions}
       />

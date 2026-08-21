@@ -100,32 +100,29 @@ async function getQualityYarnCounts(
 ): Promise<{ warpCountIds: number[]; weftCountIds: number[]; porvaiCountIds: number[] }> {
   const qIds = await getPooledQualityIds(sb, fabric_quality_id);
 
-  const [wcRes, weftRes, fqRes] = await Promise.all([
-    sb.from('fabric_quality_warp_count').select('yarn_count_id').in('fabric_quality_id', qIds),
-    sb.from('fabric_quality_weft').select('fabric_quality_id, yarn_count_id').in('fabric_quality_id', qIds),
-    sb.from('fabric_quality').select('id, calc_snapshot').in('id', qIds),
-  ]);
+  // calc_snapshot is the ONLY source of a quality's yarn counts. The
+  // fabric_quality_warp_count / _weft link tables are permanently empty —
+  // the Fabric Quality form writes solely to calc_snapshot and never
+  // inserts into them — so the old "link table first, snapshot as
+  // fallback" branches always took the fallback. Removed in the
+  // 2026-08-20 audit; see that spec for the row counts.
+  const { data: fqRows } = await sb
+    .from('fabric_quality')
+    .select('id, calc_snapshot')
+    .in('id', qIds);
 
   const warpSet   = new Set<number>();
   const weftSet   = new Set<number>();
   const porvaiSet = new Set<number>();
 
-  for (const r of ((wcRes.data ?? []) as Array<{ yarn_count_id: number | null }>)) {
-    if (r.yarn_count_id != null) warpSet.add(Number(r.yarn_count_id));
-  }
-  const weftLinkedFqIds = new Set<number>();
-  for (const r of ((weftRes.data ?? []) as Array<{ fabric_quality_id: number; yarn_count_id: number | null }>)) {
-    weftLinkedFqIds.add(r.fabric_quality_id);
-    if (r.yarn_count_id != null) weftSet.add(Number(r.yarn_count_id));
-  }
-  for (const r of ((fqRes.data ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
+  for (const r of ((fqRows ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
     const snap = r.calc_snapshot;
     if (!snap) continue;
-    if (warpSet.size === 0 && snap.warpCountId != null && snap.warpCountId !== '') {
+    if (snap.warpCountId != null && snap.warpCountId !== '') {
       const n = Number(snap.warpCountId);
       if (Number.isFinite(n) && n > 0) warpSet.add(n);
     }
-    if (!weftLinkedFqIds.has(r.id) && snap.weftCountId != null && snap.weftCountId !== '') {
+    if (snap.weftCountId != null && snap.weftCountId !== '') {
       const n = Number(snap.weftCountId);
       if (Number.isFinite(n) && n > 0) weftSet.add(n);
     }

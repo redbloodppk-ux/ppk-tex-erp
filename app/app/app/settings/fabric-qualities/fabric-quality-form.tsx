@@ -95,12 +95,13 @@ export interface FabricQualityFormProps {
   fabricQualityId?: number;
   // Legacy props from the previous form — kept for API compatibility with
   // /settings/fabric-qualities/[id]; not used here.
+  //
+  // endsLines / warpLines / weftLines / rateLines were removed in the
+  // 2026-08-20 audit: they were fed from the fabric_quality_* link
+  // tables, which are permanently empty, and this form never read them —
+  // it rebuilds its state from fabric_quality.calc_snapshot.
   code?: string;
   header?: Partial<FabricQualityHeader>;
-  endsLines?: FQEndsLine[];
-  warpLines?: FQWarpLine[];
-  weftLines?: FQWeftLine[];
-  rateLines?: FQRateLine[];
   endsOptions: EndsRowOption[];
   countOptions: YarnCountOption[];
 }

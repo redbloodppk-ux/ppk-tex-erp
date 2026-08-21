@@ -61,25 +61,27 @@ async function resolveKeysForQualities(
     return { pooledQIds: [], weftCountIds: new Set(), porvaiCountIds: new Set(), bobbinSpecs: [] };
   }
 
-  const [wcRes, weftRes, fqRes] = await Promise.all([
-    sb.from('fabric_quality_warp_count').select('yarn_count_id').in('fabric_quality_id', pooledQIds),
-    sb.from('fabric_quality_weft').select('fabric_quality_id, yarn_count_id').in('fabric_quality_id', pooledQIds),
-    sb.from('fabric_quality').select('id, calc_snapshot').in('id', pooledQIds),
-  ]);
+  // calc_snapshot is the ONLY source of a quality's yarn / bobbin specs.
+  // The fabric_quality_weft / _warp_count / _ends / _weaving_rate link
+  // tables were a normalised design that was abandoned: the Fabric
+  // Quality form writes solely to fabric_quality.calc_snapshot and never
+  // inserts into them, so all four are permanently empty. The old
+  // "try the link table, else fall back to the snapshot" branches always
+  // took the fallback, and would have silently changed stock maths the
+  // day anyone put a row in one. Removed in the 2026-08-20 audit.
+  const { data: fqRows } = await sb
+    .from('fabric_quality')
+    .select('id, calc_snapshot')
+    .in('id', pooledQIds);
 
   const weftSet   = new Set<number>();
   const porvaiSet = new Set<number>();
   const bobbinIds = new Set<number>();
 
-  const weftLinkedFqIds = new Set<number>();
-  for (const r of ((weftRes.data ?? []) as Array<{ fabric_quality_id: number; yarn_count_id: number | null }>)) {
-    weftLinkedFqIds.add(r.fabric_quality_id);
-    if (r.yarn_count_id != null) weftSet.add(Number(r.yarn_count_id));
-  }
-  for (const r of ((fqRes.data ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
+  for (const r of ((fqRows ?? []) as Array<{ id: number; calc_snapshot: Record<string, unknown> | null }>)) {
     const snap = r.calc_snapshot;
     if (!snap) continue;
-    if (!weftLinkedFqIds.has(r.id) && snap.weftCountId != null && snap.weftCountId !== '') {
+    if (snap.weftCountId != null && snap.weftCountId !== '') {
       const n = Number(snap.weftCountId);
       if (Number.isFinite(n) && n > 0) weftSet.add(n);
     }
@@ -92,9 +94,6 @@ async function resolveKeysForQualities(
       if (Number.isFinite(n) && n > 0) bobbinIds.add(n);
     }
   }
-  // wcRes is unused for now (warp count) - the warp stock is pooled by
-  // fabric_quality_id directly via jobwork_warp_beam.
-  void wcRes;
 
   // Bobbin specs: resolve (ends_per_bobbin, bobbin_metre) for each
   // assigned bobbin id, dedupe.

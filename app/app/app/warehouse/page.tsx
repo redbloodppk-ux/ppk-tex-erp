@@ -2586,27 +2586,14 @@ async function loadInhouseOpeningStock(
         .eq('dc.production_mode', 'inhouse'),
     );
 
-    // Resolve the primary warp count for every fabric_quality that
-    // appears in the receipts. fabric_quality_warp_count is a multi-row
-    // table (one row per sno) — we use sno=1 as the primary count.
-    // Multi-warp qualities will pick their first listed count; that
-    // matches the pavu side because pavu also locks to a single
-    // sizing_job.warp_count_id per beam.
-    const receiptQualityIds = Array.from(new Set(
-      receipts.flatMap((r) => (Array.isArray(r.items) ? r.items : []))
-        .map((it) => it.fabric_quality_id)
-        .filter((x): x is number => x != null),
-    ));
-    const warpCountByQuality = new Map<number, number | null>();
-    if (receiptQualityIds.length > 0) {
-      const links = await safeSelect<{ fabric_quality_id: number; yarn_count_id: number | null; sno: number }>(
-        supabase.from('fabric_quality_warp_count')
-          .select('fabric_quality_id, yarn_count_id, sno')
-          .in('fabric_quality_id', receiptQualityIds)
-          .eq('sno', 1),
-      );
-      for (const l of links) warpCountByQuality.set(l.fabric_quality_id, l.yarn_count_id);
-    }
+    // Warp count per fabric quality comes from calc_snapshot
+    // (snapWarpCountByQuality, built above). The fabric_quality_warp_count
+    // link table used to be consulted first with the snapshot as
+    // fallback, but that table is permanently empty — the Fabric Quality
+    // form writes only to calc_snapshot and never inserts into it — so
+    // the lookup always returned nothing. Removed in the 2026-08-20
+    // audit; keeping it would have silently changed which warp column a
+    // receipt lands in the day anyone added a row.
 
     for (const r of receipts) {
       const items = Array.isArray(r.items) ? r.items : [];
@@ -2618,9 +2605,7 @@ async function loadInhouseOpeningStock(
         // every inflow source, so per-spec stock nets correctly.
         if (ends <= 0) continue;
         const warpCountId = it.fabric_quality_id != null
-          ? (warpCountByQuality.get(it.fabric_quality_id)
-             ?? snapWarpCountByQuality.get(it.fabric_quality_id)
-             ?? null)
+          ? (snapWarpCountByQuality.get(it.fabric_quality_id) ?? null)
           : null;
         const colId = ensureEndsCountCol(ends, warpCountId);
         events.push({

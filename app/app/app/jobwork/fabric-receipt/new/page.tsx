@@ -159,24 +159,15 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     for (const row of (fqRows ?? []) as Array<FqRow & { is_merged: boolean; merged_name: string | null }>) fqById.set(row.id, row);
   }
 
-  // Ends-master link per fabric quality. Try the link table first; if
-  // empty, fall back to calc_snapshot.endsId.
+  // Ends-master link per fabric quality, resolved from
+  // calc_snapshot.endsId. The fabric_quality_ends link table used to be
+  // tried first, but it is permanently empty — the Fabric Quality form
+  // writes only to calc_snapshot and never inserts into it — so that
+  // branch never produced a row. Removed in the 2026-08-20 audit.
   const fqEndsById = new Map<number, { ends_id: number; ends_count: number; ends_code: string } | null>();
   const endsToLookup = new Set<number>();
   if (qIds.length > 0) {
-    const { data: feRows } = await sb
-      .from('fabric_quality_ends')
-      .select('fabric_quality_id, ends:ends_id ( id, code, ends_count )')
-      .in('fabric_quality_id', qIds)
-      .order('sno');
-    for (const r of (feRows ?? [])) {
-      if (fqEndsById.has(r.fabric_quality_id)) continue;
-      const e = r.ends;
-      fqEndsById.set(r.fabric_quality_id, e ? { ends_id: e.id, ends_count: e.ends_count, ends_code: e.code } : null);
-    }
-    // Collect ends_ids from calc_snapshot for qualities not yet resolved.
     for (const qId of qIds) {
-      if (fqEndsById.has(qId)) continue;
       const snap = fqById.get(qId)?.calc_snapshot;
       const endsId = snap?.endsId;
       if (endsId != null && endsId !== '') {
@@ -201,25 +192,15 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     }
   }
 
-  // Weft yarn-count per fabric quality. Same pattern - link table first,
-  // calc_snapshot.weftCountId as fallback. We also pull the count's `ne`
-  // (English count number, e.g. 39) so the form shows the count instead
-  // of the master code (YC-0001).
+  // Weft yarn-count per fabric quality, from calc_snapshot.weftCountId.
+  // (fabric_quality_weft link table dropped from this lookup in the
+  // 2026-08-20 audit — permanently empty, see above.) We also pull the
+  // count's `ne` (English count number, e.g. 39) so the form shows the
+  // count instead of the master code (YC-0001).
   const fqWeftById = new Map<number, { yarn_count_id: number; code: string; ne: number | null } | null>();
   const weftIdsToLookup = new Set<number>();
   if (qIds.length > 0) {
-    const { data: fwRows } = await sb
-      .from('fabric_quality_weft')
-      .select('fabric_quality_id, yarn_count:yarn_count_id ( id, code, ne )')
-      .in('fabric_quality_id', qIds)
-      .order('sno');
-    for (const r of (fwRows ?? [])) {
-      if (fqWeftById.has(r.fabric_quality_id)) continue;
-      const y = r.yarn_count;
-      fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code, ne: y.ne != null ? Number(y.ne) : null } : null);
-    }
     for (const qId of qIds) {
-      if (fqWeftById.has(qId)) continue;
       const weftId = fqById.get(qId)?.calc_snapshot?.weftCountId;
       if (weftId != null && weftId !== '') {
         weftIdsToLookup.add(Number(weftId));
@@ -271,21 +252,12 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     }
   }
 
-  // Also pull fabric_quality_weft links for sibling ids so weft counts
-  // contribute to the pool. Original qIds are already covered above.
+  // Weft counts for merged-delivery SIBLING qualities, so they
+  // contribute to the pooled stock. Original qIds are covered above.
+  // (The fabric_quality_weft lookup that used to run first here was
+  // removed in the 2026-08-20 audit — permanently empty table.)
   const siblingOnlyIds = Array.from(pooledQIds).filter((id) => !qIds.includes(id));
   if (siblingOnlyIds.length > 0) {
-    const { data: sibWeft } = await sb
-      .from('fabric_quality_weft')
-      .select('fabric_quality_id, yarn_count:yarn_count_id ( id, code, ne )')
-      .in('fabric_quality_id', siblingOnlyIds)
-      .order('sno');
-    for (const r of (sibWeft ?? [])) {
-      if (fqWeftById.has(r.fabric_quality_id)) continue;
-      const y = r.yarn_count;
-      fqWeftById.set(r.fabric_quality_id, y ? { yarn_count_id: y.id, code: y.code, ne: y.ne != null ? Number(y.ne) : null } : null);
-    }
-    // Fallback to calc_snapshot.weftCountId for siblings with no link table row.
     for (const sid of siblingOnlyIds) {
       if (fqWeftById.has(sid)) continue;
       const weftId = fqById.get(sid)?.calc_snapshot?.weftCountId;
