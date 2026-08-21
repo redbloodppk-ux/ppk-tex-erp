@@ -40,3 +40,6 @@ coverage/
 *conflicted copy*
 *.~lock.*
 app/tsc_out.txt
+
+# Word / Office lock files (this project sits inside Dropbox)
+~$*
