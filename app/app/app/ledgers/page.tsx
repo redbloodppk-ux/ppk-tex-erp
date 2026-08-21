@@ -46,7 +46,7 @@ interface LedgerOpt {
 export default async function LedgersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; type?: string; name?: string; ledger?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<{ tab?: string; type?: string; name?: string; ledger?: string; sort?: string; dir?: string; scope?: string }>;
 }) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'view' ? 'view' : 'master';
@@ -69,6 +69,27 @@ export default async function LedgersPage({
   const types = (typesRes.data ?? []) as TypeOpt[];
   const nameOptions = (namesRes.data ?? []) as NameOpt[];
 
+  // ── Operational accounts vs party mirrors ────────────────────────
+  // Ledger types in this set are auto-created one-per-party by triggers
+  // (see migration 121): every customer, supplier, agent and jobwork
+  // party gets a mirror ledger. There are 186 of them against 21 real
+  // accounts, so unfiltered this list is a duplicate of the party master
+  // with your banks and expense heads lost inside it.
+  //
+  // The mirrors are NOT dead — party.ledger_id points at them and that
+  // is how Ledger View finds a party's bills and the statement finds
+  // their bank entries. They are just not what you come to this screen
+  // to manage, so they are hidden by default rather than removed.
+  const PARTY_MIRROR_TYPES = new Set([
+    'CUSTOMER', 'SUPPLIER', 'AGENT',
+    'JOB WORK(CUSTOMER)', 'JOB WORK(VENDOR)', 'SIZING(VENDOR)', 'WEAVING(VENDOR)',
+  ]);
+  const operationalTypeIds = types
+    .filter((t) => !PARTY_MIRROR_TYPES.has((t.name ?? '').toUpperCase()))
+    .map((t) => t.id);
+  /** 'operational' (default) hides the per-party mirrors; 'all' shows everything. */
+  const scope: 'operational' | 'all' = sp.scope === 'all' ? 'all' : 'operational';
+
   // On Master tab we render the filtered table. On View tab we just
   // need the full ledger list (flattened with type name) to populate
   // the dropdown inside the client component.
@@ -81,7 +102,13 @@ export default async function LedgersPage({
       .from('ledger')
       .select('id, code, name, gstin, gstin_verified_at, phone, area, active, type_id, group_id, ledger_type:type_id(name), ledger_group:group_id(name)')
       .order(sort, { ascending: dir === 'asc' });
-    if (typeFilter) q = q.eq('type_id', Number(typeFilter));
+    if (typeFilter) {
+      // An explicit Type choice always wins over the scope toggle —
+      // picking "CUSTOMER" should show customer ledgers.
+      q = q.eq('type_id', Number(typeFilter));
+    } else if (scope === 'operational' && operationalTypeIds.length > 0) {
+      q = q.in('type_id', operationalTypeIds);
+    }
     if (nameFilter) q = q.ilike('name', `%${nameFilter}%`);
     const res = await q;
     rows = (res.data ?? []) as unknown as LedgerListRow[];
@@ -104,18 +131,21 @@ export default async function LedgersPage({
   }
 
   // Helper to build filter / tab links that preserve the other params.
-  function buildHref(next: Partial<{ tab: Tab; type: string | null; name: string | null }>): string {
+  function buildHref(next: Partial<{ tab: Tab; type: string | null; name: string | null; scope: 'operational' | 'all' }>): string {
     const params = new URLSearchParams();
     const t = next.tab ?? tab;
     if (t === 'view') params.set('tab', 'view');
     // Preserve ledger filter on the View tab.
     if (t === 'view' && sp.ledger) params.set('ledger', sp.ledger);
-    // Preserve type / name only on the Master tab.
+    // Preserve type / name / scope only on the Master tab.
     if (t === 'master') {
       const ty = next.type !== undefined ? next.type : typeFilter;
       const nm = next.name !== undefined ? next.name : nameFilter;
+      const sc = next.scope !== undefined ? next.scope : scope;
       if (ty) params.set('type', ty);
       if (nm) params.set('name', nm);
+      // 'operational' is the default, so only 'all' needs to be in the URL.
+      if (sc === 'all') params.set('scope', 'all');
     }
     const qs = params.toString();
     return qs ? `/app/ledgers?${qs}` : '/app/ledgers';
@@ -189,10 +219,51 @@ export default async function LedgersPage({
               </datalist>
             </div>
             <div className="flex items-end gap-2">
+              {/* Carry the scope through the GET form, otherwise applying
+                  a name filter would silently snap back to the default. */}
+              {scope === 'all' && <input type="hidden" name="scope" value="all" />}
               <button type="submit" className="btn-primary">Apply</button>
               <Link href="/app/ledgers" className="btn-ghost">Clear</Link>
             </div>
           </form>
+
+          {/* Scope toggle. The Master list is 210 rows, but 186 of those
+              are auto-created one per customer / supplier / agent / jobwork
+              party — a duplicate of the party master. Your ~21 real
+              accounts (banks, cash, expense heads, wages) get lost in it,
+              so party ledgers are hidden unless asked for. */}
+          {!typeFilter && (
+            <div className="flex items-center gap-2 mb-4 text-xs">
+              <span className="text-ink-mute">Showing</span>
+              <Link
+                href={buildHref({ scope: 'operational' })}
+                className={
+                  'px-2.5 py-1 rounded border font-medium ' +
+                  (scope === 'operational'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-ink-soft border-line hover:border-indigo-400')
+                }
+              >
+                Operational accounts
+              </Link>
+              <Link
+                href={buildHref({ scope: 'all' })}
+                className={
+                  'px-2.5 py-1 rounded border font-medium ' +
+                  (scope === 'all'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-ink-soft border-line hover:border-indigo-400')
+                }
+              >
+                All, including party ledgers
+              </Link>
+              <span className="text-ink-mute">
+                {scope === 'operational'
+                  ? 'banks, cash, expense heads, wages — party ledgers hidden'
+                  : 'includes one auto-created ledger per party'}
+              </span>
+            </div>
+          )}
 
           {listError && (
             <div className="card p-4 text-sm text-err mb-4">
