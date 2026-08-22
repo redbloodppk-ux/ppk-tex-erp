@@ -3216,6 +3216,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                 <div className="text-xs text-ink-soft">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                   <div><div className="text-ink-mute">Warp count</div><div>{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+                  <div><div className="text-ink-mute">Set no</div><div className="font-mono">
+                    {new Set(g.rows.map((x) => x.sizing_set_no ?? '')).size > 1 ? 'Mixed' : (first.sizing_set_no || '-')}
+                  </div></div>
                   <div><div className="text-ink-mute">Ends</div><div className="num">{g.commonEnds === undefined ? 'Mixed' : (g.commonEnds ?? '-')}</div></div>
                   <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{g.totalBeams}</div></div>
                   <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{g.totalMetres}</div></div>
@@ -3272,6 +3275,13 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                     <td className="px-3 py-2">{partyById.get(first.jobwork_party_id)?.name ?? '-'}</td>
                     <td className="px-3 py-2">{first.fabric_quality_id ? qualityById.get(first.fabric_quality_id)?.name ?? '-' : '-'}</td>
                     <td className="px-3 py-2">{first.warp_count_id ? countById.get(first.warp_count_id)?.display_name ?? '-' : '-'}</td>
+                    {/* Set no — 'Mixed' when the beams in this batch
+                        disagree, same convention as Ends below. */}
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {new Set(g.rows.map((x) => x.sizing_set_no ?? '')).size > 1
+                        ? <span className="text-ink-mute">Mixed</span>
+                        : (first.sizing_set_no || '-')}
+                    </td>
                     <td className="px-3 py-2 text-right num text-ink-mute">
                       {g.commonEnds === undefined ? 'Mixed' : (g.commonEnds ?? '-')}
                     </td>
