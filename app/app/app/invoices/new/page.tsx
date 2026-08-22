@@ -1250,6 +1250,15 @@ export default function NewInvoicePage() {
         return firstInvoice ? (firstInvoice as { invoice_id: number }).invoice_id : null;
       })(),
       party_name:    partyName,
+      // The STABLE link to the party master (migration 262). party_name
+      // above stays as the name printed on this document; party_id is
+      // what every lookup uses, so a later rename can't detach this
+      // invoice from its party.
+      //
+      // Null for debit notes: those pick from `vendors`, which are
+      // LEDGERS not parties, so there is no party id to resolve. Lookups
+      // fall back to party_name for those.
+      party_id:      docType === 'debit_note' ? null : customerPartyId,
       party_gstin:   partyGstin,
       party_state:   partyState,
       place_of_supply: placeOfSupply,

@@ -91,10 +91,9 @@ const n = (v: unknown): number => Number(v ?? 0);
 /**
  * Every open bill for a party, across all eight sources, oldest first.
  *
- * `partyName` is needed because invoices stamp `party_name` at creation
- * and are matched by name rather than by id — a fragility flagged in the
- * audit (section A3) and deliberately preserved here so this refactor
- * changes no behaviour.
+ * `partyName` is retained in the signature for callers and future use,
+ * but invoices are now matched on party_id (migration 262), not on the
+ * printed party_name.
  */
 export async function loadPartyBills(
   sb: Sb,
@@ -102,9 +101,20 @@ export async function loadPartyBills(
   partyName: string,
 ): Promise<{ bills: OpenBill[]; error: string | null }> {
   const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, wbRes] = await Promise.all([
+    // Matched on party_id, not party_name. The old text match worked only
+    // while every party name stayed unique and unchanged - a rename would
+    // have silently detached a party's whole invoice history with no
+    // error. party_name is still the name PRINTED on the document; it is
+    // no longer the link. See migration 262.
+    //
+    // No party_name fallback: PostgREST .or() cannot safely carry a raw
+    // name, and 4 parties contain characters that break its syntax
+    // (e.g. "SRI V BALAJI SPINNING MILLS INDIA (P) LTD"). All 94 existing
+    // invoices were backfilled and the invoice form now writes party_id,
+    // so a plain equality is both correct and safe.
     sb.from('invoice')
       .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
-      .ilike('party_name', partyName)
+      .eq('party_id', partyId)
       .in('status', ['issued', 'partial_paid', 'overdue'])
       // Credit / debit notes reduce what is owed; they are not themselves
       // debts, so they never belong in a "tick to settle" list.

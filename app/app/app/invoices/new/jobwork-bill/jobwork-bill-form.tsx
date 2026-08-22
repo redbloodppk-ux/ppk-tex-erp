@@ -634,6 +634,10 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       customer_id: null,
       invoice_date: billDate,
       party_name: party.name,
+      // Stable link to the party master (migration 262). jobwork_party_id
+      // already holds this same party id; party_id keeps the lookup
+      // consistent with every other invoice type.
+      party_id: party.id,
       party_gstin: party.gstin,
       party_state: party.state,
       place_of_supply: party.state,
