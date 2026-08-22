@@ -96,6 +96,26 @@ wastage can't be measured from it.
 Not examined at all this session. Worth its own pass — particularly with
 Supabase keys sitting in a Dropbox folder.
 
+### B6a. `node_modules` is only half-downloaded from Dropbox
+
+`typescript`, `next`, `react` and `react-dom` are online-only placeholders —
+any tool that opens them gets an I/O error, so `tsc` and `vitest` cannot run
+in this folder as it stands. The party_id change was typechecked against a
+separately installed TypeScript instead, which catches real type errors but
+not missing-module ones.
+
+Fix: right-click `node_modules` in Dropbox → **Make available offline**, or
+keep the checkout outside Dropbox and let Dropbox hold only the source.
+
+### B6b. Git line endings
+
+Windows Git has `core.autocrlf=true`, so the working copy is CRLF and the
+repository is LF. Any tool that rewrites a file with LF endings makes a
+non-Windows Git report the whole file as changed — 69,000 phantom lines
+across 96 files at one point in this session. Nothing was wrong; run
+`git status` from Windows and it comes back clean. Worth knowing before
+committing what looks like a huge diff.
+
 ### B6. `next build` never completed
 
 Every change was verified with `tsc --noEmit` and vitest. A full
@@ -109,13 +129,31 @@ Every change was verified with `tsc --noEmit` and vitest. A full
 ### C1. `party` and `customer` are two tables joined by NAME — the biggest
 structural risk
 
-192 parties, 167 customers, linked by `c.name = p.name` and
-`.ilike('party_name', …)`. `invoice` carries both `customer_id` and a
-`party_name` text column; 9 invoices already have a null `customer_id`.
+**Half done.** `invoice.party_id` now exists as a real FK (migration 262) and
+every place that looks up a party's invoices uses it:
 
-Works only because all 192 names happen to be unique. Rename a party and its
-invoice history stops matching — silently. Needs its own spec and a careful
-migration; the biggest win and the biggest effort left.
+| Site | Status |
+|---|---|
+| `lib/party-bills.ts` (payments, bill picker, contra) | party_id ✓ |
+| Party statement print | party_id ✓ (commit da80035) |
+| Payments → Transactions tab | party_id ✓ (commit da80035) |
+| `invoices/new` HSN/UOM prefill | name match, deliberate — cosmetic only |
+
+Verified before and after: all 94 invoices carry a `party_id`, and each one
+resolves to exactly the party the old name match found. Renaming a party can
+no longer detach its invoice history.
+
+Two of those queries keep a **second** query for rows with a null `party_id`.
+That is not belt-and-braces — the invoice form writes `party_id = null` for
+**debit notes**, because a debit note is raised against a *vendor ledger*,
+which is not a party. None exist yet, so the path is untested; the first debit
+note you raise will exercise it.
+
+**Still open:** retiring the `customer` table. 167 customers, 90 rows pointing
+at it across `invoice` and `sales_order`, and **6 views** depend on it
+(`v_agent_commission_report`, `v_cashflow_recent`, `v_customer_ageing`,
+`v_customer_outstanding`, `v_invoice_delivery_status`, `v_sales_register`).
+The views are what make this a separate piece of work.
 
 ### C2. Three very large files
 
