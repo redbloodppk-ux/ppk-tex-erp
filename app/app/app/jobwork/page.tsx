@@ -2826,7 +2826,27 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <input type="number" className="input num" value={form.total_ends}
               onChange={(e) => setForm({ ...form, total_ends: e.target.value })}
               placeholder="auto from quality" />
-            <p className="text-[10px] text-ink-mute mt-0.5">Applies to all {editingGroupIds.length} beams. Leave blank to keep each beam&rsquo;s own value.</p></div>
+            {(() => {
+              // Show what the picked quality expects, and flag a mismatch.
+              // Beams are matched to looms on (ends + warp count), so a
+              // beam labelled CONGRESS while carrying another quality's
+              // ends silently disappears from that loom's pavu list.
+              const fid = form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id);
+              const expected = fid != null ? fabricDefaults.get(fid)?.total_ends ?? null : null;
+              const typed = form.total_ends === '' ? null : Number(form.total_ends);
+              if (expected == null) {
+                return <p className="text-[10px] text-ink-mute mt-0.5">Applies to all {editingGroupIds.length} beams. Leave blank to keep each beam&rsquo;s own value.</p>;
+              }
+              if (typed != null && typed !== expected) {
+                return (
+                  <p className="text-[10px] text-amber-700 font-medium mt-0.5">
+                    {qualities.find((q) => q.id === fid)?.name ?? 'This quality'} expects {expected} ends —
+                    you have {typed}. Beams won&rsquo;t appear on looms set to this quality.
+                  </p>
+                );
+              }
+              return <p className="text-[10px] text-ink-mute mt-0.5">Matches {qualities.find((q) => q.id === fid)?.name ?? 'the quality'} ({expected} ends). Applies to all {editingGroupIds.length} beams.</p>;
+            })()}</div>
           <div><label className="label text-xs">Sizing party</label>
             <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
