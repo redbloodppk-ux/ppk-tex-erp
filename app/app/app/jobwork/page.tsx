@@ -108,6 +108,10 @@ interface WarpBeamRow {
   batch_no: number | null;
   fabric_quality_id: number | null; warp_count_id: number | null;
   given_date: string; total_ends: number | null;
+  /** Sizing set number this beam came off. Populated on 141 of 150 rows
+   *  but was never fetched here, which is why batch edit could not show
+   *  or change it. */
+  sizing_set_no: string | null;
   tape_length_m: number | null; beam_count: number;
   total_metres: number | null; reference_no: string | null; notes: string | null;
   supplier_party_id: number | null;
@@ -328,7 +332,7 @@ export default function JobworkPage(): React.ReactElement {
       // existing BobbinTab UI keeps working.
       sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, metre_per_pc, supplier_party_id, reference_no, notes,
               bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
-      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id, batch_no').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id, sizing_set_no, batch_no').eq('status', 'active').order('given_date', { ascending: false }),
       sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
@@ -1815,14 +1819,18 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       jobwork_party_id: String(first.jobwork_party_id),
       fabric_quality_id: first.fabric_quality_id != null ? String(first.fabric_quality_id) : '',
       warp_count_id: first.warp_count_id != null ? String(first.warp_count_id) : '',
-      total_ends: '',
+      // Prefill only when every beam agrees on one value. commonEnds is
+      // `undefined` when they disagree ("Mixed"), and we deliberately
+      // leave the box empty then — saving blank keeps each beam's own
+      // ends rather than flattening a mixed batch to one number.
+      total_ends: g.commonEnds != null ? String(g.commonEnds) : '',
       beam_count: String(g.totalBeams),
       total_metres: '',
       reference_no: first.reference_no ?? '',
       notes: '',
       supplier_party_id: first.supplier_party_id != null ? String(first.supplier_party_id) : '',
       sizing_job_id: '',
-      sizingSetNo: '',
+      sizingSetNo: first.sizing_set_no ?? '',
     });
     setShowAdd(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2156,12 +2164,18 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
 
     // Batch-edit mode — the form was reopened from a group's Edit
     // button (startEditBatch), so UPDATE every row in that batch at
-    // once. Only the group's key fields are written — total_ends,
-    // beam_count and total_metres are per-beam and untouched here.
+    // once. beam_count and total_metres stay per-beam and are untouched.
+    //
+    // total_ends IS written: warp stock is matched by the (ends + warp
+    // count) pair, so leaving 10 beams on the old quality's ends while
+    // relabelling them to a new quality would silently point them at the
+    // wrong stock column. Changing the quality cascades ends and warp
+    // count via onFabricChange, and both are saved here.
     if (editingGroupIds !== null) {
       setBusy(true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
+      const endsNum = Number(form.total_ends);
       const { error } = await sb.from('jobwork_warp_beam').update({
         jobwork_party_id: Number(form.jobwork_party_id),
         fabric_quality_id: form.fabric_quality_id === '' ? null : Number(form.fabric_quality_id),
@@ -2169,6 +2183,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         given_date: form.given_date,
         reference_no: form.reference_no.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
+        sizing_set_no: form.sizingSetNo.trim() || null,
+        // Only overwrite ends when the operator actually has a value —
+        // never blank out 10 beams because the box was left empty.
+        ...(form.total_ends !== '' && Number.isFinite(endsNum) && endsNum > 0
+          ? { total_ends: endsNum }
+          : {}),
       }).in('id', editingGroupIds);
       setBusy(false);
       if (error) { setErr(error.message); return; }
@@ -2583,6 +2603,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         <div className="text-xs text-ink-soft">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</div>
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
           <div><div className="text-ink-mute">Warp count</div><div>{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</div></div>
+          <div><div className="text-ink-mute">Set no</div><div className="font-mono">{r.sizing_set_no || '-'}</div></div>
           <div><div className="text-ink-mute">Ends</div><div className="num">{r.total_ends ?? '-'}</div></div>
           <div><div className="text-ink-mute">Beams</div><div className="num font-semibold">{r.beam_count}</div></div>
           <div><div className="text-ink-mute">Metres</div><div className="num text-indigo-700 font-semibold">{(r.original_metres ?? r.total_metres) ?? '-'}</div></div>
@@ -2626,6 +2647,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
           <td className="px-3 py-2">{r.fabric_quality_id ? qualityById.get(r.fabric_quality_id)?.name ?? '-' : '-'}</td>
           <td className="px-3 py-2">{r.warp_count_id ? countById.get(r.warp_count_id)?.display_name ?? '-' : '-'}</td>
+          <td className="px-3 py-2 font-mono text-xs">{r.sizing_set_no || '-'}</td>
           <td className="px-3 py-2 text-right num">{r.total_ends ?? '-'}</td>
           <td className="px-3 py-2 text-right num font-semibold">{r.beam_count}</td>
           <td className="px-3 py-2 text-right num">{(r.original_metres ?? r.total_metres) ?? '-'}</td>
@@ -2656,7 +2678,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </td>
         </tr>
         {restockId === r.id && (
-          <tr><td colSpan={10} className="p-0">
+          <tr><td colSpan={11} className="p-0">
             <RestockForm parties={sizingParties}
               qtyFields={[{ key: 'beam_count', label: 'No. of beams', step: 1 }, { key: 'total_metres', label: 'Total metres', step: 0.01 }]}
               onCancel={() => setRestockId(null)}
@@ -2664,7 +2686,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </td></tr>
         )}
         {splitId === r.id && (
-          <tr><td colSpan={10} className="p-0">
+          <tr><td colSpan={11} className="p-0">
             <SplitBeamsPanel
               initialRows={splitInitialRowsFor(r)}
               onCancel={() => setSplitId(null)}
@@ -2738,7 +2760,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
           <div><label className="label text-xs">Fabric quality</label>
-            <select className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}>
+            {/* onFabricChange, not a plain setter: picking a quality must
+                cascade its warp count + ends. This used to be a bare
+                setForm, so a batch could be relabelled to a new quality
+                while every beam kept the OLD quality's ends — and warp
+                stock is matched on the (ends + count) pair. */}
+            <select className="input" value={form.fabric_quality_id} onChange={(e) => onFabricChange(e.target.value)}>
               <option value="">---</option>
               {qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select></div>
@@ -2747,11 +2774,19 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <option value="">---</option>
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
             </select></div>
+          <div><label className="label text-xs">Total ends (all beams)</label>
+            <input type="number" className="input num" value={form.total_ends}
+              onChange={(e) => setForm({ ...form, total_ends: e.target.value })}
+              placeholder="auto from quality" />
+            <p className="text-[10px] text-ink-mute mt-0.5">Applies to all {editingGroupIds.length} beams. Leave blank to keep each beam&rsquo;s own value.</p></div>
           <div><label className="label text-xs">Sizing party</label>
             <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
               {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
             </select></div>
+          <div><label className="label text-xs">Sizing Set No</label>
+            <input className="input" placeholder="e.g. 12" value={form.sizingSetNo}
+              onChange={(e) => setForm({ ...form, sizingSetNo: e.target.value })} /></div>
           <div className="md:col-span-2"><label className="label text-xs">Reference / DC no</label>
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
         </div>
@@ -3205,6 +3240,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               <th className="text-left  px-3 py-3">Party</th>
               <th className="text-left  px-3 py-3">Quality</th>
               <th className="text-left  px-3 py-3">Warp count</th>
+              <th className="text-left  px-3 py-3" title="Sizing set number this beam came off">Set no</th>
               <th className="text-right px-3 py-3">Ends</th>
               <th className="text-right px-3 py-3" title="Total number of beams issued">Beams</th>
               <th className="text-right px-3 py-3">Metres</th>
@@ -3214,7 +3250,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-8 text-center text-ink-soft">
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-ink-soft">
                 {rows.length === 0 ? 'No warp beams issued yet.' : 'No warp beams match the current filters.'}
               </td></tr>
             ) : displayItems.map((item) => {
@@ -3258,9 +3294,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             <tfoot className="bg-cloud/40 font-semibold border-t-2 border-line">
               <tr>
                 {/* Totals reflect the CURRENT filter, not the full table.
-                    colSpan={6} covers ID..Ends so the beams total aligns
-                    under "Beams" (col 7) and metres under "Metres" (col 8). */}
-                <td colSpan={6} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
+                    colSpan={7} covers ID..Ends (Set no added between Warp
+                    count and Ends) so the beams total aligns under "Beams"
+                    and metres under "Metres". */}
+                <td colSpan={7} className="px-3 py-3 text-right text-ink-soft uppercase text-[11px] tracking-wide">Total</td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {filteredRows.reduce((s, r) => s + Number(r.beam_count ?? 0), 0).toLocaleString('en-IN')} beams
                 </td>
