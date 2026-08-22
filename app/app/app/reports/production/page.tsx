@@ -244,6 +244,9 @@ interface ShiftLogRow {
   loom_id: number;
   log_date: string;
   shift: 'day' | 'night';
+  /** Quality FROZEN on the log at entry time. Grouping must use
+   *  this, never loom.fabric_quality_id — see header note. */
+  fabric_quality_id: number | null;
 }
 
 interface WeaverRow {
@@ -311,11 +314,16 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
   const loomById = new Map<number, LoomMeta>();
   for (const l of allLooms) loomById.set(l.id, l);
 
-  // ───── Pre-filter looms by shed / quality so the shift-log query is cheap ─────
+  // ───── Pre-filter looms by SHED only ─────
+  // Shed is a property of the loom and doesn't change per shift, so it is
+  // safe to narrow on here. QUALITY is NOT: a loom's fabric_quality_id is
+  // its CURRENT setting, while each shift log froze the quality actually
+  // being woven that day. Filtering looms by the live value silently
+  // dropped every log whose loom has since been re-set. The quality
+  // filter is applied to the shift logs themselves, below.
   const eligibleLoomIds = allLooms
     .filter((l) => {
       if (shedFilter !== null && l.shed_no !== shedFilter) return false;
-      if (qualityFilter !== null && l.fabric_quality_id !== qualityFilter) return false;
       return true;
     })
     .map((l) => l.id);
@@ -325,11 +333,15 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
   if (eligibleLoomIds.length > 0) {
     const logsRes = await sb
       .from('production_shift_log')
-      .select('id, loom_id, log_date, shift')
+      .select('id, loom_id, log_date, shift, fabric_quality_id')
       .gte('log_date', range.start)
       .lte('log_date', range.end)
       .in('loom_id', eligibleLoomIds);
     shiftLogs = (logsRes.data ?? []) as ShiftLogRow[];
+    // Quality filter applies to the log's own frozen quality.
+    if (qualityFilter !== null) {
+      shiftLogs = shiftLogs.filter((l) => l.fabric_quality_id === qualityFilter);
+    }
   }
 
   // ───── Weaver rows for those logs, narrowed by weaver filter ─────
@@ -383,7 +395,7 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
     totals.shiftLogIds.add(log.id);
     totals.weaverIds.add(w.employee_id);
     if (loom.shed_no != null) totals.shedNos.add(loom.shed_no);
-    if (loom.fabric_quality_id != null) totals.qualityIds.add(loom.fabric_quality_id);
+    if (log.fabric_quality_id != null) totals.qualityIds.add(log.fabric_quality_id);
 
     const bKey = bucketKey(log.log_date);
     const b = byBucket.get(bKey) ?? { metres: 0, shiftLogIds: new Set<number>() };
@@ -398,7 +410,13 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
       byShed.set(loom.shed_no, s);
     }
 
-    const qId = loom.fabric_quality_id ?? 0;
+    // The shift log's OWN frozen quality, not the loom's current one.
+    // Using the loom's live value re-attributed 47,940 m (26% of all
+    // production) every time a loom was re-set — metres silently moved
+    // from the quality actually woven to whatever the loom holds today.
+    // reports/weaver-production already did this correctly; this report
+    // and the shift-log screen did not.
+    const qId = log.fabric_quality_id ?? 0;
     const qa = byQuality.get(qId) ?? { metres: 0, shiftLogIds: new Set<number>() };
     qa.metres += metres;
     qa.shiftLogIds.add(log.id);

@@ -71,8 +71,14 @@ interface LoomRow {
   loom_id: number;
   loom_code: string;
   loom_type: string;
-  /** Fabric quality name shown under the loom code (falls back to loom_type). */
+  /** Fabric quality name shown under the loom code (falls back to loom_type).
+   *  This is the loom's CURRENT setting and is only a fallback. */
   quality_name: string | null;
+  /** Quality FROZEN on this date's shift log — what was actually being
+   *  woven. The loom's current quality changes when it is re-set, so
+   *  showing that against a past date labels history with today's value.
+   *  458 of 1,846 logs already differ. Prefer this whenever present. */
+  logged_quality_name: string | null;
   /** Loom status from Mill Setup (running / idle / maintenance / breakdown). */
   status: string;
   /** Date the loom went non-running. NULL when currently running. */
@@ -150,6 +156,9 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_code: l.loom_code,
       loom_type: l.loom_type,
       quality_name: l.quality_name,
+      // No saved log for this date yet, so the loom's current quality is
+      // the right (and only) thing to show.
+      logged_quality_name: null,
       status: l.status,
       idle_since: l.idle_since,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
@@ -278,7 +287,7 @@ export default function ShiftLogPage(): React.ReactElement {
 
     const { data: parents, error: parentErr } = await supabase
       .from('production_shift_log')
-      .select('id, loom_id, adjustment_metres')
+      .select('id, loom_id, adjustment_metres, fabric_quality_id, fabric_quality:fabric_quality_id (name)')
       .eq('log_date', logDate)
       .eq('shift', shift);
 
@@ -312,9 +321,15 @@ export default function ShiftLogPage(): React.ReactElement {
 
     const loomByParent = new Map<number, number>();
     const adjByLoom = new Map<number, number>();
-    for (const p of parents ?? []) {
+    // Quality frozen on THIS date's log, per loom. Displayed in place of
+    // the loom's current setting so a past date isn't labelled with
+    // today's quality.
+    const loggedQualityByLoom = new Map<number, string | null>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of ((parents ?? []) as any[])) {
       loomByParent.set(p.id, p.loom_id);
       adjByLoom.set(p.loom_id, Number(p.adjustment_metres ?? 0));
+      loggedQualityByLoom.set(p.loom_id, p.fabric_quality?.name ?? null);
     }
 
     // Per loom: map of position -> { employee_id, metres }
@@ -378,6 +393,7 @@ export default function ShiftLogPage(): React.ReactElement {
           loom_code: l.loom_code,
           loom_type: l.loom_type,
           quality_name: l.quality_name,
+          logged_quality_name: loggedQualityByLoom.get(l.id) ?? null,
           status: l.status,
           idle_since: l.idle_since,
           metres,
@@ -954,7 +970,10 @@ function ShedCard({
                   <td className="py-2 pr-3 sticky left-0 z-10 bg-paper">
                     <div className="font-medium">{r.loom_code}</div>
                     {/* Fabric quality the loom is set up for; loom type only when no quality is assigned. */}
-                    <div className="text-xs text-ink-mute">{r.quality_name ?? r.loom_type}</div>
+                    {/* Prefer the quality frozen on this date's log. Falling
+                        back to the loom's live setting mislabels history the
+                        moment a loom is re-set. */}
+                    <div className="text-xs text-ink-mute">{r.logged_quality_name ?? r.quality_name ?? r.loom_type}</div>
                   </td>
                   {running ? (
                     <>

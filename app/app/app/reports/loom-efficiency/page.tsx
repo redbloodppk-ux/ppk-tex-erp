@@ -187,7 +187,17 @@ const SHEDS = [1, 2, 3, 4] as const;
 
 interface LoomMeta { id: number; shed_no: number | null; fabric_quality_id: number | null; status: string | null }
 interface QualityMeta { id: number; pick_per_inch: number | string | null }
-interface ShiftLogRow { id: number; loom_id: number; log_date: string }
+interface ShiftLogRow {
+  id: number; loom_id: number; log_date: string;
+  /** Quality FROZEN on the log. Targets must use THIS quality's
+   *  pick_per_inch, not the loom's current setting — picks drive how many
+   *  metres an hour a loom can make, so using today's quality against a
+   *  past date skews the target. 142 logs were being targeted on a
+   *  36-pick quality when 46-pick cloth was actually woven: a 21.7%
+   *  understated target, i.e. those shifts looked ~22% more efficient
+   *  than they were. */
+  fabric_quality_id: number | null;
+}
 interface WeaverRow { shift_log_id: number; metres_woven: number | string | null; employee_id: number | null }
 interface EmployeeMeta { id: number; home_shed_no: string | null; default_sheds: string[] | null }
 interface WageRow { employee_id: number; pay_date: string; amount: number | string | null }
@@ -366,7 +376,7 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
   if (allLoomIds.length > 0) {
     const logsRes = await sb
       .from('production_shift_log')
-      .select('id, loom_id, log_date')
+      .select('id, loom_id, log_date, fabric_quality_id')
       .gte('log_date', rangeStart)
       .lte('log_date', rangeEnd)
       .in('loom_id', allLoomIds);
@@ -462,8 +472,11 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
     stat.metres += metresByShiftLog.get(log.id) ?? 0;
     stat.shiftLogs += 1;
 
-    if (hasTarget && target && loom.fabric_quality_id != null) {
-      const quality = qualityById.get(loom.fabric_quality_id);
+    // The quality frozen on the log, falling back to the loom's current
+    // setting only when the log has none.
+    const targetQualityId = log.fabric_quality_id ?? loom.fabric_quality_id;
+    if (hasTarget && target && targetQualityId != null) {
+      const quality = qualityById.get(targetQualityId);
       const pickPerInch = quality?.pick_per_inch != null ? Number(quality.pick_per_inch) : null;
       if (pickPerInch && pickPerInch > 0) {
         const hoursForLog = shiftHoursForLog(log.log_date, target);
