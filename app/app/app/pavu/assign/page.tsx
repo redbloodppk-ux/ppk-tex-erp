@@ -1038,10 +1038,43 @@ function AssignModal({
                   ))}
                 </select>
                 {filteredStock.length === 0 && (
-                  <p className="text-xs text-ink-mute mt-1">
-                    No in-stock pavu matching this loom's fabric quality ({loomQuality.name}
-                    {loomQuality.expectedEnds != null ? `, ${loomQuality.expectedEnds} ends` : ''}).
-                  </p>
+                  /* Say WHY nothing matched, not just that nothing did. A
+                     bare "no pavu" reads like a data problem; naming the
+                     beams that DO have the right ends but belong to another
+                     quality makes it clear the filter is doing its job. */
+                  <div className="mt-2 rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-xs">
+                    <div className="font-semibold text-amber-900">
+                      No in-stock beams for {loomQuality.name}
+                      {loomQuality.expectedEnds != null ? ` (${loomQuality.expectedEnds} ends)` : ''}.
+                    </div>
+                    {(() => {
+                      const sameEnds = stock.filter((s) => s.ends === loomQuality.expectedEnds);
+                      const otherQuality = sameEnds.filter((s) => {
+                        const q = pavuQualityId(s);
+                        return q != null && loom.fabric_quality_id != null && q !== loom.fabric_quality_id;
+                      });
+                      if (otherQuality.length === 0) {
+                        return (
+                          <p className="text-amber-900/80 mt-1">
+                            Nothing is in stock at {loomQuality.expectedEnds} ends at all — size a new set,
+                            or check Warp beam given.
+                          </p>
+                        );
+                      }
+                      const names = Array.from(new Set(otherQuality.map((s) => {
+                        const q = pavuQualityId(s);
+                        return q != null ? (qualities.find((x) => x.id === q)?.quality_name ?? `quality #${q}`) : '';
+                      }).filter(Boolean)));
+                      return (
+                        <p className="text-amber-900/80 mt-1">
+                          {otherQuality.length} beam{otherQuality.length === 1 ? '' : 's'} in stock have{' '}
+                          {loomQuality.expectedEnds} ends but belong to <strong>{names.join(', ')}</strong> —
+                          a different quality, so they are not offered here. Change this loom&rsquo;s fabric
+                          quality if that is what you mean to weave.
+                        </p>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
             </>

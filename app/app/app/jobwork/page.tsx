@@ -2162,6 +2162,46 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     setErr(null);
     if (form.jobwork_party_id === '') { setErr(`Pick a ${partyLabel.toLowerCase()}.`); return; }
 
+
+  /** Push a beam edit down onto the linked pavu row(s).
+   *
+   *  jobwork_warp_beam and pavu are separate rows joined by pavu_id /
+   *  pavu_ids. The Loom / Pavu-assign screen matches in-stock beams on
+   *  pavu.ends against the loom quality's expected ends, so editing ends
+   *  on the beam alone left the loom view matching the OLD value and the
+   *  change appeared not to take effect. Keep the two in step. */
+  async function syncLinkedPavus(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sb: any,
+    beamIds: number[],
+    endsValue: number | null,
+  ): Promise<string | null> {
+    if (endsValue == null || beamIds.length === 0) return null;
+    const { data: beams, error: readErr } = await sb
+      .from('jobwork_warp_beam')
+      .select('pavu_id, pavu_ids')
+      .in('id', beamIds);
+    if (readErr) return readErr.message;
+    const pavuIds = new Set<number>();
+    for (const b of ((beams ?? []) as Array<{ pavu_id: number | null; pavu_ids: unknown }>)) {
+      if (b.pavu_id != null) pavuIds.add(Number(b.pavu_id));
+      if (Array.isArray(b.pavu_ids)) {
+        for (const v of b.pavu_ids) {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) pavuIds.add(n);
+        }
+      }
+    }
+    if (pavuIds.size === 0) return null;
+    // Only ends is cascaded. meters is the beam's own remaining length and
+    // is reduced by weaving, so it must not be overwritten from here.
+    const { error: upErr } = await sb
+      .from('pavu')
+      .update({ ends: endsValue })
+      .in('id', Array.from(pavuIds));
+    return upErr ? upErr.message : null;
+  }
+
     // Batch-edit mode — the form was reopened from a group's Edit
     // button (startEditBatch), so UPDATE every row in that batch at
     // once. beam_count and total_metres stay per-beam and are untouched.
@@ -2190,6 +2230,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           ? { total_ends: endsNum }
           : {}),
       }).in('id', editingGroupIds);
+      if (!error && form.total_ends !== '' && Number.isFinite(endsNum) && endsNum > 0) {
+        const syncErr = await syncLinkedPavus(sb, editingGroupIds, endsNum);
+        if (syncErr) { setBusy(false); setErr(`Beams saved, but the linked pavu rows could not be updated: ${syncErr}`); return; }
+      }
       setBusy(false);
       if (error) { setErr(error.message); return; }
       resetForm();
@@ -2221,6 +2265,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
         notes: form.notes.trim() || null,
         supplier_party_id: form.supplier_party_id === '' ? null : Number(form.supplier_party_id),
       }).eq('id', editingId);
+      if (!error) {
+        const syncErr = await syncLinkedPavus(sb, [editingId], form.total_ends === '' ? null : Number(form.total_ends));
+        if (syncErr) { setBusy(false); setErr(`Beam saved, but the linked pavu row could not be updated: ${syncErr}`); return; }
+      }
       setBusy(false);
       if (error) { setErr(error.message); return; }
       resetForm();
