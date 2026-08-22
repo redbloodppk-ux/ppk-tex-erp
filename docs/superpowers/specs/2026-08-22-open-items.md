@@ -46,11 +46,35 @@ Only your records can close this.
   you have two receipts for one weaving. Tell me roughly when it came back and
   I can check for a duplicate.
 
-### A4. L-09 quality mismatch — is it intentional?
+### A4. ~~L-09 quality mismatch~~ — CLOSED, false alarm
 
-The loom's `fabric_quality_id` points at **COTTON THALAPATHY 60×46 = 30"**, but
-the pavu mounted on 19-Aug runs under costing **COST-0001 = 31"**. Two different
-qualities. Might be deliberate, might be a mis-set loom.
+**Not a mismatch.** Re-checked against the database: the loom and the pavu
+mounted on 19-Aug both point at **costing 15** and both carry **1670 ends**.
+They agree exactly.
+
+I raised it by comparing the display *names*, which is meaningless here —
+the inch figure in a quality's name matches neither its `width_in` nor its
+costing's `fabric_width_in`:
+
+| Code | Name says | `width_in` | Costing width |
+|---|---|---|---|
+| DOBBY-CT-TOWEL-**31** | = **30**" | 30.00 | 27.50 |
+| DOBBY-OE-TOWEL-**31** | = **30**" | 30.00 | 31.00 |
+| DOBBY-CT-TOWEL-**34** | = **34**" | 31.00 | 31.50 |
+| COLOR-OE-T-**30** | = **30**" | 31.00 | 30.00 |
+| LUREX-**34** | = **34**" | 31.00 | 34.00 |
+
+Probably reed space vs finished width, but they are not interchangeable and
+nothing in the UI says which is which.
+
+**The real lesson, still open.** PPK confirmed the earlier warp beam error came
+from picking the wrong quality in the dropdown. That dropdown
+(`jobwork/page.tsx:3839`) shows `q.name` and nothing else, so
+`COTTON THALAPATHY 60 X 46 = 30"` (1670 ends) and
+`OE THALAPATHY 62 X 46 = 30"` (1770 ends) read almost identically — while the
+ends, the thing that actually routes the stock, stay invisible until after
+the pick. Adding ends + count to the option label would surface it. Offered
+2026-08-22; PPK chose to leave the form alone for now.
 
 ---
 
