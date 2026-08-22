@@ -132,9 +132,24 @@ export default async function PartyStatementPrintPage({
         .eq('other_ledger_id', partyLedgerId)
     : Promise.resolve({ data: [] as unknown[], error: null });
 
-  const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, bankRes] = await Promise.all([
+  const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, bankRes] = await Promise.all([
+    // Invoices linked by party_id (migration 262). party_name is the name
+    // PRINTED on the document, no longer the link.
     sb.from('invoice')
       .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
+      .eq('party_id', partyId)
+      .in('status', ['issued', 'partial_paid', 'overdue'])
+      .gt('balance', 0)
+      .order('invoice_date', { ascending: true }),
+    // Legacy safety net, kept as a SEPARATE query rather than an .or():
+    // PostgREST .or() takes a raw interpolated string and 4 party names
+    // contain characters that break its syntax. This only picks up rows
+    // that never got a party_id — debit notes, raised against `vendors`
+    // (ledgers, not parties). Without it the statement would silently
+    // drop them.
+    sb.from('invoice')
+      .select('id, invoice_no, invoice_date, doc_type, total, amount_paid, balance')
+      .is('party_id', null)
       .ilike('party_name', party.name)
       .in('status', ['issued', 'partial_paid', 'overdue'])
       .gt('balance', 0)
@@ -164,7 +179,13 @@ export default async function PartyStatementPrintPage({
 
   const bills: Bill[] = [];
 
-  for (const r of ((invRes.data ?? []) as Array<{
+  // party_id rows + legacy party_name-only rows, deduped by id.
+  const invoiceRows = [
+    ...((invRes.data ?? []) as Array<Record<string, unknown>>),
+    ...((invLegacyRes?.data ?? []) as Array<Record<string, unknown>>),
+  ].filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+
+  for (const r of (invoiceRows as Array<{
     invoice_no: string; invoice_date: string; doc_type: string;
     total: number | string; amount_paid: number | string; balance: number | string;
   }>)) {

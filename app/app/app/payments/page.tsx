@@ -1311,13 +1311,32 @@ function StatusTab(): React.ReactElement {
       // page doesn't drown in 10k rows.
       const LIMIT = hasParty ? 1000 : 500;
 
+      const INV_COLS = 'id, invoice_no, invoice_date, doc_type, total, status, party_id, party_name, customer_id, jobwork_party_id';
+
+      // Matched on party_id (migration 262), not on the printed
+      // party_name. See the note in lib/party-bills.ts.
       let invQ  = sb.from('invoice')
-        .select('id, invoice_no, invoice_date, doc_type, total, status, party_name, customer_id, jobwork_party_id')
+        .select(INV_COLS)
         .neq('status', 'cancelled');
-      if (hasParty) invQ = invQ.ilike('party_name', party!.name);
+      if (hasParty) invQ = invQ.eq('party_id', pid!);
       invQ = invQ
         .order('invoice_date', { ascending: !hasParty ? false : true })
         .limit(LIMIT);
+
+      // Legacy rows that never got a party_id - debit notes, which are
+      // raised against `vendors` (ledgers, not parties). Kept as its own
+      // query because PostgREST .or() cannot safely carry a raw name:
+      // 4 party names contain characters that break its syntax. The
+      // all-parties view already sees these rows, so it skips this.
+      const invLegacyQ = hasParty
+        ? sb.from('invoice')
+            .select(INV_COLS)
+            .neq('status', 'cancelled')
+            .is('party_id', null)
+            .ilike('party_name', party!.name)
+            .order('invoice_date', { ascending: true })
+            .limit(LIMIT)
+        : Promise.resolve({ data: [] as unknown[], error: null });
 
       let openQ = sb.from('party_opening_ledger')
         .select('id, invoice_no, invoice_date, direction, amount, party_id')
@@ -1356,26 +1375,34 @@ function StatusTab(): React.ReactElement {
       if (hasParty) wbQ = wbQ.eq('supplier_party_id', pid!);
       wbQ = wbQ.limit(LIMIT);
 
-      const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
-        invQ, openQ, sizQ, bobQ, yarnQ, fabQ, wbQ,
+      const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
+        invQ, invLegacyQ, openQ, sizQ, bobQ, yarnQ, fabQ, wbQ,
       ]);
 
       const txns: LedgerTxn[] = [];
 
-      // Resolve invoice → party.id via party_name match (the invoice
-      // table stamps party_name as text, not party.id).
+      // Fallback only: the party link comes from party_id when the row
+      // has one. This map still resolves the handful of legacy rows.
       const partyByUpperName = new Map<string, PartyOpt>();
       for (const p of parties) partyByUpperName.set(p.name.trim().toUpperCase(), p);
 
+      // party_id rows + legacy party_name-only rows, deduped by id.
+      const invoiceRows = [
+        ...((invRes.data ?? []) as Array<Record<string, unknown>>),
+        ...((invLegacyRes?.data ?? []) as Array<Record<string, unknown>>),
+      ].filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+
       // Invoices — direction depends on doc_type.
-      for (const r of ((invRes.data ?? []) as Array<{
+      for (const r of (invoiceRows as unknown as Array<{
         id: number; invoice_no: string; invoice_date: string;
         doc_type: string; total: number | string; status: string;
-        party_name: string | null;
+        party_id: number | null; party_name: string | null;
       }>)) {
         const total = Number(r.total ?? 0);
         const isCredit = r.doc_type === 'credit_note';
-        const lookup = r.party_name ? partyByUpperName.get(r.party_name.trim().toUpperCase()) : undefined;
+        const lookup = r.party_id != null
+          ? partyById.get(r.party_id)
+          : (r.party_name ? partyByUpperName.get(r.party_name.trim().toUpperCase()) : undefined);
         txns.push({
           key:        `inv-${r.id}`,
           source_id:  r.id,

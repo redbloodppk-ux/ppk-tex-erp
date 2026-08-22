@@ -923,6 +923,11 @@ export default function NewInvoicePage() {
         let sample: { description?: string; hsn_sac?: string; uom?: string; gst_rate_pct?: number | string } | null = null;
         if (partyName !== '') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // Deliberately still a name match. This picker holds a
+          // customer_id, not a party_id, and the result only prefills
+          // HSN / UOM / GST defaults on a blank row — a miss costs the
+          // operator one dropdown, not a wrong balance. Everywhere that
+          // money depends on the link now uses party_id (migration 262).
           const recentInvRes = await (supabase as any)
             .from('invoice')
             .select('id, lines:invoice_line(hsn_sac, uom, gst_rate_pct, description)')
