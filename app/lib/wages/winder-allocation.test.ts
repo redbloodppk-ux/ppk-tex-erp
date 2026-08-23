@@ -233,3 +233,53 @@ describe('deriveWeaverGapSlots', () => {
     expect(WEEK - rate * gaps.size).toBeCloseTo(4033.33, 2); // was 2750.00
   });
 });
+
+/**
+ * A winder who stops coming to work must stop earning.
+ *
+ * Nobody creates attendance rows for someone who has left, so before
+ * 2026-08-23 the absence of a row fell through to the credit branch and
+ * paid her in full. PACHAIYAMAAL left after two days in July 2026; the
+ * algorithm would have handed her a near-full week.
+ */
+describe('computeWinderAllocation — missing attendance rows', () => {
+  const PACHAIYAMAAL = 32;
+  const MALIGA_ID = 10;
+  const SLOTS = ['a', 'b', 'c', 'd'].map((s) => `2026-07-2${s === 'a' ? 0 : s === 'b' ? 1 : s === 'c' ? 2 : 3}:morning`);
+
+  it('a slot with no row earns nothing', () => {
+    const result = computeWinderAllocation({
+      winders: [{ id: PACHAIYAMAAL, weeklySalary: 2200, assignedSheds: ['4'] }],
+      workingSlotKeys: SLOTS,
+      // Present for the first slot only; the other three have no row.
+      attendance: [
+        { winderId: PACHAIYAMAAL, slotKey: SLOTS[0]!, status: 'present', sheds: ['4'] },
+      ],
+      weaverGapSlots: new Set(),
+    });
+    const r = result.get(PACHAIYAMAAL);
+    expect(r?.book).toBeCloseTo(2200 / 4, 2); // one slot of four
+    expect(r?.deduction).toBeCloseTo((2200 / 4) * 3, 2);
+  });
+
+  it('a missing row hands the shed to whoever actually covered it', () => {
+    const result = computeWinderAllocation({
+      winders: [
+        { id: PACHAIYAMAAL, weeklySalary: 2200, assignedSheds: ['4'] },
+        { id: MALIGA_ID, weeklySalary: 4400, assignedSheds: ['2', '4'] },
+      ],
+      workingSlotKeys: [SLOTS[0]!],
+      // PACHAIYAMAAL has no row at all. MALIGA is there, covering shed 4.
+      attendance: [
+        { winderId: MALIGA_ID, slotKey: SLOTS[0]!, status: 'present', sheds: ['2', '4'] },
+      ],
+      weaverGapSlots: new Set(),
+    });
+    const gone = result.get(PACHAIYAMAAL);
+    const there = result.get(MALIGA_ID);
+    expect(gone?.book).toBeCloseTo(0, 2);
+    expect(gone?.reallocatedOut).toBeCloseTo(2200, 2); // her whole rate moves
+    expect(there?.reallocatedIn).toBeCloseTo(2200, 2);
+    expect(there?.coveredForOthers).toBe(1);
+  });
+});

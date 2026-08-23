@@ -156,7 +156,19 @@ export function computeWinderAllocation(
     const res = results.get(w.id);
     if (!res) continue;
     for (const slotKey of workingSlotKeys) {
-      const status = attByKey.get(`${w.id}|${slotKey}`)?.status;
+      // A slot with NO attendance row is treated exactly like `absent`.
+      //
+      // It used to fall through to the credit branch, so a winder who
+      // stopped turning up kept earning: nobody creates attendance rows
+      // for someone who is no longer there, and "no evidence of absence"
+      // was read as "present". PACHAIYAMAAL left after two days in July
+      // 2026 and the algorithm would still have paid her Rs 1,650 for
+      // that week, 9 of her 12 slots being rows that never existed.
+      //
+      // The trade-off, accepted 2026-08-23: if a working day is created
+      // but attendance is never marked, weekly staff are docked for it
+      // until it is filled in. Absence of a record no longer pays.
+      const status = attByKey.get(`${w.id}|${slotKey}`)?.status ?? 'absent';
       for (const shed of w.assignedSheds) {
         if (weaverGapSlots.has(`${shed}:${slotKey}`)) {
           // Weaver absent -> shed-slot unpaid.
