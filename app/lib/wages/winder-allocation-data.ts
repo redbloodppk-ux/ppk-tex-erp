@@ -9,6 +9,8 @@
  */
 import {
   computeWinderAllocation,
+  deriveWeaverGapSlots,
+  type WeaverShedRow,
   type WinderAllocationResult,
 } from './winder-allocation';
 
@@ -102,15 +104,20 @@ export async function loadWinderAllocation(
     });
   }
 
-  // 3) Weaver gap shed-slots: weaver absent/none in a working slot, keyed
-  //    "shed:date:shift". These shed-slots pay nobody.
-  const weaverGapSlots = new Set<string>();
+  // 3) Weaver gap shed-slots, keyed "shed:date:shift".
+  //
+  //    Fetches EVERY weaver row for the week, not just the absent ones.
+  //    A shed-slot is only a gap when none of its rows shows a weaver who
+  //    worked — see `deriveWeaverGapSlots` for why filtering to
+  //    absent/none here silently docked a winder for sheds that ran.
+  //    ~144 entries a week, well inside PostgREST's 1000-row cap.
+  let weaverGapSlots = new Set<string>();
   if (workingDayIds.length > 0) {
     const { data: gapRaw } = await supabase
       .from('attendance_entry')
       .select('status, shed_no, attendance_day_id, employee:employee_id ( role )')
-      .in('status', ['absent', 'none'])
       .in('attendance_day_id', workingDayIds);
+    const weaverRows: WeaverShedRow[] = [];
     for (const r of (gapRaw ?? []) as Array<{
       status: string;
       shed_no: string | null;
@@ -123,8 +130,9 @@ export async function loadWinderAllocation(
       if (!shed) continue;
       const slotKey = slotByDayId.get(r.attendance_day_id);
       if (!slotKey) continue;
-      weaverGapSlots.add(`${shed}:${slotKey}`);
+      weaverRows.push({ shed, slotKey, status: r.status });
     }
+    weaverGapSlots = deriveWeaverGapSlots(weaverRows);
   }
 
   return computeWinderAllocation({

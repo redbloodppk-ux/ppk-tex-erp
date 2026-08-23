@@ -44,8 +44,53 @@ export interface WinderAllocationInput {
   workingSlotKeys: string[];
   /** One row per winder per slot they have an attendance_entry for. */
   attendance: WinderSlotAttendance[];
-  /** Shed-slots where the weaver was absent/none. Keys: "shed:YYYY-MM-DD:shift". */
+  /** Shed-slots NO weaver wove. Keys: "shed:YYYY-MM-DD:shift".
+   *  Build with `deriveWeaverGapSlots`, never by hand. */
   weaverGapSlots: Set<string>;
+}
+
+/** Statuses that mean a weaver actually stood at the loom.
+ *  `early_leave` counts: the shed ran, so the winder earned her slot. */
+const WEAVER_WORKED = new Set(['present', 'half_day', 'late', 'early_leave']);
+
+/** One weaver's attendance row for one shed in one working slot. */
+export interface WeaverShedRow {
+  shed: string;
+  /** "YYYY-MM-DD:shift". */
+  slotKey: string;
+  status: string;
+}
+
+/**
+ * Shed-slots that pay nobody — those where NO weaver was working.
+ *
+ * WHY THIS IS NOT "some weaver was absent"
+ * A shed carries more than one weaver row for the same slot. A weaver who
+ * works mornings keeps his shed on the NIGHT rows too, marked `none`. So
+ * asking "is any row absent/none?" calls a shed empty while somebody is
+ * standing at it, and docks the winder for a shed that ran all night.
+ *
+ * Found 2026-08-23: 7 of MALIGA's 9 recorded gaps were slots where another
+ * weaver was present — ASHOK's stale `none` night rows on shed 4, and
+ * SUBRAMANI's on shed 2. It cost her Rs 1,283.33 in a single week. The bug
+ * only shows up where two weavers share a shed, which is why KAMACHI's
+ * sheds 1 and 3 were unaffected and the error went unnoticed.
+ *
+ * A shed-slot with no weaver row at all is not a gap: that shed simply is
+ * not part of the week's roster.
+ */
+export function deriveWeaverGapSlots(rows: WeaverShedRow[]): Set<string> {
+  const seen = new Set<string>();
+  const worked = new Set<string>();
+  for (const r of rows) {
+    if (!r.shed || !r.slotKey) continue;
+    const key = `${r.shed}:${r.slotKey}`;
+    seen.add(key);
+    if (WEAVER_WORKED.has(r.status)) worked.add(key);
+  }
+  const gaps = new Set<string>();
+  for (const key of seen) if (!worked.has(key)) gaps.add(key);
+  return gaps;
 }
 
 export interface WinderAllocationResult {
