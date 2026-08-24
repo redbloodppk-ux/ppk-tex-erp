@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { TodayAttendanceWidget } from '@/app/components/dashboard/today-attendance';
 import { RemindersWidget } from '@/app/components/dashboard/reminders-widget';
+import { UnrecordedShiftsWidget } from '@/app/components/dashboard/unrecorded-shifts-widget';
 import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
 import { ProductionAnalytics } from './production-analytics';
 import { directionForStream, type PartyStream } from '@/lib/party-streams';
@@ -769,6 +770,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       {/* Reminders — office/factory to-dos (maintenance, supplier calls,
           bill payments, purchases) due or coming up in the next 7 days.
           Placed right after the headline KPIs so nothing due gets missed. */}
+      {/* Shifts never recorded — silently wrong wages. Renders nothing
+          when there are none. */}
+      <UnrecordedShiftsWidget />
+
       <RemindersWidget />
 
       {/* Quick Entry — shortcuts to the screens the operator hits every

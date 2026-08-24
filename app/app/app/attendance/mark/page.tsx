@@ -103,6 +103,11 @@ export default function AttendanceMarkPage() {
 
   const [markDate, setMarkDate] = useState<string>(today());
   const [shift, setShift] = useState<ShiftCode>('morning');
+  // True when THIS day's other shift has no attendance_day row at all —
+  // neither worked nor marked a holiday. Such a shift drops silently out
+  // of the week and changes every winder's pay. See lib/attendance/
+  // unrecorded-shifts.ts for what it costs.
+  const [otherShiftMissing, setOtherShiftMissing] = useState(false);
   const [roleFilter, setRoleFilter] = useState<string>('all');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -293,6 +298,21 @@ export default function AttendanceMarkPage() {
       }
     }
     setCoverByEmpShed(nextCover);
+
+    // Does the OTHER shift of this date exist at all?
+    {
+      const other = shift === 'morning' ? 'night' : 'morning';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: otherDay } = await (supabase as any)
+        .from('attendance_day')
+        .select('id')
+        .eq('attendance_date', markDate)
+        .eq('shift', other)
+        .maybeSingle();
+      // Only warn about days already past — tonight has not happened yet.
+      const todayStr = new Date().toLocaleDateString('en-CA');
+      setOtherShiftMissing(!otherDay && markDate < todayStr);
+    }
 
     const statusMap = new Map<number, AttendanceStatus>();
     const inMap = new Map<number, string | null>();
@@ -840,6 +860,27 @@ export default function AttendanceMarkPage() {
             </select>
           </div>
         </div>
+
+        {otherShiftMissing && (
+          <div className="rounded-md border-2 border-rose-300 bg-rose-50 p-3">
+            <div className="text-sm font-semibold text-rose-900">
+              The {shift === 'morning' ? 'night' : 'morning'} shift of this day
+              was never recorded
+            </div>
+            <div className="mt-1 text-xs text-rose-800">
+              A shift with no attendance is neither worked nor a holiday, so it
+              drops out of the week and quietly changes wages. Switch to it and
+              either mark attendance or set it as a holiday.
+            </div>
+            <button
+              type="button"
+              onClick={() => setShift(shift === 'morning' ? 'night' : 'morning')}
+              className="mt-2 rounded-md border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
+            >
+              Go to the {shift === 'morning' ? 'night' : 'morning'} shift &rarr;
+            </button>
+          </div>
+        )}
 
         {error && <p className="text-sm text-err">{error}</p>}
         {savedMsg && (

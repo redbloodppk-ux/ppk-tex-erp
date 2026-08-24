@@ -21,8 +21,22 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchCategoryLabelMap } from '@/lib/reminders/constants';
+import {
+  loadUnrecordedShifts, describeShift, todayISO,
+} from '@/lib/attendance/unrecorded-shifts';
 
-export type NotificationKind = 'costing_approval' | 'bill_due' | 'reminder';
+export type NotificationKind =
+  | 'costing_approval' | 'bill_due' | 'reminder' | 'attendance_gap';
+
+/** Kinds that "Clear all" must NOT hide.
+ *
+ *  Clear-all is for news you have read. An unrecorded shift is not news -
+ *  it is an unanswered question that silently changes wages, and it stays
+ *  wrong until somebody records the shift or marks it a holiday. Hiding it
+ *  on a tap would put it straight back into the blind spot that let four
+ *  of them through unnoticed. It disappears when it is FIXED, not when it
+ *  is dismissed. */
+const UNCLEARABLE: ReadonlySet<NotificationKind> = new Set(['attendance_gap']);
 
 export interface NotificationItem {
   /** Stable composite id for keys + dedup. Not a DB row id. */
@@ -60,15 +74,17 @@ export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [pendingApprovals, billDues, dueReminders, clearedAt] = await Promise.all([
-    fetchPendingApprovals(sb),
-    fetchBillDues(sb),
-    fetchDueReminders(sb),
-    fetchClearedAt(sb),
-  ]);
+  const [pendingApprovals, billDues, dueReminders, attendanceGaps, clearedAt] =
+    await Promise.all([
+      fetchPendingApprovals(sb),
+      fetchBillDues(sb),
+      fetchDueReminders(sb),
+      fetchAttendanceGaps(sb),
+      fetchClearedAt(sb),
+    ]);
 
-  const items = [...pendingApprovals, ...billDues, ...dueReminders]
-    .filter((i) => clearedAt == null || i.occurred_at > clearedAt)
+  const items = [...pendingApprovals, ...billDues, ...dueReminders, ...attendanceGaps]
+    .filter((i) => UNCLEARABLE.has(i.kind) || clearedAt == null || i.occurred_at > clearedAt)
     // Most urgent first, then most recent.
     .sort((a, b) => {
       const sev = sevRank(b.severity) - sevRank(a.severity);
@@ -236,6 +252,33 @@ async function fetchDueReminders(sb: any): Promise<NotificationItem[]> {
       severity: overdue ? ('critical' as const) : ('warn' as const),
     };
   });
+}
+
+/**
+ * Shifts that were never recorded — neither worked nor marked a holiday.
+ *
+ * Critical, because the consequence is silent and financial: the shift
+ * drops out of the week, every winder's per-slot rate rises, and no shed
+ * on it can be counted idle. Four went unnoticed for two months.
+ *
+ * Ninety days back. Older than that and the weeks are long settled, so
+ * the warning would be noise rather than something to act on.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAttendanceGaps(sb: any): Promise<NotificationItem[]> {
+  const today = todayISO();
+  const from = new Date();
+  from.setDate(from.getDate() - 90);
+  const gaps = await loadUnrecordedShifts(sb, todayISO(from), today);
+  return gaps.slice(0, 20).map((g) => ({
+    id: `attendance_gap:${g.date}:${g.shift}`,
+    kind: 'attendance_gap' as const,
+    title: `${describeShift(g)} was never recorded`,
+    body: 'Wages for that week may be wrong. Record the shift, or mark it a holiday.',
+    link: `/app/attendance/mark?date=${g.date}&shift=${g.shift}`,
+    occurred_at: `${g.date}T00:00:00Z`,
+    severity: 'critical' as const,
+  }));
 }
 
 function sevRank(s: 'info' | 'warn' | 'critical'): number {

@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, Archive } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
 import { loadWinderAllocation, type WinderInfo } from '@/lib/wages/winder-allocation-data';
+import { loadUnrecordedShifts, describeShift } from '@/lib/attendance/unrecorded-shifts';
 
 export const metadata = { title: 'Weekly Wage Summary' };
 export const dynamic = 'force-dynamic';
@@ -191,6 +192,12 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const weekEnd = addDaysISO(weekStart, 6);
 
   const supabase = await createClient();
+
+  // Shifts in THIS week that were never recorded. A missing shift shrinks
+  // every winder's denominator and hides idle sheds, so the figures below
+  // cannot be trusted until it is resolved. See lib/attendance/
+  // unrecorded-shifts.ts.
+  const unrecorded = await loadUnrecordedShifts(supabase, weekStart, weekEnd);
 
   // FY label + week number from the SQL helper (migration 037).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -633,6 +640,33 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           </div>
         }
       />
+
+      {unrecorded.length > 0 && (
+        <div className="mb-4 rounded-md border-2 border-rose-300 bg-rose-50 p-3">
+          <div className="text-sm font-semibold text-rose-900">
+            {unrecorded.length === 1
+              ? '1 shift this week was never recorded'
+              : `${unrecorded.length} shifts this week were never recorded`}
+            {' \u2014 the figures below may be wrong'}
+          </div>
+          <div className="mt-1 text-xs text-rose-800">
+            A shift with no attendance is neither worked nor a holiday. It drops
+            out of the week, so every winder&rsquo;s per-shed rate rises and no
+            shed on it can be counted idle.
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {unrecorded.map((u) => (
+              <Link
+                key={`${u.date}:${u.shift}`}
+                href={`/app/attendance/mark?date=${u.date}&shift=${u.shift}`}
+                className="rounded-md border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
+              >
+                {describeShift(u)} &rarr;
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Week navigator */}
       <div className="card p-3 mb-4 flex flex-wrap items-center gap-3">
