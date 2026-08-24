@@ -396,3 +396,79 @@ describe('computeWinderAllocation — cover records and absence', () => {
     expect(res?.deduction).toBeCloseTo(2200, 2);
   });
 });
+
+/**
+ * A night box is earned by that morning's winding. Confirmed by PPK
+ * 2026-08-24: "check for any winder assign otherwise no pay for no winder".
+ */
+describe('computeWinderAllocation — night follows the morning', () => {
+  const P = 32;
+  const M = 10;
+  const MORN = '2026-07-25:morning';
+  const NIGHT = '2026-07-25:night';
+
+  it('night pays nobody when she was absent that morning and no winder is on the shed', () => {
+    // The real 25 Jul: PACHAIYAMAAL absent in the morning, `none` at night.
+    // MALIGA is `none` at night too, so she cannot cover.
+    const res = computeWinderAllocation({
+      winders: [
+        { id: P, weeklySalary: 2200, assignedSheds: ['4'] },
+        { id: M, weeklySalary: 4400, assignedSheds: ['2', '4'] },
+      ],
+      workingSlotKeys: [MORN, NIGHT],
+      attendance: [
+        { winderId: P, slotKey: MORN,  status: 'absent', sheds: [] },
+        { winderId: P, slotKey: NIGHT, status: 'none',   sheds: [] },
+        { winderId: M, slotKey: MORN,  status: 'present', sheds: ['2', '4'] },
+        { winderId: M, slotKey: NIGHT, status: 'none',    sheds: ['2', '4'] },
+      ],
+      weaverGapSlots: new Set(),
+    });
+    // Morning went to MALIGA, who was on the shed. Night went to nobody.
+    expect(res.get(P)?.book).toBeCloseTo(0, 2);
+    expect(res.get(M)?.reallocatedIn).toBeCloseTo(1100, 2); // the morning box only
+  });
+
+  it('but the night DOES move to a winder who is on the shed that night', () => {
+    const res = computeWinderAllocation({
+      winders: [
+        { id: P, weeklySalary: 2200, assignedSheds: ['4'] },
+        { id: M, weeklySalary: 4400, assignedSheds: ['2', '4'] },
+      ],
+      workingSlotKeys: [MORN, NIGHT],
+      attendance: [
+        { winderId: P, slotKey: MORN,  status: 'absent',  sheds: [] },
+        { winderId: P, slotKey: NIGHT, status: 'none',    sheds: [] },
+        { winderId: M, slotKey: MORN,  status: 'present', sheds: ['2', '4'] },
+        { winderId: M, slotKey: NIGHT, status: 'present', sheds: ['2', '4'] },
+      ],
+      weaverGapSlots: new Set(),
+    });
+    expect(res.get(P)?.book).toBeCloseTo(0, 2);
+    expect(res.get(M)?.reallocatedIn).toBeCloseTo(2200, 2); // both boxes
+  });
+
+  it('a normal night still pays her when she worked that morning', () => {
+    const res = computeWinderAllocation({
+      winders: [{ id: P, weeklySalary: 2200, assignedSheds: ['4'] }],
+      workingSlotKeys: [MORN, NIGHT],
+      attendance: [
+        { winderId: P, slotKey: MORN,  status: 'present', sheds: ['4'] },
+        { winderId: P, slotKey: NIGHT, status: 'none',    sheds: ['4'] },
+      ],
+      weaverGapSlots: new Set(),
+    });
+    expect(res.get(P)?.book).toBeCloseTo(2200, 2);
+  });
+
+  it('an UNMARKED morning does not dock the night', () => {
+    // 9 Jul: no morning row at all. Never marked is not the same as absent.
+    const res = computeWinderAllocation({
+      winders: [{ id: P, weeklySalary: 2200, assignedSheds: ['4'] }],
+      workingSlotKeys: [NIGHT],
+      attendance: [{ winderId: P, slotKey: NIGHT, status: 'none', sheds: ['4'] }],
+      weaverGapSlots: new Set(),
+    });
+    expect(res.get(P)?.book).toBeCloseTo(2200, 2);
+  });
+});

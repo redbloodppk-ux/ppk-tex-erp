@@ -16,6 +16,10 @@
  *   - Shed ran, winder ABSENT, nobody else on that shed -> SHE KEEPS IT.
  *     The shed ran, so the yarn was there: she had wound it ahead on an
  *     earlier overtime shift. Changed 2026-08-24; it used to be docked.
+ *   - NIGHT slot after a morning she was marked absent for -> she wound
+ *     nothing that day, so the night box has nothing to carry. Whoever is
+ *     on the shed that night takes it; if nobody is, nobody is paid. She
+ *     does NOT keep it.
  *   - No attendance row at all -> nothing. She is not on the roster; she
  *     has left. Do not confuse this with being marked absent.
  *
@@ -160,6 +164,15 @@ export function computeWinderAllocation(
     }
   }
 
+  // A night box is earned by the MORNING's winding - a winder works the
+  // morning and the shed she winds carries through that day's night. So a
+  // night slot needs to know how her morning went.
+  const morningStatus = new Map<string, string>();
+  for (const a of attendance) {
+    const [date, sh] = a.slotKey.split(':');
+    if (sh === 'morning' && date) morningStatus.set(`${a.winderId}|${date}`, a.status);
+  }
+
   const rateById = new Map<number, number>();
   const results = new Map<number, WinderAllocationResult>();
   for (const w of winders) {
@@ -200,6 +213,21 @@ export function computeWinderAllocation(
       // branch below.
       const marked = att !== undefined;
       const status = att?.status ?? 'absent';
+
+      // Night after a morning she was MARKED absent for: she wound nothing
+      // that day, so the night box has nothing to carry. It is handled like
+      // an absence - whoever is on the shed that night takes it, and if
+      // nobody is, nobody is paid. Note this does NOT fall through to the
+      // "she keeps it" branch: that one assumes she had wound ahead, which
+      // an absent morning rules out for this day.
+      //
+      // Only an EXPLICIT 'absent' counts. A morning with no row at all was
+      // simply never marked, and docking people for an unrecorded shift is
+      // the trap that produced today's other two bugs.
+      const [slotDate, slotShift] = slotKey.split(':');
+      const nothingToCarry =
+        slotShift !== 'morning' &&
+        morningStatus.get(`${w.id}|${slotDate ?? ''}`) === 'absent';
       for (const shed of w.assignedSheds) {
         if (weaverGapSlots.has(`${shed}:${slotKey}`)) {
           // Weaver absent -> shed-slot unpaid.
@@ -207,7 +235,7 @@ export function computeWinderAllocation(
           res.deduction += rate;
           continue;
         }
-        if (status === 'absent') {
+        if (status === 'absent' || nothingToCarry) {
           // Winder absent, weaver present. Who wound this shed?
           //
           // A confirmed record wins. Failing that, fall back to inferring
@@ -234,7 +262,7 @@ export function computeWinderAllocation(
               subRes.reallocatedIn += share;
               subRes.coveredForOthers += 1;
             }
-          } else if (marked) {
+          } else if (marked && !nothingToCarry) {
             // Nobody else was on the shed, yet the shed RAN - a weaver gap
             // would have been caught above. So the yarn was there: she had
             // wound it ahead, usually on an earlier overtime shift. She
@@ -251,8 +279,9 @@ export function computeWinderAllocation(
             res.book += rate;
             if (record?.outcome === 'wound_ahead') res.woundAheadCount += 1;
           } else {
-            // No attendance row at all, so nobody said she was away - she
-            // is simply not on this week's roster. She has left.
+            // Either no attendance row at all - she is off the roster, she
+            // has left - or a night with nothing to carry from an absent
+            // morning. Nobody wound this shed, so nobody is paid for it.
             //
             // This is the line that keeps the two rules from colliding.
             // "Absence never costs her" is about an employed winder who
