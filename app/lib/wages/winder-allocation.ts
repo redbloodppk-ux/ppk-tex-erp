@@ -150,14 +150,13 @@ export function deriveWeaverGapSlots(
 ): Set<string> {
   const seen = new Set<string>();
   const worked = new Set<string>();
-  // Slots where attendance was marked AT ALL. The safeguard below turns on
-  // only for these.
-  const slotsMarked = new Set<string>();
+  // How many weaver rows each slot carries, used by the safeguard below.
+  const rowsPerSlot = new Map<string, number>();
   for (const r of rows) {
     if (!r.shed || !r.slotKey) continue;
     const key = `${r.shed}:${r.slotKey}`;
     seen.add(key);
-    slotsMarked.add(r.slotKey);
+    rowsPerSlot.set(r.slotKey, (rowsPerSlot.get(r.slotKey) ?? 0) + 1);
     if (WEAVER_WORKED.has(r.status)) worked.add(key);
   }
   const gaps = new Set<string>();
@@ -168,17 +167,27 @@ export function deriveWeaverGapSlots(
   // shed 1 on the nights of 19 and 21 Aug (migration 265), then sheds 1
   // and 3 on 22 Aug night (migration 266).
   //
-  // THE SAFEGUARD: only for slots that have SOME weaver row. If a whole
-  // shift is never marked, every shed is blank and this would dock every
-  // winder for a shift nobody recorded - the same trap as reading a
-  // missing attendance row as absence. Saving a shift writes rows for
-  // everyone, so in practice a blank shed means that one shed stood
-  // still; in two months of data all 5 blank cases were partial, never a
-  // whole shift.
+  // THE SAFEGUARD: only for slots that were properly marked. Saving a
+  // shift writes a row for every employee, so a real shift carries as
+  // many weaver rows as the busiest slot of the week. A slot with only a
+  // handful was never actually marked, and inferring "idle" from its
+  // blanks would dock winders for a shift nobody recorded - the same trap
+  // as reading a missing attendance row as absence.
+  //
+  // "Some rows" was the first version of this test and it was too weak.
+  // Migration 266 created 22 Aug night with just TWO rows, which passed,
+  // and MALIGA was docked Rs 338.46 for sheds that had run. Half the
+  // busiest slot is the line now: 2 of 9 fails, 9 of 9 passes.
+  const busiestSlot = Math.max(0, ...rowsPerSlot.values());
+  const markedThreshold = busiestSlot / 2;
   if (opts) {
     for (const slotKey of opts.slotKeys) {
       if (slotKey < `${BLANK_SHED_IS_IDLE_FROM}:`) continue;
-      if (!slotsMarked.has(slotKey)) continue;
+      const slotRows = rowsPerSlot.get(slotKey) ?? 0;
+      // Zero is checked separately: with no rows anywhere the threshold
+      // is 0 too, and `0 < 0` is false, so a completely unmarked week
+      // would sail through and dock everyone. Caught by the test.
+      if (slotRows === 0 || slotRows < markedThreshold) continue;
       for (const shed of opts.sheds) {
         const key = `${shed}:${slotKey}`;
         if (!seen.has(key)) gaps.add(key);

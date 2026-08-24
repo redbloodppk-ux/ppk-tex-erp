@@ -518,6 +518,30 @@ describe('deriveWeaverGapSlots — blank sheds', () => {
     expect(gaps.size).toBe(0);
   });
 
+  it('a PART-marked shift docks nobody either', () => {
+    // The real 22 Aug night: migration 266 created the shift with just two
+    // rows while the neighbouring nights carry nine. "Some rows" passed
+    // that and docked MALIGA Rs 338.46 for sheds that had run. Half the
+    // busiest slot is the line: 2 of 9 fails.
+    const BUSY = '2026-08-21:night';
+    const THIN = '2026-08-22:night';
+    const busyRows: WeaverShedRow[] = Array.from({ length: 9 }, (_, i) => ({
+      shed: String((i % 4) + 1), slotKey: BUSY, status: 'present',
+    }));
+    const gaps = deriveWeaverGapSlots(
+      [
+        ...busyRows,
+        { shed: '1', slotKey: THIN, status: 'none' },
+        { shed: '3', slotKey: THIN, status: 'none' },
+      ],
+      { sheds: ['1', '2', '3', '4'], slotKeys: [BUSY, THIN] },
+    );
+    // Sheds 1 and 3 are gaps because their rows show nobody working.
+    // Sheds 2 and 4 are blank, but the shift is too thinly marked to
+    // conclude they were idle - so they are NOT docked.
+    expect(gaps).toEqual(new Set([`1:${THIN}`, `3:${THIN}`]));
+  });
+
   it('does not reach back into settled weeks', () => {
     const OLD = '2026-08-05:night';
     const gaps = deriveWeaverGapSlots(
