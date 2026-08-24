@@ -6,17 +6,24 @@
  *   weekly_salary / (assigned sheds * working shift-slots in the week).
  *
  * For every (assigned shed, working slot):
- *   - Weaver absent/none in that shed-slot  -> nobody is paid (docked).
- *   - Weaver present, winder NOT absent      -> credited to the winder
- *     (present / half_day / late / early_leave / none — a winder is on
- *     the hook for both shifts of every shed she covers).
- *   - Weaver present, winder ABSENT, a substitute winder covered that
- *     shed that slot -> the money MOVES from the absent winder to the
- *     substitute.
- *   - Weaver present, winder ABSENT, nobody covered -> docked.
+ *   - NO weaver wove that shed-slot -> nobody is paid. This is the ONLY
+ *     way money is lost. See `deriveWeaverGapSlots`.
+ *   - Shed ran, winder NOT absent -> credited to her (present / half_day /
+ *     late / early_leave / none — a winder works the morning, and the shed
+ *     she winds carries through both shifts of that day).
+ *   - Shed ran, winder ABSENT, someone else on that shed -> the money
+ *     MOVES from her to whoever covered.
+ *   - Shed ran, winder ABSENT, nobody else on that shed -> SHE KEEPS IT.
+ *     The shed ran, so the yarn was there: she had wound it ahead on an
+ *     earlier overtime shift. Changed 2026-08-24; it used to be docked.
+ *   - No attendance row at all -> nothing. She is not on the roster; she
+ *     has left. Do not confuse this with being marked absent.
  *
  * The total wage bill is conserved: rupees removed from an absent winder
  * are exactly the rupees handed to her substitute(s).
+ *
+ * Who covered is taken from `winder_cover` when a supervisor confirmed it
+ * (migration 264), and otherwise inferred from attendance as before.
  */
 
 /** A winder and the sheds she is responsible for. */
@@ -47,6 +54,20 @@ export interface WinderAllocationInput {
   /** Shed-slots NO weaver wove. Keys: "shed:YYYY-MM-DD:shift".
    *  Build with `deriveWeaverGapSlots`, never by hand. */
   weaverGapSlots: Set<string>;
+  /** Confirmed answers from `winder_cover` (migration 264), keyed
+   *  "absentWinderId|shed|slotKey". A missing key means nobody confirmed
+   *  anything, and cover is inferred from `attendance` as it always was.
+   *  Optional so existing callers and tests keep working. */
+  coverRecords?: Map<string, WinderCoverRecord>;
+}
+
+/** One supervisor-confirmed answer about an absent winder's shed. */
+export interface WinderCoverRecord {
+  /** 'covered' - another winder wound it, see coveredBy.
+   *  'wound_ahead' - she had wound it herself in advance, on overtime. */
+  outcome: 'covered' | 'wound_ahead';
+  /** Employee id of the winder who covered; null for 'wound_ahead'. */
+  coveredBy: number | null;
 }
 
 /** Statuses that mean a weaver actually stood at the loom.
@@ -108,6 +129,10 @@ export interface WinderAllocationResult {
   expectedShedSlots: number;
   /** Count of shed-slots this winder covered for an absent winder. */
   coveredForOthers: number;
+  /** Shed-slots she was away for but had wound ahead herself, confirmed on
+   *  the attendance screen. Recorded for visibility - it carries no extra
+   *  money; any reward goes in the Adjustments column by hand. */
+  woundAheadCount: number;
 }
 
 /**
@@ -117,7 +142,7 @@ export interface WinderAllocationResult {
 export function computeWinderAllocation(
   input: WinderAllocationInput,
 ): Map<number, WinderAllocationResult> {
-  const { winders, workingSlotKeys, attendance, weaverGapSlots } = input;
+  const { winders, workingSlotKeys, attendance, weaverGapSlots, coverRecords } = input;
   const nSlots = workingSlotKeys.length;
 
   // Index attendance by winder+slot, and build the per-slot roster of
@@ -148,6 +173,7 @@ export function computeWinderAllocation(
       weaverAbsentCount: 0,
       expectedShedSlots: expected,
       coveredForOthers: 0,
+      woundAheadCount: 0,
     });
   }
 
@@ -168,7 +194,12 @@ export function computeWinderAllocation(
       // The trade-off, accepted 2026-08-23: if a working day is created
       // but attendance is never marked, weekly staff are docked for it
       // until it is filled in. Absence of a record no longer pays.
-      const status = attByKey.get(`${w.id}|${slotKey}`)?.status ?? 'absent';
+      const att = attByKey.get(`${w.id}|${slotKey}`);
+      // Someone MARKED her absent vs. there is no row at all. The two are
+      // treated the same for attendance but NOT for pay - see the absent
+      // branch below.
+      const marked = att !== undefined;
+      const status = att?.status ?? 'absent';
       for (const shed of w.assignedSheds) {
         if (weaverGapSlots.has(`${shed}:${slotKey}`)) {
           // Weaver absent -> shed-slot unpaid.
@@ -177,12 +208,23 @@ export function computeWinderAllocation(
           continue;
         }
         if (status === 'absent') {
-          // Winder absent, weaver present -> hand the money to a substitute.
-          res.deduction += rate;
-          const subs = (coverBySlot.get(slotKey) ?? []).filter(
-            (x) => x.winderId !== w.id && x.sheds.has(shed),
-          );
+          // Winder absent, weaver present. Who wound this shed?
+          //
+          // A confirmed record wins. Failing that, fall back to inferring
+          // it from who was present holding the shed - the behaviour every
+          // week before migration 264, so past figures don't move.
+          const record = coverRecords?.get(`${w.id}|${shed}|${slotKey}`);
+          const subs = record
+            ? (record.outcome === 'covered' && record.coveredBy != null
+                ? [{ winderId: record.coveredBy, sheds: new Set([shed]) }]
+                : [])
+            : (coverBySlot.get(slotKey) ?? []).filter(
+                (x) => x.winderId !== w.id && x.sheds.has(shed),
+              );
+
           if (subs.length > 0) {
+            // Somebody else did her work, so the money follows the work.
+            res.deduction += rate;
             res.reallocatedOut += rate;
             const share = rate / subs.length;
             for (const sub of subs) {
@@ -192,8 +234,36 @@ export function computeWinderAllocation(
               subRes.reallocatedIn += share;
               subRes.coveredForOthers += 1;
             }
+          } else if (marked) {
+            // Nobody else was on the shed, yet the shed RAN - a weaver gap
+            // would have been caught above. So the yarn was there: she had
+            // wound it ahead, usually on an earlier overtime shift. She
+            // keeps the box.
+            //
+            // Changed 2026-08-24 (PPK): a winder's own absence no longer
+            // costs her anything. Before this, the box was simply cancelled
+            // and nobody was paid - which docked KAMACHI Rs 333.33 on
+            // 23 Aug, when sheds 1 and 3 both ran with ANAND and SURESH A
+            // weaving and no winder on the floor at all.
+            //
+            // Money is now lost in exactly one situation: no weaver on the
+            // shed.
+            res.book += rate;
+            if (record?.outcome === 'wound_ahead') res.woundAheadCount += 1;
+          } else {
+            // No attendance row at all, so nobody said she was away - she
+            // is simply not on this week's roster. She has left.
+            //
+            // This is the line that keeps the two rules from colliding.
+            // "Absence never costs her" is about an employed winder who
+            // took a day off and had wound ahead. Extending it to someone
+            // with no rows would pay a departed worker indefinitely, which
+            // is the exact bug fixed on 2026-08-23: PACHAIYAMAAL walked out
+            // in July and would have kept earning every week since.
+            //
+            // Marked absent -> she keeps it. No row at all -> nothing.
+            res.deduction += rate;
           }
-          // else: docked, nobody gains.
         } else {
           // Present / none / half_day / late / early_leave -> credited.
           res.book += rate;

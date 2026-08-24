@@ -12,6 +12,7 @@ import {
   deriveWeaverGapSlots,
   type WeaverShedRow,
   type WinderAllocationResult,
+  type WinderCoverRecord,
 } from './winder-allocation';
 
 /** A winder to allocate for. `assignedSheds` = employee.default_sheds. */
@@ -135,6 +136,33 @@ export async function loadWinderAllocation(
     weaverGapSlots = deriveWeaverGapSlots(weaverRows);
   }
 
+  // 4) Supervisor-confirmed cover (migration 264). A row exists only when
+  //    someone actively answered on the attendance screen, so any shed-slot
+  //    missing from this map falls back to the old inference and computes
+  //    exactly as it did before the table existed.
+  const coverRecords = new Map<string, WinderCoverRecord>();
+  if (workingDayIds.length > 0) {
+    const { data: coverRaw } = await supabase
+      .from('winder_cover')
+      .select('attendance_day_id, absent_employee_id, shed_no, outcome, covered_by_employee_id')
+      .in('attendance_day_id', workingDayIds);
+    for (const r of (coverRaw ?? []) as Array<{
+      attendance_day_id: number;
+      absent_employee_id: number;
+      shed_no: string;
+      outcome: string;
+      covered_by_employee_id: number | null;
+    }>) {
+      const slotKey = slotByDayId.get(r.attendance_day_id);
+      if (!slotKey || !r.shed_no) continue;
+      if (r.outcome !== 'covered' && r.outcome !== 'wound_ahead') continue;
+      coverRecords.set(`${r.absent_employee_id}|${r.shed_no}|${slotKey}`, {
+        outcome: r.outcome,
+        coveredBy: r.covered_by_employee_id,
+      });
+    }
+  }
+
   return computeWinderAllocation({
     winders: winders.map((w) => ({
       id: w.id,
@@ -144,5 +172,6 @@ export async function loadWinderAllocation(
     workingSlotKeys,
     attendance,
     weaverGapSlots,
+    coverRecords,
   });
 }

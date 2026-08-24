@@ -100,7 +100,7 @@ describe('computeWinderAllocation', () => {
     expect(total).toBeCloseTo(2 * WEEKLY, 6);
   });
 
-  it('docks an absent winder when nobody covered her sheds', () => {
+  it('an absent winder keeps her pay when nobody covered her sheds', () => {
     const workingSlotKeys = slotKeys(11);
     const absentSlots = new Set(workingSlotKeys.slice(0, 2));
     const attendance: WinderSlotAttendance[] = [];
@@ -126,14 +126,18 @@ describe('computeWinderAllocation', () => {
     };
 
     const res = computeWinderAllocation(input);
-    const docked = 2 * 2 * RATE;
 
-    expect(res.get(MALIGA)!.book).toBeCloseTo(WEEKLY - docked, 6);
+    // RULE CHANGED 2026-08-24 (PPK). This test previously expected MALIGA
+    // to be docked 2 slots x 2 sheds. She no longer is: her sheds RAN on
+    // those slots, so the yarn was there and she had wound it ahead. Her
+    // own absence costs her nothing when nobody else is on the shed.
+    expect(res.get(MALIGA)!.book).toBeCloseTo(WEEKLY, 6);
+    expect(res.get(MALIGA)!.deduction).toBeCloseTo(0, 6);
     expect(res.get(MALIGA)!.reallocatedOut).toBeCloseTo(0, 6);
     expect(res.get(KAMACHI)!.book).toBeCloseTo(WEEKLY, 6); // unchanged
-    // Wage bill shrinks — money is genuinely docked, not moved.
+    // Nothing is lost: the full wage bill is still paid.
     const total = res.get(MALIGA)!.book + res.get(KAMACHI)!.book;
-    expect(total).toBeCloseTo(2 * WEEKLY - docked, 6);
+    expect(total).toBeCloseTo(2 * WEEKLY, 6);
   });
 
   it('docks (no reallocation) when the weaver is absent in a shed-slot', () => {
@@ -281,5 +285,114 @@ describe('computeWinderAllocation — missing attendance rows', () => {
     expect(gone?.reallocatedOut).toBeCloseTo(2200, 2); // her whole rate moves
     expect(there?.reallocatedIn).toBeCloseTo(2200, 2);
     expect(there?.coveredForOthers).toBe(1);
+  });
+});
+
+/**
+ * Confirmed cover (migration 264) and the "absence never docks" rule
+ * agreed with PPK on 2026-08-24.
+ */
+describe('computeWinderAllocation — cover records and absence', () => {
+  const KAM = 9;
+  const MAL = 10;
+  const SLOT = '2026-08-23:morning';
+
+  const base = {
+    workingSlotKeys: [SLOT],
+    weaverGapSlots: new Set<string>(),
+  };
+
+  it('an absent winder KEEPS her box when nobody else is on the shed', () => {
+    // The real 23 Aug: sheds 1 and 3 ran (ANAND, SURESH A weaving) with no
+    // winder on the floor. KAMACHI had wound ahead.
+    const r = computeWinderAllocation({
+      ...base,
+      winders: [{ id: KAM, weeklySalary: 4000, assignedSheds: ['1', '3'] }],
+      attendance: [{ winderId: KAM, slotKey: SLOT, status: 'absent', sheds: ['1', '3'] }],
+    }).get(KAM);
+    expect(r?.book).toBeCloseTo(4000, 2);
+    expect(r?.deduction).toBeCloseTo(0, 2);
+  });
+
+  it('but a shed with no weaver still pays nobody', () => {
+    const r = computeWinderAllocation({
+      ...base,
+      weaverGapSlots: new Set([`1:${SLOT}`]),
+      winders: [{ id: KAM, weeklySalary: 4000, assignedSheds: ['1', '3'] }],
+      attendance: [{ winderId: KAM, slotKey: SLOT, status: 'absent', sheds: ['1', '3'] }],
+    }).get(KAM);
+    expect(r?.book).toBeCloseTo(2000, 2);
+    expect(r?.weaverAbsentCount).toBe(1);
+  });
+
+  it('a confirmed coverer overrides the guess', () => {
+    // The guess would hand shed 4 to MALIGA, whose card lists it by default.
+    // The supervisor confirmed KAMACHI took it instead.
+    const res = computeWinderAllocation({
+      ...base,
+      winders: [
+        { id: MAL, weeklySalary: 2400, assignedSheds: ['4'] },
+        { id: KAM, weeklySalary: 4000, assignedSheds: ['1', '3'] },
+      ],
+      attendance: [
+        { winderId: MAL, slotKey: SLOT, status: 'absent', sheds: ['4'] },
+        { winderId: KAM, slotKey: SLOT, status: 'present', sheds: ['1', '3', '4'] },
+      ],
+      coverRecords: new Map([[`${MAL}|4|${SLOT}`, { outcome: 'covered' as const, coveredBy: KAM }]]),
+    });
+    expect(res.get(MAL)?.book).toBeCloseTo(0, 2);
+    expect(res.get(KAM)?.reallocatedIn).toBeCloseTo(2400, 2);
+    // Conserved: what left MALIGA is exactly what reached KAMACHI.
+    expect(res.get(MAL)?.reallocatedOut).toBeCloseTo(res.get(KAM)?.reallocatedIn ?? -1, 2);
+  });
+
+  it('"she wound ahead" keeps the box with her, overriding a guessed coverer', () => {
+    const res = computeWinderAllocation({
+      ...base,
+      winders: [
+        { id: MAL, weeklySalary: 2400, assignedSheds: ['4'] },
+        { id: KAM, weeklySalary: 4000, assignedSheds: ['1', '3'] },
+      ],
+      attendance: [
+        { winderId: MAL, slotKey: SLOT, status: 'absent', sheds: ['4'] },
+        // KAMACHI is present holding shed 4, so the GUESS would move the
+        // money to her. The confirmed answer says otherwise.
+        { winderId: KAM, slotKey: SLOT, status: 'present', sheds: ['1', '3', '4'] },
+      ],
+      coverRecords: new Map([[`${MAL}|4|${SLOT}`, { outcome: 'wound_ahead' as const, coveredBy: null }]]),
+    });
+    expect(res.get(MAL)?.book).toBeCloseTo(2400, 2);
+    expect(res.get(MAL)?.woundAheadCount).toBe(1);
+    expect(res.get(KAM)?.reallocatedIn).toBeCloseTo(0, 2);
+  });
+
+  it('no record at all reproduces the old guess', () => {
+    const res = computeWinderAllocation({
+      ...base,
+      winders: [
+        { id: MAL, weeklySalary: 2400, assignedSheds: ['4'] },
+        { id: KAM, weeklySalary: 4000, assignedSheds: ['1', '3'] },
+      ],
+      attendance: [
+        { winderId: MAL, slotKey: SLOT, status: 'absent', sheds: ['4'] },
+        { winderId: KAM, slotKey: SLOT, status: 'present', sheds: ['1', '3', '4'] },
+      ],
+    });
+    expect(res.get(MAL)?.book).toBeCloseTo(0, 2);
+    expect(res.get(KAM)?.reallocatedIn).toBeCloseTo(2400, 2);
+  });
+
+  it('a winder who has LEFT still earns nothing — no row is not absence', () => {
+    // The two rules could collide here: "absence never docks" must not
+    // resurrect PACHAIYAMAAL, who has no attendance rows at all.
+    const GONE = 32;
+    const res = computeWinderAllocation({
+      ...base,
+      workingSlotKeys: [SLOT, '2026-08-23:night'],
+      winders: [{ id: GONE, weeklySalary: 2200, assignedSheds: ['4'] }],
+      attendance: [],
+    }).get(GONE);
+    expect(res?.book).toBeCloseTo(0, 2);
+    expect(res?.deduction).toBeCloseTo(2200, 2);
   });
 });

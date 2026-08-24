@@ -118,6 +118,14 @@ export default function AttendanceMarkPage() {
   // mirrors `shedByEmp`. Saved into attendance_entry.shed_nos.
   const [shedsByEmp, setShedsByEmp] = useState<Record<number, string[]>>({});
 
+  // Confirmed answers about an ABSENT winder's sheds (migration 264),
+  // keyed `${absentEmpId}|${shed}`. A key is present ONLY once the
+  // supervisor has actually picked — its presence IS the confirmation.
+  // Anything not in here is left to the wage calculation's old inference,
+  // so an untouched screen changes no money.
+  const [coverByEmpShed, setCoverByEmpShed] =
+    useState<Record<string, { outcome: 'covered' | 'wound_ahead'; coveredBy: number | null }>>({});
+
   // Holiday state for the selected date + shift.
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
   const [holidayReason, setHolidayReason] = useState<NonWorkingReason>('national_holiday');
@@ -265,6 +273,26 @@ export default function AttendanceMarkPage() {
       // is re-run.
       entries = (ent ?? []) as unknown as EntryRow[];
     }
+
+    // Cover answers already confirmed for this shift.
+    const nextCover: Record<string, { outcome: 'covered' | 'wound_ahead'; coveredBy: number | null }> = {};
+    if (day) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: cov } = await (supabase as any)
+        .from('winder_cover')
+        .select('absent_employee_id, shed_no, outcome, covered_by_employee_id')
+        .eq('attendance_day_id', day.id);
+      for (const c of ((cov ?? []) as unknown as Array<{
+        absent_employee_id: number; shed_no: string;
+        outcome: 'covered' | 'wound_ahead'; covered_by_employee_id: number | null;
+      }>)) {
+        nextCover[`${c.absent_employee_id}|${c.shed_no}`] = {
+          outcome: c.outcome,
+          coveredBy: c.covered_by_employee_id,
+        };
+      }
+    }
+    setCoverByEmpShed(nextCover);
 
     const statusMap = new Map<number, AttendanceStatus>();
     const inMap = new Map<number, string | null>();
@@ -441,6 +469,46 @@ export default function AttendanceMarkPage() {
       const first = next[0] ?? null;
       setShedByEmp((p) => ({ ...p, [empId]: first }));
       return { ...prev, [empId]: next };
+    });
+    setSavedMsg(null);
+  }
+
+  /** Winders who could have covered a shed this shift: on the floor, and
+   *  not the absent woman herself. `none` cannot cover — it means she was
+   *  not scheduled at all. */
+  function availableCoverers(absentEmpId: number): Employee[] {
+    return employees.filter((e) => {
+      if (e.id === absentEmpId) return false;
+      if (e.role.toLowerCase() !== 'winder') return false;
+      const st = statusByEmp[e.id] ?? 'present';
+      return st !== 'absent' && st !== 'none';
+    });
+  }
+
+  /** What the wage calculation WOULD assume if nobody answers: the first
+   *  present winder holding this shed. Shown pre-selected so the common
+   *  case is one tap, but nothing is recorded until it IS tapped. */
+  function guessedCoverer(absentEmpId: number, shed: string): number | null {
+    for (const e of availableCoverers(absentEmpId)) {
+      if ((shedsByEmp[e.id] ?? []).includes(shed)) return e.id;
+    }
+    return null;
+  }
+
+  /** Record the supervisor's answer for one absent winder's shed. */
+  function setCover(absentEmpId: number, shed: string, value: string): void {
+    const key = `${absentEmpId}|${shed}`;
+    setCoverByEmpShed((prev) => {
+      const next = { ...prev };
+      if (value === '') {
+        // Back to unanswered — the wage falls through to the old guess.
+        delete next[key];
+      } else if (value === 'wound_ahead') {
+        next[key] = { outcome: 'wound_ahead', coveredBy: null };
+      } else {
+        next[key] = { outcome: 'covered', coveredBy: Number(value) };
+      }
+      return next;
     });
     setSavedMsg(null);
   }
@@ -628,6 +696,56 @@ export default function AttendanceMarkPage() {
         setError(err.message);
         return;
       }
+
+      // Cover answers for absent winders (migration 264). Only rows the
+      // supervisor actually picked are written — an untouched prompt
+      // stores nothing, so the wage calculation keeps inferring as before.
+      //
+      // Not carried on the offline path: a cover answer is a judgement,
+      // not a reading, and re-asking beats replaying a stale guess.
+      const coverRows = Object.entries(coverByEmpShed)
+        .map(([key, v]) => {
+          const [idPart, shedPart] = key.split('|');
+          return { empId: Number(idPart ?? ''), shed: shedPart ?? '', v };
+        })
+        .filter((r) => r.shed !== '' && Number.isFinite(r.empId)
+          && (statusByEmp[r.empId] ?? '') === 'absent')
+        .map((r) => ({
+          attendance_day_id: dayId,
+          absent_employee_id: r.empId,
+          shed_no: r.shed,
+          outcome: r.v.outcome,
+          covered_by_employee_id: r.v.coveredBy,
+          updated_by: user?.id ?? null,
+        }));
+
+      if (coverRows.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error: covErr } = await (supabase as any)
+          .from('winder_cover')
+          .upsert(coverRows as never, {
+            onConflict: 'attendance_day_id,absent_employee_id,shed_no',
+          });
+        if (covErr) { setError(covErr.message); return; }
+      }
+
+      // Drop answers that were cleared, or whose winder is no longer
+      // marked absent — otherwise a correction would leave the old answer
+      // behind, still overriding the wage.
+      const keep = new Set(coverRows.map((r) => `${r.absent_employee_id}|${r.shed_no}`));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: existing } = await (supabase as any)
+        .from('winder_cover')
+        .select('id, absent_employee_id, shed_no')
+        .eq('attendance_day_id', dayId);
+      const stale = ((existing ?? []) as unknown as Array<{
+        id: number; absent_employee_id: number; shed_no: string;
+      }>).filter((c) => !keep.has(`${c.absent_employee_id}|${c.shed_no}`)).map((c) => c.id);
+      if (stale.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('winder_cover').delete().in('id', stale);
+      }
+
       setSavedMsg(`Saved attendance for ${rows.length} employees.`);
     } catch {
       // Network-level failure (fetch threw). Treat as offline.
@@ -915,6 +1033,51 @@ export default function AttendanceMarkPage() {
                                   Pick at least one shed
                                 </span>
                               )}
+                            </div>
+                          )}
+
+                          {isWinder && empStatus === 'absent' && emp.default_sheds.length > 0 && (
+                            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 p-2">
+                              <div className="text-[11px] font-semibold text-amber-900">
+                                Who wound her sheds this shift?
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-amber-800">
+                                Leave a line alone and the wage is worked out the old way.
+                              </div>
+                              {emp.default_sheds.map((shed) => {
+                                const key = `${emp.id}|${shed}`;
+                                const answer = coverByEmpShed[key];
+                                const guess = guessedCoverer(emp.id, shed);
+                                const value = answer
+                                  ? (answer.outcome === 'wound_ahead' ? 'wound_ahead' : String(answer.coveredBy))
+                                  : (guess !== null ? String(guess) : '');
+                                return (
+                                  <div key={shed} className="mt-1.5 flex flex-wrap items-center gap-2">
+                                    <span className="w-14 text-xs text-ink-soft">Shed {shed}</span>
+                                    <select
+                                      className={
+                                        'input h-9 min-w-[13rem] text-xs ' +
+                                        (answer ? '' : 'text-ink-mute')
+                                      }
+                                      value={value}
+                                      onChange={(e) => setCover(emp.id, shed, e.target.value)}
+                                    >
+                                      <option value="">— not answered —</option>
+                                      <option value="wound_ahead">She wound ahead (overtime)</option>
+                                      {availableCoverers(emp.id).map((c) => (
+                                        <option key={c.id} value={c.id}>{c.full_name}</option>
+                                      ))}
+                                    </select>
+                                    {answer ? (
+                                      <span className="text-[10px] font-semibold text-emerald-700">Confirmed</span>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-800">
+                                        {guess !== null ? 'Suggested — tap to confirm' : 'Not answered'}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
