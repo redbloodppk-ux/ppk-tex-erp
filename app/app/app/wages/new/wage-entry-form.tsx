@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Info, AlertTriangle } from 'lucide-react';
 
-export type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
+export type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
 // Read-only context the form fetches after employee + period are set.
 // It tells the operator which shifts the employee was actually marked
@@ -667,6 +667,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             <option value="settlement">Weekly settlement</option>
             <option value="advance">Advance</option>
             <option value="adjustment">Adjustment</option>
+            <option value="extra_work">Extra work (cleaning, oiling, knotting)</option>
           </select>
           {(isMetreBasis || isWeekly) && (
             <p className="text-[11px] text-ink-mute mt-1">

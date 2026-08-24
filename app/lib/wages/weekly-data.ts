@@ -10,7 +10,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { loadWinderAllocation, type WinderInfo } from './winder-allocation-data';
 
-export type WageKind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
+export type WageKind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
 export interface WageRow {
   id: number;
@@ -73,6 +73,10 @@ export interface PerEmployee {
   book_salary: number;
   advances: number;
   adjustments: number;
+  /** Pay EARNED on top of the weekly figure - cleaning, oiling, hand
+   *  knotting bobbins. Kept apart from `adjustments`, which corrects a
+   *  wrong book figure rather than rewarding extra work. Migration 267. */
+  extra_work: number;
   net_payable: number;
 }
 
@@ -87,6 +91,10 @@ export interface PerWorkerRow {
   wages_paid: number;
   advances: number;
   adjustments: number;
+  /** Pay EARNED on top of the weekly figure - cleaning, oiling, hand
+   *  knotting bobbins. Kept apart from `adjustments`, which corrects a
+   *  wrong book figure rather than rewarding extra work. Migration 267. */
+  extra_work: number;
   net_payable: number;
 }
 
@@ -94,6 +102,7 @@ export interface WeeklyTotals {
   wages: number;
   advances: number;
   adjustments: number;
+  extra_work: number;
   same_day: number;
   expenses: number;
   net_cash_out: number;
@@ -253,12 +262,14 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   let totalAdvance = 0;
   let totalSettlement = 0;
   let totalAdjustment = 0;
+  let totalExtraWork = 0;
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
     if (w.kind === 'same_day') totalSameDay += a;
     else if (w.kind === 'advance') totalAdvance += a;
     else if (w.kind === 'settlement') totalSettlement += a;
     else if (w.kind === 'adjustment') totalAdjustment += a;
+    else if (w.kind === 'extra_work') totalExtraWork += a;
   }
   const totalExpenses = expenses.reduce((acc, e) => acc + Number(e.amount ?? 0), 0);
   const netCashOut = totalSettlement + totalAdvance + totalAdjustment + totalSameDay + totalExpenses;
@@ -266,6 +277,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   // Per-employee roll-ups across all kinds in the week.
   const advancesByEmp = new Map<number, number>();
   const adjustmentsByEmp = new Map<number, number>();
+  const extraWorkByEmp = new Map<number, number>();
   const wagesPaidByEmp = new Map<number, number>();
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
@@ -273,6 +285,8 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       advancesByEmp.set(w.employee_id, (advancesByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'adjustment') {
       adjustmentsByEmp.set(w.employee_id, (adjustmentsByEmp.get(w.employee_id) ?? 0) + a);
+    } else if (w.kind === 'extra_work') {
+      extraWorkByEmp.set(w.employee_id, (extraWorkByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'settlement' || w.kind === 'same_day') {
       wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
     }
@@ -331,6 +345,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       const wages_paid = wagesPaidByEmp.get(e.id) ?? 0;
       const adv = advancesByEmp.get(e.id) ?? 0;
       const adj = adjustmentsByEmp.get(e.id) ?? 0;
+      const extra = extraWorkByEmp.get(e.id) ?? 0;
       return {
         employee_id: e.id,
         code: e.code,
@@ -339,7 +354,8 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
         wages_paid,
         advances: adv,
         adjustments: adj,
-        net_payable: wages_paid - adv + adj,
+        extra_work: extra,
+        net_payable: wages_paid - adv + adj + extra,
       };
     });
   }
@@ -349,7 +365,9 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   // still surfaced on the row but are not paid through this column.
   const metreRows = buildWorkerRows(metreEmps).map((r): PerWorkerRow => ({
     ...r,
-    net_payable: r.wages_earned - r.advances,
+    // Adjustments are deliberately NOT folded in here (see above), but
+    // extra work is - it is money earned, not a correction.
+    net_payable: r.wages_earned - r.advances + r.extra_work,
   }));
 
   // Attendance-based pro-ration: fitter & winder.
@@ -434,6 +452,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
     }
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
+    const extra = extraWorkByEmp.get(e.id) ?? 0;
     return {
       employee_id: e.id,
       code: e.code,
@@ -451,7 +470,8 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       book_salary: book,
       advances: adv,
       adjustments: adj,
-      net_payable: book - adv + adj,
+      extra_work: extra,
+      net_payable: book - adv + adj + extra,
     };
   });
 
@@ -481,6 +501,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
       wages: totalSettlement,
       advances: totalAdvance,
       adjustments: totalAdjustment,
+    extra_work: totalExtraWork,
       same_day: totalSameDay,
       expenses: totalExpenses,
       net_cash_out: netCashOut,

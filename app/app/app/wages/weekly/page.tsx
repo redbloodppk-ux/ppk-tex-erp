@@ -26,7 +26,7 @@ interface PageProps {
   searchParams: Promise<{ week?: string }>;
 }
 
-type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
+type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
 interface WageRow {
   id: number;
@@ -87,6 +87,10 @@ interface PerEmployee {
   settlement: number;
   advances: number;
   adjustments: number;
+  /** Pay EARNED on top of the weekly figure - cleaning, oiling, hand
+   *  knotting bobbins. Kept apart from `adjustments`, which corrects a
+   *  wrong book figure rather than rewarding extra work. Migration 267. */
+  extra_work: number;
   net_payable: number;
 }
 
@@ -105,6 +109,10 @@ interface PerWorkerRow {
   wages_paid: number;
   advances: number;
   adjustments: number;
+  /** Pay EARNED on top - cleaning, oiling, hand knotting bobbins. Kept
+   *  apart from `adjustments`, which corrects a wrong figure rather than
+   *  rewarding extra work. Migration 267. */
+  extra_work: number;
   /**
    * Weaver Wages Net payable = wages_earned - advances.
    *
@@ -169,6 +177,7 @@ const KIND_PILL: Record<Kind, string> = {
   advance:    'bg-amber-50 text-amber-700',
   settlement: 'bg-emerald-50 text-emerald-700',
   adjustment: 'bg-slate-100 text-slate-600',
+  extra_work: 'bg-teal-50 text-teal-700',
 };
 
 export default async function WeeklyWagesPage({ searchParams }: PageProps): Promise<React.ReactElement> {
@@ -249,12 +258,14 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   let totalAdvance = 0;
   let totalSettlement = 0;
   let totalAdjustment = 0;
+  let totalExtraWork = 0;
   for (const w of wages) {
     const a = Number(w.amount ?? 0);
     if (w.kind === 'same_day') totalSameDay += a;
     else if (w.kind === 'advance') totalAdvance += a;
     else if (w.kind === 'settlement') totalSettlement += a;
     else if (w.kind === 'adjustment') totalAdjustment += a;
+    else if (w.kind === 'extra_work') totalExtraWork += a;
   }
   const totalExpenses = expenses.reduce((acc, e) => acc + Number(e.amount ?? 0), 0);
   const netCashOut = totalSettlement + totalAdvance + totalAdjustment + totalSameDay + totalExpenses;
@@ -262,6 +273,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // Per-employee roll-ups across all kinds in the week.
   const advancesByEmp    = new Map<number, number>();
   const adjustmentsByEmp = new Map<number, number>();
+  const extraWorkByEmp = new Map<number, number>();
   const wagesPaidByEmp   = new Map<number, number>();  // settlement + same_day combined
   const settlementByEmp  = new Map<number, number>();  // settlement-kind only
   const sameDayByEmp     = new Map<number, number>();  // same_day-kind only
@@ -271,6 +283,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       advancesByEmp.set(w.employee_id, (advancesByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'adjustment') {
       adjustmentsByEmp.set(w.employee_id, (adjustmentsByEmp.get(w.employee_id) ?? 0) + a);
+    } else if (w.kind === 'extra_work') {
+      extraWorkByEmp.set(w.employee_id, (extraWorkByEmp.get(w.employee_id) ?? 0) + a);
     } else if (w.kind === 'settlement') {
       settlementByEmp.set(w.employee_id, (settlementByEmp.get(w.employee_id) ?? 0) + a);
       wagesPaidByEmp.set(w.employee_id, (wagesPaidByEmp.get(w.employee_id) ?? 0) + a);
@@ -352,6 +366,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       const same_day_paid = sameDayByEmp.get(e.id) ?? 0;
       const adv = advancesByEmp.get(e.id) ?? 0;
       const adj = adjustmentsByEmp.get(e.id) ?? 0;
+      const extra = extraWorkByEmp.get(e.id) ?? 0;
       return {
         employee_id: e.id,
         code: e.code,
@@ -362,17 +377,20 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         wages_paid,
         advances: adv,
         adjustments: adj,
+        extra_work: extra,
         // Default formula (kept for loom-shift basis). For metre-basis
         // weavers we override below so Net payable = wages earned -
         // advances, matching the Weaver Wages section's intent.
-        net_payable: wages_paid - adv + adj,
+        net_payable: wages_paid - adv + adj + extra,
       };
     });
   }
   const loomShiftRows = buildWorkerRows(loomShiftEmps);
   const metreRows = buildWorkerRows(metreEmps).map((r): PerWorkerRow => ({
     ...r,
-    net_payable: r.wages_earned - r.advances,
+    // Adjustments are deliberately NOT folded in here (see above), but
+    // extra work is - it is money earned, not a correction.
+    net_payable: r.wages_earned - r.advances + r.extra_work,
   }));
 
   // Attendance-based pro-ration:
@@ -539,6 +557,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     const settlement = settlementByEmp.get(e.id) ?? 0;
     const adv = advancesByEmp.get(e.id) ?? 0;
     const adj = adjustmentsByEmp.get(e.id) ?? 0;
+    const extra = extraWorkByEmp.get(e.id) ?? 0;
     return {
       employee_id: e.id,
       code: e.code,
@@ -557,10 +576,12 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       settlement,
       advances: adv,
       adjustments: adj,
-      // "Net paid" = total cash actually flowing out to this employee this week
-      // (settlement + advances + adjustments). Book salary stays as the
-      // entitlement reference, but it is NOT in the cash math anymore.
-      net_payable: settlement + adv + adj,
+      extra_work: extra,
+      // "Net paid" = total cash actually flowing out to this employee this
+      // week (settlement + advances + adjustments + extra work). Book
+      // salary stays as the entitlement reference, but it is NOT in the
+      // cash math anymore.
+      net_payable: settlement + adv + adj + extra,
     };
   });
 
@@ -572,6 +593,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     wages: totalSettlement,
     advances: totalAdvance,
     adjustments: totalAdjustment,
+    extra_work: totalExtraWork,
     same_day: totalSameDay,
     expenses: totalExpenses,
     net_cash_out: netCashOut,
@@ -660,6 +682,10 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <div className="num text-xl font-bold">{formatRupee(totalAdjustment)}</div>
         </div>
         <div className="card p-3">
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Extra work</div>
+          <div className="num text-xl font-bold">{formatRupee(totalExtraWork)}</div>
+        </div>
+        <div className="card p-3">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute">Same-day</div>
           <div className="num text-xl font-bold">{formatRupee(totalSameDay)}</div>
         </div>
@@ -695,8 +721,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Book salary</th>
               <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Advances</th>
+              <th className="text-right px-4 py-3">Extra work<br /><span className="text-[10px] normal-case text-ink-mute">cleaning, oiling, knotting</span></th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + advances + adjustments</span></th>
+              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + advances + adjustments + extra work</span></th>
             </tr>
           </thead>
           <tbody>
@@ -742,6 +769,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   <td className="px-4 py-3 text-right num">{formatRupee(p.book_salary)}</td>
                   <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                   <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                  <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.extra_work)}</td>
                   <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
                   <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
                 </tr>
@@ -767,8 +795,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Settlement</th>
               <th className="text-right px-4 py-3">Wages paid<br /><span className="text-[10px] normal-case text-ink-mute">same-day only</span></th>
               <th className="text-right px-4 py-3">Advances</th>
+              <th className="text-right px-4 py-3">Extra work<br /><span className="text-[10px] normal-case text-ink-mute">cleaning, oiling, knotting</span></th>
               <th className="text-right px-4 py-3">Adjustments</th>
-              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + wages paid + advances + adjustments</span></th>
+              <th className="text-right px-4 py-3">Net paid<br /><span className="text-[10px] normal-case text-ink-mute">settlement + wages paid + advances + adjustments + extra work</span></th>
             </tr>
           </thead>
           <tbody>
@@ -781,8 +810,9 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                 <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.settlement)}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.same_day_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.extra_work)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
-                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.settlement + p.same_day_paid + p.advances + p.adjustments)}</td>
+                <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.settlement + p.same_day_paid + p.advances + p.adjustments + p.extra_work)}</td>
               </tr>
             )) : (
               <tr>
@@ -808,6 +838,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               <th className="text-right px-4 py-3">Wages earned<br /><span className="text-[10px] normal-case text-ink-mute">metres × loom rate</span></th>
               <th className="text-right px-4 py-3">Wages paid</th>
               <th className="text-right px-4 py-3">Advances</th>
+              <th className="text-right px-4 py-3">Extra work<br /><span className="text-[10px] normal-case text-ink-mute">cleaning, oiling, knotting</span></th>
               <th className="text-right px-4 py-3">Adjustments</th>
               <th className="text-right px-4 py-3">Net payable<br /><span className="text-[10px] normal-case text-ink-mute">wages earned &minus; advances</span></th>
             </tr>
@@ -824,6 +855,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                 </td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.wages_paid)}</td>
                 <td className="px-4 py-3 text-right num text-amber-700">{formatRupee(p.advances)}</td>
+                <td className="px-4 py-3 text-right num text-emerald-700">{formatRupee(p.extra_work)}</td>
                 <td className="px-4 py-3 text-right num text-slate-600">{formatRupee(p.adjustments)}</td>
                 <td className="px-4 py-3 text-right num font-semibold">{formatRupee(p.net_payable)}</td>
               </tr>

@@ -174,6 +174,7 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
         { label: 'Wages (settlements)', value: data.totals.wages },
         { label: 'Advances', value: data.totals.advances },
         { label: 'Adjustments', value: data.totals.adjustments },
+        { label: 'Extra work', value: data.totals.extra_work },
         { label: 'Same-day', value: data.totals.same_day },
         { label: 'Expenses', value: data.totals.expenses },
         { label: 'Net cash out', value: data.totals.net_cash_out, emph: true },
@@ -207,6 +208,7 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
         { header: 'Book salary', width: 70, align: 'right' },
         { header: 'Wages paid', width: 70, align: 'right' },
         { header: 'Advances', width: 60, align: 'right' },
+        { header: 'Extra', width: 55, align: 'right' },
         { header: 'Adjust.', width: 55, align: 'right' },
         { header: 'Net payable', width: 70, align: 'right' },
       ];
@@ -240,6 +242,7 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
           rs(p.book_salary),
           rs(wagesPaid),
           rs(p.advances),
+          rs(p.extra_work),
           rs(p.adjustments),
           rs(p.net_payable),
         ];
@@ -255,12 +258,13 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
         { header: 'Name', width: 200 },
         { header: 'Wages paid', width: 90, align: 'right' },
         { header: 'Advances', width: 90, align: 'right' },
+        { header: 'Extra work', width: 90, align: 'right' },
         { header: 'Adjustments', width: 90, align: 'right' },
         { header: 'Net payable', width: 90, align: 'right' },
       ];
       const loomRows = data.loom_shift_employees.map((p) => [
         p.code, p.full_name,
-        rs(p.wages_paid), rs(p.advances), rs(p.adjustments), rs(p.net_payable),
+        rs(p.wages_paid), rs(p.advances), rs(p.extra_work), rs(p.adjustments), rs(p.net_payable),
       ]);
       if (loomRows.length === 0) loomRows.push(['—', 'No loom-shift basis employees', '', '', '', '']);
       y = drawTable(doc, doc.page.margins.left, y, workerCols, loomRows);
@@ -274,13 +278,14 @@ function buildPdf(data: WeeklyData): Promise<Buffer> {
         { header: 'Wages earned', width: 85, align: 'right' },
         { header: 'Wages paid', width: 75, align: 'right' },
         { header: 'Advances', width: 70, align: 'right' },
+        { header: 'Extra work', width: 80, align: 'right' },
         { header: 'Adjustments', width: 80, align: 'right' },
         { header: 'Net payable', width: 80, align: 'right' },
       ];
       const metreRows = data.metre_employees.map((p) => [
         p.code, p.full_name,
         rs(p.wages_earned),
-        rs(p.wages_paid), rs(p.advances), rs(p.adjustments), rs(p.net_payable),
+        rs(p.wages_paid), rs(p.advances), rs(p.extra_work), rs(p.adjustments), rs(p.net_payable),
       ]);
       if (metreRows.length === 0) metreRows.push(['—', 'No weaver-wage employees', '', '', '', '', '']);
       y = drawTable(doc, doc.page.margins.left, y, weaverWageCols, metreRows);

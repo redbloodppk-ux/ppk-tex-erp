@@ -48,6 +48,7 @@ export async function GET(req: Request): Promise<Response> {
     { label: 'Wages (settlements)', amount: data.totals.wages },
     { label: 'Advances', amount: data.totals.advances },
     { label: 'Adjustments', amount: data.totals.adjustments },
+    { label: 'Extra work', amount: data.totals.extra_work },
     { label: 'Same-day', amount: data.totals.same_day },
     { label: 'Expenses', amount: data.totals.expenses },
     { label: 'Net cash out', amount: data.totals.net_cash_out },
@@ -75,6 +76,7 @@ export async function GET(req: Request): Promise<Response> {
     { key: 'book_salary', label: 'Book salary', type: 'rupee', width: 14, total: true },
     { key: 'wages_paid', label: 'Wages paid', type: 'rupee', width: 13, total: true },
     { key: 'advances', label: 'Advances', type: 'rupee', width: 12, total: true },
+    { key: 'extra_work', label: 'Extra work', type: 'rupee', width: 13, total: true },
     { key: 'adjustments', label: 'Adjustments', type: 'rupee', width: 13, total: true },
     { key: 'net_payable', label: 'Net payable', type: 'rupee', width: 14, total: true },
   ];
@@ -101,6 +103,7 @@ export async function GET(req: Request): Promise<Response> {
       book_salary: p.book_salary,
       wages_paid: wagesPaid,
       advances: p.advances,
+      extra_work: p.extra_work,
       adjustments: p.adjustments,
       net_payable: p.net_payable,
     };
@@ -117,6 +120,7 @@ export async function GET(req: Request): Promise<Response> {
     { key: 'full_name', label: 'Name', width: 22 },
     { key: 'wages_paid', label: 'Wages paid', type: 'rupee', width: 14, total: true },
     { key: 'advances', label: 'Advances', type: 'rupee', width: 12, total: true },
+    { key: 'extra_work', label: 'Extra work', type: 'rupee', width: 13, total: true },
     { key: 'adjustments', label: 'Adjustments', type: 'rupee', width: 13, total: true },
     { key: 'net_payable', label: 'Net payable', type: 'rupee', width: 14, total: true },
   ];
@@ -128,6 +132,7 @@ export async function GET(req: Request): Promise<Response> {
       full_name: p.full_name,
       wages_paid: p.wages_paid,
       advances: p.advances,
+      extra_work: p.extra_work,
       adjustments: p.adjustments,
       net_payable: p.net_payable,
     })),
@@ -140,6 +145,7 @@ export async function GET(req: Request): Promise<Response> {
     { key: 'wages_earned', label: 'Wages earned', type: 'rupee', width: 14, total: true },
     { key: 'wages_paid', label: 'Wages paid', type: 'rupee', width: 14, total: true },
     { key: 'advances', label: 'Advances', type: 'rupee', width: 12, total: true },
+    { key: 'extra_work', label: 'Extra work', type: 'rupee', width: 13, total: true },
     { key: 'adjustments', label: 'Adjustments', type: 'rupee', width: 13, total: true },
     { key: 'net_payable', label: 'Net payable', type: 'rupee', width: 14, total: true },
   ];
@@ -152,6 +158,7 @@ export async function GET(req: Request): Promise<Response> {
       wages_earned: p.wages_earned,
       wages_paid: p.wages_paid,
       advances: p.advances,
+      extra_work: p.extra_work,
       adjustments: p.adjustments,
       net_payable: p.net_payable,
     })),

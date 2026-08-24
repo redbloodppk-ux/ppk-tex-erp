@@ -37,7 +37,7 @@ function fmtDateTime(iso: string | null): string {
   }).format(d).replace(',', '');
 }
 
-type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment';
+type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
 interface WageRow {
   id: number;
@@ -56,6 +56,7 @@ const KIND_PILL: Record<Kind, string> = {
   advance:    'bg-amber-50 text-amber-700',
   settlement: 'bg-emerald-50 text-emerald-700',
   adjustment: 'bg-slate-100 text-slate-600',
+  extra_work: 'bg-teal-50 text-teal-700',
 };
 
 export default async function WagesPage({
