@@ -19,7 +19,7 @@
  *   - NIGHT slot after a morning she was marked absent for -> she wound
  *     nothing that day, so the night box has nothing to carry. Whoever is
  *     on the shed that night takes it; if nobody is, nobody is paid. She
- *     does NOT keep it.
+ *     does NOT keep it. Applies from NIGHT_FOLLOWS_MORNING_FROM only.
  *   - No attendance row at all -> nothing. She is not on the roster; she
  *     has left. Do not confuse this with being marked absent.
  *
@@ -73,6 +73,21 @@ export interface WinderCoverRecord {
   /** Employee id of the winder who covered; null for 'wound_ahead'. */
   coveredBy: number | null;
 }
+
+/**
+ * The night-follows-morning rule applies from this date onward.
+ *
+ * Not a technical limit - a deliberate line. The rule was written on
+ * 2026-08-24 and reaches back into history, so it would have re-opened
+ * MALIGA's week of 6-12 Jul, settled and PAID at Rs 3,600 on 12 Jul,
+ * taking Rs 366.67 off a closed week. PPK chose to leave that week alone.
+ *
+ * The cutoff sits at the Monday after it, so the only other qualifying
+ * slot - PACHAIYAMAAL's 25 Jul, her final unsettled week - is still
+ * covered. Two slots in the whole database qualify; this excludes one of
+ * them by date rather than by a special case.
+ */
+const NIGHT_FOLLOWS_MORNING_FROM = '2026-07-13';
 
 /** Statuses that mean a weaver actually stood at the loom.
  *  `early_leave` counts: the shed ran, so the winder earned her slot. */
@@ -227,6 +242,7 @@ export function computeWinderAllocation(
       const [slotDate, slotShift] = slotKey.split(':');
       const nothingToCarry =
         slotShift !== 'morning' &&
+        (slotDate ?? '') >= NIGHT_FOLLOWS_MORNING_FROM &&
         morningStatus.get(`${w.id}|${slotDate ?? ''}`) === 'absent';
       for (const shed of w.assignedSheds) {
         if (weaverGapSlots.has(`${shed}:${slotKey}`)) {

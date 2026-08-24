@@ -471,4 +471,24 @@ describe('computeWinderAllocation — night follows the morning', () => {
     });
     expect(res.get(P)?.book).toBeCloseTo(2200, 2);
   });
+
+  it('leaves settled weeks before the cutoff alone', () => {
+    // MALIGA, 6 Jul: absent in the morning, `none` at night, KAMACHI also
+    // `none` so nobody could cover. The rule WOULD dock her - but that week
+    // was settled at Rs 3,600 on 12 Jul, so it stops at 13 Jul.
+    const OLD_MORN = '2026-07-06:morning';
+    const OLD_NIGHT = '2026-07-06:night';
+    const res = computeWinderAllocation({
+      winders: [{ id: M, weeklySalary: 4400, assignedSheds: ['2', '4'] }],
+      workingSlotKeys: [OLD_MORN, OLD_NIGHT],
+      attendance: [
+        { winderId: M, slotKey: OLD_MORN,  status: 'absent', sheds: [] },
+        { winderId: M, slotKey: OLD_NIGHT, status: 'none',   sheds: ['2', '4'] },
+      ],
+      weaverGapSlots: new Set(),
+    }).get(M);
+    // Both night boxes still paid, and the morning kept under the
+    // "absence never docks" rule. Her week is untouched.
+    expect(res?.book).toBeCloseTo(4400, 2);
+  });
 });
