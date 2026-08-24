@@ -20,8 +20,10 @@
  *     nothing that day, so the night box has nothing to carry. Whoever is
  *     on the shed that night takes it; if nobody is, nobody is paid. She
  *     does NOT keep it. Applies from NIGHT_FOLLOWS_MORNING_FROM only.
- *   - No attendance row at all -> nothing. She is not on the roster; she
- *     has left. Do not confuse this with being marked absent.
+ *   - No attendance row at all for the WINDER -> nothing. She is not on
+ *     the roster; she has left. Do not confuse this with being marked
+ *     absent. (A blank WEAVER row is a different thing - see
+ *     `deriveWeaverGapSlots`.)
  *
  * The total wage bill is conserved: rupees removed from an absent winder
  * are exactly the rupees handed to her substitute(s).
@@ -102,6 +104,27 @@ export interface WeaverShedRow {
 }
 
 /**
+ * From this date, a shed with NO weaver row at all counts as idle rather
+ * than as "not on the roster".
+ *
+ * Dated for the same reason as NIGHT_FOLLOWS_MORNING_FROM: the rule was
+ * agreed on 2026-08-24 and reaches backwards. Applying it to everything
+ * would take Rs 880.00 off KAMACHI in the week of 3 Aug, already settled
+ * and paid - shed 1 sat blank on four nights there. The cutoff is this
+ * week's Monday, so only unsettled figures move.
+ */
+const BLANK_SHED_IS_IDLE_FROM = '2026-08-17';
+
+/** What to consider beyond the rows that exist, when deciding gaps. */
+export interface WeaverGapOptions {
+  /** Every shed any winder is assigned to. A shed nobody winds is not
+   *  worth reasoning about. */
+  sheds: string[];
+  /** Every working shift-slot in the week, as "YYYY-MM-DD:shift". */
+  slotKeys: string[];
+}
+
+/**
  * Shed-slots that pay nobody — those where NO weaver was working.
  *
  * WHY THIS IS NOT "some weaver was absent"
@@ -116,20 +139,52 @@ export interface WeaverShedRow {
  * only shows up where two weavers share a shed, which is why KAMACHI's
  * sheds 1 and 3 were unaffected and the error went unnoticed.
  *
- * A shed-slot with no weaver row at all is not a gap: that shed simply is
- * not part of the week's roster.
+ * A shed-slot with no weaver row at all was originally NOT a gap - the
+ * shed was taken to be off the roster. From BLANK_SHED_IS_IDLE_FROM that
+ * flips: pass `opts` and a blank shed counts as idle, guarded so it only
+ * applies to shifts where attendance was marked at all.
  */
-export function deriveWeaverGapSlots(rows: WeaverShedRow[]): Set<string> {
+export function deriveWeaverGapSlots(
+  rows: WeaverShedRow[],
+  opts?: WeaverGapOptions,
+): Set<string> {
   const seen = new Set<string>();
   const worked = new Set<string>();
+  // Slots where attendance was marked AT ALL. The safeguard below turns on
+  // only for these.
+  const slotsMarked = new Set<string>();
   for (const r of rows) {
     if (!r.shed || !r.slotKey) continue;
     const key = `${r.shed}:${r.slotKey}`;
     seen.add(key);
+    slotsMarked.add(r.slotKey);
     if (WEAVER_WORKED.has(r.status)) worked.add(key);
   }
   const gaps = new Set<string>();
   for (const key of seen) if (!worked.has(key)) gaps.add(key);
+
+  // A shed with no weaver row at all is idle, not unrostered. Agreed with
+  // PPK 2026-08-24 after this had to be hand-corrected twice in one day -
+  // shed 1 on the nights of 19 and 21 Aug (migration 265), then sheds 1
+  // and 3 on 22 Aug night (migration 266).
+  //
+  // THE SAFEGUARD: only for slots that have SOME weaver row. If a whole
+  // shift is never marked, every shed is blank and this would dock every
+  // winder for a shift nobody recorded - the same trap as reading a
+  // missing attendance row as absence. Saving a shift writes rows for
+  // everyone, so in practice a blank shed means that one shed stood
+  // still; in two months of data all 5 blank cases were partial, never a
+  // whole shift.
+  if (opts) {
+    for (const slotKey of opts.slotKeys) {
+      if (slotKey < `${BLANK_SHED_IS_IDLE_FROM}:`) continue;
+      if (!slotsMarked.has(slotKey)) continue;
+      for (const shed of opts.sheds) {
+        const key = `${shed}:${slotKey}`;
+        if (!seen.has(key)) gaps.add(key);
+      }
+    }
+  }
   return gaps;
 }
 

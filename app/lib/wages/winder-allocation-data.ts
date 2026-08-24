@@ -133,7 +133,14 @@ export async function loadWinderAllocation(
       if (!slotKey) continue;
       weaverRows.push({ shed, slotKey, status: r.status });
     }
-    weaverGapSlots = deriveWeaverGapSlots(weaverRows);
+    // Sheds worth reasoning about = every shed some winder is paid for.
+    const shedsInPlay = Array.from(
+      new Set(winders.flatMap((w) => w.assignedSheds).filter((s) => s.length > 0)),
+    );
+    weaverGapSlots = deriveWeaverGapSlots(weaverRows, {
+      sheds: shedsInPlay,
+      slotKeys: workingSlotKeys,
+    });
   }
 
   // 4) Supervisor-confirmed cover (migration 264). A row exists only when

@@ -492,3 +492,47 @@ describe('computeWinderAllocation — night follows the morning', () => {
     expect(res?.book).toBeCloseTo(4400, 2);
   });
 });
+
+/**
+ * A shed with no weaver row at all is idle, not unrostered.
+ * Agreed with PPK 2026-08-24, guarded and dated.
+ */
+describe('deriveWeaverGapSlots — blank sheds', () => {
+  const SLOT = '2026-08-20:night';
+  const OPTS = { sheds: ['1', '2', '3', '4'], slotKeys: [SLOT] };
+
+  it('a blank shed is idle when the shift was marked', () => {
+    // Sheds 2 and 3 marked, shed 1 and 4 blank. The shift WAS marked, so
+    // the blanks mean those sheds stood still.
+    const gaps = deriveWeaverGapSlots([
+      { shed: '2', slotKey: SLOT, status: 'present' },
+      { shed: '3', slotKey: SLOT, status: 'none' },
+    ], OPTS);
+    expect(gaps).toEqual(new Set([`3:${SLOT}`, `1:${SLOT}`, `4:${SLOT}`]));
+  });
+
+  it('an ENTIRELY unmarked shift docks nobody', () => {
+    // No rows at all for the slot. Without the safeguard this would call
+    // every shed idle and dock every winder for a shift nobody recorded.
+    const gaps = deriveWeaverGapSlots([], OPTS);
+    expect(gaps.size).toBe(0);
+  });
+
+  it('does not reach back into settled weeks', () => {
+    const OLD = '2026-08-05:night';
+    const gaps = deriveWeaverGapSlots(
+      [{ shed: '2', slotKey: OLD, status: 'present' }],
+      { sheds: ['1', '2'], slotKeys: [OLD] },
+    );
+    // Shed 1 is blank on 5 Aug but that week is settled — left alone.
+    expect(gaps.size).toBe(0);
+  });
+
+  it('without opts, behaviour is exactly as before', () => {
+    const gaps = deriveWeaverGapSlots([
+      { shed: '2', slotKey: SLOT, status: 'present' },
+      { shed: '3', slotKey: SLOT, status: 'none' },
+    ]);
+    expect(gaps).toEqual(new Set([`3:${SLOT}`]));
+  });
+});
