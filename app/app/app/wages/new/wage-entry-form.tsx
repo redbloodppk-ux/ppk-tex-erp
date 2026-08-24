@@ -150,6 +150,18 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // Loan repayment withheld from this wage. The cash actually handed over is
   // (amount - loanDeduction); the withheld part reduces the worker's
   // outstanding employee_loan balance.
+  // Extra work is NOT a `kind` on this form. It is money EARNED on top of
+  // the wage - cleaning, oiling, hand knotting bobbins - so the operator
+  // types it in its own box beside the wage rather than filing a second
+  // entry of a different sort. It is still stored as its own wage_entry
+  // row (kind='extra_work', migration 267) keyed to the same employee and
+  // period, which keeps one row to one meaning and lets the weekly page
+  // total extra work on its own.
+  const [extraWork, setExtraWork] = useState<string>('');
+  const [extraWorkNote, setExtraWorkNote] = useState<string>('');
+  /** id of the existing extra_work row for this employee+period, if any. */
+  const [extraWorkId, setExtraWorkId] = useState<number | null>(null);
+
   const [loanDeduction, setLoanDeduction] = useState<string>(
     initial?.loan_deduction != null && initial.loan_deduction > 0 ? String(initial.loan_deduction) : '',
   );
@@ -550,6 +562,37 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     setAmount(value);
   }
 
+  // Pull any extra-work already recorded for this employee and period, so
+  // editing a week shows what is there instead of silently adding a second
+  // row on every save.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadExtraWork(): Promise<void> {
+      if (!employeeId || !periodStart || !periodEnd) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from('wage_entry')
+        .select('id, amount, notes')
+        .eq('employee_id', Number(employeeId))
+        .eq('kind', 'extra_work')
+        .eq('period_start', periodStart)
+        .eq('period_end', periodEnd)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data) {
+        setExtraWorkId(data.id as number);
+        setExtraWork(String(data.amount ?? ''));
+        setExtraWorkNote((data.notes as string | null) ?? '');
+      } else {
+        setExtraWorkId(null);
+        setExtraWork('');
+        setExtraWorkNote('');
+      }
+    }
+    void loadExtraWork();
+    return () => { cancelled = true; };
+  }, [supabase, employeeId, periodStart, periodEnd]);
+
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
@@ -570,6 +613,11 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     }
     if (loanDed > amt) {
       setError('Loan repayment cannot be more than the wage amount.');
+      return;
+    }
+    const extra = extraWork === '' ? 0 : Number(extraWork);
+    if (!Number.isFinite(extra) || extra < 0) {
+      setError('Extra work must be a non-negative number.');
       return;
     }
     if (periodEnd < periodStart) {
@@ -615,10 +663,46 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       insErr = error ?? null;
     }
 
-    setBusy(false);
-
     if (insErr) {
+      setBusy(false);
       setError(insErr.message);
+      return;
+    }
+
+    // Extra work rides along as its own row for the same employee and
+    // period: created, updated or removed to match the box.
+    const extraPayload = {
+      employee_id: Number(employeeId),
+      pay_date: payDate,
+      period_start: periodStart,
+      period_end: periodEnd,
+      kind: 'extra_work',
+      amount: extra,
+      notes: extraWorkNote.trim() || null,
+      source_ledger_id: sourceLedgerId ? Number(sourceLedgerId) : null,
+      loan_deduction: 0,
+      updated_by: user?.id ?? null,
+    };
+    let extraErr: { message: string } | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = supabase as any;
+    if (extra > 0 && extraWorkId != null) {
+      const { error } = await sbAny.from('wage_entry')
+        .update(extraPayload as never).eq('id', extraWorkId);
+      extraErr = error ?? null;
+    } else if (extra > 0) {
+      const { error } = await sbAny.from('wage_entry')
+        .insert([{ ...extraPayload, created_by: user?.id ?? null } as never]);
+      extraErr = error ?? null;
+    } else if (extraWorkId != null) {
+      // Cleared the box — remove the row rather than leave a zero behind.
+      const { error } = await sbAny.from('wage_entry').delete().eq('id', extraWorkId);
+      extraErr = error ?? null;
+    }
+
+    setBusy(false);
+    if (extraErr) {
+      setError(`Wage saved, but extra work failed: ${extraErr.message}`);
       return;
     }
     router.push('/app/wages');
@@ -667,7 +751,14 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             <option value="settlement">Weekly settlement</option>
             <option value="advance">Advance</option>
             <option value="adjustment">Adjustment</option>
-            <option value="extra_work">Extra work (cleaning, oiling, knotting)</option>
+            {/* Not offered for new entries — extra work is entered in its
+                own box below, which writes this kind for you. Shown only
+                when an existing extra_work row is open, so the select has
+                a matching option and saving cannot silently convert the
+                row into a settlement. */}
+            {initial?.kind === 'extra_work' && (
+              <option value="extra_work">Extra work</option>
+            )}
           </select>
           {(isMetreBasis || isWeekly) && (
             <p className="text-[11px] text-ink-mute mt-1">
@@ -711,6 +802,38 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         <p className="text-[11px] text-ink-mute mt-1">
           Which account this wage was paid from. It records a matching Credit on
           that cash/bank ledger so its balance reflects money going out.
+        </p>
+      </div>
+
+      <div className="rounded-md border border-teal-200 bg-teal-50/60 p-3">
+        <label className="label" htmlFor="extraWork">Extra work (₹)</label>
+        <div className="flex flex-wrap items-start gap-2">
+          <input
+            id="extraWork"
+            type="number"
+            inputMode="decimal"
+            step="1"
+            min="0"
+            className="input num w-32"
+            value={extraWork}
+            onChange={(e) => setExtraWork(e.target.value)}
+            placeholder="0"
+          />
+          <input
+            id="extraWorkNote"
+            type="text"
+            className="input flex-1 min-w-[12rem]"
+            value={extraWorkNote}
+            onChange={(e) => setExtraWorkNote(e.target.value)}
+            placeholder="What for? e.g. cleaning, oiling, hand knotting"
+          />
+        </div>
+        <p className="text-[11px] text-ink-mute mt-1">
+          Pay <strong>on top of</strong> the wage above, for work the weekly
+          salary does not cover. Recorded separately from the wage and from
+          Adjustments, so you can total what extra work costs. Leave blank if
+          there is none; clearing it removes any amount already recorded for
+          this employee and period.
         </p>
       </div>
 
