@@ -7,6 +7,7 @@
  * rule (absent winder -> substitute) can never drift between the screen
  * and the Excel / PDF exports.
  */
+import { fetchAll } from '@/lib/supabase/fetch-all';
 import {
   computeWinderAllocation,
   deriveWeaverGapSlots,
@@ -71,19 +72,25 @@ export async function loadWinderAllocation(
   }
 
   // 2) Each winder's attendance per slot, with the sheds actually covered.
-  const { data: winAttRaw } = await supabase
+  const winAtt = await fetchAll<{
+    employee_id: number; status: string;
+    shed_no: string | null; shed_nos: string[] | null;
+    attendance_day: AttendanceDayJoin | null;
+  }>((lo, hi) => supabase
     .from('attendance_entry')
     .select(
       // !inner makes the date filter a real join filter — without it
       // PostgREST returns these employees' ENTIRE history (day nulled for
       // out-of-range rows) and silently truncates at the 1000-row cap.
-      'employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
+      'id, employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
     )
     .in('employee_id', winderIds)
     .gte('attendance_day.attendance_date', weekStart)
-    .lte('attendance_day.attendance_date', weekEnd);
+    .lte('attendance_day.attendance_date', weekEnd)
+    .order('id', { ascending: true })
+    .range(lo, hi));
   const attendance = [];
-  for (const r of (winAttRaw ?? []) as Array<{
+  for (const r of winAtt.rows as Array<{
     employee_id: number;
     status: string;
     shed_no: string | null;
@@ -114,12 +121,19 @@ export async function loadWinderAllocation(
   //    ~144 entries a week, well inside PostgREST's 1000-row cap.
   let weaverGapSlots = new Set<string>();
   if (workingDayIds.length > 0) {
-    const { data: gapRaw } = await supabase
+    const gapAll = await fetchAll<{
+      status: string;
+      shed_no: string | null;
+      attendance_day_id: number;
+      employee: { role: string | null } | null;
+    }>((lo, hi) => supabase
       .from('attendance_entry')
-      .select('status, shed_no, attendance_day_id, employee:employee_id ( role )')
-      .in('attendance_day_id', workingDayIds);
+      .select('id, status, shed_no, attendance_day_id, employee:employee_id ( role )')
+      .in('attendance_day_id', workingDayIds)
+      .order('id', { ascending: true })
+      .range(lo, hi));
     const weaverRows: WeaverShedRow[] = [];
-    for (const r of (gapRaw ?? []) as Array<{
+    for (const r of gapAll.rows as Array<{
       status: string;
       shed_no: string | null;
       attendance_day_id: number;

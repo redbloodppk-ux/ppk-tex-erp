@@ -8,6 +8,7 @@
  * never disagree about totals or pro-ration logic.
  */
 import { createClient } from '@/lib/supabase/server';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 import { loadWinderAllocation, type WinderInfo } from './winder-allocation-data';
 
 export type WageKind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
@@ -180,11 +181,13 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   const sbEmp = supabase as any;
   const [activeRes, weekAttRes, weekWageRes] = await Promise.all([
     sbEmp.from('employee').select(EMP_COLS).eq('status', 'active').order('full_name'),
-    sbEmp
+    fetchAll<{ employee_id: number }>((lo, hi) => sbEmp
       .from('attendance_entry')
-      .select('employee_id, attendance_day:attendance_day_id!inner ( attendance_date )')
+      .select('id, employee_id, attendance_day:attendance_day_id!inner ( attendance_date )')
       .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd),
+      .lte('attendance_day.attendance_date', weekEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi)),
     sbEmp
       .from('wage_entry')
       .select('employee_id')
@@ -197,7 +200,7 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   const activeEmployees = (activeRes?.data ?? []) as EmployeeRow[];
   const activeIds = new Set(activeEmployees.map((e) => e.id));
   const touchedIds = new Set<number>();
-  for (const r of (weekAttRes?.data ?? []) as Array<{ employee_id: number }>) {
+  for (const r of (weekAttRes?.rows ?? []) as Array<{ employee_id: number }>) {
     if (!activeIds.has(r.employee_id)) touchedIds.add(r.employee_id);
   }
   for (const r of (weekWageRes?.data ?? []) as Array<{ employee_id: number }>) {
@@ -301,28 +304,34 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   const wagesEarnedByEmp = new Map<number, number>();
   if (metreEmps.length > 0) {
     const metreEmpIds = metreEmps.map((e) => e.id);
-    const { data: parents } = await supabase
-      .from('production_shift_log')
-      .select('id, rate_per_m')
-      .gte('log_date', weekStart)
-      .lte('log_date', weekEnd);
-    const parentRows = (parents ?? []) as Array<{ id: number; rate_per_m: number | string | null }>;
+    const parents = await fetchAll<{ id: number; rate_per_m: number | string | null }>(
+      (lo, hi) => supabase
+        .from('production_shift_log')
+        .select('id, rate_per_m')
+        .gte('log_date', weekStart)
+        .lte('log_date', weekEnd)
+        .order('id', { ascending: true })
+        .range(lo, hi));
+    const parentRows = parents.rows;
     if (parentRows.length > 0) {
       const parentIds = parentRows.map((p) => p.id);
       const rateByParent = new Map<number, number>();
       for (const p of parentRows) rateByParent.set(p.id, Number(p.rate_per_m ?? 0));
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: kidRaw } = await (supabase as any)
-        .from('production_shift_log_weaver')
-        .select('shift_log_id, employee_id, metres_woven')
-        .in('shift_log_id', parentIds)
-        .in('employee_id', metreEmpIds);
-      const kids = (kidRaw ?? []) as Array<{
+      const kidRes = await fetchAll<{
         shift_log_id: number;
         employee_id: number;
         metres_woven: number | string | null;
-      }>;
+      }>((lo, hi) => (supabase as unknown as {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        from: (t: string) => any;
+      }).from('production_shift_log_weaver')
+        .select('id, shift_log_id, employee_id, metres_woven')
+        .in('shift_log_id', parentIds)
+        .in('employee_id', metreEmpIds)
+        .order('id', { ascending: true })
+        .range(lo, hi));
+      const kids = kidRes.rows;
 
       for (const k of kids) {
         const rate = rateByParent.get(k.shift_log_id) ?? 0;
@@ -378,22 +387,25 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   // Fitter: distinct absent-date count per employee.
   const absentDaysByEmp = new Map<number, number>();
   if (fitterIds.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: attRaw } = await (supabase as any)
-      .from('attendance_entry')
-      // !inner: real join filter, avoids the 1000-row cap on full history.
-      .select('employee_id, status, attendance_day:attendance_day_id!inner ( attendance_date )')
-      .in('employee_id', fitterIds)
-      .eq('status', 'absent')
-      .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd);
     type AttRow = {
       employee_id: number;
       status: string;
       attendance_day: { attendance_date: string } | null;
     };
+    const attRes = await fetchAll<AttRow>((lo, hi) => (supabase as unknown as {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: (t: string) => any;
+    }).from('attendance_entry')
+      // !inner: real join filter, avoids the 1000-row cap on full history.
+      .select('id, employee_id, status, attendance_day:attendance_day_id!inner ( attendance_date )')
+      .in('employee_id', fitterIds)
+      .eq('status', 'absent')
+      .gte('attendance_day.attendance_date', weekStart)
+      .lte('attendance_day.attendance_date', weekEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi));
     const seen = new Map<number, Set<string>>();
-    for (const r of (attRaw ?? []) as AttRow[]) {
+    for (const r of attRes.rows) {
       const d = r.attendance_day?.attendance_date;
       if (!d) continue;
       const set = seen.get(r.employee_id) ?? new Set<string>();
