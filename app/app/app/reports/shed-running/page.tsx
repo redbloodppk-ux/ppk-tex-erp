@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Activity, ChevronLeft, ChevronRight, CalendarOff } from 'lucide-react';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Shed Running' };
 export const dynamic = 'force-dynamic';
@@ -165,17 +166,21 @@ export default async function ShedRunningReport({
   //    present-effective statuses. We join attendance_day for the date/shift
   //    and employee for the role. supabase-js types lag — cast through any.
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const { data: entryData, error: entryErr } = await (supabase as any)
+  // !inner makes the attendance_day date filter a real join filter — without
+  // it PostgREST returns EVERY attendance_entry row (day nulled for
+  // out-of-range ones). fetchAll then pages past the 1000-row cap, which is
+  // what made recent shifts show "idle" once the table grew past 1000.
+  const entryRes = await fetchAll<any>((lo, hi) => (supabase as any)
     .from('attendance_entry')
     .select(
-      // !inner makes the attendance_day date filter a real join filter —
-      // without it PostgREST returns EVERY attendance_entry row (day nulled
-      // for out-of-range ones) and silently truncates at the 1000-row cap,
-      // which made recent shifts show "idle" once the table grew past 1000.
-      'status, shed_no, shed_nos, employee:employee_id ( role ), attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
+      'id, status, shed_no, shed_nos, employee:employee_id ( role ), attendance_day:attendance_day_id!inner ( attendance_date, shift, is_working )',
     )
     .gte('attendance_day.attendance_date', startISO)
-    .lte('attendance_day.attendance_date', endISO);
+    .lte('attendance_day.attendance_date', endISO)
+    .order('id', { ascending: true })
+    .range(lo, hi));
+  const entryData = entryRes.rows;
+  const entryErr = entryRes.error ? { message: entryRes.error } : null;
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // 2) Holidays = attendance_day with is_working = false in range.

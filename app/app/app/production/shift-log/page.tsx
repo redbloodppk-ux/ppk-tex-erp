@@ -289,7 +289,11 @@ export default function ShiftLogPage(): React.ReactElement {
       .from('production_shift_log')
       .select('id, loom_id, adjustment_metres, fabric_quality_id, fabric_quality:fabric_quality_id (name)')
       .eq('log_date', logDate)
-      .eq('shift', shift);
+      .eq('shift', shift)
+      // One (date, shift) holds at most one row per loom, so this cannot
+      // truncate. The explicit cap says so and satisfies
+      // scripts/check-large-table-reads.mjs.
+      .limit(200);
 
     if (parentErr) {
       setError(parentErr.message);
@@ -310,7 +314,9 @@ export default function ShiftLogPage(): React.ReactElement {
         .from('production_shift_log_weaver')
         .select('shift_log_id, employee_id, position, metres_woven')
         .in('shift_log_id', parentIds)
-        .order('position');
+        .order('position')
+        // Bounded by looms x weavers in one shift — see the note above.
+        .limit(500);
       if (kidErr) {
         setError(kidErr.message);
         setLoading(false);
@@ -593,7 +599,9 @@ export default function ShiftLogPage(): React.ReactElement {
       .from('production_shift_log')
       .select('id, loom_id')
       .eq('log_date', logDate)
-      .eq('shift', shift);
+      .eq('shift', shift)
+      // Bounded by looms in one shift — see the note above.
+      .limit(200);
 
     if (existErr) {
       setSaving(false);

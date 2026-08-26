@@ -18,6 +18,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Weaver Production by Quality' };
 export const dynamic = 'force-dynamic';
@@ -104,12 +105,15 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
   // Step 1: All shift logs in the selected week (get id + loom_id + the
   // shift log's own FROZEN fabric_quality_id — this is what production
   // must be grouped by, not the loom's current/live quality).
-  const { data: shiftLogsRaw } = await supabase
-    .from('production_shift_log')
-    .select('id, loom_id, fabric_quality_id')
-    .gte('log_date', weekStart)
-    .lte('log_date', weekEnd);
-  const shiftLogs = (shiftLogsRaw ?? []) as Array<{ id: number; loom_id: number; fabric_quality_id: number | null }>;
+  const shiftLogsRes = await fetchAll<{ id: number; loom_id: number; fabric_quality_id: number | null }>(
+    (lo, hi) => supabase
+      .from('production_shift_log')
+      .select('id, loom_id, fabric_quality_id')
+      .gte('log_date', weekStart)
+      .lte('log_date', weekEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+  const shiftLogs = shiftLogsRes.rows;
 
   const rows: RawRow[] = [];
 
@@ -123,13 +127,16 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
     }
 
     // Step 2: Weaver entries for those shift logs.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: weaverRaw } = await (supabase as any)
-      .from('production_shift_log_weaver')
-      .select('shift_log_id, employee_id, metres_woven')
-      .in('shift_log_id', shiftLogIds);
     type WeaverEntry = { shift_log_id: number; employee_id: number; metres_woven: number | string | null };
-    const weaverEntries = (weaverRaw ?? []) as WeaverEntry[];
+    const weaverRes = await fetchAll<WeaverEntry>((lo, hi) => (supabase as unknown as {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: (t: string) => any;
+    }).from('production_shift_log_weaver')
+      .select('id, shift_log_id, employee_id, metres_woven')
+      .in('shift_log_id', shiftLogIds)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    const weaverEntries = weaverRes.rows;
 
     // Step 3: Look up every employee that appears in the shift logs.
     //

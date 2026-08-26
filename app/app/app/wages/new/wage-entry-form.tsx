@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Info, AlertTriangle } from 'lucide-react';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
@@ -439,19 +440,23 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       };
       const atts: AttRow[] = [];
       if (dayIds.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: entRows } = await (supabase as any)
-          .from('attendance_entry')
-          .select('attendance_day_id, shed_no, status')
-          .eq('employee_id', Number(employeeId))
-          .in('status', ['present', 'half_day', 'late', 'early_leave'])
-          .in('attendance_day_id', dayIds);
         type RawEnt = {
           attendance_day_id: number;
           shed_no: string | null;
           status: string;
         };
-        for (const r of (entRows ?? []) as RawEnt[]) {
+        const entRes = await fetchAll<RawEnt>((lo, hi) => (supabase as unknown as {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: (t: string) => any;
+    })
+          .from('attendance_entry')
+          .select('id, attendance_day_id, shed_no, status')
+          .eq('employee_id', Number(employeeId))
+          .in('status', ['present', 'half_day', 'late', 'early_leave'])
+          .in('attendance_day_id', dayIds)
+          .order('id', { ascending: true })
+          .range(lo, hi));
+        for (const r of entRes.rows) {
           const d = dayMap.get(r.attendance_day_id);
           if (!d) continue;
           atts.push({
@@ -485,16 +490,6 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       let autoAmount: number | null = null;
       let autoNote: string | null = null;
       if (selected?.wage_alloc_basis === 'metres') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: prodRows } = await (supabase as any)
-          .from('production_shift_log_weaver')
-          .select(
-            'metres_woven, shift_log:shift_log_id!inner ( log_date, rate_per_m, loom:loom_id ( default_rate_per_m ) )',
-          )
-          .eq('employee_id', Number(employeeId))
-          .gte('shift_log.log_date', periodStart)
-          .lte('shift_log.log_date', periodEnd);
-
         type ProdRow = {
           metres_woven: number | null;
           shift_log: {
@@ -503,10 +498,23 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             loom: { default_rate_per_m: number | null } | null;
           } | null;
         };
+        const prodRes = await fetchAll<ProdRow>((lo, hi) => (supabase as unknown as {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          from: (t: string) => any;
+        })
+          .from('production_shift_log_weaver')
+          .select(
+            'id, metres_woven, shift_log:shift_log_id!inner ( log_date, rate_per_m, loom:loom_id ( default_rate_per_m ) )',
+          )
+          .eq('employee_id', Number(employeeId))
+          .gte('shift_log.log_date', periodStart)
+          .lte('shift_log.log_date', periodEnd)
+          .order('id', { ascending: true })
+          .range(lo, hi));
         let total = 0;
         let metresCounted = 0;
         let missingRate = false;
-        for (const r of (prodRows ?? []) as ProdRow[]) {
+        for (const r of prodRes.rows) {
           const metres = Number(r.metres_woven ?? 0);
           if (!metres) continue;
           const rate =

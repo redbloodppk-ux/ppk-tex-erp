@@ -19,6 +19,7 @@ import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
 import { loadWinderAllocation, type WinderInfo } from '@/lib/wages/winder-allocation-data';
 import { loadUnrecordedShifts, describeShift } from '@/lib/attendance/unrecorded-shifts';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Weekly Wage Summary' };
 export const dynamic = 'force-dynamic';
@@ -313,29 +314,34 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const wagesEarnedByEmp = new Map<number, number>();
   if (metreEmps.length > 0) {
     const metreEmpIds = metreEmps.map((e) => e.id);
-    const { data: parents } = await supabase
+    const parents = await fetchAll<{ id: number; loom_id: number }>((lo, hi) => supabase
       .from('production_shift_log')
       .select('id, loom_id')
       .gte('log_date', weekStart)
-      .lte('log_date', weekEnd);
-    const parentRows = (parents ?? []) as Array<{ id: number; loom_id: number }>;
+      .lte('log_date', weekEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    const parentRows = parents.rows;
     if (parentRows.length > 0) {
       const parentIds = parentRows.map((p) => p.id);
       const loomByParent = new Map<number, number>();
       for (const p of parentRows) loomByParent.set(p.id, p.loom_id);
       const loomIds = Array.from(new Set(parentRows.map((p) => p.loom_id)));
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: kidRaw } = await (supabase as any)
-        .from('production_shift_log_weaver')
-        .select('shift_log_id, employee_id, metres_woven')
-        .in('shift_log_id', parentIds)
-        .in('employee_id', metreEmpIds);
-      const kids = (kidRaw ?? []) as Array<{
+      const kidRes = await fetchAll<{
         shift_log_id: number;
         employee_id: number;
         metres_woven: number | string | null;
-      }>;
+      }>((lo, hi) => (supabase as unknown as {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        from: (t: string) => any;
+      }).from('production_shift_log_weaver')
+        .select('id, shift_log_id, employee_id, metres_woven')
+        .in('shift_log_id', parentIds)
+        .in('employee_id', metreEmpIds)
+        .order('id', { ascending: true })
+        .range(lo, hi));
+      const kids = kidRes.rows;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: loomRaw } = await (supabase as any)
@@ -451,15 +457,19 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       shed_nos: string[] | null;
       attendance_day: { attendance_date: string } | null;
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: covAttRaw } = await (supabase as any)
+    const covAttRes = await fetchAll<CoverageAttRow>((lo, hi) => (supabase as unknown as {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: (t: string) => any;
+    })
       .from('attendance_entry')
       // !inner: real join filter, avoids the 1000-row cap on full history.
-      .select('employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date )')
+      .select('id, employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date )')
       .in('employee_id', fitterIds)
       .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd);
-    const covAtt = (covAttRaw ?? []) as CoverageAttRow[];
+      .lte('attendance_day.attendance_date', weekEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    const covAtt = covAttRes.rows;
     const rowsByEmp = new Map<number, CoverageAttRow[]>();
     for (const r of covAtt) {
       if (!r.attendance_day?.attendance_date) continue;
@@ -494,13 +504,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
         shed_no: string | null;
         employee: { role: string | null } | null;
       };
+      const gapRes = await fetchAll<WeaverGapRow>((lo, hi) => (supabase as unknown as {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: gapRaw } = await (supabase as any)
+      from: (t: string) => any;
+    })
         .from('attendance_entry')
-        .select('shed_no, employee:employee_id ( role )')
+        .select('id, shed_no, employee:employee_id ( role )')
         .in('status', ['absent', 'none'])
-        .in('attendance_day_id', workingDayIds);
-      for (const r of (gapRaw ?? []) as WeaverGapRow[]) {
+        .in('attendance_day_id', workingDayIds)
+        .order('id', { ascending: true })
+        .range(lo, hi));
+      for (const r of gapRes.rows) {
         const role = (r.employee?.role ?? '').toLowerCase();
         if (role !== 'weaver') continue;
         const shed = r.shed_no;

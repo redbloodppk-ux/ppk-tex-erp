@@ -24,6 +24,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Production Report' };
 export const dynamic = 'force-dynamic';
@@ -331,13 +332,15 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
   // ───── Shift logs in range, narrowed to eligible looms ─────
   let shiftLogs: ShiftLogRow[] = [];
   if (eligibleLoomIds.length > 0) {
-    const logsRes = await sb
+    const logsRes = await fetchAll<ShiftLogRow>((lo, hi) => sb
       .from('production_shift_log')
       .select('id, loom_id, log_date, shift, fabric_quality_id')
       .gte('log_date', range.start)
       .lte('log_date', range.end)
-      .in('loom_id', eligibleLoomIds);
-    shiftLogs = (logsRes.data ?? []) as ShiftLogRow[];
+      .in('loom_id', eligibleLoomIds)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    shiftLogs = logsRes.rows;
     // Quality filter applies to the log's own frozen quality.
     if (qualityFilter !== null) {
       shiftLogs = shiftLogs.filter((l) => l.fabric_quality_id === qualityFilter);
@@ -348,13 +351,15 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
   let weaverRows: WeaverRow[] = [];
   if (shiftLogs.length > 0) {
     const shiftLogIds = shiftLogs.map((s) => s.id);
-    let q = sb
-      .from('production_shift_log_weaver')
-      .select('shift_log_id, employee_id, metres_woven')
-      .in('shift_log_id', shiftLogIds);
-    if (weaverFilter !== null) q = q.eq('employee_id', weaverFilter);
-    const wRes = await q;
-    weaverRows = (wRes.data ?? []) as WeaverRow[];
+    const wRes = await fetchAll<WeaverRow>((lo, hi) => {
+      let q = sb
+        .from('production_shift_log_weaver')
+        .select('id, shift_log_id, employee_id, metres_woven')
+        .in('shift_log_id', shiftLogIds);
+      if (weaverFilter !== null) q = q.eq('employee_id', weaverFilter);
+      return q.order('id', { ascending: true }).range(lo, hi);
+    });
+    weaverRows = wRes.rows;
   }
 
   const shiftLogById = new Map<number, ShiftLogRow>();

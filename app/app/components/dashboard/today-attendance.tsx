@@ -10,6 +10,7 @@
 import Link from 'next/link';
 import { CalendarOff, ClipboardCheck, ArrowRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 type Shift = 'morning' | 'night';
 
@@ -144,19 +145,21 @@ export async function TodayAttendanceWidget(): Promise<React.ReactElement> {
   // v_today_attendance_widget was added in migration 027 after the last
   // typegen run; cast the table name so supabase-js's generated union accepts
   // it. Regenerate database.types.ts to drop the cast.
-  const [{ data, error }, { data: weaverData }] = await Promise.all([
+  const [{ data, error }, weaverRes] = await Promise.all([
     sb.from('v_today_attendance_widget').select('*'),
     // Present weavers today with the shed(s) they were marked into,
     // so each shift card can list names shed-wise.
-    sb.from('attendance_entry')
-      .select('status, shed_no, shed_nos, day:attendance_day_id!inner(shift, attendance_date), employee:employee_id!inner(full_name, role, home_shed_no)')
+    fetchAll((lo, hi) => sb.from('attendance_entry')
+      .select('id, status, shed_no, shed_nos, day:attendance_day_id!inner(shift, attendance_date), employee:employee_id!inner(full_name, role, home_shed_no)')
       .eq('day.attendance_date', todayIso)
       .eq('employee.role', 'weaver')
-      .in('status', ['present', 'half_day', 'late', 'early_leave']),
+      .in('status', ['present', 'half_day', 'late', 'early_leave'])
+      .order('id', { ascending: true })
+      .range(lo, hi)),
   ]);
 
   const rows = (data as unknown as WidgetRow[]) ?? [];
-  const weaverRows = (weaverData as unknown as WeaverEntryRow[]) ?? [];
+  const weaverRows = (weaverRes.rows as unknown as WeaverEntryRow[]) ?? [];
   const sections = buildSections(rows, weaverRows);
   const noEmployees = rows.length === 0;
 

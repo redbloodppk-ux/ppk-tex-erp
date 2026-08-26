@@ -267,7 +267,11 @@ export default function AttendanceMarkPage() {
       const { data: ent, error: entErr } = await supabase
         .from('attendance_entry')
         .select('employee_id, status, actual_in_time, actual_out_time, shed_no, shed_nos')
-        .eq('attendance_day_id', day.id);
+        .eq('attendance_day_id', day.id)
+        // One shift cannot hold more rows than the mill has employees, so
+        // this can never truncate. The explicit cap says that out loud and
+        // satisfies scripts/check-large-table-reads.mjs.
+        .limit(500);
       if (entErr) {
         setError(entErr.message);
         setLoading(false);
@@ -349,7 +353,9 @@ export default function AttendanceMarkPage() {
           .from('attendance_entry')
           .select('employee_id, status')
           .eq('attendance_day_id', (mDay as { id: number }).id)
-          .eq('status', 'present');
+          .eq('status', 'present')
+          // Bounded by headcount — see the note on the query above.
+          .limit(500);
         for (const row of (mEnt ?? []) as { employee_id: number }[]) {
           morningPresent.add(row.employee_id);
         }

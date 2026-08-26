@@ -43,6 +43,7 @@ import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Settings2 } from 'lucide-react';
 import { EfficiencyCharts, type TrendPoint, type ShedPoint } from './efficiency-charts';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Loom Efficiency & Cost' };
 export const dynamic = 'force-dynamic';
@@ -374,37 +375,43 @@ export default async function LoomEfficiencyReportPage({ searchParams }: PagePro
   // allocation even when a shed filter narrows the display) ─────
   let shiftLogs: ShiftLogRow[] = [];
   if (allLoomIds.length > 0) {
-    const logsRes = await sb
+    const logsRes = await fetchAll<ShiftLogRow>((lo, hi) => sb
       .from('production_shift_log')
       .select('id, loom_id, log_date, fabric_quality_id')
       .gte('log_date', rangeStart)
       .lte('log_date', rangeEnd)
-      .in('loom_id', allLoomIds);
-    shiftLogs = (logsRes.data ?? []) as ShiftLogRow[];
+      .in('loom_id', allLoomIds)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    shiftLogs = logsRes.rows;
   }
 
   let weaverRows: WeaverRow[] = [];
   if (shiftLogs.length > 0) {
     const shiftLogIds = shiftLogs.map((s) => s.id);
-    const wRes = await sb
+    const wRes = await fetchAll<WeaverRow>((lo, hi) => sb
       .from('production_shift_log_weaver')
-      .select('shift_log_id, metres_woven, employee_id')
-      .in('shift_log_id', shiftLogIds);
-    weaverRows = (wRes.data ?? []) as WeaverRow[];
+      .select('id, shift_log_id, metres_woven, employee_id')
+      .in('shift_log_id', shiftLogIds)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+    weaverRows = wRes.rows;
   }
 
   // ───── Wages, factory expenses, attendance (for shed allocation) ─────
   const [wageRes, expenseRes, attendanceRes] = await Promise.all([
     sb.from('wage_entry').select('employee_id, pay_date, amount').gte('pay_date', rangeStart).lte('pay_date', rangeEnd),
     sb.from('expense_entry').select('pay_date, amount').gte('pay_date', rangeStart).lte('pay_date', rangeEnd),
-    sb.from('attendance_entry')
-      .select('employee_id, shed_no, shed_nos, day_weight, status, actual_in_time, actual_out_time, attendance_day:attendance_day_id!inner ( attendance_date, shift )')
+    fetchAll<AttendanceRow>((lo, hi) => sb.from('attendance_entry')
+      .select('id, employee_id, shed_no, shed_nos, day_weight, status, actual_in_time, actual_out_time, attendance_day:attendance_day_id!inner ( attendance_date, shift )')
       .gte('attendance_day.attendance_date', rangeStart)
-      .lte('attendance_day.attendance_date', rangeEnd),
+      .lte('attendance_day.attendance_date', rangeEnd)
+      .order('id', { ascending: true })
+      .range(lo, hi)),
   ]);
   const wageRows = (wageRes.data ?? []) as WageRow[];
   const expenseRows = (expenseRes.data ?? []) as ExpenseRow[];
-  const attendanceRows = ((attendanceRes.data ?? []) as AttendanceRow[])
+  const attendanceRows = attendanceRes.rows
     .filter((r) => r.attendance_day != null);
 
   // ───── Aggregate actual + theoretical production per bucket+shed ─────

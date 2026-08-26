@@ -86,7 +86,13 @@ for (const root of ROOTS) {
       const tail = src.slice(m.index + m[0].length, m.index + m[0].length + 1200);
       const end = tail.search(/\n\s*(\]\)|\);|\}\);)/);
       const chain = end === -1 ? tail : tail.slice(0, end);
-      if (!chain.includes('.select(')) continue;       // insert/update/delete
+      if (!chain.includes('.select(')) continue;       // no read at all
+      // .delete() / .insert() / .upsert() / .update() followed by .select()
+      // returns only the rows just written — bounded by the payload, never
+      // by the table. Not a truncation risk.
+      const sel = chain.indexOf('.select(');
+      const head = chain.slice(0, sel);
+      if (/\.(delete|insert|upsert|update)\s*\(/.test(head)) continue;
       if (SAFE.some((s) => chain.includes(s))) continue;
       problems.push({
         file: relative(process.cwd(), file),
