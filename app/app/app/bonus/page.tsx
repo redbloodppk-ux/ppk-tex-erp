@@ -136,6 +136,38 @@ export default function BonusPage(): React.ReactElement {
     loom_shifts: '', metres: '', weekly: '',
   });
 
+  /**
+   * Read every matching row, not just the first page.
+   *
+   * PostgREST caps an un-ranged select at 1000 rows and says nothing about
+   * it - no error, no flag, just a short array. This page asked for every
+   * attendance row in a 16-month window (about 2,000) and silently got the
+   * oldest 1000, so:
+   *   - every present count came out roughly half right. ASHOK read 3
+   *     against 38 actual, ANAND 33 against 72;
+   *   - widening the date range changed nothing, because the extra rows
+   *     fell off the same cap. That is the "same value whatever dates I
+   *     pick" symptom.
+   *
+   * Paging until a short page arrives is the fix.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fetchAllRows = useCallback(async function <T>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    build: (lo: number, hi: number) => any,
+  ): Promise<{ rows: T[]; error: string | null }> {
+    const PAGE = 1000;
+    const out: T[] = [];
+    for (let lo = 0; ; lo += PAGE) {
+      const { data, error } = await build(lo, lo + PAGE - 1);
+      if (error) return { rows: [], error: error.message };
+      const chunk = (data ?? []) as T[];
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+    }
+    return { rows: out, error: null };
+  }, []);
+
   /** Load employees + auto-fill presents (attendance in range) and
    *  amounts (wages paid in range; weekly salary × 4 for weeklies). */
   const load = useCallback(async (): Promise<void> => {
@@ -144,33 +176,41 @@ export default function BonusPage(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
 
-    const [empRes, attRes, wageRes, cpRes] = await Promise.all([
+    type AttRow = { employee_id: number; status: string; day_weight: number | string | null };
+    type WageRow = { employee_id: number; amount: number | string | null };
+
+    const [empRes, attAll, wageAll, cpRes] = await Promise.all([
       sb.from('employee')
         .select('id, code, full_name, role, wage_alloc_basis, weekly_salary')
         .eq('status', 'active')
         .order('full_name'),
-      sb.from('attendance_entry')
-        .select('employee_id, status, day_weight, day:attendance_day_id!inner ( attendance_date )')
+      // Ordered by id so the pages line up and no row is read twice or
+      // skipped between them.
+      fetchAllRows<AttRow>((lo, hi) => sb.from('attendance_entry')
+        .select('id, employee_id, status, day_weight, day:attendance_day_id!inner ( attendance_date )')
         .gte('day.attendance_date', from)
-        .lte('day.attendance_date', to),
-      sb.from('wage_entry')
-        .select('employee_id, amount, pay_date')
+        .lte('day.attendance_date', to)
+        .order('id', { ascending: true })
+        .range(lo, hi)),
+      fetchAllRows<WageRow>((lo, hi) => sb.from('wage_entry')
+        .select('id, employee_id, amount, pay_date')
         .gte('pay_date', from)
-        .lte('pay_date', to),
+        .lte('pay_date', to)
+        .order('id', { ascending: true })
+        .range(lo, hi)),
       sb.from('company_profile')
         .select('display_name, legal_name, gstin, address_line1, address_line2, city, state, pincode, phone')
         .limit(1)
         .maybeSingle(),
     ]);
-    if (empRes.error)  { setError(empRes.error.message);  setLoading(false); return; }
-    if (attRes.error)  { setError(attRes.error.message);  setLoading(false); return; }
-    if (wageRes.error) { setError(wageRes.error.message); setLoading(false); return; }
+    if (empRes.error) { setError(empRes.error.message); setLoading(false); return; }
+    if (attAll.error) { setError(attAll.error);         setLoading(false); return; }
+    if (wageAll.error){ setError(wageAll.error);        setLoading(false); return; }
 
     const emps = (empRes.data ?? []) as EmployeeRow[];
 
     const presentsByEmp = new Map<number, number>();
-    type AttRow = { employee_id: number; status: string; day_weight: number | string | null };
-    for (const a of ((attRes.data ?? []) as AttRow[])) {
+    for (const a of attAll.rows) {
       presentsByEmp.set(
         a.employee_id,
         (presentsByEmp.get(a.employee_id) ?? 0) + presentWeight(a.status, a.day_weight),
@@ -178,8 +218,7 @@ export default function BonusPage(): React.ReactElement {
     }
 
     const wagesByEmp = new Map<number, number>();
-    type WageRow = { employee_id: number; amount: number | string | null };
-    for (const w of ((wageRes.data ?? []) as WageRow[])) {
+    for (const w of wageAll.rows) {
       wagesByEmp.set(w.employee_id, (wagesByEmp.get(w.employee_id) ?? 0) + Number(w.amount ?? 0));
     }
 
@@ -198,7 +237,7 @@ export default function BonusPage(): React.ReactElement {
     setRows(next);
     setCompany((cpRes?.data ?? {}) as CompanyProfile);
     setLoading(false);
-  }, [supabase, from, to]);
+  }, [supabase, from, to, fetchAllRows]);
 
   useEffect(() => { void load(); }, [load]);
 
