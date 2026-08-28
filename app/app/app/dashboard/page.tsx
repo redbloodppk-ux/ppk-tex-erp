@@ -14,6 +14,15 @@ import { directionForStream, type PartyStream } from '@/lib/party-streams';
 
 export const metadata = { title: 'Dashboard' };
 
+// Every other page in this app sets this; the dashboard was the only one
+// of ~100 that did not. It shows live money, so a cached render is worse
+// here than anywhere else - the figures would look authoritative and be
+// hours old. `cookies()` already forces dynamic rendering today, but that
+// is a side effect of how the Supabase client is built, not a decision.
+// Stating it means a future refactor cannot silently make this page
+// cacheable again.
+export const dynamic = 'force-dynamic';
+
 /** Button wording per account. The DIRECTION is never written by hand —
  *  it comes from party-streams, which is what stops a card claiming a
  *  job work bill is payable (the bug fixed in 4325b3a). */
