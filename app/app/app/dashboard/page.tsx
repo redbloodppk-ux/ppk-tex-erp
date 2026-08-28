@@ -345,22 +345,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // each query to what the signed-in user can see.
   const BILL_COLS = 'id, invoice_no, doc_type, party_name, invoice_date, customer_id, jobwork_party_id, total, amount_paid, balance';
   const [
-    { data: outstanding },
-    { data: jobworkInvoices },
-    { data: weavingBillInvoices },
-    { data: customerInvoices },
-    { data: partyMaster },
-    { data: sizingBills },
-    { data: bobbinBills },
-    { data: yarnBills },
-    { data: fabricBills },
-    { data: warpBeamBills },
-    { data: openingPayables },
-    { data: agentComm },
-    { data: openingReceivables },
-    { data: inPayments },
-    { data: invoicePaymentAllocs },
-    { data: openingPaymentAllocs },
+    { data: outstanding, error: outstandingErr },
+    { data: jobworkInvoices, error: jobworkInvoicesErr },
+    { data: weavingBillInvoices, error: weavingBillInvoicesErr },
+    { data: customerInvoices, error: customerInvoicesErr },
+    { data: partyMaster, error: partyMasterErr },
+    { data: sizingBills, error: sizingBillsErr },
+    { data: bobbinBills, error: bobbinBillsErr },
+    { data: yarnBills, error: yarnBillsErr },
+    { data: fabricBills, error: fabricBillsErr },
+    { data: warpBeamBills, error: warpBeamBillsErr },
+    { data: openingPayables, error: openingPayablesErr },
+    { data: agentComm, error: agentCommErr },
+    { data: openingReceivables, error: openingReceivablesErr },
+    { data: inPayments, error: inPaymentsErr },
+    { data: invoicePaymentAllocs, error: invoicePaymentAllocsErr },
+    { data: openingPaymentAllocs, error: openingPaymentAllocsErr },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid JOB WORK bill, oldest first — the
@@ -475,6 +475,41 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('payment_opening_allocation').select('payment_id, amount'),
   ]);
+
+  // A failed query used to be invisible here. Every one of these sixteen
+  // reads was destructured as { data } with the error thrown away, so if
+  // one failed its rows became an empty array, that source quietly
+  // contributed zero, and the page rendered a confident wrong total.
+  //
+  // That is exactly what happened on 2026-08-28: the Outstanding Payable
+  // card read Rs 2.70 L against Rs 4.65 L of real bills - short by
+  // Rs 1,95,375, the precise total of the 17 bobbin bills - while the
+  // supplier section below, built from the same list, showed them all.
+  // Two renders minutes apart, identical data, different answers. The
+  // bobbin read had failed on one of them and nothing said so.
+  //
+  // A wrong number that looks right is worse than an error message.
+  const loadFailures: string[] = [];
+  for (const [label, err] of ([
+    ['Customer outstanding', outstandingErr],
+    ['Job work bills', jobworkInvoicesErr],
+    ['Outsource weaving bills', weavingBillInvoicesErr],
+    ['Customer invoices', customerInvoicesErr],
+    ['Party master', partyMasterErr],
+    ['Sizing bills', sizingBillsErr],
+    ['Bobbin purchases', bobbinBillsErr],
+    ['Yarn lots', yarnBillsErr],
+    ['Fabric purchases', fabricBillsErr],
+    ['Warp beam purchases', warpBeamBillsErr],
+    ['Opening payables', openingPayablesErr],
+    ['Agent commission', agentCommErr],
+    ['Opening receivables', openingReceivablesErr],
+    ['Payments', inPaymentsErr],
+    ['Payment allocations', invoicePaymentAllocsErr],
+    ['Opening allocations', openingPaymentAllocsErr],
+  ] as Array<[string, { message: string } | null]>)) {
+    if (err) loadFailures.push(`${label}: ${err.message}`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const totalOutstanding = (outstanding ?? []).reduce((s: number, r: any) => s + Number(r.outstanding ?? 0), 0);
@@ -752,6 +787,23 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </Link>
         ))}
       </nav>
+
+      {loadFailures.length > 0 && (
+        <div className="mb-4 rounded-md border-2 border-rose-300 bg-rose-50 p-3">
+          <div className="text-sm font-semibold text-rose-900">
+            Some figures on this page could not be loaded &mdash; the totals below
+            are INCOMPLETE
+          </div>
+          <div className="mt-1 text-xs text-rose-800">
+            A failed read contributes zero rather than an error, so a total can
+            look right while missing whole categories of bills. Reload the page;
+            if it keeps happening, the message below says which source failed.
+          </div>
+          <ul className="mt-2 list-disc pl-5 text-xs text-rose-800">
+            {loadFailures.map((f) => <li key={f}>{f}</li>)}
+          </ul>
+        </div>
+      )}
 
       {tab === 'overview' && (
       <>
