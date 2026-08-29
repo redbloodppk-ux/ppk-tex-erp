@@ -11,9 +11,20 @@
  * is why the TDS has to be tracked as its own liability rather than left
  * inside the supplier balance.
  *
- * THE DEADLINE
- * TDS deducted in a month is due by the 5th of the NEXT month. August's
- * deductions are due 5 September.
+ * THE DEADLINE — verified against the Income Tax Department, 2026-08-29
+ * "Tax deducted during the month of April to February should be paid to
+ *  the credit of the Government on or before 7 days from the end of the
+ *  month in which the deduction is made. Tax deducted during the month of
+ *  March should be paid on or before 30th day of April."
+ *   https://www.incometaxindia.gov.in/w/interest-for-delay-in-payment-of
+ *   -tds/tcs-and-for-non-payment-of-tax-demanded  (as amended by the
+ *   Finance Act, 2026)
+ *
+ * So: the 7th of the following month, EXCEPT March, which gets until
+ * 30 April. This was built as the 5th on 2026-08-29 because that is what
+ * PPK said and neither of us checked. Two days out every month, and March
+ * would have been flagged overdue three weeks early every year. Corrected
+ * the same day once the department's page was actually read.
  *
  * THE INTEREST — read this before changing it
  * Section 201(1A): 1.5% per month or PART of a month, running from the
@@ -57,7 +68,8 @@ export interface TdsMonth {
   month: string;
   /** "August 2026" */
   label: string;
-  /** ISO date it must be paid by — the 5th of the following month. */
+  /** ISO date it must be paid by — the 7th of the following month, or
+   *  30 April for March deductions. See `dueDateFor`. */
   dueDate: string;
   /** Total withheld in the month. */
   tds: number;
@@ -88,12 +100,22 @@ export function monthOf(iso: string): string {
   return iso.slice(0, 7);
 }
 
-/** The 5th of the month after `month` (YYYY-MM). */
+/**
+ * Statutory deadline for a month's deductions (YYYY-MM in, ISO date out).
+ *
+ * Seven days from the end of the month, so the 7th of the next one —
+ * except MARCH, where the Act allows until 30 April rather than 7 April.
+ * March is the financial year end; treating it like every other month
+ * would raise a false alarm three weeks early, every year.
+ */
 export function dueDateFor(month: string): string {
   const [y, m] = month.split('-').map(Number);
-  const year = (m ?? 1) === 12 ? (y ?? 0) + 1 : (y ?? 0);
-  const nextMonth = (m ?? 1) === 12 ? 1 : (m ?? 1) + 1;
-  return `${year}-${String(nextMonth).padStart(2, '0')}-05`;
+  const year = y ?? 0;
+  const mon = m ?? 1;
+  if (mon === 3) return `${year}-04-30`;          // March -> 30 April
+  const nextYear = mon === 12 ? year + 1 : year;  // December -> 7 January
+  const nextMonth = mon === 12 ? 1 : mon + 1;
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-07`;
 }
 
 export function labelFor(month: string): string {

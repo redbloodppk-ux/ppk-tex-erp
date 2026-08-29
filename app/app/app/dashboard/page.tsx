@@ -1172,7 +1172,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
         <p className="mt-2 text-[11px] text-ink-mute">
           Tax withheld from supplier bills, grouped by the month it was deducted
-          and due by the 5th of the following month. Interest is section 201(1A)
+          and due 7 days after that month ends (30 April for March). Interest is section 201(1A)
           at 1.5% per month or part month, counted from the deduction date. It is
           an estimate until the challan is paid, so it is not posted to the
           ledger — see TDS PAYABLE for the booked balance.

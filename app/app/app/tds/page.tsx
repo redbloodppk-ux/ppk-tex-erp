@@ -51,7 +51,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
     <div className="p-4 md:p-6 space-y-4">
       <PageHeader
         title="TDS Payable"
-        subtitle="Tax withheld from supplier bills, owed to the government. Due by the 5th of the month after deduction."
+        subtitle="Tax withheld from supplier bills, owed to the government. Due 7 days after the month ends — 30 April for March deductions."
         actions={
           <Link href="/app/tds/new" className="btn-primary inline-flex items-center gap-1.5">
             <Plus className="w-4 h-4" /> Record challan

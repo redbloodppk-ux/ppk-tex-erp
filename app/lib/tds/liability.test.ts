@@ -15,14 +15,23 @@ const REAL: TdsSource[] = [
 
 const TODAY = '2026-08-29';
 
-describe('due dates', () => {
-  it('is the 5th of the following month', () => {
-    expect(dueDateFor('2026-08')).toBe('2026-09-05');
-    expect(dueDateFor('2026-04')).toBe('2026-05-05');
+describe('due dates — the statutory ones, checked against the department', () => {
+  it('is 7 days after the month ends, i.e. the 7th', () => {
+    // "Tax deducted during the month of April to February should be paid
+    //  ... on or before 7 days from the end of the month."
+    expect(dueDateFor('2026-08')).toBe('2026-09-07');
+    expect(dueDateFor('2026-04')).toBe('2026-05-07');
   });
 
-  it('rolls the year over in December', () => {
-    expect(dueDateFor('2026-12')).toBe('2027-01-05');
+  it('gives MARCH until 30 April, not 7 April', () => {
+    // Year-end carve-out. Treating March like any other month would flag
+    // it overdue three weeks early, every single year.
+    expect(dueDateFor('2026-03')).toBe('2026-04-30');
+    expect(dueDateFor('2027-03')).toBe('2027-04-30');
+  });
+
+  it('still rolls the year over in December', () => {
+    expect(dueDateFor('2026-12')).toBe('2027-01-07');
   });
 
   it('labels and months read plainly', () => {
@@ -63,7 +72,7 @@ describe('buildTdsMonths — PPK\'s own worked examples', () => {
   });
 
   it('August is not yet due, so carries no interest', () => {
-    // Deducted 12 Aug, due 5 Sep. On 29 Aug it is not late.
+    // Deducted 12 Aug, due 7 Sep. On 29 Aug it is not late.
     const aug = byMonth['2026-08'];
     expect(aug?.overdue).toBe(false);
     expect(aug?.interestMonths).toBe(0);
@@ -104,12 +113,12 @@ describe('buildTdsMonths — payment and timing', () => {
   });
 
   it('interest starts the day AFTER the deadline, not on it', () => {
-    const onTime = buildTdsMonths(REAL, [], '2026-09-05')
+    const onTime = buildTdsMonths(REAL, [], '2026-09-07')
       .find((m) => m.month === '2026-08');
     expect(onTime?.overdue).toBe(false);
     expect(onTime?.interest).toBe(0);
 
-    const oneDayLate = buildTdsMonths(REAL, [], '2026-09-06')
+    const oneDayLate = buildTdsMonths(REAL, [], '2026-09-08')
       .find((m) => m.month === '2026-08');
     expect(oneDayLate?.overdue).toBe(true);
     // Aug and Sep — a part month counts whole, so one day late costs two.
