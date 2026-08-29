@@ -23,7 +23,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 
 export interface MonthOption {
   month: string;
@@ -32,7 +32,13 @@ export interface MonthOption {
   interest: number;
   dueDate: string;
   interestMonths: number;
+  financialYear: string;
+  assessmentYear: string;
 }
+
+/** Pre-login e-Pay Tax on the Income Tax portal. */
+const EPAY_URL =
+  'https://eportal.incometax.gov.in/iec/foservices/#/e-pay-tax-prelogin/user-details';
 
 export interface LedgerOption { id: number; name: string }
 
@@ -42,12 +48,13 @@ const money = (n: number): string =>
   n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function TdsChallanForm({
-  months, ledgers, preselectMonth, today,
+  months, ledgers, preselectMonth, today, tan,
 }: {
   months: MonthOption[];
   ledgers: LedgerOption[];
   preselectMonth: string | null;
   today: string;
+  tan: string | null;
 }): React.ReactElement {
   const supabase = createClient();
   const router = useRouter();
@@ -167,8 +174,73 @@ export function TdsChallanForm({
 
   const allOn = months.every((m) => lines[m.month]?.checked);
 
+  // The portal asks for one assessment year per challan. Months from two
+  // different financial years cannot share one, so say so rather than let
+  // the payment be parked against the wrong year.
+  const years = Array.from(new Set(picked.map((m) => m.assessmentYear)));
+  const mixedYears = years.length > 1;
+
   return (
     <form onSubmit={submit} className="card p-5 space-y-4 max-w-2xl">
+      {/* Pay first, record second. The details below are what the portal
+          asks for, taken from the months ticked — so they can be read off
+          rather than remembered. */}
+      <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-indigo-900">
+            Not paid yet? Pay on the Income Tax portal first
+          </span>
+          <a
+            href={EPAY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100"
+          >
+            e-Pay Tax <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+          <div>
+            <dt className="text-ink-mute">TAN</dt>
+            <dd className="num font-semibold">{tan ?? 'Not set'}</dd>
+          </div>
+          <div>
+            <dt className="text-ink-mute">Assessment year</dt>
+            <dd className="num font-semibold">
+              {picked.length === 0 ? '—' : years.join(' + ')}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-ink-mute">Amount</dt>
+            <dd className="num font-semibold">
+              {picked.length === 0 ? '—' : `₹${money(totals.all)}`}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-ink-mute">Major head</dt>
+            <dd>0021 &mdash; other than companies</dd>
+          </div>
+          <div>
+            <dt className="text-ink-mute">Minor head</dt>
+            <dd>200 &mdash; TDS payable by taxpayer</dd>
+          </div>
+          <div>
+            <dt className="text-ink-mute">Nature of payment</dt>
+            <dd>94C &mdash; contractors</dd>
+          </div>
+        </dl>
+        {mixedYears && (
+          <p className="mt-2 text-xs font-semibold text-amber-800">
+            These months fall in different assessment years. The portal takes one
+            year per challan, so pay them as separate challans.
+          </p>
+        )}
+        <p className="mt-2 text-[11px] text-indigo-900/70">
+          Enter tax and interest in their own boxes on the portal too &mdash; the
+          receipt itemises them, and so does this form.
+        </p>
+      </div>
+
       <div>
         <div className="flex items-center justify-between mb-2">
           <span className="label mb-0">Months covered by this challan</span>

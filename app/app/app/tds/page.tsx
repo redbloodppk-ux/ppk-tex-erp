@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
-import { Plus, AlertTriangle } from 'lucide-react';
+import { Plus, AlertTriangle, ExternalLink } from 'lucide-react';
 import { loadTdsMonths, daysUntil, todayISO } from '@/lib/tds/liability-data';
 import { totalTdsPayable } from '@/lib/tds/liability';
 import { fetchAll } from '@/lib/supabase/fetch-all';
@@ -64,9 +64,21 @@ export default async function TdsPage(): Promise<React.ReactElement> {
         title="TDS Payable"
         subtitle="Tax withheld from supplier bills, owed to the government. Due 7 days after the month ends — 30 April for March deductions."
         actions={
-          <Link href="/app/tds/new" className="btn-primary inline-flex items-center gap-1.5">
-            <Plus className="w-4 h-4" /> Record challan
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Pay first, record second — so the portal link comes before
+                the Record button, in the order the job actually happens. */}
+            <a
+              href="https://eportal.incometax.gov.in/iec/foservices/#/e-pay-tax-prelogin/user-details"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost inline-flex items-center gap-1.5"
+            >
+              Pay on Income Tax portal <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <Link href="/app/tds/new" className="btn-primary inline-flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> Record challan
+            </Link>
+          </div>
         }
       />
 

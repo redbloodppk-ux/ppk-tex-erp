@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTdsMonths, totalTdsPayable, dueDateFor, labelFor, monthOf,
+  financialYearOf, assessmentYearOf,
   type TdsSource,
 } from './liability';
 
@@ -32,6 +33,20 @@ describe('due dates — the statutory ones, checked against the department', () 
 
   it('still rolls the year over in December', () => {
     expect(dueDateFor('2026-12')).toBe('2027-01-07');
+  });
+
+  it('works out the financial and assessment years the portal asks for', () => {
+    // Checked against PPK's own challan receipt of 06-Jan-2026: a
+    // deduction in Oct-Dec 2025 reads FY 2025-26, AY 2026-27.
+    expect(financialYearOf('2025-12')).toBe('2025-26');
+    expect(assessmentYearOf('2025-12')).toBe('2026-27');
+
+    // April starts the new FY; March is still the old one.
+    expect(financialYearOf('2026-04')).toBe('2026-27');
+    expect(financialYearOf('2026-03')).toBe('2025-26');
+    // January is late in the FY that began the previous April.
+    expect(financialYearOf('2027-01')).toBe('2026-27');
+    expect(assessmentYearOf('2026-08')).toBe('2027-28');
   });
 
   it('labels and months read plainly', () => {

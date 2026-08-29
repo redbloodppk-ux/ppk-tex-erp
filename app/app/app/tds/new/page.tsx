@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { loadTdsMonths, todayISO } from '@/lib/tds/liability-data';
+import { assessmentYearOf, financialYearOf } from '@/lib/tds/liability';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 import { TdsChallanForm, type MonthOption, type LedgerOption } from './tds-challan-form';
 
@@ -26,7 +27,16 @@ export default async function NewTdsChallanPage({ searchParams }: PageProps): Pr
       interest: m.interest,
       dueDate: m.dueDate,
       interestMonths: m.interestMonths,
+      // The portal asks for these; getting the year wrong parks the money
+      // against the wrong one and is tedious to unpick.
+      financialYear: financialYearOf(m.month),
+      assessmentYear: assessmentYearOf(m.month),
     }));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: cp } = await (supabase as any)
+    .from('company_profile').select('tan').limit(1).maybeSingle();
+  const tan = (cp as { tan?: string | null } | null)?.tan ?? null;
 
   // Cash / bank accounts the payment can come out of, same as the wage form.
   const ledgers = await fetchAll<{ id: number; name: string }>((lo, hi) =>
@@ -57,6 +67,7 @@ export default async function NewTdsChallanPage({ searchParams }: PageProps): Pr
       <TdsChallanForm
         months={options}
         ledgers={sourceLedgers}
+        tan={tan}
         preselectMonth={typeof month === 'string' ? month : null}
         today={today}
       />

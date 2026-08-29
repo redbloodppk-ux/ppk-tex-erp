@@ -118,6 +118,30 @@ export function dueDateFor(month: string): string {
   return `${nextYear}-${String(nextMonth).padStart(2, '0')}-07`;
 }
 
+/**
+ * Financial year a deduction month falls in, as "2026-27".
+ * India's FY runs April to March, so January 2027 is still FY 2026-27.
+ */
+export function financialYearOf(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  const startYear = (m ?? 1) >= 4 ? (y ?? 0) : (y ?? 0) - 1;
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+}
+
+/**
+ * Assessment year for the challan, as "2027-28" — always the year after
+ * the financial year.
+ *
+ * The portal asks for this and getting it wrong parks the payment against
+ * the wrong year, which is tedious to unpick. Verified against PPK's
+ * challan of 06-Jan-2026: deduction in Oct-Dec 2025 is FY 2025-26 and the
+ * receipt reads AY 2026-27.
+ */
+export function assessmentYearOf(month: string): string {
+  const fyStart = Number(financialYearOf(month).slice(0, 4));
+  return `${fyStart + 1}-${String((fyStart + 2) % 100).padStart(2, '0')}`;
+}
+
 export function labelFor(month: string): string {
   const [y, m] = month.split('-').map(Number);
   return `${MONTHS[(m ?? 1) - 1] ?? month} ${y ?? ''}`;
