@@ -26,6 +26,7 @@ const KIND_LABEL: Record<NotificationItem['kind'], string> = {
   bill_due:         'Bill due',
   reminder:         'Reminder',
   attendance_gap:   'Unrecorded shift',
+  tds_overdue:      'TDS overdue',
 };
 
 interface PageProps {
@@ -39,7 +40,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const kindFilter = (
     sp.kind === 'costing_approval' || sp.kind === 'bill_due' ||
-    sp.kind === 'reminder' || sp.kind === 'attendance_gap'
+    sp.kind === 'reminder' || sp.kind === 'attendance_gap' ||
+    sp.kind === 'tds_overdue'
   ) ? sp.kind : null;
   const sevFilter      = (sp.severity === 'info' || sp.severity === 'warn' || sp.severity === 'critical') ? sp.severity : null;
 
@@ -104,6 +106,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <FilterPill href="/app/notifications?kind=costing_approval" active={kindFilter === 'costing_approval'} label="Costing approvals" />
         <FilterPill href="/app/notifications?kind=reminder" active={kindFilter === 'reminder'} label="Reminders" />
         <FilterPill href="/app/notifications?kind=attendance_gap" active={kindFilter === 'attendance_gap'} label="Unrecorded shifts" />
+        <FilterPill href="/app/notifications?kind=tds_overdue" active={kindFilter === 'tds_overdue'} label="TDS overdue" />
       </div>
 
       {items.length === 0 ? (

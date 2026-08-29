@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
-  FileBarChart, Bell, Settings, BookCheck, UserCog,
+  FileBarChart, Bell, Settings, BookCheck, UserCog, Landmark,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins, AlarmClock,
 } from 'lucide-react';
@@ -109,6 +109,7 @@ const NAV: NavItem[] = [
   { href: '/app/bonus',            label: 'Bonus',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',         label: 'Expenses',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/bank-entries',     label: 'Bank Entries',       icon: BookCheck,       group: 'finance',    roles: ['owner','accounts','auditor'] },
+  { href: '/app/tds',              label: 'TDS Payable',        icon: Landmark,        group: 'finance',    roles: ['owner','accounts','auditor'] },
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },

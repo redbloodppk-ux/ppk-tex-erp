@@ -24,9 +24,11 @@ import { fetchCategoryLabelMap } from '@/lib/reminders/constants';
 import {
   loadUnrecordedShifts, describeShift, todayISO,
 } from '@/lib/attendance/unrecorded-shifts';
+import { loadTdsMonths, daysUntil } from '@/lib/tds/liability-data';
 
 export type NotificationKind =
-  | 'costing_approval' | 'bill_due' | 'reminder' | 'attendance_gap';
+  | 'costing_approval' | 'bill_due' | 'reminder' | 'attendance_gap'
+  | 'tds_overdue';
 
 /** Kinds that "Clear all" must NOT hide.
  *
@@ -36,7 +38,12 @@ export type NotificationKind =
  *  on a tap would put it straight back into the blind spot that let four
  *  of them through unnoticed. It disappears when it is FIXED, not when it
  *  is dismissed. */
-const UNCLEARABLE: ReadonlySet<NotificationKind> = new Set(['attendance_gap']);
+const UNCLEARABLE: ReadonlySet<NotificationKind> = new Set([
+  'attendance_gap',
+  // Overdue TDS costs 1.5% more every month it is ignored. Dismissing it
+  // would hide a bill that is actively growing.
+  'tds_overdue',
+]);
 
 export interface NotificationItem {
   /** Stable composite id for keys + dedup. Not a DB row id. */
@@ -74,16 +81,20 @@ export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [pendingApprovals, billDues, dueReminders, attendanceGaps, clearedAt] =
+  const [pendingApprovals, billDues, dueReminders, attendanceGaps, tdsOverdue, clearedAt] =
     await Promise.all([
       fetchPendingApprovals(sb),
       fetchBillDues(sb),
       fetchDueReminders(sb),
       fetchAttendanceGaps(sb),
+      fetchTdsOverdue(sb),
       fetchClearedAt(sb),
     ]);
 
-  const items = [...pendingApprovals, ...billDues, ...dueReminders, ...attendanceGaps]
+  const items = [
+    ...pendingApprovals, ...billDues, ...dueReminders,
+    ...attendanceGaps, ...tdsOverdue,
+  ]
     .filter((i) => UNCLEARABLE.has(i.kind) || clearedAt == null || i.occurred_at > clearedAt)
     // Most urgent first, then most recent.
     .sort((a, b) => {
@@ -279,6 +290,32 @@ async function fetchAttendanceGaps(sb: any): Promise<NotificationItem[]> {
     occurred_at: `${g.date}T00:00:00Z`,
     severity: 'critical' as const,
   }));
+}
+
+/**
+ * TDS months past their 5th.
+ *
+ * Critical, and not clearable, because the amount GROWS: 1.5% per month
+ * or part month under section 201(1A), stepping up on the 1st rather than
+ * day by day. A reminder you can dismiss would be worse than none.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchTdsOverdue(sb: any): Promise<NotificationItem[]> {
+  const today = todayISO();
+  const { months } = await loadTdsMonths(sb, today);
+  return months
+    .filter((m) => m.overdue && m.outstanding > 0.005)
+    .map((m) => ({
+      id: `tds_overdue:${m.month}`,
+      kind: 'tds_overdue' as const,
+      title: `TDS for ${m.label} is ${Math.abs(daysUntil(m.dueDate, today))} days overdue`,
+      body:
+        `\u20B9${m.outstanding.toFixed(2)} tax + \u20B9${m.interest.toFixed(2)} interest ` +
+        `= \u20B9${m.payable.toFixed(2)}. Was due ${m.dueDate}. Another 1.5% is added each month.`,
+      link: `/app/tds/new?month=${m.month}`,
+      occurred_at: `${m.dueDate}T00:00:00Z`,
+      severity: 'critical' as const,
+    }));
 }
 
 function sevRank(s: 'info' | 'warn' | 'critical'): number {

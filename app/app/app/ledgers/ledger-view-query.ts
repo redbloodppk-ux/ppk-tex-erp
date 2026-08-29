@@ -647,6 +647,101 @@ export async function fetchLedgerView(
     });
   }
 
+  // ── TDS PAYABLE ────────────────────────────────────────────────
+  // This ledger is not linked to a party, so none of the sources above
+  // reach it. Two things move it:
+  //
+  //   Outflow  tax withheld from a supplier bill  -> we now owe the
+  //            government that much
+  //   Inflow   a challan paid on the portal       -> the debt shrinks
+  //
+  // Same sign convention as agent commission above: what we owe is an
+  // Outflow, settling it is an Inflow, so the running balance reads
+  // "paid − owed".
+  //
+  // Interest is deliberately NOT posted. Until a challan is paid it is an
+  // estimate that grows on the 1st of every month, and a ledger row whose
+  // value silently changes with the calendar is the same trap as a salary
+  // with no effective date. It appears on /app/tds as a projection, and
+  // reaches the books as part of the challan that pays it.
+  //
+  // Matched on the ledger's own name rather than a hardcoded id, because
+  // ids differ between any restored copy of this database. TDS PAYABLE is
+  // a named singleton account under DUTIES & TAXES, like GST PAYABLE.
+  const { data: thisLedger } = await sb
+    .from('ledger')
+    .select('id, name')
+    .eq('id', numericId)
+    .maybeSingle();
+  const ledgerName = ((thisLedger as { name?: string } | null)?.name ?? '').trim().toUpperCase();
+
+  if (ledgerName === 'TDS PAYABLE') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = sb as any;
+
+    let billQ = sbAny
+      .from('sizing_job')
+      .select('id, bill_no, bill_date, charges_amount, bill_party:party_id ( name, tds_pct )')
+      .not('bill_no', 'is', null)
+      .not('bill_date', 'is', null)
+      .order('bill_date', { ascending: true })
+      .limit(1000);
+    if (startDate) billQ = billQ.gte('bill_date', startDate);
+    if (endDate)   billQ = billQ.lte('bill_date', endDate);
+    const { data: tdsBills } = await billQ;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const b of ((tdsBills ?? []) as any[])) {
+      const pct = Number(b.bill_party?.tds_pct ?? NaN);
+      if (!Number.isFinite(pct) || pct <= 0) continue;
+      // On the TAXABLE value — charges before GST. See migration 271.
+      const amt = Math.round(Number(b.charges_amount ?? 0) * pct) / 100;
+      if (!(amt > 0)) continue;
+      all.push({
+        key:          `tdswh-${b.id}`,
+        source:       'bill',
+        bill_kind:    'tds',
+        stream:       'supplier',
+        date:         b.bill_date,
+        voucher:      `Bill ${b.bill_no ?? b.id}`,
+        counterparty: b.bill_party?.name ?? '—',
+        mode:         `TDS ${pct}% withheld`,
+        reference:    null,
+        inflow:       0,
+        outflow:      amt,
+      });
+    }
+
+    let payQ = sbAny
+      .from('tds_payment')
+      .select('id, period_month, amount, interest_amount, paid_date, challan_no')
+      .order('paid_date', { ascending: true })
+      .limit(1000);
+    if (startDate) payQ = payQ.gte('paid_date', startDate);
+    if (endDate)   payQ = payQ.lte('paid_date', endDate);
+    const { data: tdsPaid } = await payQ;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((tdsPaid ?? []) as any[])) {
+      const amt = Number(r.amount ?? 0);
+      if (!(amt > 0)) continue;
+      const int = Number(r.interest_amount ?? 0);
+      all.push({
+        key:          `tdspay-${r.id}`,
+        source:       'payment',
+        bill_kind:    'tds',
+        stream:       'supplier',
+        date:         r.paid_date,
+        voucher:      r.challan_no ?? `TDS-${r.id}`,
+        counterparty: 'Government',
+        mode:         `Challan · ${r.period_month}${int > 0 ? ` (+ ${int.toFixed(2)} interest)` : ''}`,
+        reference:    r.challan_no ?? null,
+        inflow:       amt,
+        outflow:      0,
+      });
+    }
+  }
+
   all.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return a.key.localeCompare(b.key);

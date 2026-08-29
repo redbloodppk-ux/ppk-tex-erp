@@ -11,6 +11,8 @@ import { UnrecordedShiftsWidget } from '@/app/components/dashboard/unrecorded-sh
 import { OutstandingByParty, type PartyGroup } from '@/app/components/dashboard/outstanding-by-party';
 import { ProductionAnalytics } from './production-analytics';
 import { directionForStream, type PartyStream } from '@/lib/party-streams';
+import { loadTdsMonths, daysUntil, todayISO as tdsToday } from '@/lib/tds/liability-data';
+import { totalTdsPayable } from '@/lib/tds/liability';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -489,6 +491,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // bobbin read had failed on one of them and nothing said so.
   //
   // A wrong number that looks right is worse than an error message.
+  // TDS withheld from suppliers and owed to the government. Its own
+  // liability, not part of any supplier's balance: PPK pays the mill net
+  // and the portal separately. See lib/tds/liability.ts.
+  const tdsToday_ = tdsToday();
+  const tdsRes = await loadTdsMonths(supabase, tdsToday_);
+  const tdsMonths = tdsRes.months.filter((m) => m.outstanding > 0.005);
+  const tdsTotals = totalTdsPayable(tdsMonths);
+  const tdsOverdue = tdsMonths.filter((m) => m.overdue);
+
   const loadFailures: string[] = [];
   for (const [label, err] of ([
     ['Customer outstanding', outstandingErr],
@@ -709,9 +720,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // jobworkGroups is deliberately NOT here: a jobwork bill is money
   // owed TO us, not BY us. It used to be included, which overstated
   // payables and understated receivables by the same amount.
+  // Suppliers + the government. TDS is money owed just as much as a
+  // supplier bill is, and leaving it out understated what has to go out
+  // the door. Interest is included because it is payable too - it stops
+  // growing only when the challan is paid.
   const totalPayable =
       weavingGroups .reduce((s, g) => s + g.total, 0)
-    + supplierGroups.reduce((s, g) => s + g.total, 0);
+    + supplierGroups.reduce((s, g) => s + g.total, 0)
+    + tdsTotals.payable;
 
   // Jobwork receivables sit outside v_customer_outstanding because
   // those bills carry jobwork_party_id, not customer_id — so they have
@@ -1061,6 +1077,108 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           footnote={'Suppliers with one or more open bills across sizing, bobbin, yarn, fabric purchases, and opening payables. Click a row to see the individual bills. "Days due" = days since the bill date.'}
         />
       </section>
+
+      {/* TDS payable to the government. Deliberately NOT inside the
+          supplier section: the tax was withheld FROM a supplier but is
+          owed to the department, and burying it in Shri Nithya's balance
+          would mean her account never settles. */}
+      {tdsMonths.length > 0 && (
+      <section className="card p-4 min-w-0">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Landmark className="w-4 h-4 text-ink-soft" />
+            <h2 className="font-display font-bold text-base">TDS payable to government</h2>
+          </div>
+          <span className="num font-semibold">{formatRupee(tdsTotals.payable)}</span>
+        </div>
+
+        {tdsOverdue.length > 0 && (
+          <div className="mb-3 rounded-md border-2 border-rose-300 bg-rose-50 p-3">
+            <div className="text-sm font-semibold text-rose-900">
+              {tdsOverdue.length === 1
+                ? '1 month is overdue'
+                : `${tdsOverdue.length} months are overdue`} &mdash; interest is
+              accruing at 1.5% per month
+            </div>
+            <div className="mt-1 text-xs text-rose-800">
+              A part month counts as a whole one, so the cost steps up on the 1st
+              of each month rather than day by day. Interest so far:{' '}
+              <span className="num font-semibold">{formatRupee(tdsTotals.interest)}</span>.
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
+              <tr>
+                <th className="text-left  px-3 py-2">Month</th>
+                <th className="text-left  px-3 py-2">Due by</th>
+                <th className="text-left  px-3 py-2">Status</th>
+                <th className="text-right px-3 py-2">TDS</th>
+                <th className="text-right px-3 py-2">Interest</th>
+                <th className="text-right px-3 py-2">Payable</th>
+                <th className="text-right px-3 py-2 w-20" />
+              </tr>
+            </thead>
+            <tbody>
+              {tdsMonths.map((m) => {
+                const days = daysUntil(m.dueDate, tdsToday_);
+                return (
+                  <tr key={m.month} className="border-t border-line/40">
+                    <td className="px-3 py-2">
+                      {m.label}
+                      {m.sources.length > 1 && (
+                        <span className="text-[11px] text-ink-mute"> · {m.sources.length} bills</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 num text-ink-soft">{m.dueDate.slice(8)}-{m.dueDate.slice(5, 7)}</td>
+                    <td className="px-3 py-2">
+                      {m.overdue ? (
+                        <span className="rounded bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                          {Math.abs(days)} days late · {m.interestMonths} mo
+                        </span>
+                      ) : (
+                        <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                          due in {days} day{days === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right num">{formatRupee(m.outstanding)}</td>
+                    <td className="px-3 py-2 text-right num text-rose-700">
+                      {m.interest > 0 ? formatRupee(m.interest) : <span className="text-ink-mute">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right num font-semibold">{formatRupee(m.payable)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Link
+                        href={`/app/tds/new?month=${m.month}`}
+                        className="text-xs text-indigo font-semibold"
+                      >
+                        Pay &rarr;
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-line bg-cloud/40 font-semibold">
+                <td className="px-3 py-2" colSpan={3}>Total</td>
+                <td className="px-3 py-2 text-right num">{formatRupee(tdsTotals.outstanding)}</td>
+                <td className="px-3 py-2 text-right num text-rose-700">{formatRupee(tdsTotals.interest)}</td>
+                <td className="px-3 py-2 text-right num">{formatRupee(tdsTotals.payable)}</td>
+                <td className="px-3 py-2" />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] text-ink-mute">
+          Tax withheld from supplier bills, grouped by the month it was deducted
+          and due by the 5th of the following month. Interest is section 201(1A)
+          at 1.5% per month or part month, counted from the deduction date. It is
+          an estimate until the challan is paid, so it is not posted to the
+          ledger — see TDS PAYABLE for the booked balance.
+        </p>
+      </section>
+      )}
 
       </div>
       )}
