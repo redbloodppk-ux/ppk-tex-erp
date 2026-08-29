@@ -46,6 +46,31 @@ function fmtMoney(v: unknown): string {
   return Math.round(Number(v ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
+/** Rupees with paise. TDS is remitted to the government to the paisa, so
+ *  unlike the other money columns here it must not be rounded. */
+function fmtMoney2(v: unknown): string {
+  return Number(v ?? 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * TDS withheld on one bill, or null when the party has no rate set.
+ *
+ * Computed on charges_amount - the TAXABLE value, before GST. On bill 11
+ * that is 14,040 x 2% = 280.80, not 14,742 x 2% = 294.84.
+ *
+ * `null` is deliberately different from 0: a party with no rate shows a
+ * dash, so "no TDS applies here" never reads as "TDS of nothing". Letting
+ * one value mean two things is what caused three separate money bugs this
+ * week.
+ */
+function tdsOf(b: { charges_amount?: unknown; bill_party?: { tds_pct?: unknown } | null }): number | null {
+  const pct = Number(b.bill_party?.tds_pct ?? NaN);
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+  return Math.round(Number(b.charges_amount ?? 0) * pct) / 100;
+}
+
 export default async function SizingListPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'bills'   ? 'bills'
@@ -118,7 +143,9 @@ export default async function SizingListPage({ searchParams }: PageProps) {
           yarn_sent_kg, yarn_used_kg,
           sizing_rate_per_kg, charges_amount, gst_pct, total_amount,
           sizing_vendor:sizing_ledger_id ( name ),
-          warp_count:warp_count_id ( code )
+          warp_count:warp_count_id ( code ),
+          party_id,
+          bill_party:party_id ( name, tds_pct )
         `)
         .not('bill_no', 'is', null)
         .order(sort, { ascending: dir === 'asc', nullsFirst: false })
@@ -409,6 +436,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   <th className="text-right px-4 py-3">Charges (₹)</th>
                   <th className="text-right px-4 py-3 hidden md:table-cell">GST %</th>
                   <th className="text-right px-4 py-3">Total (₹)</th>
+                  <th className="text-right px-4 py-3">TDS payable (₹)<br /><span className="text-[10px] normal-case text-ink-mute">on charges, before GST</span></th>
                   <th className="text-right px-4 py-3 w-16">Actions</th>
                 </tr>
               </thead>
@@ -443,6 +471,11 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                     <td className="px-4 py-3 text-right num font-semibold">
                       ₹ {fmtMoney(b.total_amount)}
                     </td>
+                    <td className="px-4 py-3 text-right num text-amber-700">
+                      {tdsOf(b) === null
+                        ? <span className="text-ink-mute" title="No TDS rate set on this party">—</span>
+                        : <>₹ {fmtMoney2(tdsOf(b))}<span className="text-[10px] text-ink-mute"> @{Number(b.bill_party?.tds_pct).toFixed(0)}%</span></>}
+                    </td>
                     {/* Edit only — bills can't be deleted standalone.
                         Removing a bill is done by deleting the parent
                         job from the Jobs tab, which drops the whole
@@ -460,7 +493,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-ink-soft">
+                    <td colSpan={12} className="px-4 py-10 text-center text-sm text-ink-soft">
                       No sizing bills yet. Bills are recorded when a job is
                       saved with an invoice number and date — <Link
                         href="/app/sizing/new"
@@ -470,6 +503,45 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   </tr>
                 )}
               </tbody>
+              {billsRes.data?.length ? (
+                <tfoot className="border-t-2 border-line bg-cloud/40 text-sm font-semibold">
+                  {/* One cell per header, carrying the SAME responsive
+                      classes. A colSpan would drift here: `Job` and
+                      `Count` are hidden at some widths, and colSpan counts
+                      declared columns rather than visible ones, so the
+                      totals would slide left on a medium screen. That is
+                      the misalignment that put a white gap in the warp
+                      beam table on 2026-08-22. */}
+                  <tr>
+                    <td className="px-4 py-3">Total</td>
+                    <td className="px-4 py-3 text-xs text-ink-soft">
+                      {billsRes.data.length} bill{billsRes.data.length === 1 ? '' : 's'}
+                    </td>
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3 hidden md:table-cell" />
+                    <td className="px-4 py-3 hidden lg:table-cell" />
+                    <td className="px-4 py-3 text-right num">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {billsRes.data.reduce((t: number, b: any) => t + Number(b.yarn_used_kg ?? 0), 0).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell" />
+                    <td className="px-4 py-3 text-right num">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      ₹ {fmtMoney(billsRes.data.reduce((t: number, b: any) => t + Number(b.charges_amount ?? 0), 0))}
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell" />
+                    <td className="px-4 py-3 text-right num">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      ₹ {fmtMoney(billsRes.data.reduce((t: number, b: any) => t + Number(b.total_amount ?? 0), 0))}
+                    </td>
+                    <td className="px-4 py-3 text-right num text-amber-700">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      ₹ {fmtMoney2(billsRes.data.reduce((t: number, b: any) => t + (tdsOf(b) ?? 0), 0))}
+                    </td>
+                    <td className="px-4 py-3" />
+                  </tr>
+                </tfoot>
+              ) : null}
             </table>
           </div>
         </>
