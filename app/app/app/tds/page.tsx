@@ -39,6 +39,17 @@ export default async function TdsPage(): Promise<React.ReactElement> {
   const totals = totalTdsPayable(open);
   const overdue = open.filter((m) => m.overdue);
 
+  // The deductor's TAN, quoted on every challan and return. One per
+  // business, so it lives on company_profile beside GSTIN and PAN.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: cp } = await (supabase as any)
+    .from('company_profile')
+    .select('legal_name, tan')
+    .limit(1)
+    .maybeSingle();
+  const tan = (cp as { tan?: string | null } | null)?.tan ?? null;
+  const deductorName = (cp as { legal_name?: string | null } | null)?.legal_name ?? null;
+
   const paidRes = await fetchAll<PaidRow>((lo, hi) => (supabase as unknown as {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from: (t: string) => any;
@@ -58,6 +69,26 @@ export default async function TdsPage(): Promise<React.ReactElement> {
           </Link>
         }
       />
+
+      {/* TAN is what identifies you on the portal and on every challan, so
+          it belongs where you go to pay rather than buried in settings. */}
+      <div className="card flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">TAN</div>
+          <div className="num font-semibold tracking-wide">
+            {tan ?? <span className="text-ink-mute font-normal">Not set</span>}
+          </div>
+        </div>
+        {deductorName && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-mute">Deductor</div>
+            <div className="text-sm">{deductorName}</div>
+          </div>
+        )}
+        <div className="ml-auto text-[11px] text-ink-mute">
+          Quote this on the challan and the quarterly return.
+        </div>
+      </div>
 
       {error && (
         <div className="rounded-md border-2 border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
