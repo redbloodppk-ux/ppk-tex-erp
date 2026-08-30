@@ -387,8 +387,16 @@ export default function PavuAssignPage() {
     // only 'completed' assignments read as status 'finished' in the Beam
     // Stock Report; 'removed' means the beam still has usable yarn and
     // goes back to the in-stock pool to be mounted again.
+    // Show the metres in the question itself, as the swap modal now does —
+    // "850 of 880 m woven, 30 m left" answers it far better than the words
+    // alone. See migration 276.
+    const left = nominal > 0 ? nominal - actual : null;
     const isFinished = window.confirm(
       `Is ${a.pavu?.pavu_code ?? 'this beam'} FULLY finished — no yarn left, won't be reassigned?\n\n` +
+      (left === null
+        ? ''
+        : `${actual.toFixed(0)} of ${nominal.toFixed(0)} m woven — ` +
+          (left > 0 ? `${left.toFixed(0)} m still on the beam.\n\n` : `nothing left on the beam.\n\n`)) +
       `OK = Finished (removed from stock counts)\n` +
       `Cancel = Just removed early, still has yarn (stays in stock for reuse)`,
     );
@@ -748,10 +756,18 @@ function AssignModal({
   const [actualMetres, setActualMetres] = useState(() =>
     currentAssignment ? Number(currentAssignment.metres_produced ?? 0).toFixed(0) : '');
   // Whether the beam being swapped off is fully done (no yarn left) — if so
-  // it's marked 'completed' so the Beam Stock Report shows it as "finished"
-  // instead of counting it toward "in stock". Left unchecked, it's marked
-  // 'removed' and goes back to the in-stock pool for reassignment.
-  const [oldBeamFinished, setOldBeamFinished] = useState(false);
+  // it's marked 'completed' and the Beam Stock Report shows it as "finished";
+  // otherwise 'removed', and it returns to the in-stock pool for reassignment.
+  //
+  // null means NOT YET ANSWERED, and the form will not submit until it is.
+  // This was a checkbox defaulting to false (= back to stock), which is the
+  // answer nobody has to think about — so every beam swapped off a loom went
+  // back into stock whether or not it had yarn left. By 26 Aug three used-up
+  // beams were sitting in the in-stock list carrying their woven metres,
+  // including beam 2421 which had woven 1280.65 m off 1280 m. See migration
+  // 276. A default that is right half the time is worse than no default:
+  // it is silently wrong, and nobody thinks to check it.
+  const [oldBeamFinished, setOldBeamFinished] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -873,6 +889,13 @@ function AssignModal({
         setErr('Enter valid actual metres for the beam being removed.');
         setBusy(false); return;
       }
+      // Not answered — refuse rather than assume. The whole point of
+      // migration 276 is that assuming here is what put used-up beams back
+      // into stock.
+      if (oldBeamFinished === null) {
+        setErr(`Say what happens to ${currentAssignment.pavu?.pavu_code ?? 'the beam coming off'}: finished, or back to stock?`);
+        setBusy(false); return;
+      }
       const nominal = Number(currentAssignment.pavu?.meters ?? 0);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const paTable = supabase.from('pavu_assign') as any;
@@ -930,7 +953,10 @@ function AssignModal({
             <div className="space-y-2">
               <div className="text-xs p-3 rounded-lg bg-amber-50 text-amber-800">
                 Loom currently has <span className="font-mono font-semibold">{currentAssignment.pavu.pavu_code}</span>.
-                Saving will {oldBeamFinished ? 'mark it finished' : 'remove it back to stock'}.
+                Saving will{' '}
+                {oldBeamFinished === null
+                  ? 'take it off — say below whether it is finished or goes back to stock.'
+                  : oldBeamFinished ? 'mark it finished.' : 'send it back to stock.'}
               </div>
               <div>
                 <label className="label">
@@ -964,18 +990,58 @@ function AssignModal({
                   );
                 })()}
               </div>
-              <label className="flex items-start gap-2 text-xs p-2 rounded-lg bg-cloud/60">
-                <input
-                  type="checkbox"
-                  checked={oldBeamFinished}
-                  onChange={e => setOldBeamFinished(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span>
-                  This beam is fully finished — no yarn left, won't be reassigned.
-                  {' '}Leave unchecked if it still has usable yarn (it'll stay in stock for reuse).
-                </span>
-              </label>
+              {/* A required choice, not a checkbox with a default. The
+                  metres are shown right here so the answer is a reading of
+                  the beam rather than a guess: "692 of 880 m woven, 188 m
+                  left" makes it obvious which button is true. */}
+              <div className="rounded-lg bg-cloud/60 p-2.5">
+                <div className="text-xs font-semibold">
+                  What happens to {currentAssignment.pavu.pavu_code}? *
+                </div>
+                {(() => {
+                  const woven = Number(actualMetres);
+                  const nominal = Number(currentAssignment.pavu?.meters ?? 0);
+                  if (!Number.isFinite(woven) || nominal <= 0) return null;
+                  const left = nominal - woven;
+                  return (
+                    <div className="mt-1 text-[11px] text-ink-soft">
+                      <span className="num">{woven.toFixed(0)}</span> of{' '}
+                      <span className="num">{nominal.toFixed(0)}</span> m woven &middot;{' '}
+                      {left > 0 ? (
+                        <><span className="num">{left.toFixed(0)}</span> m still on the beam</>
+                      ) : (
+                        <span className="font-semibold text-rose-700">nothing left on the beam</span>
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOldBeamFinished(true)}
+                    className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold ${
+                      oldBeamFinished === true
+                        ? 'border-rose-400 bg-rose-50 text-rose-800'
+                        : 'border-line bg-white text-ink-soft hover:bg-cloud'
+                    }`}
+                  >
+                    Finished
+                    <span className="block text-[10px] font-normal">no yarn left</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOldBeamFinished(false)}
+                    className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold ${
+                      oldBeamFinished === false
+                        ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                        : 'border-line bg-white text-ink-soft hover:bg-cloud'
+                    }`}
+                  >
+                    Back to stock
+                    <span className="block text-[10px] font-normal">still has yarn</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
