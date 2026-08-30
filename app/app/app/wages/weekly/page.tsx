@@ -407,120 +407,71 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   }));
 
   // Attendance-based pro-ration:
-  //   * Both FITTER and WINDER are paid against the sheds they cover. The
-  //     deduction model is identical for both roles: covered_sheds * working
-  //     shift slots in the week = expected; each weaver attendance row in a
-  //     covered shed with status 'absent' or 'none' adds 1 to the missing
-  //     tally; deduction = weekly_salary * missing / expected.
-  //   * Holiday shifts (attendance_day.is_working = false) are excluded
-  //     from the expected universe and from the missing tally.
+  //   * FITTER is paid per DAY present: weekly_salary * (7 - absent) / 7.
+  //     A fitter maintains looms across the mill rather than tending one
+  //     shed, so a shed standing idle is not his loss. Confirmed by PPK,
+  //     2026-08-30.
+  //   * WINDER is paid per assigned shed per shift-slot, via the shared
+  //     allocator below.
   //   * Other weekly roles stay at full salary.
+  //
+  // WHAT THIS REPLACED, AND WHY IT MATTERED
+  // Until 2026-08-30 this page paid fitters on the same shed tally as
+  // winders, counting EVERY weaver row marked 'absent' or 'none' on a
+  // covered shed - without checking whether some other weaver was standing
+  // at that shed. That is the exact rule deleted from the winder path in
+  // August, where it had cost MALIGA Rs 1,283.33 in one week (see
+  // deriveWeaverGapSlots). It survived here and was docking MAHALINGAM
+  // Rs 1,600.00 in the week of 24 Aug - 8 counted rows on sheds 3 and 4,
+  // five of them ASHOK's morning shed carried onto night rows where RAVI
+  // OLD was actually weaving - while the man was present all seven days.
+  //
+  // It also disagreed with lib/wages/weekly-data.ts, which feeds the CSV
+  // and PDF exports and always used the day-based rule. The screen said
+  // Rs 2,400.00 and the export said Rs 4,000.00 for the same man in the
+  // same week. Two implementations of one rule, drifted apart; this page
+  // now matches the library.
   const fitterIds = employees
     .filter((e) => (e.role ?? '').toLowerCase() === 'fitter')
     .map((e) => e.id);
 
-  // --- Fitter: covered sheds + weaver-absent / "none" tally per shed.
+  // --- Fitter: distinct days marked absent within the week.
   //
-  //     The fitter is on the hook for BOTH shifts of every shed they cover.
-  //     Expected = covered_sheds.size * (working shift slots in the week).
-  //     A slot only counts as a deduction if there's an EXPLICIT weaver row
-  //     in that slot with status 'absent' or 'none'. Holiday shifts
-  //     (attendance_day.is_working = false) are excluded from both.
-  const coveredShedsByEmp = new Map<number, Set<string>>();
-  const weekShiftSlots = new Set<string>();         // keys: "date:shift"
-  const weaverAbsentByShed = new Map<string, number>();
+  //     Days, not shift-slots: a fitter who works the morning and is gone
+  //     at night is not half-absent, he has done his day. Mirrors
+  //     buildWeeklyWageData in lib/wages/weekly-data.ts exactly, so the
+  //     screen and the exports cannot drift apart again.
+  const absentDaysByEmp = new Map<number, number>();
   if (fitterIds.length > 0) {
-    // 1) Working shift slots in this week (is_working = true only).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: daysRaw } = await (supabase as any)
-      .from('attendance_day')
-      .select('id, attendance_date, shift, is_working')
-      .gte('attendance_date', weekStart)
-      .lte('attendance_date', weekEnd)
-      .eq('is_working', true);
-    const workingDayIds: number[] = [];
-    for (const d of (daysRaw ?? []) as Array<{ id: number; attendance_date: string; shift: string | null; is_working: boolean }>) {
-      if (d.is_working !== true) continue;
-      workingDayIds.push(d.id);
-      if (d.attendance_date && d.shift) {
-        weekShiftSlots.add(`${d.attendance_date}:${d.shift}`);
-      }
-    }
-
-    // 2) Each fitter's covered sheds (union of shed_nos across their
-    //    non-absent attendance rows in the week, falling back to all rows
-    //    if every entry was absent).
-    type CoverageAttRow = {
+    type AbsRow = {
       employee_id: number;
-      status: string;
-      shed_no: string | null;
-      shed_nos: string[] | null;
       attendance_day: { attendance_date: string } | null;
     };
-    const covAttRes = await fetchAll<CoverageAttRow>((lo, hi) => (supabase as unknown as {
+    const absRes = await fetchAll<AbsRow>((lo, hi) => (supabase as unknown as {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       from: (t: string) => any;
     })
       .from('attendance_entry')
       // !inner: real join filter, avoids the 1000-row cap on full history.
-      .select('id, employee_id, status, shed_no, shed_nos, attendance_day:attendance_day_id!inner ( attendance_date )')
+      .select('id, employee_id, attendance_day:attendance_day_id!inner ( attendance_date )')
       .in('employee_id', fitterIds)
+      .eq('status', 'absent')
       .gte('attendance_day.attendance_date', weekStart)
       .lte('attendance_day.attendance_date', weekEnd)
       .order('id', { ascending: true })
       .range(lo, hi));
-    const covAtt = covAttRes.rows;
-    const rowsByEmp = new Map<number, CoverageAttRow[]>();
-    for (const r of covAtt) {
-      if (!r.attendance_day?.attendance_date) continue;
-      const list = rowsByEmp.get(r.employee_id) ?? [];
-      list.push(r);
-      rowsByEmp.set(r.employee_id, list);
+    // Distinct DATES — being marked absent for both shifts of one day is
+    // still one absent day.
+    const datesByEmp = new Map<number, Set<string>>();
+    for (const r of absRes.rows) {
+      const d = r.attendance_day?.attendance_date;
+      if (!d) continue;
+      const set = datesByEmp.get(r.employee_id) ?? new Set<string>();
+      set.add(d);
+      datesByEmp.set(r.employee_id, set);
     }
-    for (const eid of fitterIds) {
-      const rows = rowsByEmp.get(eid) ?? [];
-      const collect = (filterAbsent: boolean): Set<string> => {
-        const acc = new Set<string>();
-        for (const r of rows) {
-          if (filterAbsent && r.status === 'absent') continue;
-          const arr = Array.isArray(r.shed_nos) ? r.shed_nos : [];
-          for (const s of arr) {
-            if (typeof s === 'string' && s.length > 0) acc.add(s);
-          }
-          if (arr.length === 0 && r.shed_no) acc.add(r.shed_no);
-        }
-        return acc;
-      };
-      let covered = collect(true);
-      if (covered.size === 0) covered = collect(false);
-      coveredShedsByEmp.set(eid, covered);
-    }
-
-    // 3) Tally weaver attendance rows with status absent / none in working
-    //    shifts, grouped by shed. Rows without shed_no aren't attributable
-    //    to any shed and don't penalise any fitter.
-    if (workingDayIds.length > 0) {
-      type WeaverGapRow = {
-        shed_no: string | null;
-        employee: { role: string | null } | null;
-      };
-      const gapRes = await fetchAll<WeaverGapRow>((lo, hi) => (supabase as unknown as {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      from: (t: string) => any;
-    })
-        .from('attendance_entry')
-        .select('id, shed_no, employee:employee_id ( role )')
-        .in('status', ['absent', 'none'])
-        .in('attendance_day_id', workingDayIds)
-        .order('id', { ascending: true })
-        .range(lo, hi));
-      for (const r of gapRes.rows) {
-        const role = (r.employee?.role ?? '').toLowerCase();
-        if (role !== 'weaver') continue;
-        const shed = r.shed_no;
-        if (!shed) continue;
-        weaverAbsentByShed.set(shed, (weaverAbsentByShed.get(shed) ?? 0) + 1);
-      }
+    for (const [empId, dates] of datesByEmp.entries()) {
+      absentDaysByEmp.set(empId, dates.size);
     }
   }
 
@@ -541,6 +492,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     const full = Number(e.weekly_salary ?? 0);
     const role = (e.role ?? '').toLowerCase();
     let deduction = 0;
+    let absentDays = 0;
     let coveredShedsArr: string[] = [];
     let weaverAbsentCount = 0;
     let expectedShiftSheds = 0;
@@ -549,15 +501,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     let coveredForOthers = 0;
     let book = full;
     if (role === 'fitter') {
-      const covered = coveredShedsByEmp.get(e.id) ?? new Set<string>();
-      coveredShedsArr = Array.from(covered).sort();
-      expectedShiftSheds = coveredShedsArr.length * weekShiftSlots.size;
-      for (const shed of coveredShedsArr) {
-        weaverAbsentCount += weaverAbsentByShed.get(shed) ?? 0;
-      }
-      deduction = expectedShiftSheds > 0
-        ? (full * weaverAbsentCount) / expectedShiftSheds
-        : 0;
+      absentDays = absentDaysByEmp.get(e.id) ?? 0;
+      deduction = (full / 7) * absentDays;
       book = full - deduction;
     } else if (role === 'winder') {
       const alloc = winderAlloc.get(e.id);
@@ -585,7 +530,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       full_name: e.full_name,
       role: e.role,
       full_salary: full,
-      absent_days: 0, // legacy field; kept on PerEmployee shape for snapshot compat
+      absent_days: absentDays, // fitters only; 0 for every other role
       absent_deduction: deduction,
       covered_sheds: coveredShedsArr,
       weaver_absent_count: weaverAbsentCount,
@@ -750,12 +695,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       {/* Per-employee */}
       <h2 className="text-sm font-semibold text-ink mb-2">Weekly-basis employees</h2>
       <p className="text-[11px] text-ink-mute mb-2">
-        Fitter pro-rate: weekly_salary &times; (7 &minus; absent days) / 7.
-        Winder pay is per assigned shed &times; working shift-slot. If a winder is
-        absent while the weaver is present, that shed-slot&apos;s money moves to
-        whichever winder actually covered the shed (substitute); if nobody
-        covered, or the weaver was absent, it is docked.
-        A weaver marked &quot;none&quot; counts as absent only when a shed is picked.
+        Fitter pro-rate: weekly_salary &times; (7 &minus; absent days) / 7 &mdash;
+        counted in whole days, not shifts.
+        Winder pay is per assigned shed &times; shift-slot, over the mill&apos;s
+        standard <strong>13-shift week</strong> (every shift but Sunday night).
+        A shift the mill did not run &mdash; no weavers, power cut, maintenance,
+        festival &mdash; still counts in the week and pays nobody; it does not
+        shrink the week. If a winder is absent while the shed runs, that
+        shed-slot&apos;s money moves to whichever winder actually covered it;
+        if nobody covered, she keeps it, having wound ahead.
+        A weaver marked &quot;none&quot; counts as absent only when a shed is
+        picked, and only where no other weaver worked that shed.
       </p>
       <div className="card overflow-x-auto mb-6">
         <table className="w-full text-sm min-w-[960px]">
@@ -788,10 +738,29 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                   <td className="px-4 py-3 text-xs capitalize">{p.role}</td>
                   <td className="px-4 py-3 text-right num">{formatRupee(p.full_salary)}</td>
                   <td className="px-4 py-3 text-xs">
-                    {(isFitter || isWinder) ? (
+                    {isFitter ? (
                       <span>
-                        <span className="num">{p.weaver_absent_count}</span> weaver-absent /{' '}
-                        <span className="num">{p.expected_shift_sheds}</span> expected
+                        {p.absent_days > 0 ? (
+                          <>
+                            <span className="num">{p.absent_days}</span> day
+                            {p.absent_days === 1 ? '' : 's'} absent of{' '}
+                            <span className="num">7</span>
+                          </>
+                        ) : (
+                          <span className="text-ink-mute">present all 7 days</span>
+                        )}
+                      </span>
+                    ) : isWinder ? (
+                      <span>
+                        {/* PPK counts the week as ran / closed out of the
+                            full 13 shifts, so the screen says it his way.
+                            "8 weaver-absent / 20 expected" described the
+                            same figures and was checkable by nobody. */}
+                        <span className="num">
+                          {p.expected_shift_sheds - p.weaver_absent_count}
+                        </span> ran /{' '}
+                        <span className="num">{p.weaver_absent_count}</span> closed of{' '}
+                        <span className="num">{p.expected_shift_sheds}</span>
                         {p.covered_sheds.length > 0 && (
                           <> &middot; sheds {p.covered_sheds.join(', ')}</>
                         )}

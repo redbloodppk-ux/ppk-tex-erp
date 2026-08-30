@@ -46,14 +46,24 @@ export async function loadWinderAllocation(
   if (winders.length === 0) return new Map();
   const winderIds = winders.map((w) => w.id);
 
-  // 1) Working shift-slots in the week (holiday shifts excluded).
+  // 1) Every shift-slot in the week, split into those that ran and those
+  //    that did not.
+  //
+  //    Both halves count towards the denominator: a night the mill could
+  //    not run for want of weavers is still one of the week's 13 shifts,
+  //    it simply pays nobody. Only counts_in_week = false leaves the week
+  //    altogether, which in practice means Sunday night. See migration 275
+  //    and SHED_SLOT_DENOMINATOR_FROM.
+  //
+  //    Note this no longer filters on is_working in the query — doing so
+  //    is what made a closed mill shrink the week and RAISE the box rate.
   const { data: daysRaw } = await supabase
     .from('attendance_day')
-    .select('id, attendance_date, shift, is_working')
+    .select('id, attendance_date, shift, is_working, counts_in_week')
     .gte('attendance_date', weekStart)
-    .lte('attendance_date', weekEnd)
-    .eq('is_working', true);
+    .lte('attendance_date', weekEnd);
   const workingSlotKeys: string[] = [];
+  const idleSlotKeys: string[] = [];
   const workingDayIds: number[] = [];
   const slotByDayId = new Map<number, string>();
   for (const d of (daysRaw ?? []) as Array<{
@@ -61,13 +71,19 @@ export async function loadWinderAllocation(
     attendance_date: string | null;
     shift: string | null;
     is_working: boolean | null;
+    counts_in_week: boolean | null;
   }>) {
-    if (d.is_working !== true) continue;
-    workingDayIds.push(d.id);
-    if (d.attendance_date && d.shift) {
-      const key = `${d.attendance_date}:${d.shift}`;
+    // Older rows predate the column; treat a missing value as "in the
+    // week", which is the default the migration set.
+    if (d.counts_in_week === false) continue;
+    if (!d.attendance_date || !d.shift) continue;
+    const key = `${d.attendance_date}:${d.shift}`;
+    if (d.is_working === true) {
+      workingDayIds.push(d.id);
       workingSlotKeys.push(key);
       slotByDayId.set(d.id, key);
+    } else {
+      idleSlotKeys.push(key);
     }
   }
 
@@ -184,6 +200,26 @@ export async function loadWinderAllocation(
     }
   }
 
+  // 5) Supervisor-stated shed running status (migration 275). Same shape
+  //    of contract as winder_cover above: a row exists only where somebody
+  //    ticked, and a missing row leaves the weaver-row inference in charge.
+  const shedStatus = new Map<string, boolean>();
+  if (workingDayIds.length > 0) {
+    const { data: shedRaw } = await supabase
+      .from('shed_shift_status')
+      .select('attendance_day_id, shed_no, is_running')
+      .in('attendance_day_id', workingDayIds);
+    for (const r of (shedRaw ?? []) as Array<{
+      attendance_day_id: number;
+      shed_no: string;
+      is_running: boolean;
+    }>) {
+      const slotKey = slotByDayId.get(r.attendance_day_id);
+      if (!slotKey || !r.shed_no) continue;
+      shedStatus.set(`${r.shed_no}:${slotKey}`, r.is_running === true);
+    }
+  }
+
   return computeWinderAllocation({
     winders: winders.map((w) => ({
       id: w.id,
@@ -191,8 +227,10 @@ export async function loadWinderAllocation(
       assignedSheds: w.assignedSheds,
     })),
     workingSlotKeys,
+    idleSlotKeys,
     attendance,
     weaverGapSlots,
     coverRecords,
+    shedStatus,
   });
 }

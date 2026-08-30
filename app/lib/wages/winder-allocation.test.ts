@@ -560,3 +560,155 @@ describe('deriveWeaverGapSlots — blank sheds', () => {
     expect(gaps).toEqual(new Set([`3:${SLOT}`]));
   });
 });
+
+/**
+ * A shift the mill did not run stays in the week.
+ *
+ * The bug: a non-working shift used to leave the week entirely, so closing
+ * the mill SHRANK the denominator and RAISED the box rate — the winders
+ * came out whole for winding they never did. PPK, 2026-08-30, on the week
+ * of 24-30 Aug: "winder kamchi - 12 shift running and 14 non running".
+ */
+describe('computeWinderAllocation — shifts the mill did not run', () => {
+  const RUN = ['2026-08-24:morning', '2026-08-25:morning'];
+  const IDLE = ['2026-08-24:night', '2026-08-25:night'];
+
+  const base = (over: Partial<WinderAllocationInput>): WinderAllocationInput => ({
+    winders: [{ id: KAMACHI, weeklySalary: 400, assignedSheds: ['1'] }],
+    workingSlotKeys: RUN,
+    attendance: RUN.map((k) => ({
+      winderId: KAMACHI, slotKey: k, status: 'present', sheds: ['1'],
+    })),
+    weaverGapSlots: new Set(),
+    ...over,
+  });
+
+  it('an idle shift divides the salary and pays nobody', () => {
+    const res = computeWinderAllocation(base({ idleSlotKeys: IDLE }));
+    const k = res.get(KAMACHI)!;
+    // 1 shed x 4 slots = 4 boxes @ 100. Two ran, two did not.
+    expect(k.expectedShedSlots).toBe(4);
+    expect(k.book).toBeCloseTo(200, 6);
+    expect(k.deduction).toBeCloseTo(200, 6);
+    expect(k.weaverAbsentCount).toBe(2);
+  });
+
+  it('closing the mill must not raise the box rate', () => {
+    const withIdle = computeWinderAllocation(base({ idleSlotKeys: IDLE }));
+    const without = computeWinderAllocation(base({}));
+    // Same two shifts worked either way. Before the fix the idle nights
+    // vanished and those two shifts paid the FULL 400 — the mill closing
+    // made her whole. Now they pay half, and the rate is unchanged.
+    expect(without.get(KAMACHI)!.book).toBeCloseTo(400, 6);
+    expect(withIdle.get(KAMACHI)!.book).toBeCloseTo(200, 6);
+  });
+
+  it('leaves settled weeks before the cutoff alone', () => {
+    const OLD_RUN = ['2026-08-17:morning', '2026-08-18:morning'];
+    const OLD_IDLE = ['2026-08-17:night', '2026-08-18:night'];
+    const res = computeWinderAllocation({
+      winders: [{ id: KAMACHI, weeklySalary: 400, assignedSheds: ['1'] }],
+      workingSlotKeys: OLD_RUN,
+      idleSlotKeys: OLD_IDLE,
+      attendance: OLD_RUN.map((k) => ({
+        winderId: KAMACHI, slotKey: k, status: 'present', sheds: ['1'],
+      })),
+      weaverGapSlots: new Set(),
+    });
+    // That week was paid on 24 Aug. The idle nights are ignored, so it
+    // still computes to the full salary over 2 boxes.
+    expect(res.get(KAMACHI)!.expectedShedSlots).toBe(2);
+    expect(res.get(KAMACHI)!.book).toBeCloseTo(400, 6);
+  });
+
+  it('the real week of 24-30 Aug matches PPK to the paisa', () => {
+    // 13 shifts in the week: 10 ran, 3 nights did not (no weavers).
+    // Sunday night is outside the week and never appears.
+    const working = [
+      '2026-08-24:morning', '2026-08-25:morning', '2026-08-26:morning',
+      '2026-08-27:morning', '2026-08-27:night',
+      '2026-08-28:morning', '2026-08-28:night',
+      '2026-08-29:morning', '2026-08-29:night',
+      '2026-08-30:morning',
+    ];
+    const idle = ['2026-08-24:night', '2026-08-25:night', '2026-08-26:night'];
+
+    const attendance: WinderSlotAttendance[] = [];
+    for (const k of working) {
+      attendance.push({ winderId: KAMACHI, slotKey: k, status: 'present', sheds: ['1', '3'] });
+      attendance.push({ winderId: MALIGA, slotKey: k, status: 'present', sheds: ['2', '4'] });
+    }
+
+    // Sheds that ran no cloth, read off the real attendance rows.
+    const weaverGapSlots = new Set([
+      '1:2026-08-25:morning',                                  // ANAND absent
+      '1:2026-08-27:night', '1:2026-08-28:night', '1:2026-08-29:night',
+      '3:2026-08-27:morning',                                  // SURESH A absent
+      '3:2026-08-27:night', '3:2026-08-28:night', '3:2026-08-29:night',
+      '4:2026-08-30:morning',                                  // ASHOK absent
+    ]);
+
+    const res = computeWinderAllocation({
+      winders: [
+        { id: KAMACHI, weeklySalary: 4400, assignedSheds: ['1', '3'] },
+        { id: MALIGA, weeklySalary: 4400, assignedSheds: ['2', '4'] },
+      ],
+      workingSlotKeys: working,
+      idleSlotKeys: idle,
+      attendance,
+      weaverGapSlots,
+    });
+
+    const k = res.get(KAMACHI)!;
+    const m = res.get(MALIGA)!;
+    expect(k.expectedShedSlots).toBe(26);
+    expect(m.expectedShedSlots).toBe(26);
+    // "winder kamchi - 12 shift running and 14 non running"
+    expect(k.weaverAbsentCount).toBe(14);
+    expect(k.book).toBeCloseTo(2030.77, 2);
+    // "maliga 7 non running", 19 running
+    expect(m.weaverAbsentCount).toBe(7);
+    expect(m.book).toBeCloseTo(3215.38, 2);
+  });
+});
+
+/**
+ * A supervisor's tick outranks the guess. This is the durable half of the
+ * fix: whether a shed ran stops being inferred from weaver rows, which is
+ * what needed hand-correcting in migrations 263, 265, 266 and 269.
+ */
+describe('computeWinderAllocation — stated shed status', () => {
+  const SLOT = '2026-08-27:morning';
+  const base = (over: Partial<WinderAllocationInput>): WinderAllocationInput => ({
+    winders: [{ id: KAMACHI, weeklySalary: 200, assignedSheds: ['1'] }],
+    workingSlotKeys: [SLOT],
+    attendance: [{ winderId: KAMACHI, slotKey: SLOT, status: 'present', sheds: ['1'] }],
+    weaverGapSlots: new Set(),
+    ...over,
+  });
+
+  it('"it ran" overrides a weaver-row gap', () => {
+    const res = computeWinderAllocation(base({
+      weaverGapSlots: new Set([`1:${SLOT}`]),
+      shedStatus: new Map([[`1:${SLOT}`, true]]),
+    }));
+    expect(res.get(KAMACHI)!.book).toBeCloseTo(200, 6);
+    expect(res.get(KAMACHI)!.weaverAbsentCount).toBe(0);
+  });
+
+  it('"it was closed" overrides weaver rows that look busy', () => {
+    const res = computeWinderAllocation(base({
+      shedStatus: new Map([[`1:${SLOT}`, false]]),
+    }));
+    expect(res.get(KAMACHI)!.book).toBeCloseTo(0, 6);
+    expect(res.get(KAMACHI)!.weaverAbsentCount).toBe(1);
+  });
+
+  it('a shed nobody ticked still falls back to the inference', () => {
+    const res = computeWinderAllocation(base({
+      weaverGapSlots: new Set([`1:${SLOT}`]),
+      shedStatus: new Map([['9:other-slot', true]]),
+    }));
+    expect(res.get(KAMACHI)!.weaverAbsentCount).toBe(1);
+  });
+});

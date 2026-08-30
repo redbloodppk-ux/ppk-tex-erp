@@ -1,9 +1,19 @@
 /**
  * Winder weekly wage allocation with substitute reallocation.
  *
- * Business rule (July 2026): a winder is paid per shed she is assigned,
- * per working shift-slot in the week. Her per-slot rate is
- *   weekly_salary / (assigned sheds * working shift-slots in the week).
+ * Business rule (July 2026, denominator revised August): a winder is paid
+ * per shed she is assigned, per shift-slot in the week. Her per-slot rate
+ * is
+ *   weekly_salary / (assigned sheds * shift-slots in the WEEK).
+ *
+ * The week is its standard 13 shifts — every shift but Sunday night, which
+ * the mill never runs (attendance_day.counts_in_week). A shift that should
+ * have run and did not stays in that denominator and pays nobody; it does
+ * not shrink the week. See SHED_SLOT_DENOMINATOR_FROM for why, and for the
+ * date this took effect.
+ *
+ * Whether a shed ran is a stated fact where a supervisor ticked it
+ * (`shedStatus`, migration 275) and inferred from weaver rows otherwise.
  *
  * For every (assigned shed, working slot):
  *   - NO weaver wove that shed-slot -> nobody is paid. This is the ONLY
@@ -55,6 +65,22 @@ export interface WinderAllocationInput {
   winders: WinderMaster[];
   /** Every is_working shift-slot in the week, as "YYYY-MM-DD:shift". */
   workingSlotKeys: string[];
+  /**
+   * Shifts that belong to the week but did NOT run — no weavers, power
+   * cut, maintenance, festival. They stay in the denominator and pay
+   * nobody. See SHED_SLOT_DENOMINATOR_FROM.
+   *
+   * Optional: omitting it reproduces the pre-2026-08-30 behaviour exactly,
+   * which is what keeps settled weeks from moving.
+   */
+  idleSlotKeys?: string[];
+  /**
+   * Supervisor-stated shed running status (migration 275), keyed
+   * "shed:YYYY-MM-DD:shift" -> did that shed run. A present key OVERRIDES
+   * the weaver-row inference in `weaverGapSlots`; a missing key falls back
+   * to it, so weeks nobody ticked compute as they always did.
+   */
+  shedStatus?: Map<string, boolean>;
   /** One row per winder per slot they have an attendance_entry for. */
   attendance: WinderSlotAttendance[];
   /** Shed-slots NO weaver wove. Keys: "shed:YYYY-MM-DD:shift".
@@ -114,6 +140,30 @@ export interface WeaverShedRow {
  * week's Monday, so only unsettled figures move.
  */
 const BLANK_SHED_IS_IDLE_FROM = '2026-08-17';
+
+/**
+ * From this date, a shift the mill did not run STAYS in the week.
+ *
+ * PPK, 2026-08-30: "winder kamchi - 12 shift running and 14 non running".
+ * The screen said 8 of 20 and he says 14 of 26. Both are right about the
+ * shed-slots that ran; they disagree about how big the week is.
+ *
+ * Until now a non-working shift was dropped from the week altogether, so
+ * the three nights of 24-26 Aug that could not run for want of weavers
+ * shrank the week from 13 shifts to 10 - and RAISED the box rate from
+ * Rs 169.23 to Rs 220.00. Closing the mill made the winders whole for
+ * winding they never did.
+ *
+ * Now the week is its standard 13 shifts (everything but Sunday night,
+ * attendance_day.counts_in_week). A shift that should have run and did
+ * not is a box that pays nobody. Confirmed by PPK for all four closure
+ * reasons - no weavers, power cut, maintenance, national holiday.
+ *
+ * Dated for the same reason as the two rules above: every week through
+ * 23 Aug is settled and paid. This one is the Monday of the first open
+ * week, so only unsettled figures move.
+ */
+const SHED_SLOT_DENOMINATOR_FROM = '2026-08-24';
 
 /** What to consider beyond the rows that exist, when deciding gaps. */
 export interface WeaverGapOptions {
@@ -206,9 +256,12 @@ export interface WinderAllocationResult {
   reallocatedIn: number;
   /** Rupees moved away to substitutes (a subset of `deduction`). */
   reallocatedOut: number;
-  /** Assigned shed-slots left unpaid because the weaver was absent. */
+  /** Assigned shed-slots that did NOT run, and so paid nobody — whether
+   *  the shed stood idle inside a working shift or the whole shift never
+   *  ran. Displayed as "closed"; the name predates the wider meaning. */
   weaverAbsentCount: number;
-  /** assignedSheds.length × workingSlotKeys.length. */
+  /** assignedSheds.length × (workingSlotKeys + idleSlotKeys) — the whole
+   *  week, not just the shifts that ran. See SHED_SLOT_DENOMINATOR_FROM. */
   expectedShedSlots: number;
   /** Count of shed-slots this winder covered for an absent winder. */
   coveredForOthers: number;
@@ -225,8 +278,21 @@ export interface WinderAllocationResult {
 export function computeWinderAllocation(
   input: WinderAllocationInput,
 ): Map<number, WinderAllocationResult> {
-  const { winders, workingSlotKeys, attendance, weaverGapSlots, coverRecords } = input;
-  const nSlots = workingSlotKeys.length;
+  const {
+    winders, workingSlotKeys, attendance, weaverGapSlots, coverRecords,
+    idleSlotKeys, shedStatus,
+  } = input;
+
+  // Shifts that belong to the week but never ran. Only from the cutoff:
+  // before it, a non-working shift left the week as it always did, so
+  // settled weeks recompute to the rupee.
+  const idleSlots = (idleSlotKeys ?? []).filter(
+    (k) => k >= `${SHED_SLOT_DENOMINATOR_FROM}:`,
+  );
+
+  // The week is every shift that counts, run or not. This denominator is
+  // the whole point of the change: it must not shrink when the mill stops.
+  const nSlots = workingSlotKeys.length + idleSlots.length;
 
   // Index attendance by winder+slot, and build the per-slot roster of
   // winders who can act as substitutes (present-ish, with sheds covered).
@@ -273,6 +339,18 @@ export function computeWinderAllocation(
     const rate = rateById.get(w.id) ?? 0;
     const res = results.get(w.id);
     if (!res) continue;
+
+    // A shift that belonged to the week but never ran. Nothing was wound
+    // on any shed, so every box is lost - there is no cover to reallocate
+    // to, and the winder's own attendance does not arise: nobody was
+    // called in. Counted rather than looped; the arithmetic is the same
+    // for every shed and every idle slot.
+    const idleBoxes = idleSlots.length * w.assignedSheds.length;
+    if (idleBoxes > 0) {
+      res.weaverAbsentCount += idleBoxes;
+      res.deduction += rate * idleBoxes;
+    }
+
     for (const slotKey of workingSlotKeys) {
       // A slot with NO attendance row is treated exactly like `absent`.
       //
@@ -309,8 +387,16 @@ export function computeWinderAllocation(
         (slotDate ?? '') >= NIGHT_FOLLOWS_MORNING_FROM &&
         morningStatus.get(`${w.id}|${slotDate ?? ''}`) === 'absent';
       for (const shed of w.assignedSheds) {
-        if (weaverGapSlots.has(`${shed}:${slotKey}`)) {
-          // Weaver absent -> shed-slot unpaid.
+        // A supervisor's tick on the attendance screen outranks the
+        // weaver-row inference (migration 275). Where nobody ticked, the
+        // key is missing and we fall back to reading it off the weaver
+        // rows exactly as before - so untouched weeks do not move.
+        const stated = shedStatus?.get(`${shed}:${slotKey}`);
+        const shedIdle = stated !== undefined
+          ? !stated
+          : weaverGapSlots.has(`${shed}:${slotKey}`);
+        if (shedIdle) {
+          // Shed did not run -> shed-slot unpaid.
           res.weaverAbsentCount += 1;
           res.deduction += rate;
           continue;

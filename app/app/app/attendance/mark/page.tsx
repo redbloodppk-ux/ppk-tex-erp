@@ -131,6 +131,18 @@ export default function AttendanceMarkPage() {
   const [coverByEmpShed, setCoverByEmpShed] =
     useState<Record<string, { outcome: 'covered' | 'wound_ahead'; coveredBy: number | null }>>({});
 
+  // Did each shed actually run this shift (migration 275)? Keyed by shed
+  // number. A shed is in here ONLY once someone ticked it — same contract
+  // as coverByEmpShed above: presence IS the statement, absence leaves the
+  // wage calculation inferring from weaver rows exactly as before.
+  //
+  // This exists because that inference has been wrong four times in a
+  // fortnight (migrations 263, 265, 266, 269). A weaver who works mornings
+  // keeps his shed on the night rows marked 'none', so "is any row absent?"
+  // calls a shed empty while somebody is standing at it. One tick here
+  // settles it and no amount of stale rows can argue.
+  const [shedRunByShed, setShedRunByShed] = useState<Record<string, boolean>>({});
+
   // Holiday state for the selected date + shift.
   const [isHoliday, setIsHoliday] = useState<boolean>(false);
   const [holidayReason, setHolidayReason] = useState<NonWorkingReason>('national_holiday');
@@ -302,6 +314,22 @@ export default function AttendanceMarkPage() {
       }
     }
     setCoverByEmpShed(nextCover);
+
+    // Shed running/closed already stated for this shift (migration 275).
+    const nextShedRun: Record<string, boolean> = {};
+    if (day) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: ssr } = await (supabase as any)
+        .from('shed_shift_status')
+        .select('shed_no, is_running')
+        .eq('attendance_day_id', day.id);
+      for (const s of ((ssr ?? []) as unknown as Array<{
+        shed_no: string; is_running: boolean;
+      }>)) {
+        nextShedRun[s.shed_no] = s.is_running === true;
+      }
+    }
+    setShedRunByShed(nextShedRun);
 
     // Does the OTHER shift of this date exist at all?
     {
@@ -772,6 +800,46 @@ export default function AttendanceMarkPage() {
         await (supabase as any).from('winder_cover').delete().in('id', stale);
       }
 
+      // Shed running/closed, where the supervisor said so (migration 275).
+      // Written for every shed ticked either way; sheds left untouched are
+      // deleted rather than defaulted, so "nobody said" stays distinct from
+      // "somebody said it ran". Defaulting here would be the same mistake
+      // as attendance_entry.shed_nos pre-filling from default_sheds — a
+      // guess wearing the clothes of a fact.
+      const shedRows = SHEDS
+        .filter((s) => shedRunByShed[s] !== undefined)
+        .map((s) => ({
+          attendance_day_id: dayId,
+          shed_no: s,
+          is_running: shedRunByShed[s] === true,
+          updated_by: user?.id ?? null,
+        }));
+
+      if (shedRows.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error: shedErr } = await (supabase as any)
+          .from('shed_shift_status')
+          .upsert(shedRows as never, { onConflict: 'attendance_day_id,shed_no' });
+        if (shedErr) { setError(shedErr.message); return; }
+      }
+
+      // Widened to string: SHEDS is `as const`, so the inferred Set would be
+      // of the literal union and could not be asked about a shed_no read
+      // back from the database.
+      const keepSheds = new Set<string>(shedRows.map((r) => r.shed_no));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: existingSheds } = await (supabase as any)
+        .from('shed_shift_status')
+        .select('id, shed_no')
+        .eq('attendance_day_id', dayId);
+      const staleSheds = ((existingSheds ?? []) as unknown as Array<{
+        id: number; shed_no: string;
+      }>).filter((s) => !keepSheds.has(s.shed_no)).map((s) => s.id);
+      if (staleSheds.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any).from('shed_shift_status').delete().in('id', staleSheds);
+      }
+
       setSavedMsg(`Saved attendance for ${rows.length} employees.`);
     } catch {
       // Network-level failure (fetch threw). Treat as offline.
@@ -887,6 +955,74 @@ export default function AttendanceMarkPage() {
             </button>
           </div>
         )}
+
+        {/* Which sheds ran this shift (migration 275).
+            Placed above the employee list because it is a fact about the
+            shift, not about any one person — and because the winders' pay
+            divides by it. Untouched leaves the old inference in charge, so
+            there is no penalty for skipping it on a busy morning. */}
+        <div className="rounded-md border border-line bg-cloud/40 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <span className="text-sm font-semibold">Which sheds ran this shift?</span>
+            <span className="text-[11px] text-ink-mute">
+              Winder pay divides by shed-slots that ran. Leave blank to let the
+              system work it out from the weavers.
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {SHEDS.map((s) => {
+              const v = shedRunByShed[s];
+              const set = (next: boolean | undefined): void => {
+                setShedRunByShed((prev) => {
+                  const copy = { ...prev };
+                  if (next === undefined) delete copy[s];
+                  else copy[s] = next;
+                  return copy;
+                });
+              };
+              return (
+                <div key={s} className="rounded-md border border-line bg-white p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">Shed {s}</span>
+                    {v !== undefined && (
+                      <button
+                        type="button"
+                        onClick={() => set(undefined)}
+                        className="text-[10px] text-ink-mute hover:text-ink underline"
+                      >
+                        clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => set(true)}
+                      className={`flex-1 rounded px-2 py-1 text-[11px] font-semibold border ${
+                        v === true
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                          : 'border-line bg-white text-ink-soft hover:bg-cloud'
+                      }`}
+                    >
+                      Ran
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => set(false)}
+                      className={`flex-1 rounded px-2 py-1 text-[11px] font-semibold border ${
+                        v === false
+                          ? 'border-rose-400 bg-rose-50 text-rose-800'
+                          : 'border-line bg-white text-ink-soft hover:bg-cloud'
+                      }`}
+                    >
+                      Closed
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {error && <p className="text-sm text-err">{error}</p>}
         {savedMsg && (
