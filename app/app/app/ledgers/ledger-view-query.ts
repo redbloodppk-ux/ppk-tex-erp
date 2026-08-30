@@ -113,12 +113,21 @@ export async function fetchLedgerView(
   // Also pull their names so we can match invoices by party_name.
   const { data: matchingParties, error: partyErr } = await sb
     .from('party')
-    .select('id, ledger_id, name')
+    .select('id, ledger_id, name, tds_pct')
     .eq('ledger_id', numericId);
   if (partyErr) throw new Error(partyErr.message);
-  const partyRows = ((matchingParties ?? []) as Array<{ id: number; ledger_id: number; name: string }>);
+  const partyRows = ((matchingParties ?? []) as Array<{
+    id: number; ledger_id: number; name: string; tds_pct: number | null;
+  }>);
   const partyIds: number[] = partyRows.map((p) => p.id);
   const partyNames: string[] = partyRows.map((p) => p.name);
+  // Tax we withhold from this party's bills (migration 271). Only parties
+  // with a rate set appear here; everyone else is absent and untouched.
+  const tdsPctByParty = new Map<number, number>();
+  for (const p of partyRows) {
+    const pct = Number(p.tds_pct ?? 0);
+    if (Number.isFinite(pct) && pct > 0) tdsPctByParty.set(p.id, pct);
+  }
 
   // Step 2: pull every payment that touches this ledger.
   const orParts: string[] = [`mode_ledger_id.eq.${numericId}`];
@@ -229,21 +238,23 @@ export async function fetchLedgerView(
     if (startDate) openQ = openQ.gte('invoice_date', startDate);
     if (endDate)   openQ = openQ.lte('invoice_date', endDate);
 
+    // charges_amount / gst_pct are pulled for TDS: tax is withheld on the
+    // TAXABLE value, never on the GST. See tdsRowFor() below.
     let sizQ = sb.from('sizing_job')
-      .select('id, bill_no, bill_date, total_amount')
+      .select('id, bill_no, bill_date, total_amount, charges_amount, party_id')
       .not('bill_no', 'is', null)
       .in('party_id', partyIds);
     if (startDate) sizQ = sizQ.gte('bill_date', startDate);
     if (endDate)   sizQ = sizQ.lte('bill_date', endDate);
 
     let bobQ = sb.from('bobbin_purchase')
-      .select('id, invoice_no, purchase_date, total_amount')
+      .select('id, invoice_no, purchase_date, total_amount, vendor_id')
       .in('vendor_id', partyIds);
     if (startDate) bobQ = bobQ.gte('purchase_date', startDate);
     if (endDate)   bobQ = bobQ.lte('purchase_date', endDate);
 
     let yarnQ = sb.from('yarn_lot')
-      .select('id, lot_code, invoice_no, received_date, total_amount')
+      .select('id, lot_code, invoice_no, received_date, total_amount, gst_pct, supplier_party_id')
       .in('supplier_party_id', partyIds);
     if (startDate) yarnQ = yarnQ.gte('received_date', startDate);
     if (endDate)   yarnQ = yarnQ.lte('received_date', endDate);
@@ -251,7 +262,7 @@ export async function fetchLedgerView(
     // Supplier-mode fabric resale only. Customer-mode rows are
     // accounted for via the synthetic payment created at entry.
     let fabQ = sb.from('fabric_purchase')
-      .select('id, code, invoice_no, received_date, total_amount')
+      .select('id, code, invoice_no, received_date, total_amount, gst_pct, supplier_party_id')
       .eq('source', 'supplier')
       .eq('status', 'active')
       .in('supplier_party_id', partyIds);
@@ -536,10 +547,65 @@ export async function fetchLedgerView(
       outflow:      isReceivable ? 0   : amt,
     });
   }
+  // ── TDS withheld from this party's bills ──────────────────────────────
+  // The bill is credited GROSS, then this row takes the tax straight back
+  // off, so the running balance is what the vendor actually gets paid while
+  // the bill still matches the paper they sent. PPK, 2026-08-30, on sizing
+  // bill 57: "credit 16904 is correct but actually we need to pay to mill
+  // 16904-tds amount".
+  //
+  // Without this row the tax was counted twice: once here inside the
+  // vendor's payable, and again in TDS PAYABLE, which has posted the same
+  // withholding since migration 271. For SHRI NITHYA that was Rs 1,521.14
+  // of liability sitting in the books that was owed to nobody.
+  //
+  // Withheld on the TAXABLE value, never on the GST — bill 57 is Rs 16,099
+  // of charges plus 5% GST, and the 2% comes off the 16,099, giving 321.98
+  // and a net payment of Rs 16,582.02.
+  //
+  // The rounding here (x100, round, /100) is copied deliberately from the
+  // TDS PAYABLE branch below rather than reinvented: the two ledgers must
+  // agree to the paisa or the withholding appears to leak.
+  const pushTds = (
+    partyId: number | null | undefined,
+    taxable: number,
+    o: { key: string; date: string; voucher: string },
+  ): void => {
+    const pct = partyId == null ? undefined : tdsPctByParty.get(Number(partyId));
+    if (!pct || !(taxable > 0)) return;
+    const amt = Math.round(taxable * pct) / 100;
+    if (!(amt > 0)) return;
+    all.push({
+      key:          o.key,
+      source:       'bill',
+      bill_kind:    'tds',
+      stream:       'supplier',
+      date:         o.date,
+      voucher:      o.voucher,
+      counterparty: '—',
+      mode:         `TDS ${pct}% deducted`,
+      reference:    null,
+      inflow:       amt,   // reduces what we owe the vendor
+      outflow:      0,
+    });
+  };
+
+  /** Value before GST. Tax is never withheld on the tax. */
+  const taxableOf = (total: number, gstPct: number | null | undefined): number => {
+    const g = Number(gstPct ?? 0);
+    return Number.isFinite(g) && g > 0 ? total / (1 + g / 100) : total;
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((sizRes.data ?? []) as any[])) {
     const amt = Number(r.total_amount ?? 0);
     if (amt <= 0) continue;
+    // sizing_job carries the pre-GST figure outright, so no back-calculation.
+    pushTds(r.party_id, Number(r.charges_amount ?? 0), {
+      key:     `siz-tds-${r.id}`,
+      date:    r.bill_date,
+      voucher: r.bill_no ?? `SZ-${r.id}`,
+    });
     all.push({
       key:          `siz-${r.id}`,
       source:       'bill',
@@ -558,6 +624,15 @@ export async function fetchLedgerView(
   for (const r of ((bobRes.data ?? []) as any[])) {
     const amt = Number(r.total_amount ?? 0);
     if (amt <= 0) continue;
+    // bobbin_purchase has no gst_pct column, so the total IS the base we
+    // have. If a bobbin vendor is ever given a TDS rate and their totals
+    // are GST-inclusive, this withholds slightly too much — say so rather
+    // than pretend a figure we do not hold.
+    pushTds(r.vendor_id, amt, {
+      key:     `bob-tds-${r.id}`,
+      date:    r.purchase_date,
+      voucher: r.invoice_no ?? `BB-${r.id}`,
+    });
     all.push({
       key:          `bob-${r.id}`,
       source:       'bill',
@@ -576,6 +651,11 @@ export async function fetchLedgerView(
   for (const r of ((yarnRes.data ?? []) as any[])) {
     const amt = Number(r.total_amount ?? 0);
     if (amt <= 0) continue;
+    pushTds(r.supplier_party_id, taxableOf(amt, r.gst_pct), {
+      key:     `yarn-tds-${r.id}`,
+      date:    r.received_date,
+      voucher: r.invoice_no ?? r.lot_code ?? `YL-${r.id}`,
+    });
     all.push({
       key:          `yarn-${r.id}`,
       source:       'bill',
@@ -594,6 +674,11 @@ export async function fetchLedgerView(
   for (const r of ((fabRes.data ?? []) as any[])) {
     const amt = Number(r.total_amount ?? 0);
     if (amt <= 0) continue;
+    pushTds(r.supplier_party_id, taxableOf(amt, r.gst_pct), {
+      key:     `fab-tds-${r.id}`,
+      date:    r.received_date,
+      voucher: r.invoice_no ?? r.code ?? `FP-${r.id}`,
+    });
     all.push({
       key:          `fab-${r.id}`,
       source:       'bill',
