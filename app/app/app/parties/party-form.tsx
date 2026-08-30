@@ -59,6 +59,25 @@ export interface PartyFormValues {
   notes: string;
 }
 
+/** Characters 3-12 of a GSTIN ARE the PAN:
+ *
+ *    33 AAUFS6860N 1 Z A
+ *    ^^ state code    ^ Z, fixed
+ *       ^^^^^^^^^^ PAN  ^ entity  ^ checksum
+ *
+ *  So for any GST-registered party the PAN is not a second thing to collect,
+ *  it is already on file. Returns '' rather than a partial guess while the
+ *  number is still being typed. Mirrors fn_pan_from_gstin in migration 278 —
+ *  the database derives it too, so a party saved by any other route still
+ *  gets one.
+ */
+function panFromGstin(gstin: string): string {
+  const g = (gstin ?? '').trim().toUpperCase();
+  if (g.length !== 15) return '';
+  const pan = g.slice(2, 12);
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan) ? pan : '';
+}
+
 /** The rates that actually come up, so 2 cannot be typed as 20.
  *  Section shown because the rate alone does not say why. */
 const TDS_RATE_OPTIONS: { value: string; label: string }[] = [
@@ -135,6 +154,17 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   // save is too late to be useful.
   const [pan, setPan] = useState<string>(values.pan ?? '');
   const [tdsPct, setTdsPct] = useState<string>(values.tds_pct ?? '');
+  // Once the operator types into PAN themselves, the GSTIN stops driving
+  // it. Same pattern as metresStartTouched on the pavu assign form: derive
+  // by default, but never overwrite a person who has taken a view.
+  const [panTouched, setPanTouched] = useState(false);
+  // Live GSTIN, so the PAN box can follow it keystroke by keystroke.
+  const [gstinLive, setGstinLive] = useState<string>(values.gstin ?? '');
+  const derivedPan = panFromGstin(gstinLive);
+  // A typed PAN that disagrees with the GSTIN it sits beside. Not corrected
+  // automatically — one of the two is wrong and only a person knows which.
+  const panMismatch =
+    derivedPan !== '' && pan.trim() !== '' && pan.trim().toUpperCase() !== derivedPan;
 
   function toggleType(idStr: string): void {
     setSelectedTypeIds((prev) => prev.includes(idStr)
@@ -438,6 +468,12 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
             defaultValue={values.gstin}
             initialVerifiedAt={values.gstin_verified_at ?? null}
             onVerified={setGstinVerifiedAt}
+            onValueChange={(g) => {
+              setGstinLive(g);
+              // Fill PAN from the GSTIN unless the operator has typed their
+              // own. No lookup needed: the PAN is inside the number.
+              if (!panTouched) setPan(panFromGstin(g));
+            }}
           />
         </div>
         <div>
@@ -459,11 +495,34 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
           <label className="label">PAN</label>
           <input
             value={pan}
-            onChange={(e) => setPan(e.target.value.toUpperCase())}
+            onChange={(e) => { setPanTouched(true); setPan(e.target.value.toUpperCase()); }}
             maxLength={10}
-            placeholder="AAAAA0000A"
+            placeholder={derivedPan || 'AAAAA0000A'}
             className="input font-mono uppercase"
           />
+          {panMismatch ? (
+            <p className="mt-1 rounded-md bg-rose-50 px-2 py-1.5 text-[11px] text-rose-800">
+              <strong>Does not match the GSTIN.</strong> This GSTIN contains{' '}
+              <span className="font-mono">{derivedPan}</span>. One of the two is
+              wrong.{' '}
+              <button
+                type="button"
+                onClick={() => { setPanTouched(false); setPan(derivedPan); }}
+                className="underline font-semibold"
+              >
+                Use {derivedPan}
+              </button>
+            </p>
+          ) : derivedPan !== '' && !panTouched ? (
+            <p className="mt-1 text-[11px] text-ink-mute">
+              Taken from the GSTIN — characters 3 to 12 are the PAN. Type over it
+              if this party&rsquo;s PAN differs.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-ink-mute">
+              Fills itself once a full GSTIN is entered.
+            </p>
+          )}
         </div>
         <div>
           <label className="label">TDS rate</label>

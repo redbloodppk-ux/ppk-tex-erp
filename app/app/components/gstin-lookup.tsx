@@ -48,6 +48,11 @@ type Props = {
   /** Initial verification timestamp from the DB. If present, the tick
    *  shows immediately on mount (the GSTIN was verified earlier). */
   initialVerifiedAt?: string | null;
+  /** Called on every keystroke with the cleaned GSTIN. Verification is not
+   *  required — characters 3-12 of a GSTIN are the PAN by construction, so
+   *  a parent form can derive PAN the moment the number is typed rather
+   *  than waiting for a lookup that may never happen. See migration 278. */
+  onValueChange?: (gstin: string) => void;
   /** Label override. Default: "GSTIN". */
   label?: string;
   className?: string;
@@ -59,6 +64,7 @@ export function GstinLookup({
   onResolve,
   onVerified,
   initialVerifiedAt = null,
+  onValueChange,
   label = 'GSTIN',
   className,
 }: Props) {
@@ -136,6 +142,7 @@ export function GstinLookup({
             // Force uppercase, strip anything that isn't A-Z or 0-9.
             const next = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
             setValue(next);
+            if (onValueChange) onValueChange(next);
             setResolved(false);
             setError(null);
             // Typing into the field invalidates any prior verification —
