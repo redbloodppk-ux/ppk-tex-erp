@@ -45,10 +45,30 @@ export interface PartyFormValues {
   pincode: string;
   credit_limit: number;
   payment_terms_days: number;
+  /** Permanent Account Number. Needed to file the quarterly TDS return,
+   *  and its ABSENCE is itself a rate: section 206AA puts the deduction
+   *  at 20% for a party with no PAN. Hence the warning beside tds_pct. */
+  pan: string;
+  /** TDS rate withheld from this party's bills, as a percent of the
+   *  TAXABLE value. Empty string = no TDS, which is the default and must
+   *  stay distinct from 0 — "we deduct nothing" and "nobody has decided"
+   *  are different facts. See migration 271. */
+  tds_pct: string;
   is_vip: boolean;
   status: 'active' | 'inactive' | 'archived';
   notes: string;
 }
+
+/** The rates that actually come up, so 2 cannot be typed as 20.
+ *  Section shown because the rate alone does not say why. */
+const TDS_RATE_OPTIONS: { value: string; label: string }[] = [
+  { value: '',   label: 'No TDS' },
+  { value: '1',  label: '1% — 194C, individual / HUF contractor' },
+  { value: '2',  label: '2% — 194C, company / firm contractor' },
+  { value: '5',  label: '5% — 194H, commission or brokerage' },
+  { value: '10', label: '10% — 194J, professional or technical' },
+  { value: '20', label: '20% — 206AA, no PAN on record' },
+];
 
 interface PartyFormProps {
   partyId?: number;
@@ -76,6 +96,8 @@ const EMPTY: PartyFormValues = {
   pincode: '',
   credit_limit: 0,
   payment_terms_days: 30,
+  pan: '',
+  tds_pct: '',
   is_vip: false,
   status: 'active',
   notes: '',
@@ -108,6 +130,11 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
   // callback from <GstinLookup> (not a normal input). An empty string
   // means "not verified in this session and not previously verified".
   const [gstinVerifiedAt, setGstinVerifiedAt] = useState<string>(values.gstin_verified_at ?? '');
+  // Held in state rather than read off the form at submit, because the
+  // 206AA warning has to appear the moment a rate is picked — after the
+  // save is too late to be useful.
+  const [pan, setPan] = useState<string>(values.pan ?? '');
+  const [tdsPct, setTdsPct] = useState<string>(values.tds_pct ?? '');
 
   function toggleType(idStr: string): void {
     setSelectedTypeIds((prev) => prev.includes(idStr)
@@ -256,6 +283,12 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       pincode: String(fd.get('pincode') ?? '').trim() || null,
       credit_limit: Number(fd.get('credit_limit') ?? 0) || 0,
       payment_terms_days: Number(fd.get('payment_terms_days') ?? 30) || 30,
+      pan: pan.trim().toUpperCase() || null,
+      // Empty stays NULL, never 0. A party with no rate has not been
+      // decided about; a party at 0% has. The ledger only deducts where
+      // tds_pct > 0, so NULL and 0 behave alike today — but they will not
+      // read alike to whoever opens this record next year.
+      tds_pct: tdsPct.trim() === '' ? null : Number(tdsPct),
       is_vip: fd.get('is_vip') === 'on',
       status: String(fd.get('status') ?? 'active') as 'active' | 'inactive' | 'archived',
       notes: String(fd.get('notes') ?? '').trim() || null,
@@ -414,6 +447,53 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
             <option value="inactive">Inactive</option>
             <option value="archived">Archived</option>
           </select>
+        </div>
+      </div>
+
+      {/* PAN + TDS. Sat together because they are one decision: the rate
+          you may deduct depends on holding the PAN. Before this existed
+          the rate could only be set by a database migration, so of three
+          sizing mills on the master exactly one was ever taxed. */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">PAN</label>
+          <input
+            value={pan}
+            onChange={(e) => setPan(e.target.value.toUpperCase())}
+            maxLength={10}
+            placeholder="AAAAA0000A"
+            className="input font-mono uppercase"
+          />
+        </div>
+        <div>
+          <label className="label">TDS rate</label>
+          <select
+            className="input"
+            value={tdsPct}
+            onChange={(e) => setTdsPct(e.target.value)}
+          >
+            {TDS_RATE_OPTIONS.map((o) => (
+              <option key={o.value || 'none'} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          {tdsPct !== '' && pan.trim() === '' ? (
+            <p className="mt-1 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+              <strong>No PAN on record.</strong> Section 206AA requires TDS at
+              20% for a party without a PAN, and the quarterly return cannot be
+              filed without it. Saving is allowed — get the PAN before the next
+              return.
+            </p>
+          ) : tdsPct !== '' ? (
+            <p className="mt-1 text-[11px] text-ink-mute">
+              Deducted from the taxable value of this party&rsquo;s bills —
+              charges before GST, never on the GST itself.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-ink-mute">
+              Leave as <em>No TDS</em> unless tax is actually withheld from this
+              party. A rate here changes what they get paid.
+            </p>
+          )}
         </div>
       </div>
 

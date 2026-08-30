@@ -28,18 +28,59 @@ interface PartyRow {
   city: string | null;
   credit_limit: number | string | null;
   payment_terms_days: number | null;
+  /** Percent withheld from this party's bills. NULL for almost everyone;
+   *  the badge and the TDS filter both key off it. See migration 271. */
+  tds_pct: number | string | null;
+  /** Shown beside the TDS badge when missing, because section 206AA puts
+   *  the rate at 20% for a party with no PAN and the quarterly return
+   *  cannot be filed without one. */
+  pan: string | null;
   status: 'active' | 'inactive' | 'archived';
 }
 
 interface TypeRow { id: number; name: string; }
 
+/** The rate we withhold, shown wherever a party is listed.
+ *
+ *  Amber rather than grey because it changes what the party gets paid —
+ *  a 2% badge means their bill is settled 2% short by design. The extra
+ *  "no PAN" warning is not decoration: without a PAN, section 206AA puts
+ *  the rate at 20%, so the badge beside it is understating the deduction. */
+function TdsBadge({ pct, pan }: { pct: number | string | null; pan: string | null }) {
+  const n = Number(pct ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const noPan = (pan ?? '').trim() === '';
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <span
+        className="pill bg-amber-100 text-amber-800"
+        title={`TDS ${n}% withheld from this party's bills, on the value before GST`}
+      >
+        TDS {n}%
+      </span>
+      {noPan && (
+        <span
+          className="pill bg-rose-100 text-rose-700"
+          title="No PAN on record — section 206AA requires 20%, and the quarterly return cannot be filed without it"
+        >
+          no PAN
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default async function PartiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<{ type?: string; sort?: string; dir?: string; tds?: string }>;
 }) {
   const sp = await searchParams;
   const typeFilter = sp.type ?? '';
+  // ?tds=1 narrows to parties we withhold tax from. Separate from the type
+  // filter rather than folded into it: TDS cuts across party types — a
+  // sizing mill and a jobwork vendor can both be on it.
+  const tdsOnly = sp.tds === '1';
   const sort: string = SORTABLE_COLUMNS.has(sp.sort ?? '') ? (sp.sort as string) : 'name';
   const dir: SortDir = sp.dir === 'desc' ? 'desc' : 'asc';
   const ascending = dir === 'asc';
@@ -48,18 +89,29 @@ export default async function PartiesPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [typesRes, partiesRes] = await Promise.all([
+  const PARTY_COLS = 'id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, tds_pct, pan, status';
+
+  let partiesQ = sb.from('party').select(PARTY_COLS);
+  // Use array containment (`@>`) so the filter pill matches parties whose
+  // party_type_ids includes the selected type. Supabase exposes this via
+  // the .contains() filter.
+  if (typeFilter !== '') partiesQ = partiesQ.contains('party_type_ids', [Number(typeFilter)]);
+  if (tdsOnly)           partiesQ = partiesQ.gt('tds_pct', 0);
+
+  const [typesRes, partiesRes, tdsCountRes, allCountRes] = await Promise.all([
     sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
-    (typeFilter === ''
-      ? sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').order(sort, { ascending })
-      // Use array containment (`@>`) so the filter pill matches parties
-      // whose party_type_ids includes the selected type. Supabase exposes
-      // this via the .contains() filter.
-      : sb.from('party').select('id, code, name, party_type_id, party_type_ids, gstin, gstin_verified_at, phone, email, city, credit_limit, payment_terms_days, status').contains('party_type_ids', [Number(typeFilter)]).order(sort, { ascending })),
+    partiesQ.order(sort, { ascending }),
+    // Both counts are fetched independently of the filtered list, so each
+    // pill shows how many it WOULD show. Using parties.length made "All"
+    // report the filtered total — "All (1)" while looking at one party.
+    sb.from('party').select('id', { count: 'exact', head: true }).gt('tds_pct', 0),
+    sb.from('party').select('id', { count: 'exact', head: true }),
   ]);
 
   const types = (typesRes.data ?? []) as TypeRow[];
   const parties = (partiesRes.data ?? []) as PartyRow[];
+  const tdsCount = Number(tdsCountRes?.count ?? 0);
+  const allCount = Number(allCountRes?.count ?? 0);
   const typeNameById = new Map(types.map((t) => [t.id, t.name]));
 
   return (
@@ -77,8 +129,8 @@ export default async function PartiesPage({
       <div className="card p-3 mb-4 flex items-center gap-3 flex-wrap">
         <span className="text-xs text-ink-mute font-semibold uppercase">Filter by type:</span>
         <Link href="/app/parties"
-          className={'pill ' + (typeFilter === '' ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
-          All ({parties.length})
+          className={'pill ' + (typeFilter === '' && !tdsOnly ? 'bg-indigo-600 text-white' : 'bg-cloud text-ink-soft hover:bg-indigo-50')}>
+          All ({allCount})
         </Link>
         {types.map((t) => (
           <Link key={t.id} href={`/app/parties?type=${t.id}`}
@@ -86,6 +138,17 @@ export default async function PartiesPage({
             {t.name}
           </Link>
         ))}
+
+        {/* TDS sits apart from the type pills, after a divider, because it
+            answers a different question: not "what kind of party is this"
+            but "do we withhold tax from them". */}
+        <span className="mx-1 h-4 w-px bg-line" aria-hidden />
+        <Link
+          href={tdsOnly ? '/app/parties' : '/app/parties?tds=1'}
+          className={'pill ' + (tdsOnly ? 'bg-amber-600 text-white' : 'bg-cloud text-ink-soft hover:bg-amber-50')}
+        >
+          TDS applicable ({tdsCount})
+        </Link>
       </div>
 
       {partiesRes.error && (
@@ -119,6 +182,7 @@ export default async function PartiesPage({
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
                       </span>
                     )}
+                    <TdsBadge pct={p.tds_pct} pan={p.pan} />
                   </span>
                   <div className="font-mono text-xs text-ink-soft mt-0.5">{p.code}</div>
                 </div>
@@ -204,6 +268,9 @@ export default async function PartiesPage({
                   {p.status !== 'active' && (
                     <span className="ml-2 pill bg-slate-100 text-slate-500">{p.status}</span>
                   )}
+                  <span className="ml-2 inline-flex align-text-bottom">
+                    <TdsBadge pct={p.tds_pct} pan={p.pan} />
+                  </span>
                 </td>
                 <td className="px-4 py-3 hidden sm:table-cell text-xs text-ink-soft">
                   {(() => {

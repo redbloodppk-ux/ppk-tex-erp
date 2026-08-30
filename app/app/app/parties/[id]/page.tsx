@@ -27,6 +27,8 @@ interface PartyRow {
   pincode: string | null;
   credit_limit: number | string | null;
   payment_terms_days: number | null;
+  pan: string | null;
+  tds_pct: number | string | null;
   is_vip: boolean;
   status: 'active' | 'inactive' | 'archived';
   notes: string | null;
@@ -46,7 +48,7 @@ export default async function EditPartyPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)
     .from('party')
-    .select('id, code, party_type_id, party_type_ids, name, gstin, gstin_verified_at, contact_person, phone, email, billing_address, address1, address2, address3, address4, city, state, state_code, pincode, credit_limit, payment_terms_days, is_vip, status, notes')
+    .select('id, code, party_type_id, party_type_ids, name, gstin, gstin_verified_at, contact_person, phone, email, billing_address, address1, address2, address3, address4, city, state, state_code, pincode, credit_limit, payment_terms_days, pan, tds_pct, is_vip, status, notes')
     .eq('id', numericId)
     .maybeSingle();
 
@@ -75,6 +77,10 @@ export default async function EditPartyPage({
     pincode: c.pincode ?? '',
     credit_limit: Number(c.credit_limit ?? 0) || 0,
     payment_terms_days: c.payment_terms_days ?? 30,
+    pan: c.pan ?? '',
+    // NULL must reach the form as '' so the picker lands on "No TDS".
+    // Number(null) is 0, which would read as a decision nobody made.
+    tds_pct: c.tds_pct == null ? '' : String(Number(c.tds_pct)),
     is_vip: c.is_vip,
     status: c.status,
     notes: c.notes ?? '',
