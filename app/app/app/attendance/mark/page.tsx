@@ -24,7 +24,7 @@
  *   attendance_day    one row per (attendance_date, shift)
  *   attendance_entry  one row per (attendance_day_id, employee_id)
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
@@ -494,6 +494,22 @@ export default function AttendanceMarkPage() {
       return taken;
     },
     [employees, shedByEmp, inThisShift],
+  );
+
+  /** Sheds the supervisor has said RAN this shift, or null when nobody has
+   *  said anything either way.
+   *
+   *  null and "none of them" are different answers and must not collapse:
+   *  an untouched grid means no statement has been made, so the weaver
+   *  picker offers every shed exactly as it always did. Only once someone
+   *  has ticked does the picker narrow. Same rule the wage calculation
+   *  uses on the same data (migration 275) — a missing row defers to the
+   *  old inference rather than asserting a closure. */
+  const ranSheds = useMemo<Set<string> | null>(() => {
+    const stated = SHEDS.filter((s) => shedRunByShed[s] !== undefined);
+    if (stated.length === 0) return null;
+    return new Set(stated.filter((s) => shedRunByShed[s] === true));
+  }, [shedRunByShed],
   );
 
   function setStatus(empId: number, status: AttendanceStatus): void {
@@ -1280,17 +1296,28 @@ export default function AttendanceMarkPage() {
                                 >
                                   <option value="">— pick —</option>
                                   {SHEDS.filter((s) => {
+                                    // This employee's own current pick always
+                                    // stays listed, whatever the rules below
+                                    // say. Dropping it would silently change
+                                    // a saved answer to blank.
+                                    if (shedByEmp[emp.id] === s) return true;
                                     // Available = not claimed by any OTHER
                                     // employee (weaver or winder) on this
-                                    // (date, shift). Keep this employee's
-                                    // own current pick visible.
-                                    if (takenForEmp.has(s) && shedByEmp[emp.id] !== s) {
-                                      return false;
-                                    }
+                                    // (date, shift).
+                                    if (takenForEmp.has(s)) return false;
+                                    // A shed that did not run has no cloth to
+                                    // weave, so it is not on offer. Only once
+                                    // the grid above has been filled in —
+                                    // ranSheds is null while it is untouched.
+                                    if (ranSheds && !ranSheds.has(s)) return false;
                                     return true;
                                   }).map((s) => (
                                     <option key={s} value={s}>
                                       Shed {s}
+                                      {/* Kept only because it is already
+                                          picked; flagged so the contradiction
+                                          is visible rather than silent. */}
+                                      {ranSheds && !ranSheds.has(s) ? ' (closed)' : ''}
                                     </option>
                                   ))}
                                 </select>
@@ -1298,6 +1325,16 @@ export default function AttendanceMarkPage() {
                               {shedMissing && (
                                 <span className="text-[10px] text-rose-600">
                                   Required for wage allocation
+                                </span>
+                              )}
+                              {/* Picked a shed, then that shed was marked
+                                  closed above. Both cannot be true, and the
+                                  wage calculation reads the grid — so say so
+                                  here rather than let it be found later in a
+                                  winder's pay. */}
+                              {shedByEmp[emp.id] && ranSheds && !ranSheds.has(shedByEmp[emp.id]!) && (
+                                <span className="text-[10px] text-amber-700">
+                                  Shed {shedByEmp[emp.id]} is marked closed above
                                 </span>
                               )}
                             </div>
