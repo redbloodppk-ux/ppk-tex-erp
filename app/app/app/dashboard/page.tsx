@@ -13,6 +13,7 @@ import { ProductionAnalytics } from './production-analytics';
 import { directionForStream, type PartyStream } from '@/lib/party-streams';
 import { loadTdsMonths, daysUntil, todayISO as tdsToday } from '@/lib/tds/liability-data';
 import { totalTdsPayable } from '@/lib/tds/liability';
+import { tdsOnTaxable, taxableFromTotal } from '@/lib/tds/withholding';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -48,7 +49,7 @@ interface OpenBillRow {
   balance:     number | string | null;
 }
 
-interface PartyMasterRow { id: number; name: string }
+interface PartyMasterRow { id: number; name: string; tds_pct: number | string | null }
 
 interface OpeningLedgerRow {
   id: number;
@@ -402,12 +403,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     // can be assembled. Customer invoices carry party_name as text
     // only; we resolve it back to a party.id here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from('party').select('id, name').eq('status', 'active'),
+    (supabase as any).from('party').select('id, name, tds_pct').eq('status', 'active'),
     // ── Supplier payable bills ───────────────────────────────
     // Sizing bills with balance (total - amount_paid > 0).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('sizing_job')
-      .select('id, bill_no, bill_date, total_amount, amount_paid, party_id')
+      // charges_amount for TDS — the taxable value, stored outright here
+      // rather than derived from the total. See lib/tds/withholding.
+      .select('id, bill_no, bill_date, total_amount, amount_paid, party_id, charges_amount')
       .not('bill_no', 'is', null)
       .gt('total_amount', 0)
       .order('bill_date', { ascending: true }),
@@ -420,14 +423,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     // Yarn lots.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('yarn_lot')
-      .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id')
+      .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id, gst_pct')
       .gt('total_amount', 0)
       .order('received_date', { ascending: true }),
     // Supplier-mode fabric resale rows only — customer-adjustment
     // rows are settled via synthetic payments at entry.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('fabric_purchase')
-      .select('id, code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id')
+      .select('id, code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id, gst_pct')
       .eq('source', 'supplier')
       .eq('status', 'active')
       .gt('total_amount', 0)
@@ -537,7 +540,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   ));
   const parties: PartyMasterRow[] = (partyMaster ?? []) as unknown as PartyMasterRow[];
   const partyNameById = new Map<number, string>();
-  for (const p of parties) partyNameById.set(p.id, p.name);
+  const tdsPctByParty = new Map<number, number>();
+  for (const p of parties) {
+    partyNameById.set(p.id, p.name);
+    const pct = Number(p.tds_pct ?? 0);
+    if (Number.isFinite(pct) && pct > 0) tdsPctByParty.set(p.id, pct);
+  }
 
   const now = Date.now();
 
@@ -589,9 +597,39 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // (opening payable). Anything <= 0 is filtered out so a fully
   // settled bill doesn't keep its party group alive.
   const supplierBills: OpenBillRow[] = [];
+
+  // Tax withheld from a bill is NOT owed to the supplier — it is owed to
+  // the government, and `tdsTotals.payable` below already counts it there.
+  // Leaving it inside the supplier's balance counted the same rupees twice
+  // on the Outstanding Payable KPI: Rs 1,521.14 for SHRI NITHYA alone.
+  //
+  // PPK spotted it from the other end on 2026-08-30 — "nithiya outstanding
+  // showing wrong" — because this card said Rs 10,264.00 while his ledger,
+  // fixed earlier the same day, said Rs 8,742.86 and the mill's own bill
+  // said Rs 9,983.20 net. Three screens, one figure, all different.
+  //
+  // Same helper as the ledger and the printed statement, deliberately, so
+  // there is nothing left to drift.
+  const netOfTds = (
+    partyId: number | null | undefined,
+    balance: number,
+    taxable: number,
+  ): number => {
+    const pct = partyId == null ? undefined : tdsPctByParty.get(Number(partyId));
+    const tds = tdsOnTaxable(taxable, pct);
+    // Never below zero: a bill paid down past its net value is a credit,
+    // and credits belong in the ledger, not in a list of what is due.
+    return Math.max(0, balance - tds);
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((sizingBills ?? []) as any[])) {
-    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    // charges_amount is the taxable value, stored rather than derived.
+    const bal = netOfTds(
+      r.party_id,
+      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      Number(r.charges_amount ?? 0),
+    );
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -607,7 +645,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((bobbinBills ?? []) as any[])) {
-    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    // bobbin_purchase has no gst_pct column, so the total is the only base
+    // available. Matches the ledger, which says the same in its comment.
+    const bal = netOfTds(
+      r.vendor_id,
+      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      Number(r.total_amount ?? 0),
+    );
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -623,7 +667,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((yarnBills ?? []) as any[])) {
-    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    const bal = netOfTds(
+      r.supplier_party_id,
+      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct),
+    );
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -639,7 +687,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((fabricBills ?? []) as any[])) {
-    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
+    const bal = netOfTds(
+      r.supplier_party_id,
+      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
+      taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct),
+    );
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -724,6 +776,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // supplier bill is, and leaving it out understated what has to go out
   // the door. Interest is included because it is payable too - it stops
   // growing only when the challan is paid.
+  //
+  // This addition is only correct because supplierGroups is now NET of the
+  // tax withheld (see netOfTds above). While those bills were gross, the
+  // same withholding sat in both terms and this line double-counted it.
   const totalPayable =
       weavingGroups .reduce((s, g) => s + g.total, 0)
     + supplierGroups.reduce((s, g) => s + g.total, 0)

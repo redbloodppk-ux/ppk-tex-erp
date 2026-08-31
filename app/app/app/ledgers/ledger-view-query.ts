@@ -57,6 +57,7 @@
  */
 
 import { streamForDocType, type PartyStream } from '@/lib/party-streams';
+import { tdsOnTaxable, taxableFromTotal } from '@/lib/tds/withholding';
 
 // Unified ledger-entry shape used by both the tab table and the print page.
 export interface LedgerEntry {
@@ -563,17 +564,16 @@ export async function fetchLedgerView(
   // of charges plus 5% GST, and the 2% comes off the 16,099, giving 321.98
   // and a net payment of Rs 16,582.02.
   //
-  // The rounding here (x100, round, /100) is copied deliberately from the
-  // TDS PAYABLE branch below rather than reinvented: the two ledgers must
-  // agree to the paisa or the withholding appears to leak.
+  // The arithmetic lives in lib/tds/withholding so the ledger, the printed
+  // statement, the dashboard and TDS PAYABLE cannot drift apart — which
+  // they had, giving three different figures for this one mill.
   const pushTds = (
     partyId: number | null | undefined,
     taxable: number,
     o: { key: string; date: string; voucher: string },
   ): void => {
     const pct = partyId == null ? undefined : tdsPctByParty.get(Number(partyId));
-    if (!pct || !(taxable > 0)) return;
-    const amt = Math.round(taxable * pct) / 100;
+    const amt = tdsOnTaxable(taxable, pct);
     if (!(amt > 0)) return;
     all.push({
       key:          o.key,
@@ -591,10 +591,7 @@ export async function fetchLedgerView(
   };
 
   /** Value before GST. Tax is never withheld on the tax. */
-  const taxableOf = (total: number, gstPct: number | null | undefined): number => {
-    const g = Number(gstPct ?? 0);
-    return Number.isFinite(g) && g > 0 ? total / (1 + g / 100) : total;
-  };
+  const taxableOf = taxableFromTotal;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((sizRes.data ?? []) as any[])) {
@@ -778,9 +775,11 @@ export async function fetchLedgerView(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const b of ((tdsBills ?? []) as any[])) {
       const pct = Number(b.bill_party?.tds_pct ?? NaN);
-      if (!Number.isFinite(pct) || pct <= 0) continue;
       // On the TAXABLE value — charges before GST. See migration 271.
-      const amt = Math.round(Number(b.charges_amount ?? 0) * pct) / 100;
+      // Same helper as the vendor-side deduction above, so what we owe the
+      // government and what we hold back from the mill are the same number
+      // by construction rather than by coincidence.
+      const amt = tdsOnTaxable(Number(b.charges_amount ?? 0), pct);
       if (!(amt > 0)) continue;
       all.push({
         key:          `tdswh-${b.id}`,

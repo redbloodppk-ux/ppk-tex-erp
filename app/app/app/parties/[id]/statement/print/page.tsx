@@ -25,6 +25,7 @@ import { createClient } from '@/lib/supabase/server';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
 import { ALL_STREAMS, STREAM_META, streamForBillKind } from '@/lib/party-streams';
+import { tdsOnTaxable } from '@/lib/tds/withholding';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   jobwork_invoice:    'Jobwork Bill',
   weaving_bill:       'Weaving Bill',
   sizing_bill:        'Sizing Bill',
+  tds_deducted:       'Less: TDS deducted',
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
@@ -92,7 +94,7 @@ export default async function PartyStatementPrintPage({
 
   const [partyRes, cpRes] = await Promise.all([
     sb.from('party')
-      .select('id, code, name, gstin, state, billing_address, phone, whatsapp, ledger_id')
+      .select('id, code, name, gstin, pan, state, billing_address, phone, whatsapp, ledger_id, tds_pct')
       .eq('id', partyId)
       .maybeSingle(),
     sb.from('company_profile')
@@ -103,11 +105,19 @@ export default async function PartyStatementPrintPage({
 
   const party = partyRes?.data as {
     id: number; code: string; name: string; gstin: string | null;
+    pan: string | null;
     state: string | null; billing_address: string | null;
     phone: string | null; whatsapp: string | null;
     ledger_id: number | null;
+    tds_pct: number | string | null;
   } | null;
   if (!party) notFound();
+
+  // Tax withheld from this party's bills. A statement that shows the bill
+  // gross and stops there overstates what the supplier will be paid — and
+  // this is the copy that gets SENT to them, so it is the worst place of
+  // the four to be wrong. Same helper as the ledger and the dashboard.
+  const partyTdsPct = Number(party.tds_pct ?? 0);
 
   const cp = (cpRes?.data ?? {}) as {
     legal_name?: string; display_name?: string;
@@ -160,7 +170,7 @@ export default async function PartyStatementPrintPage({
       .eq('status', 'active')
       .gt('balance', 0),
     sb.from('sizing_job')
-      .select('id, bill_no, bill_date, total_amount, amount_paid')
+      .select('id, bill_no, bill_date, total_amount, amount_paid, charges_amount')
       .eq('party_id', partyId)
       .not('bill_no', 'is', null),
     sb.from('bobbin_purchase')
@@ -226,6 +236,7 @@ export default async function PartyStatementPrintPage({
   for (const r of ((sizRes?.data ?? []) as Array<{
     bill_no: string | null; bill_date: string | null;
     total_amount: number | string; amount_paid: number | string;
+    charges_amount: number | string;
   }>)) {
     const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
     if (bal <= 0.005) continue;
@@ -237,6 +248,20 @@ export default async function PartyStatementPrintPage({
       paid: Number(r.amount_paid ?? 0),
       balance: bal,
     });
+    // The bill stays gross so it matches the paper the mill sent; the tax
+    // comes off on its own line beneath, exactly as the ledger shows it.
+    // charges_amount is the taxable value — TDS is never on the GST.
+    const tds = tdsOnTaxable(Number(r.charges_amount ?? 0), partyTdsPct);
+    if (tds > 0) {
+      bills.push({
+        doc_no: r.bill_no ?? '',
+        doc_date: r.bill_date ?? '',
+        doc_type: 'tds_deducted',
+        total: 0,
+        paid: 0,
+        balance: -tds,
+      });
+    }
   }
   for (const r of ((bobRes?.data ?? []) as Array<{
     invoice_no: string | null; purchase_date: string | null;
