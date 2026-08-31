@@ -262,10 +262,15 @@ function groupByParty(
       invoice_date: b.invoice_date,
       balance,
     });
+    // Only money OWED ages a party. A negative row — a netted credit note,
+    // or tax withheld from a bill already settled — is not an unpaid bill
+    // and must not report itself as "oldest 137d". Before this, a TDS
+    // credit dated April made a party look badly overdue while the credit
+    // was in fact reducing what we owe them.
     const due = b.invoice_date
       ? Math.max(0, Math.floor((now - new Date(b.invoice_date).getTime()) / 86_400_000))
       : 0;
-    if (due > g.oldest_due) g.oldest_due = due;
+    if (balance > 0 && due > g.oldest_due) g.oldest_due = due;
   }
 
   // Sort bills oldest-first inside each party so days-due reads top-down.
@@ -610,26 +615,49 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   //
   // Same helper as the ledger and the printed statement, deliberately, so
   // there is nothing left to drift.
-  const netOfTds = (
+  // Pushes the withheld tax as its own NEGATIVE row, exactly as the ledger
+  // shows it: the bill stays gross, the deduction sits beside it.
+  //
+  // Emitted for EVERY bill, including ones already settled in full. That is
+  // the point. PPK, 2026-08-30: "i always tells nithiya about deducting
+  // 1240.34. so i need to pay him difference only." Four of the mill's five
+  // bills were paid gross, so the tax that should have been held back is a
+  // credit on their account — and a card that lists only OPEN bills would
+  // drop those four entirely and show Rs 9,983.20 instead of the
+  // Rs 8,742.86 he actually owes.
+  //
+  // groupByParty already nets negative rows into the party total (the
+  // credit-note convention), so this needs no special handling downstream.
+  // `idSpace` keeps the synthetic ids from colliding across sources.
+  const pushTdsRow = (
     partyId: number | null | undefined,
-    balance: number,
     taxable: number,
-  ): number => {
+    o: { idSpace: number; id: number; docNo: string; date: string },
+  ): void => {
     const pct = partyId == null ? undefined : tdsPctByParty.get(Number(partyId));
     const tds = tdsOnTaxable(taxable, pct);
-    // Never below zero: a bill paid down past its net value is a credit,
-    // and credits belong in the ledger, not in a list of what is due.
-    return Math.max(0, balance - tds);
+    if (!(tds > 0)) return;
+    supplierBills.push({
+      id:               -(o.idSpace + o.id),
+      invoice_no:       `${o.docNo} — TDS ${pct}%`,
+      party_name:       partyId != null ? (partyNameById.get(Number(partyId)) ?? null) : null,
+      invoice_date:     o.date,
+      customer_id:      null,
+      jobwork_party_id: partyId ?? null,
+      total:            0,
+      amount_paid:      0,
+      balance:          -tds,
+    });
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((sizingBills ?? []) as any[])) {
     // charges_amount is the taxable value, stored rather than derived.
-    const bal = netOfTds(
-      r.party_id,
-      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      Number(r.charges_amount ?? 0),
-    );
+    pushTdsRow(r.party_id, Number(r.charges_amount ?? 0), {
+      idSpace: 1_000_000, id: r.id,
+      docNo: r.bill_no ?? `SZ-${r.id}`, date: r.bill_date ?? '',
+    });
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -647,11 +675,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   for (const r of ((bobbinBills ?? []) as any[])) {
     // bobbin_purchase has no gst_pct column, so the total is the only base
     // available. Matches the ledger, which says the same in its comment.
-    const bal = netOfTds(
-      r.vendor_id,
-      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      Number(r.total_amount ?? 0),
-    );
+    pushTdsRow(r.vendor_id, Number(r.total_amount ?? 0), {
+      idSpace: 2_000_000, id: r.id,
+      docNo: r.invoice_no ?? `BB-${r.id}`, date: r.purchase_date ?? '',
+    });
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -667,11 +695,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((yarnBills ?? []) as any[])) {
-    const bal = netOfTds(
-      r.supplier_party_id,
-      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct),
-    );
+    pushTdsRow(r.supplier_party_id, taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct), {
+      idSpace: 3_000_000, id: r.id,
+      docNo: r.invoice_no ?? r.lot_code ?? `YL-${r.id}`, date: r.received_date ?? '',
+    });
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,
@@ -687,11 +715,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ((fabricBills ?? []) as any[])) {
-    const bal = netOfTds(
-      r.supplier_party_id,
-      Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0),
-      taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct),
-    );
+    pushTdsRow(r.supplier_party_id, taxableFromTotal(Number(r.total_amount ?? 0), r.gst_pct), {
+      idSpace: 4_000_000, id: r.id,
+      docNo: r.invoice_no ?? r.code ?? `FP-${r.id}`, date: r.received_date ?? '',
+    });
+    const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
     if (bal <= 0.005) continue;
     supplierBills.push({
       id:               r.id,

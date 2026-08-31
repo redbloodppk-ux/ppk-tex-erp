@@ -239,18 +239,26 @@ export default async function PartyStatementPrintPage({
     charges_amount: number | string;
   }>)) {
     const bal = Number(r.total_amount ?? 0) - Number(r.amount_paid ?? 0);
-    if (bal <= 0.005) continue;
-    bills.push({
-      doc_no: r.bill_no ?? '',
-      doc_date: r.bill_date ?? '',
-      doc_type: 'sizing_bill',
-      total: Number(r.total_amount ?? 0),
-      paid: Number(r.amount_paid ?? 0),
-      balance: bal,
-    });
+    if (bal > 0.005) {
+      bills.push({
+        doc_no: r.bill_no ?? '',
+        doc_date: r.bill_date ?? '',
+        doc_type: 'sizing_bill',
+        total: Number(r.total_amount ?? 0),
+        paid: Number(r.amount_paid ?? 0),
+        balance: bal,
+      });
+    }
     // The bill stays gross so it matches the paper the mill sent; the tax
     // comes off on its own line beneath, exactly as the ledger shows it.
     // charges_amount is the taxable value — TDS is never on the GST.
+    //
+    // Emitted even when the bill is fully settled, and deliberately OUTSIDE
+    // the balance check above. Four of this mill's five bills were paid
+    // gross, so the tax that should have been withheld is a credit on their
+    // account; dropping those lines would both overstate what we owe and
+    // hide most of what the mill is entitled to claim. They need the whole
+    // year's deduction for their own filing, not just the open bill's share.
     const tds = tdsOnTaxable(Number(r.charges_amount ?? 0), partyTdsPct);
     if (tds > 0) {
       bills.push({
