@@ -162,6 +162,19 @@ export async function renderPageToPdf({ url, cookie }: RenderOptions): Promise<U
     // pdf() applies print styles, so the toolbar drops out on its own.
     await page.emulateMediaType('print');
 
+    // Wait out any full-screen overlay before shooting the page.
+    //
+    // The launch splash is a fixed navy panel that clears itself after
+    // about two seconds. networkidle0 goes quiet long before that, so the
+    // first PDF was a picture of the splash with the invoice underneath.
+    // launch-splash.tsx no longer renders on /print at all, which is the
+    // real fix; this is the second lock, because "the page is finished
+    // loading" and "the page is finished ANIMATING" are different claims
+    // and only the first one has an event.
+    await page
+      .waitForFunction(() => !document.querySelector('.ppk-splash'), { timeout: 5_000 })
+      .catch(() => { /* no splash, or it outlived the wait — carry on */ });
+
     return await page.pdf({
       format: 'A4',
       printBackground: true,

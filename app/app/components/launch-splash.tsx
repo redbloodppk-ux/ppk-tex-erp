@@ -12,14 +12,37 @@
  * Honours prefers-reduced-motion by skipping the motion and shortening the hold.
  */
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 type Phase = 'show' | 'leaving' | 'done';
 const SESSION_KEY = 'ppk_splash_shown';
 
 export function LaunchSplash(): React.ReactElement | null {
   const [phase, setPhase] = useState<Phase>('show');
+  const pathname = usePathname();
+  // Never on a print page.
+  //
+  // This lives in the root layout, so it covered the invoice print page
+  // too — a fixed, full-bleed navy panel at z-index 9999. On screen nobody
+  // noticed, because you always arrive at a print page from inside the app
+  // and the sessionStorage flag has already suppressed it.
+  //
+  // Headless Chrome is a fresh session every time, so the flag is unset and
+  // the splash plays. It clears itself after ~2s; page.pdf() fired before
+  // that and captured the splash sitting on top of the invoice. PPK,
+  // 2026-09-02: "LOGO overlapped whole page" — the invoice text was all
+  // present underneath, which is why the PDF's text still read correctly.
+  //
+  // The same trap exists for a human who opens a print URL directly in a
+  // new tab and hits Ctrl+P straight away, so this is worth fixing here
+  // rather than only in the renderer.
+  const onPrintPage = (pathname ?? '').includes('/print');
 
   useEffect(() => {
+    if (onPrintPage) {
+      setPhase('done');
+      return;
+    }
     let alreadyShown = false;
     try {
       alreadyShown = sessionStorage.getItem(SESSION_KEY) === '1';
@@ -45,9 +68,9 @@ export function LaunchSplash(): React.ReactElement | null {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, []);
+  }, [onPrintPage]);
 
-  if (phase === 'done') return null;
+  if (onPrintPage || phase === 'done') return null;
 
   return (
     <div
@@ -72,6 +95,9 @@ export function LaunchSplash(): React.ReactElement | null {
                    env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
         .ppk-splash--leaving { opacity: 0; }
+        /* Belt and braces: even if this somehow renders on a printable
+           page, it must never reach paper or a PDF. */
+        @media print { .ppk-splash { display: none !important; } }
         .ppk-splash__mark {
           width: clamp(96px, 26vw, 168px);
           height: auto;

@@ -197,10 +197,21 @@ function uomLabel(uom: string | null | undefined): string {
 
 export default async function InvoicePrintPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ copies?: string }>;
 }) {
   const { id } = await params;
+  // ?copies=original renders the buyer's copy alone.
+  //
+  // On paper both copies are wanted — ORIGINAL for the buyer, DUPLICATE
+  // for the file — so Print is unchanged. A PDF is a different object: it
+  // gets emailed or filed, and a second identical page is just noise the
+  // recipient has to scroll past. PPK, 2026-09-02: "i need 1 page ie..,
+  // original for download for all invoices and credit note".
+  const sp = (await searchParams) ?? {};
+  const originalOnly = sp.copies === 'original';
   const numericId = Number(id);
   if (!Number.isInteger(numericId) || numericId <= 0) notFound();
 
@@ -554,11 +565,13 @@ export default async function InvoicePrintPage({
         </div>
       </div>
 
-      {/* Every invoice prints in two identical copies: one ORIGINAL for the
+      {/* Every invoice PRINTS in two identical copies: one ORIGINAL for the
           buyer, one DUPLICATE for our records. We render the same sheet
           markup twice and the CSS rule `.inv-sheet + .inv-sheet` forces a
-          page-break between them when printed. */}
-      {(['ORIGINAL', 'DUPLICATE'] as const).map((copyLabel) => (
+          page-break between them when printed.
+          The PDF download passes ?copies=original and gets the first alone —
+          see originalOnly above. */}
+      {(originalOnly ? (['ORIGINAL'] as const) : (['ORIGINAL', 'DUPLICATE'] as const)).map((copyLabel) => (
       <div
         key={copyLabel}
         className={'inv-sheet inv-watermark ' +

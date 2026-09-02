@@ -85,8 +85,10 @@ export function InvoicePrintActions({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* ?copies=original — the download is the buyer's copy alone. The
+            Print button beside it still produces both sheets. */}
         <DownloadPdfButton
-          path={`/app/invoices/${invoiceId}/print`}
+          path={`/app/invoices/${invoiceId}/print?copies=original`}
           filename={pdfFilename()}
         />
 

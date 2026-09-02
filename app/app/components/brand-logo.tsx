@@ -48,6 +48,23 @@ const MONO = {
   mute: '#000000',
 };
 
+/**
+ * Lock the rendered size in an INLINE style, not just the width/height
+ * attributes.
+ *
+ * SVG width/height are *presentation attributes*, and any stylesheet rule
+ * beats them \u2014 `svg { width: 100% }` from a reset, a utility class, a
+ * print stylesheet. Nothing does that today, so this changes no pixels.
+ * It is hardening, added while chasing a full-page logo in a generated
+ * PDF that turned out to be the launch splash (see launch-splash.tsx),
+ * not this component. Kept because the failure it prevents is silent and
+ * ugly, and an inline style costs nothing. flex:none additionally stops a
+ * flex parent stretching the mark.
+ */
+function lockedSize(w: number, h: number): React.CSSProperties {
+  return { width: `${w}px`, height: `${h}px`, flex: 'none' };
+}
+
 export function BrandLogo({
   variant = 'horizontal',
   mono = false,
@@ -64,6 +81,7 @@ export function BrandLogo({
         viewBox="0 0 110 110"
         height={height}
         width={height}
+        style={lockedSize(height, height)}
         role="img"
         aria-label="PPK TEX"
         className={className}
@@ -106,6 +124,7 @@ export function BrandLogo({
         viewBox={`0 0 220 ${viewH}`}
         height={height}
         width={(height * 220) / viewH}
+        style={lockedSize((height * 220) / viewH, height)}
         role="img"
         aria-label="PPK TEX"
         className={className}
@@ -175,6 +194,7 @@ export function BrandLogo({
       viewBox={`0 0 240 ${viewH}`}
       height={height}
       width={(height * 240) / viewH}
+      style={lockedSize((height * 240) / viewH, height)}
       role="img"
       aria-label="PPK TEX"
       className={className}
