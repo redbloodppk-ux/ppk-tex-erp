@@ -5,7 +5,8 @@
  */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
+import { Printer, ArrowLeft, Loader2 } from 'lucide-react';
+import { DownloadPdfButton } from '@/app/components/download-pdf-button';
 
 interface PrintActionsProps {
   backHref: string;
@@ -29,10 +30,13 @@ export function PrintActions({ backHref, ledgerName, from, to }: PrintActionsPro
     return safeFilename(parts.join(' '));
   }
 
+  // Print only. Download is a real file now — see DownloadPdfButton — so
+  // there is no longer any reason to tell the operator to hunt for
+  // "Save as PDF" inside the dialog.
   function fire(mode: 'print' | 'pdf'): void {
     if (mode === 'print') {
       const ok = window.confirm(
-        `Send ${ledgerName}'s ledger statement to the printer?\n\nIf you want a PDF instead, pick "Save as PDF" in the print dialog.`,
+        `Send ${ledgerName}'s ledger statement to the printer?`,
       );
       if (!ok) return;
     }
@@ -61,15 +65,9 @@ export function PrintActions({ backHref, ledgerName, from, to }: PrintActionsPro
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => fire('pdf')}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60 disabled:opacity-50"
-        >
-          {busy === 'pdf' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-          Download PDF
-        </button>
+        {/* No path: renders the page as currently filtered, since the
+            date range lives in the query string. */}
+        <DownloadPdfButton filename={pdfFilename()} />
         <button
           type="button"
           onClick={() => fire('print')}

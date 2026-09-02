@@ -13,7 +13,8 @@
  */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
+import { Printer, ArrowLeft, Loader2 } from 'lucide-react';
+import { DownloadPdfButton } from '@/app/components/download-pdf-button';
 
 interface PrintActionsProps {
   dcId: number;
@@ -63,19 +64,9 @@ export function PrintActions({ dcId, dcCode, partyName, dcDate }: PrintActionsPr
     }, 50);
   }
 
-  function handlePdf(): void {
-    setBusy('pdf');
-    const originalTitle = document.title;
-    // Setting document.title makes most browsers default the
-    // "Save as PDF" filename to this —
-    // e.g. "ABC TEX DC-26-27-038 12-06-2026.pdf".
-    document.title = pdfFilename();
-    setTimeout(() => {
-      window.print();
-      document.title = originalTitle;
-      setBusy(null);
-    }, 50);
-  }
+  // Download is now a real file from the server — see DownloadPdfButton.
+  // The old handler could only open the print dialog and hope the operator
+  // chose "Save as PDF"; a page cannot pick the print destination.
 
   return (
     <div className="no-print sticky top-0 z-10 bg-paper/95 backdrop-blur border-b border-line/60 px-4 py-2 flex items-center gap-2">
@@ -93,18 +84,10 @@ export function PrintActions({ dcId, dcCode, partyName, dcDate }: PrintActionsPr
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handlePdf}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60 disabled:opacity-50"
-          title="Save as PDF (uses the system print dialog's 'Save as PDF' option)"
-        >
-          {busy === 'pdf'
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <FileDown className="w-3.5 h-3.5" />}
-          Download PDF
-        </button>
+        <DownloadPdfButton
+          path={`/app/delivery-challan/${dcId}/print`}
+          filename={pdfFilename()}
+        />
 
         <button
           type="button"

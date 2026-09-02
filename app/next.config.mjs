@@ -60,7 +60,13 @@ const nextConfig = {
   },
   // pdfkit reads its AFM font files from disk at runtime — let Node resolve
   // it from node_modules instead of letting webpack bundle (and break) it.
-  serverExternalPackages: ['pdfkit'],
+  //
+  // puppeteer-core and @sparticuz/chromium are here for the same reason and
+  // more so: @sparticuz/chromium ships a Brotli-compressed Chromium binary
+  // that it unpacks to /tmp at runtime. Bundled by webpack, the binary is
+  // mangled or dropped and the PDF route dies on Vercel with an unhelpful
+  // "Could not find browser". These must stay external.
+  serverExternalPackages: ['pdfkit', 'puppeteer-core', '@sparticuz/chromium'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },

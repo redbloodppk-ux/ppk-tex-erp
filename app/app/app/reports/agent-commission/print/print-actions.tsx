@@ -5,7 +5,8 @@
  */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
+import { Printer, ArrowLeft, Loader2 } from 'lucide-react';
+import { DownloadPdfButton } from '@/app/components/download-pdf-button';
 
 interface PrintActionsProps {
   backHref: string;
@@ -36,8 +37,9 @@ export function PrintActions({
 
   function fire(mode: 'print' | 'pdf'): void {
     if (mode === 'print') {
+      // Download is a real file now, so no "pick Save as PDF" advice here.
       const ok = window.confirm(
-        'Send the agent commission report to the printer?\n\nIf you want a PDF instead, pick "Save as PDF" in the print dialog.',
+        'Send the agent commission report to the printer?',
       );
       if (!ok) return;
     }
@@ -64,19 +66,9 @@ export function PrintActions({
       <div className="text-xs text-ink-mute ml-2">Report preview · A4 size</div>
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => fire('pdf')}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60 disabled:opacity-50"
-        >
-          {busy === 'pdf' ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <FileDown className="w-3.5 h-3.5" />
-          )}
-          Download PDF
-        </button>
+        {/* No path: the date range and agent filter live in the query
+            string, so the download must be of the page as filtered. */}
+        <DownloadPdfButton filename={pdfFilename()} />
         <button
           type="button"
           onClick={() => fire('print')}

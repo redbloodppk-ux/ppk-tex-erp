@@ -7,7 +7,8 @@
  */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Printer, FileDown, ArrowLeft, Loader2 } from 'lucide-react';
+import { Printer, ArrowLeft, Loader2 } from 'lucide-react';
+import { DownloadPdfButton } from '@/app/components/download-pdf-button';
 
 interface InvoicePrintActionsProps {
   invoiceId: number;
@@ -63,19 +64,10 @@ export function InvoicePrintActions({
     }, 50);
   }
 
-  function handlePdf(): void {
-    setBusy('pdf');
-    const originalTitle = document.title;
-    // Browsers use document.title as the default filename when the user
-    // picks "Save as PDF" from the print dialog. So the downloaded file
-    // becomes e.g. "ABC TEX INV-26-27-039 12-06-2026.pdf".
-    document.title = pdfFilename();
-    setTimeout(() => {
-      window.print();
-      document.title = originalTitle;
-      setBusy(null);
-    }, 50);
-  }
+  // Download no longer routes through window.print(). A page cannot choose
+  // the print destination, so that button could only ever open the dialog
+  // on the last-used printer; the server now renders this same page with
+  // headless Chrome and returns a file. See lib/pdf/render-page.
 
   return (
     <div className="no-print sticky top-0 z-10 bg-paper/95 backdrop-blur border-b border-line/60 px-4 py-2 flex items-center gap-2">
@@ -93,18 +85,10 @@ export function InvoicePrintActions({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handlePdf}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-haze/60 disabled:opacity-50"
-          title="Save as PDF using the system print dialog's Save-as-PDF option"
-        >
-          {busy === 'pdf'
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <FileDown className="w-3.5 h-3.5" />}
-          Download PDF
-        </button>
+        <DownloadPdfButton
+          path={`/app/invoices/${invoiceId}/print`}
+          filename={pdfFilename()}
+        />
 
         <button
           type="button"
