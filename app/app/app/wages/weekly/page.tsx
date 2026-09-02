@@ -17,6 +17,8 @@ import { formatRupee } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Archive } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
+import { WeaverRangeExport } from './weaver-range-export';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 import { loadWinderAllocation, type WinderInfo } from '@/lib/wages/winder-allocation-data';
 import { loadUnrecordedShifts, describeShift } from '@/lib/attendance/unrecorded-shifts';
 import { fetchAll } from '@/lib/supabase/fetch-all';
@@ -25,7 +27,9 @@ export const metadata = { title: 'Weekly Wage Summary' };
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
-  searchParams: Promise<{ week?: string }>;
+  // wfrom / wto drive the weaver-wages range export only. Named apart from
+  // `week` so choosing a range never moves the week the page is showing.
+  searchParams: Promise<{ week?: string; wfrom?: string; wto?: string }>;
 }
 
 type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
@@ -183,7 +187,7 @@ const KIND_PILL: Record<Kind, string> = {
 };
 
 export default async function WeeklyWagesPage({ searchParams }: PageProps): Promise<React.ReactElement> {
-  const { week } = await searchParams;
+  const { week, wfrom, wto } = await searchParams;
   const requested = typeof week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(week)
     ? week
     : mondayISO(new Date());
@@ -193,6 +197,19 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   const weekEnd = addDaysISO(weekStart, 6);
 
   const supabase = await createClient();
+
+  // Weaver-wages range export. Defaults to the visible week so the buttons
+  // work without touching the dates, and is clamped to the days that have
+  // production records — a range reaching back before the books would
+  // otherwise produce week after week of zeroes and a total that reads
+  // like a real, low figure.
+  const weaverBounds = await recordDateBounds(supabase, DATE_SOURCES.production);
+  const isIso = (s: unknown): s is string =>
+    typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const rangeFrom = clampDate(isIso(wfrom) ? wfrom : weekStart, weaverBounds);
+  const rangeToRaw = clampDate(isIso(wto) ? wto : weekEnd, weaverBounds);
+  // A To before From would loop over no weeks and hand back an empty file.
+  const rangeTo = rangeToRaw < rangeFrom ? rangeFrom : rangeToRaw;
 
   // Shifts in THIS week that were never recorded. A missing shift shrinks
   // every winder's denominator and hides idle sheds, so the figures below
@@ -691,6 +708,14 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <div className="num text-xl font-bold text-indigo">{formatRupee(netCashOut)}</div>
         </div>
       </div>
+
+      <WeaverRangeExport
+        from={rangeFrom}
+        to={rangeTo}
+        min={weaverBounds?.min}
+        max={weaverBounds?.max}
+        weekStart={weekStart}
+      />
 
       {/* Per-employee */}
       <h2 className="text-sm font-semibold text-ink mb-2">Weekly-basis employees</h2>
