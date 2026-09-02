@@ -21,6 +21,7 @@ import { ExcelExportButton } from '@/app/components/excel-export-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { CustomerFilter } from './customer-filter';
 import type { ExcelColumn } from '@/lib/xlsx';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 import {
   FileText,
   ReceiptText,
@@ -170,14 +171,22 @@ interface PageProps {
 
 export default async function SalesRegisterReport({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const from = sp.from ?? startOfMonthISO();
-  const to = sp.to ?? todayISO();
+  const fromRaw = sp.from ?? startOfMonthISO();
+  const toRaw = sp.to ?? todayISO();
   const customerIdParam = sp.customer_id ?? '';
   const customerIdNum = customerIdParam ? Number(customerIdParam) : null;
   const doc: DocFilter =
     sp.doc === 'invoice' || sp.doc === 'credit_note' ? sp.doc : 'all';
 
   const supabase = await createClient();
+
+  // Never offer a date the books do not reach. The default range starts at
+  // the beginning of the month, which for a mill whose records begin
+  // mid-year is a window largely made of months that never happened.
+  // See lib/reports/record-bounds.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.sales);
+  const from = clampDate(fromRaw, bounds);
+  const to = clampDate(toRaw, bounds);
 
   // Main query
   let query = supabase
@@ -310,12 +319,14 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
             type="date"
             name="from"
             defaultValue={from}
+            min={bounds?.min} max={bounds?.max}
             className="input"
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} className="input" />
+          <input type="date" name="to" defaultValue={to}
+            min={from || bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Customer</span>

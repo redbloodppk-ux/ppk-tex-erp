@@ -2,7 +2,7 @@
  * Holidays / Non-working Days (CORR-A5)
  *
  * Lists every day (or shift) that was marked as non-working in a date
- * range — power cut, national holiday, maintenance, other. Defaults to the
+ * range â€” power cut, national holiday, maintenance, other. Defaults to the
  * current calendar month.
  *
  * Source: v_non_working_days.
@@ -13,6 +13,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarOff } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 
 export const metadata = { title: 'Holidays / Non-working Days' };
 export const dynamic = 'force-dynamic';
@@ -64,10 +65,16 @@ export default async function AttendanceHolidaysReport({
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const from = sp.from && /^\d{4}-\d{2}-\d{2}$/.test(sp.from) ? sp.from : startOfMonth();
-  const to = sp.to && /^\d{4}-\d{2}-\d{2}$/.test(sp.to) ? sp.to : today();
+  const fromRaw = sp.from && /^\d{4}-\d{2}-\d{2}$/.test(sp.from) ? sp.from : startOfMonth();
+  const toRaw = sp.to && /^\d{4}-\d{2}-\d{2}$/.test(sp.to) ? sp.to : today();
 
   const supabase = await createClient();
+
+  // Keep the pickers inside the dates the books actually reach.
+  // See lib/reports/record-bounds.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.attendance);
+  const from = clampDate(fromRaw, bounds);
+  const to = clampDate(toRaw, bounds);
   const { data, error } = await supabase
     .from('v_non_working_days')
     .select('*')
@@ -99,17 +106,17 @@ export default async function AttendanceHolidaysReport({
     <div>
       <PageHeader
         title="Holidays / Non-working Days"
-        subtitle="Days (or shifts) when the shed did not run — power cut, national holiday, maintenance, other."
+        subtitle="Days (or shifts) when the shed did not run â€” power cut, national holiday, maintenance, other."
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
-          { label: 'Attendance — Holidays' },
+          { label: 'Attendance â€” Holidays' },
         ]}
         actions={
           rows.length > 0 ? (
             <ExcelExportButton
               filename={`holidays-${from}-to-${to}`}
               sheetName="Holidays"
-              title={`Non-working Days — ${from} to ${to}`}
+              title={`Non-working Days â€” ${from} to ${to}`}
               columns={exportColumns}
               rows={rows as unknown as ReadonlyArray<Record<string, unknown>>}
             />
@@ -122,12 +129,13 @@ export default async function AttendanceHolidaysReport({
           <label className="label" htmlFor="from">
             From
           </label>
+          {/* The old cap here was today(). The last recorded attendance day
+              is stricter and is never in the future, so it replaces it. */}
           <input
             id="from"
             name="from"
             type="date"
-            defaultValue={from}
-            max={today()}
+            defaultValue={from} min={bounds?.min} max={bounds?.max}
             className="input"
           />
         </div>
@@ -139,8 +147,7 @@ export default async function AttendanceHolidaysReport({
             id="to"
             name="to"
             type="date"
-            defaultValue={to}
-            max={today()}
+            defaultValue={to} min={from || bounds?.min} max={bounds?.max}
             className="input"
           />
         </div>
@@ -148,7 +155,7 @@ export default async function AttendanceHolidaysReport({
           Show
         </button>
         <span className="text-xs text-ink-mute ml-1">
-          {fmtDate(from)} → {fmtDate(to)}
+          {fmtDate(from)} â†’ {fmtDate(to)}
         </span>
       </form>
 
@@ -187,14 +194,14 @@ export default async function AttendanceHolidaysReport({
         </div>
       ) : (
         <>
-        <CardFilter placeholder="Search non-working days…">
+        <CardFilter placeholder="Search non-working daysâ€¦">
           {rows.map((r, i) => {
             const key = r.reason ?? 'other';
             return (
               <div key={`${r.attendance_date}-${r.shift}-${i}`} className="card p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="font-semibold text-ink break-words">
-                    {r.attendance_date ? fmtDate(r.attendance_date) : '—'}
+                    {r.attendance_date ? fmtDate(r.attendance_date) : 'â€”'}
                   </div>
                   <span
                     className={`text-xs font-semibold px-2 py-0.5 rounded shrink-0 ${REASON_TONE[key] ?? 'bg-cloud/60 text-ink-soft'}`}
@@ -203,9 +210,9 @@ export default async function AttendanceHolidaysReport({
                   </span>
                 </div>
                 <div className="text-xs text-ink-soft mt-2 space-y-1">
-                  <div>Shift: <span className="capitalize text-ink">{r.shift ?? '—'}</span></div>
+                  <div>Shift: <span className="capitalize text-ink">{r.shift ?? 'â€”'}</span></div>
                   {r.remark && <div>Remark: <span className="text-ink">{r.remark}</span></div>}
-                  <div>Marked by: <span className="text-ink">{r.marked_by_name ?? '—'}</span></div>
+                  <div>Marked by: <span className="text-ink">{r.marked_by_name ?? 'â€”'}</span></div>
                 </div>
               </div>
             );
@@ -232,10 +239,10 @@ export default async function AttendanceHolidaysReport({
                   >
                     <td className="px-3 py-2">
                       <div className="font-medium">
-                        {r.attendance_date ? fmtDate(r.attendance_date) : '—'}
+                        {r.attendance_date ? fmtDate(r.attendance_date) : 'â€”'}
                       </div>
                     </td>
-                    <td className="px-3 py-2 capitalize text-xs">{r.shift ?? '—'}</td>
+                    <td className="px-3 py-2 capitalize text-xs">{r.shift ?? 'â€”'}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`text-xs font-semibold px-2 py-0.5 rounded ${REASON_TONE[key] ?? 'bg-cloud/60 text-ink-soft'}`}
@@ -247,7 +254,7 @@ export default async function AttendanceHolidaysReport({
                       {r.remark ?? ''}
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">
-                      {r.marked_by_name ?? '—'}
+                      {r.marked_by_name ?? 'â€”'}
                     </td>
                   </tr>
                 );

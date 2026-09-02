@@ -22,6 +22,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { Loader2, RefreshCw, FileDown } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES, type RecordBounds } from '@/lib/reports/record-bounds';
 
 type Basis = 'loom_shifts' | 'metres' | 'weekly';
 type BonusMode = 'pct' | 'per_present';
@@ -134,7 +135,7 @@ export default function BonusPage(): React.ReactElement {
    * question "why is ANAND's bonus low" when the honest answer is that the
    * range is fiction.
    */
-  const [bounds, setBounds] = useState<{ min: string; max: string } | null>(null);
+  const [bounds, setBounds] = useState<RecordBounds | null>(null);
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [rows, setRows] = useState<Record<number, RowState>>({});
@@ -270,25 +271,14 @@ export default function BonusPage(): React.ReactElement {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const [attLo, attHi, wgLo, wgHi] = await Promise.all([
-        sb.from('attendance_day').select('attendance_date').order('attendance_date', { ascending: true }).limit(1).maybeSingle(),
-        sb.from('attendance_day').select('attendance_date').order('attendance_date', { ascending: false }).limit(1).maybeSingle(),
-        sb.from('wage_entry').select('pay_date').order('pay_date', { ascending: true }).limit(1).maybeSingle(),
-        sb.from('wage_entry').select('pay_date').order('pay_date', { ascending: false }).limit(1).maybeSingle(),
-      ]);
-      if (cancelled) return;
-
-      const lows = [attLo?.data?.attendance_date, wgLo?.data?.pay_date].filter(Boolean) as string[];
-      const highs = [attHi?.data?.attendance_date, wgHi?.data?.pay_date].filter(Boolean) as string[];
-      if (lows.length === 0 || highs.length === 0) return; // empty books
-
-      const min = lows.reduce((a, b) => (a < b ? a : b));
-      const max = highs.reduce((a, b) => (a > b ? a : b));
-      setBounds({ min, max });
-      setFrom((f) => (f < min ? min : f > max ? max : f));
-      setTo((t) => (t > max ? max : t < min ? min : t));
+      // Bonus reads attendance for presents and wage entries for amounts,
+      // so the window is the union of both — a wage entry could predate
+      // the first marked shift.
+      const b = await recordDateBounds(supabase, SOURCES.wages);
+      if (cancelled || !b) return; // empty books: leave the pickers open
+      setBounds(b);
+      setFrom((f) => clampDate(f, b));
+      setTo((t) => clampDate(t, b));
     })();
     return () => { cancelled = true; };
   }, [supabase]);

@@ -2,7 +2,7 @@
  * Agent-wise Commission Report
  *
  * Combined view of every agent / broker's activity across both sides of the
- * business — sales invoices on one side, yarn + fabric purchases on the other.
+ * business â€” sales invoices on one side, yarn + fabric purchases on the other.
  *
  * For each agent it shows the underlying brokered business value AND the
  * commission earned / paid / outstanding. Click an agent to drill into the
@@ -11,8 +11,8 @@
  * Source: view `public.v_agent_commission_report` (migration 206).
  *
  * Filters via querystring:
- *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this FY-ish month → today)
- *   ?agent_id=123                    (optional — opens the drill-down section)
+ *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this FY-ish month â†’ today)
+ *   ?agent_id=123                    (optional â€” opens the drill-down section)
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
@@ -28,6 +28,7 @@ import {
   AlertCircle,
   FileDown,
 } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 
 export const metadata = { title: 'Agent Commission' };
 export const dynamic = 'force-dynamic';
@@ -66,7 +67,7 @@ interface AgentSummary {
   docs: number;
 }
 
-/* ─────────────── date / format helpers ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ date / format helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function startOfFinYearISO(): string {
   // Indian FY starts 1 April. Pick the current FY's April 1.
@@ -80,12 +81,12 @@ function todayISO(): string {
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {
-  if (n == null) return '—';
+  if (n == null) return 'â€”';
   const num = Number(n);
   const sign = num < 0 ? '-' : '';
   return (
     sign +
-    '₹' +
+    'â‚¹' +
     Math.abs(num).toLocaleString('en-IN', {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -94,12 +95,12 @@ function fmtRupees(n: number | null | undefined, decimals = 0): string {
 }
 
 function fmtNum(n: number | null | undefined): string {
-  if (n == null) return '—';
+  if (n == null) return 'â€”';
   return Number(n).toLocaleString('en-IN');
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
   return d.toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -117,7 +118,7 @@ function sourceLabel(s: string | null): string {
     case 'fabric_purchase':
       return 'Fabric';
     default:
-      return s ?? '—';
+      return s ?? 'â€”';
   }
 }
 
@@ -131,15 +132,15 @@ function sourceTone(s: string | null): string {
 function typeLabel(t: string | null): string {
   switch (t) {
     case 'pcs':
-      return '₹/pc';
+      return 'â‚¹/pc';
     case 'metre':
-      return '₹/m';
+      return 'â‚¹/m';
     case 'bag':
-      return '₹/bag';
+      return 'â‚¹/bag';
     case 'percent':
       return '%';
     default:
-      return t ?? '—';
+      return t ?? 'â€”';
   }
 }
 
@@ -157,22 +158,22 @@ function unitWord(t: string | null): string {
   }
 }
 
-/* drill-down RATE cell — "<qty> <unit> @ ₹<rate>" for per-unit commissions,
-   just "<rate>%" for percentage commissions. Qty = amount ÷ rate. */
+/* drill-down RATE cell â€” "<qty> <unit> @ â‚¹<rate>" for per-unit commissions,
+   just "<rate>%" for percentage commissions. Qty = amount Ã· rate. */
 function rateQtyLabel(r: ReportRow): string {
   const rate = r.commission_rate != null ? Number(r.commission_rate) : null;
   if (r.commission_type === 'percent') {
-    return rate != null ? `${rate}%` : '—';
+    return rate != null ? `${rate}%` : 'â€”';
   }
   if (rate == null || rate === 0) {
     return typeLabel(r.commission_type);
   }
   const qty = Math.round((Number(r.commission_amount ?? 0) / rate) * 100) / 100;
   const unit = unitWord(r.commission_type);
-  return `${qty}${unit ? ` ${unit}` : ''} @ ₹${rate}`;
+  return `${qty}${unit ? ` ${unit}` : ''} @ â‚¹${rate}`;
 }
 
-/* drill-down link target — only sales invoices have a detail page */
+/* drill-down link target â€” only sales invoices have a detail page */
 function docHref(r: ReportRow): string | null {
   if (r.source === 'sales' && r.source_id != null) {
     return `/app/invoices/${r.source_id}`;
@@ -180,7 +181,7 @@ function docHref(r: ReportRow): string | null {
   return null;
 }
 
-/* ─────────────── page ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface PageProps {
   searchParams: Promise<{
@@ -194,12 +195,18 @@ export default async function AgentCommissionReport({
   searchParams,
 }: PageProps) {
   const sp = await searchParams;
-  const from = sp.from ?? startOfFinYearISO();
-  const to = sp.to ?? todayISO();
+  const fromRaw = sp.from ?? startOfFinYearISO();
+  const toRaw = sp.to ?? todayISO();
   const agentIdParam = sp.agent_id ?? '';
   const agentIdNum = agentIdParam ? Number(agentIdParam) : null;
 
   const supabase = await createClient();
+
+  // Keep the pickers inside the dates the books actually reach.
+  // See lib/reports/record-bounds.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.sales);
+  const from = clampDate(fromRaw, bounds);
+  const to = clampDate(toRaw, bounds);
 
   const { data, error } = await (supabase as any)
     .from('v_agent_commission_report')
@@ -265,7 +272,7 @@ export default async function AgentCommissionReport({
           .sort((x, y) => (y.doc_date ?? '').localeCompare(x.doc_date ?? ''))
       : [];
 
-  /* Excel export — the per-agent summary */
+  /* Excel export â€” the per-agent summary */
   const exportColumns: ExcelColumn[] = [
     { key: 'agent', label: 'Agent', type: 'text', width: 26 },
     { key: 'docs', label: 'Docs', type: 'number', width: 8, total: true },
@@ -300,7 +307,7 @@ export default async function AgentCommissionReport({
           { label: 'Reports', href: '/app/reports' },
           { label: 'Agent Commission' },
         ]}
-        subtitle={`Agent-wise sales & purchase brokerage between ${from} and ${to}. Business value is the brokered invoice/bill amount. Commission — on both sales and purchases — is always payable to the agent (a cash outflow).`}
+        subtitle={`Agent-wise sales & purchase brokerage between ${from} and ${to}. Business value is the brokered invoice/bill amount. Commission â€” on both sales and purchases â€” is always payable to the agent (a cash outflow).`}
         actions={
           <div className="flex items-center gap-2">
             <Link
@@ -314,7 +321,7 @@ export default async function AgentCommissionReport({
             <ExcelExportButton
               filename="agent-commission"
               sheetName="Agent Commission"
-              title={`Agent Commission · ${from} to ${to}`}
+              title={`Agent Commission Â· ${from} to ${to}`}
               columns={exportColumns}
               rows={exportRows}
             />
@@ -322,18 +329,18 @@ export default async function AgentCommissionReport({
         }
       />
 
-      {/* ─────────────── Filter strip ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <form
         className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm"
         action=""
       >
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">From</span>
-          <input type="date" name="from" defaultValue={from} className="input" />
+          <input type="date" name="from" defaultValue={from} min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} className="input" />
+          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Agent</span>
@@ -345,7 +352,7 @@ export default async function AgentCommissionReport({
             <option value="">All agents</option>
             {agents.map((a) => (
               <option key={a.agent_party_id} value={a.agent_party_id}>
-                {a.agent_code ? `${a.agent_code} — ${a.agent_name}` : a.agent_name}
+                {a.agent_code ? `${a.agent_code} â€” ${a.agent_name}` : a.agent_name}
               </option>
             ))}
           </select>
@@ -361,7 +368,7 @@ export default async function AgentCommissionReport({
         </a>
       </form>
 
-      {/* ─────────────── KPI strip ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Kpi
           icon={<Users className="w-4 h-4" />}
@@ -385,11 +392,11 @@ export default async function AgentCommissionReport({
           icon={<Wallet className="w-4 h-4" />}
           label="Payable (outstanding)"
           value={fmtRupees(tBalance)}
-          sub={`${fmtRupees(tComm)} payable · ${fmtRupees(tPaid)} paid`}
+          sub={`${fmtRupees(tComm)} payable Â· ${fmtRupees(tPaid)} paid`}
         />
       </div>
 
-      {/* ─────────────── Error / empty ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Error / empty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {error && (
         <div className="card p-4 text-sm text-err mb-4 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -406,9 +413,9 @@ export default async function AgentCommissionReport({
         </div>
       ) : null}
 
-      {/* ─────────────── Per-agent summary (mobile cards) ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Per-agent summary (mobile cards) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {agents.length > 0 && (
-        <CardFilter placeholder="Search agents…" className="mb-6">
+        <CardFilter placeholder="Search agentsâ€¦" className="mb-6">
           {agents.map((a) => {
             const isSel = a.agent_party_id === agentIdNum;
             return (
@@ -422,7 +429,7 @@ export default async function AgentCommissionReport({
                       href={`/app/reports/agent-commission?${dateQs}&agent_id=${a.agent_party_id}`}
                       className="font-semibold text-sky-700 hover:underline break-words"
                     >
-                      {a.agent_name ?? '—'}
+                      {a.agent_name ?? 'â€”'}
                     </Link>
                     {a.agent_code ? (
                       <span className="ml-1 text-xs text-ink-mute">({a.agent_code})</span>
@@ -451,7 +458,7 @@ export default async function AgentCommissionReport({
         </CardFilter>
       )}
 
-      {/* ─────────────── Per-agent summary (desktop table) ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Per-agent summary (desktop table) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {agents.length > 0 && (
         <div className="card p-0 overflow-x-auto mb-6 hidden md:block">
           <table className="w-full text-sm">
@@ -480,7 +487,7 @@ export default async function AgentCommissionReport({
                         href={`/app/reports/agent-commission?${dateQs}&agent_id=${a.agent_party_id}`}
                         className="font-medium text-sky-700 hover:underline"
                       >
-                        {a.agent_name ?? '—'}
+                        {a.agent_name ?? 'â€”'}
                       </Link>
                       {a.agent_code ? (
                         <span className="ml-1 text-xs text-ink-mute">
@@ -532,7 +539,7 @@ export default async function AgentCommissionReport({
         </div>
       )}
 
-      {/* ─────────────── Drill-down for a selected agent ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Drill-down for a selected agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {selectedAgent && (
         <div className="mb-2">
           <div className="flex items-center justify-between mb-2">
@@ -543,7 +550,7 @@ export default async function AgentCommissionReport({
                   ({selectedAgent.agent_code})
                 </span>
               ) : null}{' '}
-              — documents
+              â€” documents
             </h2>
             <a
               href={`/app/reports/agent-commission?${dateQs}`}
@@ -560,7 +567,7 @@ export default async function AgentCommissionReport({
           ) : (
             <>
             {/* Mobile / PWA: card view for the drill-down. */}
-            <CardFilter placeholder="Search documents…">
+            <CardFilter placeholder="Search documentsâ€¦">
               {detailRows.map((r) => {
                 const href = docHref(r);
                 return (
@@ -570,14 +577,14 @@ export default async function AgentCommissionReport({
                         <div className="font-mono text-sm font-semibold text-ink break-words">
                           {href ? (
                             <Link href={href} className="text-sky-700 hover:underline">
-                              {r.doc_no ?? '—'}
+                              {r.doc_no ?? 'â€”'}
                             </Link>
                           ) : (
-                            r.doc_no ?? '—'
+                            r.doc_no ?? 'â€”'
                           )}
                         </div>
                         <div className="text-xs text-ink-soft mt-0.5">
-                          {r.counterparty_name ?? '—'}
+                          {r.counterparty_name ?? 'â€”'}
                         </div>
                       </div>
                       <span
@@ -616,9 +623,9 @@ export default async function AgentCommissionReport({
                     <th className="text-left px-3 py-2">Type</th>
                     <th className="text-left px-3 py-2">Doc #</th>
                     <th className="text-left px-3 py-2">Party</th>
-                    <th className="text-right px-3 py-2">Business ₹</th>
+                    <th className="text-right px-3 py-2">Business â‚¹</th>
                     <th className="text-left px-3 py-2">Rate</th>
-                    <th className="text-right px-3 py-2">Comm ₹</th>
+                    <th className="text-right px-3 py-2">Comm â‚¹</th>
                     <th className="text-right px-3 py-2">Paid</th>
                     <th className="text-right px-3 py-2">Outstanding</th>
                   </tr>
@@ -647,14 +654,14 @@ export default async function AgentCommissionReport({
                               href={href}
                               className="text-sky-700 hover:underline"
                             >
-                              {r.doc_no ?? '—'}
+                              {r.doc_no ?? 'â€”'}
                             </Link>
                           ) : (
-                            r.doc_no ?? '—'
+                            r.doc_no ?? 'â€”'
                           )}
                         </td>
                         <td className="px-3 py-2">
-                          {r.counterparty_name ?? '—'}
+                          {r.counterparty_name ?? 'â€”'}
                         </td>
                         <td className="px-3 py-2 text-right num text-ink-soft">
                           {fmtRupees(r.business_value)}
@@ -719,7 +726,7 @@ export default async function AgentCommissionReport({
   );
 }
 
-/* ─────────────── presentational helpers ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ presentational helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface KpiProps {
   icon: React.ReactNode;

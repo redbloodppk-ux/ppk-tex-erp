@@ -4,11 +4,11 @@
  * Every mount event recorded in pavu_assign, filtered to a chosen date
  * range on the MOUNT date (start_date). Complements the Beam Stock Report
  * (fn_pavu_stock_report), which only shows the CURRENT status of each
- * beam — this report is the permanent history of which beam went on
+ * beam â€” this report is the permanent history of which beam went on
  * which loom, when it came off, and how many metres it produced.
  *
  * URL params:
- *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this month → today)
+ *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this month â†’ today)
  *   ?loom_id=<id>
  *   ?shed=<shed_no>
  *   ?mode=in_house|jobwork|outsource
@@ -22,11 +22,12 @@ import { ExcelExportButton } from '@/app/components/excel-export-button';
 import { formatMetres } from '@/lib/utils';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { History, Layers, Gauge } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 
 export const metadata = { title: 'Pavu Mount History' };
 export const dynamic = 'force-dynamic';
 
-/* ─────────────── types ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface MountHistoryRow {
   assign_id: number;
@@ -92,7 +93,7 @@ const ASSIGN_STATUS_STYLE: Record<string, string> = {
   removed: 'bg-rose-50 text-rose-700',
 };
 
-/* ─────────────── small helpers ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ small helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function startOfMonthISO(): string {
   const d = new Date();
@@ -105,14 +106,14 @@ function todayISO(): string {
 }
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
-/* ─────────────── data loader ─────────────── */
-/* Direct Supabase joins, no stored function — pavu_assign is already the
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ data loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Direct Supabase joins, no stored function â€” pavu_assign is already the
  * permanent record of every mount event, so this is a straight read plus
  * quality/yarn-count resolution, following the same pattern as the
  * Fabric Movements report.
@@ -136,7 +137,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   const rows = (assignData ?? []) as RawAssignRow[];
   if (rows.length === 0) return [];
 
-  // Quality — mirrors the live fn_pavu_stock_report Postgres function's
+  // Quality â€” mirrors the live fn_pavu_stock_report Postgres function's
   // quality-resolution cascade:
   //   Tier 1: pavu_assign.costing_id -> costing_master, EXCLUDING the
   //     'JOBWORK-EXEMPT' placeholder row (that quality_code is a stand-in
@@ -146,13 +147,13 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   //     jobwork_warp_beam.fabric_quality_id (matched to the pavu the same
   //     way warp_count_id already is, below).
   // Both tiers always show the INDIVIDUAL fabric_quality row's own
-  // code/name — never merged_name. Merged names collapse distinct
+  // code/name â€” never merged_name. Merged names collapse distinct
   // qualities (e.g. WHITE DHOTIES 2190 / BLACK DHOTIES 2190) into one
   // group label (20'S DHOTIES), which makes it impossible to tell which
   // quality was actually mounted, so this report intentionally does not
   // use merged_name. (fn_pavu_stock_report also has a Tier 3
   // warp_ends/warp_count_id costing_master fallback, which is out of
-  // scope here — if both tiers above fail to resolve, this falls back to
+  // scope here â€” if both tiers above fail to resolve, this falls back to
   // whatever costing_master itself provides, including the literal
   // 'JOBWORK-EXEMPT' code/name.)
   const costingIds = Array.from(
@@ -179,7 +180,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
     );
   }
 
-  // Yarn count — in-house via pavu.sizing_job_id -> sizing_job.warp_count_id;
+  // Yarn count â€” in-house via pavu.sizing_job_id -> sizing_job.warp_count_id;
   // jobwork via jobwork_warp_beam (pavu_id or the pavu_ids batch array), the
   // same map-building pattern used to fix the Assign-to-Loom modal earlier
   // this session (see app/app/pavu/assign/page.tsx).
@@ -202,7 +203,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
     .order('id', { ascending: true });
   const warpCountIdByPavu = new Map<number, number>();
   // Ascending id order + plain Map.set (last write wins) replicates
-  // fn_pavu_stock_report's "ORDER BY jwb.id DESC LIMIT 1" — the
+  // fn_pavu_stock_report's "ORDER BY jwb.id DESC LIMIT 1" â€” the
   // highest-id (most recent) jobwork_warp_beam row for a given pavu wins.
   const fqIdByPavu = new Map<number, number>();
   for (const row of (jwbData ?? []) as Array<{
@@ -257,13 +258,13 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
     let qualityCode: string | null;
     let qualityName: string | null;
     if (tier1Applies) {
-      // Tier 1 — costing_master via costing_id (real quality, not the
+      // Tier 1 â€” costing_master via costing_id (real quality, not the
       // JOBWORK-EXEMPT placeholder). Always the individual fabric_quality
-      // row's own code/name — never merged_name.
+      // row's own code/name â€” never merged_name.
       qualityCode = cm!.quality_code ?? null;
       qualityName = fq ? fq.name ?? cm!.quality_name ?? null : cm!.quality_name ?? null;
     } else {
-      // Tier 2 — jobwork_warp_beam.fabric_quality_id fallback (jobwork
+      // Tier 2 â€” jobwork_warp_beam.fabric_quality_id fallback (jobwork
       // mounts where the specific quality isn't costing-tracked).
       const jwbFqId = fqIdByPavu.get(r.pavu_id);
       const jwbFq = jwbFqId != null ? fqById.get(jwbFqId) : undefined;
@@ -271,7 +272,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
         qualityCode = jwbFq.code ?? null;
         qualityName = jwbFq.name ?? jwbFq.code ?? null;
       } else {
-        // Neither tier resolved — fall back to whatever costing_master
+        // Neither tier resolved â€” fall back to whatever costing_master
         // itself provides (may genuinely be the JOBWORK-EXEMPT literal).
         qualityCode = cm?.quality_code ?? null;
         qualityName = cm?.quality_name ?? null;
@@ -299,8 +300,8 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
     return {
       assign_id: r.id,
       pavu_id: r.pavu_id,
-      pavu_code: r.pavu?.pavu_code ?? '—',
-      beam_no: r.pavu?.beam_no ?? '—',
+      pavu_code: r.pavu?.pavu_code ?? 'â€”',
+      beam_no: r.pavu?.beam_no ?? 'â€”',
       ends: r.pavu?.ends ?? 0,
       yarn_count: yarnCount,
       quality_code: qualityCode,
@@ -320,7 +321,7 @@ async function loadMountHistory(supabase: any, from: string, to: string): Promis
   });
 }
 
-/* ─────────────── page ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface PageProps {
   searchParams: Promise<{
@@ -336,8 +337,8 @@ interface PageProps {
 
 export default async function PavuMountHistoryReport({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const from = sp.from ?? startOfMonthISO();
-  const to = sp.to ?? todayISO();
+  const fromRaw = sp.from ?? startOfMonthISO();
+  const toRaw = sp.to ?? todayISO();
   const loomIdParam = sp.loom_id ?? '';
   const loomIdNum = loomIdParam && /^\d+$/.test(loomIdParam) ? Number(loomIdParam) : null;
   const shedParam = sp.shed ?? '';
@@ -348,6 +349,12 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
 
   const supabase = await createClient();
 
+  // Keep the pickers inside the dates the books actually reach.
+  // See lib/reports/record-bounds.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.beams);
+  const from = clampDate(fromRaw, bounds);
+  const to = clampDate(toRaw, bounds);
+
   const [allRows, loomRes] = await Promise.all([
     loadMountHistory(supabase, from, to).catch((): MountHistoryRow[] => []),
     supabase.from('loom').select('id, loom_code, shed_no').order('loom_code', { ascending: true }),
@@ -356,7 +363,7 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
   const looms = (loomRes.data as unknown as LoomOpt[]) ?? [];
   const loadError = loomRes.error?.message ?? null;
 
-  // Filter option lists — derived from the date-filtered rows, mirroring
+  // Filter option lists â€” derived from the date-filtered rows, mirroring
   // Beam Stock Report (options computed from the loaded set, not the
   // post-filter set, so picking one facet doesn't hide the others).
   const endsOptions = Array.from(new Set(allRows.map((r) => r.ends))).sort((a, b) => a - b);
@@ -383,11 +390,11 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
     return true;
   });
 
-  // Summary rolled up by quality — mirrors Beam Stock Report's "Summary by
+  // Summary rolled up by quality â€” mirrors Beam Stock Report's "Summary by
   // ends & yarn count" table.
   const summaryMap = new Map<string, { quality_code: string; quality_name: string | null; count: number; metres: number }>();
   for (const r of rows) {
-    const key = r.quality_code ?? '—';
+    const key = r.quality_code ?? 'â€”';
     const cur = summaryMap.get(key) ?? { quality_code: key, quality_name: r.quality_name, count: 0, metres: 0 };
     cur.count += 1;
     cur.metres += r.metres_produced;
@@ -438,27 +445,27 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
       <PageHeader
         title="Pavu Mount History"
         crumbs={[{ label: 'Reports', href: '/app/reports' }, { label: 'Pavu Mount History' }]}
-        subtitle={`Every beam mounted between ${from} and ${to} — which loom it went on, what came off it, and how many metres it produced.`}
+        subtitle={`Every beam mounted between ${from} and ${to} â€” which loom it went on, what came off it, and how many metres it produced.`}
         actions={
           <ExcelExportButton
             filename="pavu-mount-history"
             sheetName="Mount History"
-            title={`Pavu Mount History · ${from} to ${to}`}
+            title={`Pavu Mount History Â· ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
         }
       />
 
-      {/* ─────────────── Filter strip ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <form className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm" action="">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">From</span>
-          <input type="date" name="from" defaultValue={from} className="input" />
+          <input type="date" name="from" defaultValue={from} min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} className="input" />
+          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Loom</span>
@@ -492,7 +499,7 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
           <select name="quality_code" defaultValue={qualityCodeFilter} className="input min-w-[180px]">
             <option value="">All qualities</option>
             {qualityOptions.map(([code, name]) => (
-              <option key={code} value={code}>{code} — {name}</option>
+              <option key={code} value={code}>{code} â€” {name}</option>
             ))}
           </select>
         </label>
@@ -515,14 +522,14 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
         <div className="card p-4 text-sm text-err mb-4">Could not load loom list: {loadError}</div>
       )}
 
-      {/* ─────────────── KPI strip ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <Kpi label="Mount events" value={String(rows.length)} icon={History} />
         <Kpi label="Still mounted" value={String(stillMounted)} icon={Gauge} />
         <Kpi label="Metres produced" value={formatMetres(totalMetres, 0)} icon={Layers} />
       </div>
 
-      {/* ─────────────── Summary by quality ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Summary by quality â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {summary.length > 0 && (
         <div className="card p-4 mb-4 overflow-x-auto">
           <div className="text-xs uppercase tracking-wide text-ink-mute mb-2">Summary by quality</div>
@@ -539,7 +546,7 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
                 <tr key={s.quality_code} className="border-b border-line/30 last:border-0">
                   <td className="py-1.5 pr-3">
                     {s.quality_code}
-                    {s.quality_name && <span className="text-ink-mute"> — {s.quality_name}</span>}
+                    {s.quality_name && <span className="text-ink-mute"> â€” {s.quality_name}</span>}
                   </td>
                   <td className="py-1.5 pr-3 text-right num">{s.count}</td>
                   <td className="py-1.5 pr-3 text-right num">{formatMetres(s.metres, 0)}</td>
@@ -550,14 +557,14 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
         </div>
       )}
 
-      {/* ─────────────── Detail ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {rows.length === 0 ? (
         <div className="card p-8 text-center text-sm text-ink-mute">
           No mount events in this window. Try widening the date range or clearing a filter.
         </div>
       ) : (
         <>
-          <CardFilter placeholder="Search mount history…">
+          <CardFilter placeholder="Search mount historyâ€¦">
             {rows.map((r) => (
               <div key={r.assign_id} className="card p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -566,8 +573,8 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
                       {r.pavu_code} <span className="text-ink-mute">/ {r.beam_no}</span>
                     </div>
                     <div className="text-[10px] text-ink-mute">
-                      {r.ends} ends · {r.yarn_count ?? '—'}
-                      {r.quality_code ? ` · ${r.quality_code}` : ''}
+                      {r.ends} ends Â· {r.yarn_count ?? 'â€”'}
+                      {r.quality_code ? ` Â· ${r.quality_code}` : ''}
                     </div>
                   </div>
                   <span className={`pill ${ASSIGN_STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'} text-[11px] uppercase tracking-wide shrink-0`}>
@@ -575,10 +582,10 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
                   </span>
                 </div>
                 <div className="text-xs text-ink-soft mt-2 space-y-1">
-                  <div>Loom: <span className="text-ink">{r.loom_code ?? '—'}{r.shed_no != null ? ` (Shed ${r.shed_no})` : ''}</span></div>
-                  <div>Mode: {r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : '—'}</div>
-                  <div>Mounted: <span className="num">{fmtDate(r.mount_date)}</span> → Unmounted: <span className="num">{fmtDate(r.unmount_date)}</span></div>
-                  <div>Days mounted: <span className="num">{r.days_mounted ?? '—'}</span></div>
+                  <div>Loom: <span className="text-ink">{r.loom_code ?? 'â€”'}{r.shed_no != null ? ` (Shed ${r.shed_no})` : ''}</span></div>
+                  <div>Mode: {r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : 'â€”'}</div>
+                  <div>Mounted: <span className="num">{fmtDate(r.mount_date)}</span> â†’ Unmounted: <span className="num">{fmtDate(r.unmount_date)}</span></div>
+                  <div>Days mounted: <span className="num">{r.days_mounted ?? 'â€”'}</span></div>
                   <div>Metres: <span className="num">{formatMetres(r.metres_produced, 1)}</span> produced / <span className="num">{formatMetres(r.actual_metres, 1)}</span> actual</div>
                 </div>
               </div>
@@ -607,16 +614,16 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
                   <tr key={r.assign_id} className="border-t border-line/40 hover:bg-haze/60">
                     <td className="px-3 py-2 font-mono text-xs">{r.pavu_code} <span className="text-ink-mute">/ {r.beam_no}</span></td>
                     <td className="px-3 py-2 num text-xs">{r.ends}</td>
-                    <td className="px-3 py-2 text-xs">{r.yarn_count ?? '—'}</td>
+                    <td className="px-3 py-2 text-xs">{r.yarn_count ?? 'â€”'}</td>
                     <td className="px-3 py-2 text-xs">
-                      {r.quality_code ?? '—'}
+                      {r.quality_code ?? 'â€”'}
                       {r.quality_name && <div className="text-[10px] text-ink-mute">{r.quality_name}</div>}
                     </td>
-                    <td className="px-3 py-2 text-xs">{r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : '—'}</td>
-                    <td className="px-3 py-2 text-xs">{r.loom_code ?? '—'}{r.shed_no != null ? ` (S${r.shed_no})` : ''}</td>
+                    <td className="px-3 py-2 text-xs">{r.production_mode ? MODE_LABEL[r.production_mode] ?? r.production_mode : 'â€”'}</td>
+                    <td className="px-3 py-2 text-xs">{r.loom_code ?? 'â€”'}{r.shed_no != null ? ` (S${r.shed_no})` : ''}</td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtDate(r.mount_date)}</td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtDate(r.unmount_date)}</td>
-                    <td className="px-3 py-2 text-right num text-xs">{r.days_mounted ?? '—'}</td>
+                    <td className="px-3 py-2 text-right num text-xs">{r.days_mounted ?? 'â€”'}</td>
                     <td className="px-3 py-2 text-right num text-xs">{formatMetres(r.metres_produced, 1)}</td>
                     <td className="px-3 py-2">
                       <span className={`pill ${ASSIGN_STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-600'} text-[11px] uppercase tracking-wide`}>
@@ -634,7 +641,7 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
   );
 }
 
-/* ─────────────── presentational helpers ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ presentational helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface KpiProps {
   label: string;

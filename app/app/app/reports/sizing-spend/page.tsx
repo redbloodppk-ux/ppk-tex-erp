@@ -3,21 +3,21 @@
  *
  * Three sections, all server-rendered, in order of "how much, who, why":
  *
- *   1. Monthly spend       — v_sizing_spend_by_month
- *      Where the money went, period by period. Shows total ₹, total kg
- *      consumed, weighted ₹/kg, and trend arrow vs previous month.
+ *   1. Monthly spend       â€” v_sizing_spend_by_month
+ *      Where the money went, period by period. Shows total â‚¹, total kg
+ *      consumed, weighted â‚¹/kg, and trend arrow vs previous month.
  *
- *   2. Per-vendor spend    — v_sizing_spend_by_vendor
+ *   2. Per-vendor spend    â€” v_sizing_spend_by_vendor
  *      Ranked biggest-spend first. Lets the owner see which vendor is
- *      cheapest on ₹/kg so the next set_no goes to the right party.
+ *      cheapest on â‚¹/kg so the next set_no goes to the right party.
  *
- *   3. Planned vs actual   — v_batch_sizing_variance
- *      Per-batch variance: did the actual sizing cost ₹/m drift from the
+ *   3. Planned vs actual   â€” v_batch_sizing_variance
+ *      Per-batch variance: did the actual sizing cost â‚¹/m drift from the
  *      costing we promised the SO? Overruns flagged amber, savings green.
  *
  * Date range filter via ?from=YYYY-MM-DD&to=YYYY-MM-DD (defaults: last
- * 12 months → today). Empty data shows a friendly placeholder per section
- * — sizing data is new in the system so this will be sparse for a while.
+ * 12 months â†’ today). Empty data shows a friendly placeholder per section
+ * â€” sizing data is new in the system so this will be sparse for a while.
  */
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
@@ -34,6 +34,7 @@ import {
   Users,
   GitCompare,
 } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 
 export const metadata = { title: 'Sizing Spend' };
 export const dynamic = 'force-dynamic';
@@ -81,15 +82,15 @@ function todayISO(): string {
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {
-  if (n == null) return '—';
-  return '₹' + Number(n).toLocaleString('en-IN', {
+  if (n == null) return 'â€”';
+  return 'â‚¹' + Number(n).toLocaleString('en-IN', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
 }
 
 function fmtNum(n: number | null | undefined, decimals = 0): string {
-  if (n == null) return '—';
+  if (n == null) return 'â€”';
   return Number(n).toLocaleString('en-IN', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -97,7 +98,7 @@ function fmtNum(n: number | null | undefined, decimals = 0): string {
 }
 
 function fmtMonth(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
   return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
 }
@@ -108,10 +109,16 @@ interface PageProps {
 
 export default async function SizingSpendReport({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const from = sp.from ?? isoMonthsAgo(12);
-  const to = sp.to ?? todayISO();
+  const fromRaw = sp.from ?? isoMonthsAgo(12);
+  const toRaw = sp.to ?? todayISO();
 
   const supabase = await createClient();
+
+  // Keep the pickers inside the dates the books actually reach.
+  // See lib/reports/record-bounds.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.sizing);
+  const from = clampDate(fromRaw, bounds);
+  const to = clampDate(toRaw, bounds);
 
   const [monthRes, vendorRes, varianceRes] = await Promise.all([
     supabase
@@ -144,7 +151,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
   const totalJobs = months.reduce((s, m) => s + Number(m.jobs_count ?? 0), 0);
   const blendedRate = totalKg > 0 ? totalSpend / totalKg : null;
 
-  /* Excel export — the monthly spend table for the filtered window */
+  /* Excel export â€” the monthly spend table for the filtered window */
   const exportColumns: ExcelColumn[] = [
     { key: 'period_start', label: 'Month', type: 'date', width: 14 },
     { key: 'jobs_count', label: 'Jobs', type: 'number', width: 10, total: true },
@@ -173,45 +180,45 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
           <ExcelExportButton
             filename="sizing-spend-by-month"
             sheetName="Sizing Spend"
-            title={`Sizing Spend by Month · ${from} to ${to}`}
+            title={`Sizing Spend by Month Â· ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
         }
       />
 
-      {/* ─────────────── Filter strip ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <form className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">From</span>
           <input
             type="date"
             name="from"
-            defaultValue={from}
+            defaultValue={from} min={bounds?.min} max={bounds?.max}
             className="input"
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} className="input" />
+          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
         </label>
         <button type="submit" className="btn-primary">
           Apply
         </button>
       </form>
 
-      {/* ─────────────── KPI summary ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Kpi label="Total spend" value={fmtRupees(totalSpend)} />
         <Kpi label="Yarn sized" value={`${fmtNum(totalKg, 1)} kg`} />
         <Kpi label="Jobs" value={fmtNum(totalJobs)} />
         <Kpi
-          label="Blended ₹/kg"
-          value={blendedRate != null ? fmtRupees(blendedRate, 2) : '—'}
+          label="Blended â‚¹/kg"
+          value={blendedRate != null ? fmtRupees(blendedRate, 2) : 'â€”'}
         />
       </div>
 
-      {/* ─────────────── Monthly table ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Monthly table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <SectionHeader icon={<Calendar className="w-4 h-4" />} title="Spend by month" />
       {monthRes.error && (
         <div className="card p-4 text-sm text-err mb-4">
@@ -222,7 +229,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
         <EmptyCard text="No sizing jobs billed in this window yet." />
       ) : (
         <>
-        <CardFilter placeholder="Search months…">
+        <CardFilter placeholder="Search monthsâ€¦">
           {months.map((m, i) => {
             const prev = months[i + 1];
             const trend = trendBetween(m.effective_rate_per_kg, prev?.effective_rate_per_kg ?? null);
@@ -238,7 +245,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                 <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
                   <div>Jobs: <span className="num">{fmtNum(m.jobs_count)}</span></div>
                   <div>Yarn kg: <span className="num">{fmtNum(m.total_yarn_kg, 1)}</span></div>
-                  <div>Effective ₹/kg: <span className="num">{m.effective_rate_per_kg != null ? fmtRupees(m.effective_rate_per_kg, 2) : '—'}</span></div>
+                  <div>Effective â‚¹/kg: <span className="num">{m.effective_rate_per_kg != null ? fmtRupees(m.effective_rate_per_kg, 2) : 'â€”'}</span></div>
                 </div>
               </div>
             );
@@ -251,8 +258,8 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                 <th className="text-left px-3 py-2">Month</th>
                 <th className="text-right px-3 py-2">Jobs</th>
                 <th className="text-right px-3 py-2">Yarn kg</th>
-                <th className="text-right px-3 py-2">Total ₹</th>
-                <th className="text-right px-3 py-2">Effective ₹/kg</th>
+                <th className="text-right px-3 py-2">Total â‚¹</th>
+                <th className="text-right px-3 py-2">Effective â‚¹/kg</th>
                 <th className="text-right px-3 py-2">Trend</th>
               </tr>
             </thead>
@@ -283,7 +290,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                     <td className="px-3 py-2 text-right num">
                       {m.effective_rate_per_kg != null
                         ? fmtRupees(m.effective_rate_per_kg, 2)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <TrendBadge trend={trend} />
@@ -297,11 +304,11 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
         </>
       )}
 
-      {/* ─────────────── Vendor table ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Vendor table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <SectionHeader
         icon={<Users className="w-4 h-4" />}
         title="Spend by vendor (all time)"
-        subtitle="Ranked by total spend. The cheapest ₹/kg vendor is highlighted."
+        subtitle="Ranked by total spend. The cheapest â‚¹/kg vendor is highlighted."
       />
       {vendorRes.error && (
         <div className="card p-4 text-sm text-err mb-4">
@@ -312,7 +319,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
         <EmptyCard text="No vendor spend yet." />
       ) : (
         <>
-        <CardFilter placeholder="Search vendors…">
+        <CardFilter placeholder="Search vendorsâ€¦">
           {vendors.map((v, i) => {
             const isCheapest = v.effective_rate_per_kg != null && v.effective_rate_per_kg === cheapestRate(vendors);
             return (
@@ -328,13 +335,13 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                   <div>Jobs: <span className="num">{fmtNum(v.jobs_count)}</span></div>
                   <div>Yarn kg: <span className="num">{fmtNum(v.total_yarn_kg, 1)}</span></div>
                   <div className="col-span-2">
-                    Effective ₹/kg:{' '}
+                    Effective â‚¹/kg:{' '}
                     <span className={isCheapest ? 'inline-flex items-center gap-1 text-emerald-700 font-semibold num' : 'num'}>
                       {isCheapest && <CheckCircle2 className="w-3 h-3" />}
-                      {v.effective_rate_per_kg != null ? fmtRupees(v.effective_rate_per_kg, 2) : '—'}
+                      {v.effective_rate_per_kg != null ? fmtRupees(v.effective_rate_per_kg, 2) : 'â€”'}
                     </span>
                   </div>
-                  <div className="col-span-2">Window: {v.first_job_date ?? '—'} → {v.last_job_date ?? '—'}</div>
+                  <div className="col-span-2">Window: {v.first_job_date ?? 'â€”'} â†’ {v.last_job_date ?? 'â€”'}</div>
                 </div>
               </div>
             );
@@ -347,8 +354,8 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                 <th className="text-left px-3 py-2">Vendor</th>
                 <th className="text-right px-3 py-2">Jobs</th>
                 <th className="text-right px-3 py-2">Yarn kg</th>
-                <th className="text-right px-3 py-2">Total ₹</th>
-                <th className="text-right px-3 py-2">Effective ₹/kg</th>
+                <th className="text-right px-3 py-2">Total â‚¹</th>
+                <th className="text-right px-3 py-2">Effective â‚¹/kg</th>
                 <th className="text-left px-3 py-2">Window</th>
               </tr>
             </thead>
@@ -388,11 +395,11 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                         {isCheapest && <CheckCircle2 className="w-3 h-3" />}
                         {v.effective_rate_per_kg != null
                           ? fmtRupees(v.effective_rate_per_kg, 2)
-                          : '—'}
+                          : 'â€”'}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">
-                      {v.first_job_date ?? '—'} → {v.last_job_date ?? '—'}
+                      {v.first_job_date ?? 'â€”'} â†’ {v.last_job_date ?? 'â€”'}
                     </td>
                   </tr>
                 );
@@ -403,10 +410,10 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
         </>
       )}
 
-      {/* ─────────────── Variance table ─────────────── */}
+      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Variance table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <SectionHeader
         icon={<GitCompare className="w-4 h-4" />}
-        title="Planned vs actual — batch variance"
+        title="Planned vs actual â€” batch variance"
         subtitle="Top 50 batches with the largest sizing-cost drift from the costing snapshot."
       />
       {varianceRes.error && (
@@ -418,7 +425,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
         <EmptyCard text="No batches with a measurable sizing variance yet. (Variance appears once a batch is linked to a pavu_assign and the sizing job has billing.)" />
       ) : (
         <>
-        <CardFilter placeholder="Search batches…">
+        <CardFilter placeholder="Search batchesâ€¦">
           {variances.map((v) => {
             const per = v.variance_per_m;
             const overrun = per != null && Number(per) > 0.01;
@@ -428,7 +435,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-mono font-semibold text-ink break-words">{v.batch_code}</div>
-                    <div className="font-mono text-xs text-ink-soft mt-0.5">{v.sizing_job_code ?? '—'}</div>
+                    <div className="font-mono text-xs text-ink-soft mt-0.5">{v.sizing_job_code ?? 'â€”'}</div>
                   </div>
                   <div className="text-right text-xs shrink-0">
                     {overrun ? (
@@ -438,13 +445,13 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                     ) : (
                       <span className="text-ink-soft">on plan</span>
                     )}
-                    <div className="num mt-0.5">{v.variance_total != null ? fmtRupees(v.variance_total, 0) : '—'}</div>
+                    <div className="num mt-0.5">{v.variance_total != null ? fmtRupees(v.variance_total, 0) : 'â€”'}</div>
                   </div>
                 </div>
                 <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
                   <div>Produced m: <span className="num">{fmtNum(v.produced_m)}</span></div>
-                  <div>Planned ₹/m: <span className="num">{v.planned_sizing_cost_per_m != null ? fmtRupees(v.planned_sizing_cost_per_m, 2) : '—'}</span></div>
-                  <div>Actual ₹/m: <span className="num">{v.actual_sizing_cost_per_m != null ? fmtRupees(v.actual_sizing_cost_per_m, 2) : '—'}</span></div>
+                  <div>Planned â‚¹/m: <span className="num">{v.planned_sizing_cost_per_m != null ? fmtRupees(v.planned_sizing_cost_per_m, 2) : 'â€”'}</span></div>
+                  <div>Actual â‚¹/m: <span className="num">{v.actual_sizing_cost_per_m != null ? fmtRupees(v.actual_sizing_cost_per_m, 2) : 'â€”'}</span></div>
                 </div>
               </div>
             );
@@ -457,10 +464,10 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                 <th className="text-left px-3 py-2">Batch</th>
                 <th className="text-left px-3 py-2">Sizing job</th>
                 <th className="text-right px-3 py-2">Produced m</th>
-                <th className="text-right px-3 py-2">Planned ₹/m</th>
-                <th className="text-right px-3 py-2">Actual ₹/m</th>
+                <th className="text-right px-3 py-2">Planned â‚¹/m</th>
+                <th className="text-right px-3 py-2">Actual â‚¹/m</th>
                 <th className="text-right px-3 py-2">Variance /m</th>
-                <th className="text-right px-3 py-2">Variance total ₹</th>
+                <th className="text-right px-3 py-2">Variance total â‚¹</th>
               </tr>
             </thead>
             <tbody>
@@ -477,7 +484,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                       {v.batch_code}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-ink-soft">
-                      {v.sizing_job_code ?? '—'}
+                      {v.sizing_job_code ?? 'â€”'}
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {fmtNum(v.produced_m)}
@@ -485,12 +492,12 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                     <td className="px-3 py-2 text-right num">
                       {v.planned_sizing_cost_per_m != null
                         ? fmtRupees(v.planned_sizing_cost_per_m, 2)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {v.actual_sizing_cost_per_m != null
                         ? fmtRupees(v.actual_sizing_cost_per_m, 2)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td className="px-3 py-2 text-right text-xs">
                       {overrun ? (
@@ -510,7 +517,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                     <td className="px-3 py-2 text-right num text-xs">
                       {v.variance_total != null
                         ? fmtRupees(v.variance_total, 0)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                   </tr>
                 );
@@ -524,7 +531,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
   );
 }
 
-/* ─────────────── small presentational helpers ─────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ small presentational helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface KpiProps {
   label: string;
@@ -600,7 +607,7 @@ function TrendBadge({ trend }: { trend: Trend }) {
       </span>
     );
   }
-  return <span className="text-ink-mute text-xs">—</span>;
+  return <span className="text-ink-mute text-xs">â€”</span>;
 }
 
 function cheapestRate(rows: VendorRow[]): number | null {
