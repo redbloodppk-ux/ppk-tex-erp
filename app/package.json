@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
-    "@sparticuz/chromium": "^149.0.0",
+    "@sparticuz/chromium-min": "^149.0.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/forms": "^0.5.9",

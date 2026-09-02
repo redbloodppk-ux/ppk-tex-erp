@@ -46,9 +46,33 @@ export function isRenderablePath(path: string): boolean {
 }
 
 /**
+ * Where the Chromium binary comes from on Vercel.
+ *
+ * The first attempt used @sparticuz/chromium, which ships 66 MB of Brotli
+ * archives inside the package and unpacks them to /tmp. It failed on
+ * deploy: "The input directory /var/task/app/node_modules/.pnpm/
+ * @sparticuz+chromium…/bin does not exist". serverExternalPackages did not
+ * help, and neither did outputFileTracingIncludes — Next's trace files list
+ * none of it, and the same is true of pdfkit, which nonetheless works. In
+ * other words the packaging behaviour here is not something this repo can
+ * verify before deploying, and it had already cost two failed builds.
+ *
+ * chromium-min removes the question entirely: the package is JavaScript
+ * only, and the binary is fetched at runtime from a URL. Nothing to trace,
+ * nothing to relocate, nothing that can be silently pruned.
+ *
+ * The cost is a ~50 MB download on a cold container, a few seconds, and a
+ * dependency on that URL being reachable. CHROMIUM_PACK_URL overrides it —
+ * worth pointing at Supabase storage if GitHub ever proves flaky or slow.
+ * The version MUST match the installed @sparticuz/chromium-min.
+ */
+const CHROMIUM_PACK_URL =
+  process.env.CHROMIUM_PACK_URL ??
+  'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar';
+
+/**
  * Chrome's location differs by environment:
- *  - On Vercel there is no browser, so @sparticuz/chromium ships one built
- *    for the Lambda filesystem and hands back a path under /tmp.
+ *  - On Vercel there is no browser, so chromium-min downloads one.
  *  - Locally we use whatever Chrome the developer already has, because
  *    downloading a second 300 MB copy to run `npm run dev` is rude.
  *    CHROME_PATH overrides, for anyone whose install is elsewhere.
@@ -58,10 +82,10 @@ async function launchBrowser(): Promise<Browser> {
   const onServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
   if (onServerless) {
-    const chromium = (await import('@sparticuz/chromium')).default;
+    const chromium = (await import('@sparticuz/chromium-min')).default;
     return puppeteer.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromium.executablePath(CHROMIUM_PACK_URL),
       headless: true,
     }) as unknown as Browser;
   }

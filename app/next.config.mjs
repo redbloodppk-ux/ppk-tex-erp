@@ -66,7 +66,13 @@ const nextConfig = {
   // that it unpacks to /tmp at runtime. Bundled by webpack, the binary is
   // mangled or dropped and the PDF route dies on Vercel with an unhelpful
   // "Could not find browser". These must stay external.
-  serverExternalPackages: ['pdfkit', 'puppeteer-core', '@sparticuz/chromium'],
+  // chromium-min carries no binary of its own — it downloads one at
+  // runtime — so there is nothing here to trace or accidentally prune.
+  // That is precisely why it is the -min package and not the full one:
+  // the full package's 66 MB of Brotli archives never reached the Vercel
+  // function, and no combination of serverExternalPackages and
+  // outputFileTracingIncludes could be shown to fix it from this side.
+  serverExternalPackages: ['pdfkit', 'puppeteer-core', '@sparticuz/chromium-min'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },
