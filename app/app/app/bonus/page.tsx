@@ -122,6 +122,20 @@ export default function BonusPage(): React.ReactElement {
   const [from, setFrom] = useState<string>(yearAgoISO());
   const [to,   setTo]   = useState<string>(todayISO());
 
+  /**
+   * The window where records actually exist — earliest and latest of any
+   * attendance day or wage entry. null until it has been read.
+   *
+   * PPK, 2026-09-02: "in bonus page, don't show date range that beyond the
+   * record date". The page opened on 02-04-2025 to 02-09-2026, a span of
+   * seventeen months, while the books begin on 25-05-2026. The eleven
+   * months in front of that are not zero-bonus months, they are months
+   * that never happened, and a total computed across them invites the
+   * question "why is ANAND's bonus low" when the honest answer is that the
+   * range is fiction.
+   */
+  const [bounds, setBounds] = useState<{ min: string; max: string } | null>(null);
+
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [rows, setRows] = useState<Record<number, RowState>>({});
   const [loading, setLoading] = useState<boolean>(true);
@@ -241,6 +255,44 @@ export default function BonusPage(): React.ReactElement {
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * Find the real extent of the books, once, and pull the pickers inside it.
+   *
+   * Both tables are asked for their own first and last date rather than
+   * assuming attendance always starts first — a wage entry could predate
+   * the first marked shift, and the bonus reads both.
+   *
+   * The clamp only ever NARROWS: if the saved range already sits inside the
+   * data it is left alone. That matters because this runs after the first
+   * load, and yanking the dates out from under someone who has just picked
+   * them would be worse than the wrong default it is fixing.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [attLo, attHi, wgLo, wgHi] = await Promise.all([
+        sb.from('attendance_day').select('attendance_date').order('attendance_date', { ascending: true }).limit(1).maybeSingle(),
+        sb.from('attendance_day').select('attendance_date').order('attendance_date', { ascending: false }).limit(1).maybeSingle(),
+        sb.from('wage_entry').select('pay_date').order('pay_date', { ascending: true }).limit(1).maybeSingle(),
+        sb.from('wage_entry').select('pay_date').order('pay_date', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (cancelled) return;
+
+      const lows = [attLo?.data?.attendance_date, wgLo?.data?.pay_date].filter(Boolean) as string[];
+      const highs = [attHi?.data?.attendance_date, wgHi?.data?.pay_date].filter(Boolean) as string[];
+      if (lows.length === 0 || highs.length === 0) return; // empty books
+
+      const min = lows.reduce((a, b) => (a < b ? a : b));
+      const max = highs.reduce((a, b) => (a > b ? a : b));
+      setBounds({ min, max });
+      setFrom((f) => (f < min ? min : f > max ? max : f));
+      setTo((t) => (t > max ? max : t < min ? min : t));
+    })();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
   function patchRow(empId: number, patch: Partial<RowState>): void {
     setRows((r) => ({ ...r, [empId]: { ...(r[empId] ?? { presents: '0', amount: '0' }), ...patch } }));
   }
@@ -302,16 +354,29 @@ export default function BonusPage(): React.ReactElement {
 
       {/* Period picker — drives presents + wages for all sections. */}
       <div className="card p-4 flex flex-wrap items-end gap-3">
+        {/* min/max keep the calendar inside the dates that actually have
+            records. The browser greys out everything beyond, so a range
+            covering months the mill has no books for cannot be picked by
+            accident. */}
         <div>
           <label className="label" htmlFor="bn-from">From *</label>
           <input id="bn-from" type="date" className="input"
+            min={bounds?.min} max={bounds?.max}
             value={from} onChange={(e) => setFrom(e.target.value)} />
         </div>
         <div>
           <label className="label" htmlFor="bn-to">To *</label>
           <input id="bn-to" type="date" className="input"
+            min={from || bounds?.min} max={bounds?.max}
             value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
+        {bounds && (
+          <div className="text-[11px] leading-tight text-ink-mute">
+            Records available<br />
+            <span className="num">{fmtDate(bounds.min)}</span> to{' '}
+            <span className="num">{fmtDate(bounds.max)}</span>
+          </div>
+        )}
         <button type="button" className="btn-ghost" onClick={() => void load()} disabled={loading}>
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
           Refresh
