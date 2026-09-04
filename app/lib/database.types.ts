@@ -8457,6 +8457,16 @@ export type Database = {
       }
       fn_dc_auto_link_so_for: { Args: { p_dc_id: number }; Returns: undefined }
       fn_fy_code: { Args: { d: string }; Returns: string }
+      fn_loom_quality_on_date: {
+        Args: { p_date: string }
+        Returns: {
+          beam_no: string
+          loom_code: string
+          loom_id: number
+          pavu_id: number
+          quality_name: string
+        }[]
+      }
       fn_looms_calibration_suggest: {
         Args: { p_days_back?: number; p_wage_roles?: string[] }
         Returns: {

@@ -79,6 +79,21 @@ interface LoomRow {
    *  showing that against a past date labels history with today's value.
    *  458 of 1,846 logs already differ. Prefer this whenever present. */
   logged_quality_name: string | null;
+  /** Quality of the beam that was ON THIS LOOM on the chosen date, for
+   *  dates with no saved log yet.
+   *
+   *  Without it the screen fell back to the loom's CURRENT setting, so an
+   *  unlogged past date was labelled with whatever is on the loom today.
+   *  PPK, 2026-09-04: "loom no 34 supposed to display OE THALAPATHY ... on
+   *  2/9/26 but it showing COTTON THALAPATHY". Beam 2420 (OE) ran on L-34
+   *  until 3 Sep, when beam 5409 (Cotton) replaced it — so 2 Sep was being
+   *  labelled with the 3rd's beam.
+   *
+   *  Resolved by fn_pavu_stock_report(date), which already works out which
+   *  beam was on which loom on a given day and what quality it is. Reused
+   *  rather than reimplemented so the shift log and the Beam Stock Report
+   *  cannot disagree about the same beam. */
+  mounted_quality_name: string | null;
   /** Loom status from Mill Setup (running / idle / maintenance / breakdown). */
   status: string;
   /** Date the loom went non-running. NULL when currently running. */
@@ -156,9 +171,11 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       loom_code: l.loom_code,
       loom_type: l.loom_type,
       quality_name: l.quality_name,
-      // No saved log for this date yet, so the loom's current quality is
-      // the right (and only) thing to show.
+      // Placeholder shed, drawn before the date's data arrives. Both the
+      // logged and the mounted quality are unknown at this point; the real
+      // values are filled in by loadEntries a moment later.
       logged_quality_name: null,
+      mounted_quality_name: null,
       status: l.status,
       idle_since: l.idle_since,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
@@ -325,6 +342,25 @@ export default function ShiftLogPage(): React.ReactElement {
       kids = (kidData ?? []) as typeof kids;
     }
 
+    // What each loom was weaving on THIS date, from the mount windows.
+    //
+    // Not fn_pavu_stock_report: that answers "where are the beams NOW", and
+    // its on-loom branch needs status mounted/running. Beam 2420 came off
+    // L-34 on 3 Sep and is 'completed', so asking the stock report about
+    // 2 Sep returns nothing for that loom — which is how 2 Sep ended up
+    // wearing the 3rd's cloth. See migration 281.
+    const mountedQualityByLoom = new Map<number, string | null>();
+    {
+      const { data: asOf } = await supabase
+        .rpc('fn_loom_quality_on_date', { p_date: logDate });
+      for (const r of ((asOf ?? []) as Array<{
+        loom_id: number | null; quality_name: string | null;
+      }>)) {
+        if (r.loom_id == null || !r.quality_name) continue;
+        mountedQualityByLoom.set(Number(r.loom_id), r.quality_name);
+      }
+    }
+
     const loomByParent = new Map<number, number>();
     const adjByLoom = new Map<number, number>();
     // Quality frozen on THIS date's log, per loom. Displayed in place of
@@ -400,6 +436,7 @@ export default function ShiftLogPage(): React.ReactElement {
           loom_type: l.loom_type,
           quality_name: l.quality_name,
           logged_quality_name: loggedQualityByLoom.get(l.id) ?? null,
+          mounted_quality_name: mountedQualityByLoom.get(l.id) ?? null,
           status: l.status,
           idle_since: l.idle_since,
           metres,
@@ -981,7 +1018,13 @@ function ShedCard({
                     {/* Prefer the quality frozen on this date's log. Falling
                         back to the loom's live setting mislabels history the
                         moment a loom is re-set. */}
-                    <div className="text-xs text-ink-mute">{r.logged_quality_name ?? r.quality_name ?? r.loom_type}</div>
+                    {/* Order matters. What the log froze on this date beats what
+                beam was on the loom that day, which beats the loom's
+                current setting — that last one is only a fallback and is
+                the value that mislabelled 2 Sep with the 3rd's beam. */}
+            <div className="text-xs text-ink-mute">
+              {r.logged_quality_name ?? r.mounted_quality_name ?? r.quality_name ?? r.loom_type}
+            </div>
                   </td>
                   {running ? (
                     <>
