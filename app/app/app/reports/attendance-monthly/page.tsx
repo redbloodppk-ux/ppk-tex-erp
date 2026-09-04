@@ -13,12 +13,12 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarRange } from 'lucide-react';
+import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 
 export const metadata = { title: 'Monthly Attendance' };
 export const dynamic = 'force-dynamic';
 
 interface MonthlyRow {
-  month: string | null;
   employee_id: number | null;
   employee_code: string | null;
   employee_name: string | null;
@@ -43,40 +43,81 @@ function fmtMonth(ym: string): string {
   });
 }
 
+const isIso = (s: unknown): s is string =>
+  typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/** Last calendar day of a YYYY-MM. */
+function monthEnd(ym: string): string {
+  const d = new Date(ym + '-01T00:00:00');
+  d.setMonth(d.getMonth() + 1);
+  d.setDate(0);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtDay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${m[3]}-${months[Number(m[2]) - 1]}-${m[1]}`;
+}
+
 export default async function MonthlyAttendanceReport({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; role?: string }>;
+  searchParams: Promise<{ month?: string; role?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const month = sp.month && /^\d{4}-\d{2}$/.test(sp.month) ? sp.month : currentMonth();
   const role = sp.role && sp.role.trim() ? sp.role.trim() : null;
 
   const supabase = await createClient();
 
-  let query = supabase
-    .from('v_attendance_monthly')
-    .select('*')
-    .eq('month', month)
-    .order('employee_name');
+  // PPK, 2026-09-04: "we need date range selection also for this report."
+  // Two ways to ask the same question, so the month picker stays for the
+  // common case and a From/To pair handles everything a calendar month
+  // cannot — a pay week straddling month end, for instance.
+  //
+  // Presence of a From or To is what selects range mode: there is no
+  // separate toggle to get out of step with the dates beside it.
+  const bounds = await recordDateBounds(supabase, DATE_SOURCES.attendance);
+  const rangeMode = isIso(sp.from) || isIso(sp.to);
 
-  // role is a free-form string from the query string; the view column is
-  // typed as the employee_role enum so we cast to satisfy supabase-js's
-  // generated types. Bad values just return zero rows.
-  if (role) query = query.eq('employee_role', role as never);
+  const month = sp.month && /^\d{4}-\d{2}$/.test(sp.month) ? sp.month : currentMonth();
+  const rawFrom = rangeMode ? (isIso(sp.from) ? sp.from : (bounds?.min ?? `${month}-01`)) : `${month}-01`;
+  const rawTo = rangeMode ? (isIso(sp.to) ? sp.to : (bounds?.max ?? monthEnd(month))) : monthEnd(month);
+  const from = clampDate(rawFrom, bounds);
+  const toClamped = clampDate(rawTo, bounds);
+  // A To before From would return nothing and look like "no attendance".
+  const to = toClamped < from ? from : toClamped;
 
-  const { data, error } = await query;
-  const rows = (data as unknown as MonthlyRow[]) ?? [];
+  const periodLabel = rangeMode
+    ? `${fmtDay(from)} to ${fmtDay(to)}`
+    : fmtMonth(month);
 
-  // Distinct roles for the filter dropdown — derived from the rows we got.
-  const { data: roleData } = await supabase
-    .from('v_attendance_monthly')
-    .select('employee_role')
-    .eq('month', month);
+  // Both modes call the same function (migration 279) — the month view is
+  // itself a wrapper over it, so a month asked either way gives identical
+  // counts by construction rather than by coincidence.
+  //
+  // Cast because lib/database.types.ts has not been regenerated since
+  // migration 279 added the function — `npm run typegen` is overdue across
+  // several recent migrations. Same pattern the rest of this codebase uses
+  // for that gap.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .rpc('fn_attendance_summary', { p_from: from, p_to: to });
+
+  const allRows = ((data as unknown as MonthlyRow[]) ?? [])
+    .sort((a, b) => (a.employee_name ?? '').localeCompare(b.employee_name ?? ''));
+
+  // Role filter applied here rather than in the query: the function returns
+  // one row per employee, so this is a handful of rows and filtering in SQL
+  // would mean casting a free-form string to the employee_role enum.
+  const rows = role
+    ? allRows.filter((r) => (r.employee_role ?? '') === role)
+    : allRows;
+
+  // Roles offered are those present in the chosen period.
   const allRoles = Array.from(
-    new Set(((roleData ?? []) as { employee_role: string | null }[])
-      .map(r => r.employee_role)
-      .filter((r): r is string => Boolean(r))),
+    new Set(allRows.map(r => r.employee_role).filter((r): r is string => Boolean(r))),
   ).sort();
 
   const totals = rows.reduce(
@@ -109,7 +150,7 @@ export default async function MonthlyAttendanceReport({
     <div>
       <PageHeader
         title="Monthly Attendance"
-        subtitle="Per-employee summary for one month. Pick a month and optionally narrow by role."
+        subtitle="Per-employee summary for a month or any date range. Optionally narrow by role."
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
           { label: 'Attendance — Monthly' },
@@ -117,9 +158,9 @@ export default async function MonthlyAttendanceReport({
         actions={
           rows.length > 0 ? (
             <ExcelExportButton
-              filename={`monthly-attendance-${month}${role ? '-' + role : ''}`}
-              sheetName="Monthly Attendance"
-              title={`Monthly Attendance — ${fmtMonth(month)}${role ? ` (${role})` : ''}`}
+              filename={`attendance-${rangeMode ? `${from}-to-${to}` : month}${role ? '-' + role : ''}`}
+              sheetName="Attendance"
+              title={`Attendance — ${periodLabel}${role ? ` (${role})` : ''}`}
               columns={exportColumns}
               rows={rows as unknown as ReadonlyArray<Record<string, unknown>>}
             />
@@ -127,7 +168,10 @@ export default async function MonthlyAttendanceReport({
         }
       />
 
-      <form method="GET" className="card p-3 mb-4 flex flex-wrap items-end gap-3">
+      {/* Two forms, not one. A single form would submit month AND dates
+          together, and the page would have to guess which the operator
+          meant. Separate forms make the choice by which button is pressed. */}
+      <form method="GET" className="card p-3 mb-3 flex flex-wrap items-end gap-3">
         <div>
           <label className="label" htmlFor="month">
             Month
@@ -160,12 +204,39 @@ export default async function MonthlyAttendanceReport({
           </select>
         </div>
         <button type="submit" className="btn-primary min-h-[44px]">
-          Show
+          Show month
         </button>
         <span className="text-xs text-ink-mute ml-1">
-          Showing {fmtMonth(month)}
+          Showing {periodLabel}
           {role ? ` — ${role}` : ''}
         </span>
+      </form>
+
+      {/* Date range — for anything a calendar month cannot express, such as
+          a pay week that straddles month end. Bounded to the days that have
+          attendance, so a range over months with no records cannot be
+          picked. Role is repeated as a hidden field so switching to a range
+          does not silently drop the role filter. */}
+      <form method="GET" className="card p-3 mb-4 flex flex-wrap items-end gap-3">
+        {role && <input type="hidden" name="role" value={role} />}
+        <div>
+          <label className="label" htmlFor="from">From</label>
+          <input id="from" name="from" type="date" defaultValue={from}
+            min={bounds?.min} max={bounds?.max} className="input" />
+        </div>
+        <div>
+          <label className="label" htmlFor="to">To</label>
+          <input id="to" name="to" type="date" defaultValue={to}
+            min={from || bounds?.min} max={bounds?.max} className="input" />
+        </div>
+        <button type="submit" className="btn-secondary min-h-[44px]">
+          Show date range
+        </button>
+        {bounds && (
+          <span className="text-xs text-ink-mute ml-1">
+            Attendance recorded {fmtDay(bounds.min)} to {fmtDay(bounds.max)}
+          </span>
+        )}
       </form>
 
       {error && (
@@ -190,7 +261,7 @@ export default async function MonthlyAttendanceReport({
 
       {rows.length === 0 ? (
         <div className="card p-6 text-center text-sm text-ink-mute">
-          No attendance has been marked in {fmtMonth(month)} yet
+          No attendance has been marked in {periodLabel} yet
           {role ? ` for role "${role}"` : ''}.
         </div>
       ) : (
