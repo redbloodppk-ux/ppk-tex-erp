@@ -470,6 +470,11 @@ export default function AttendanceMarkPage() {
   //   - Other roles -> fall back to weaver-style exclusion against other
   //     weavers, in case a future role gets a single-shed picker.
   //
+  // A blocking weaver must be BOTH rostered on this shift AND in a worked
+  // status. Neither test is enough alone: the first stops a night weaver
+  // claiming a shed on the morning screen, the second stops a weaver who
+  // did not turn up claiming one on their own shift.
+  //
   // The current employee's own picks are never counted (so their own
   // selection stays visible in their dropdown).
   const shedsTakenByOthers = useCallback(
@@ -488,12 +493,29 @@ export default function AttendanceMarkPage() {
         // shift) would falsely "claim" that shed on the Morning screen too,
         // even though that weaver never appears there.
         if (!inThisShift(e)) continue;
+        // ...and only weavers who actually WORKED it. A weaver marked
+        // Absent or None is not at a loom, so they cannot be holding a
+        // shed against anyone.
+        //
+        // Without this, a weaver's default shed (pre-filled from
+        // employee.default_sheds so nobody re-ticks it every shift) kept
+        // reserving that shed on a shift they never worked — VIJI marked
+        // None still holding Shed 2, so the weaver who actually wove Shed 2
+        // could not be given it. The supervisor's only ways out were to
+        // leave it blank, which reads downstream as "no weaver ran this
+        // shed" and docks a winder, or to pick a different shed and
+        // misattribute the cloth. PPK spotted it on 2026-09-04: "viji and
+        // ashok is none but shed is selected".
+        //
+        // The shed stays visible on an Absent / None row on purpose — it
+        // records which shed lost its weaver — it simply stops blocking.
+        if (!WORKED_STATUSES.has(statusByEmp[e.id] ?? 'present')) continue;
         const shed = shedByEmp[e.id];
         if (shed) taken.add(shed);
       }
       return taken;
     },
-    [employees, shedByEmp, inThisShift],
+    [employees, shedByEmp, statusByEmp, inThisShift],
   );
 
   /** Sheds the supervisor has said RAN this shift, or null when nobody has
