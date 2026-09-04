@@ -697,6 +697,18 @@ export default function NewCostingPage() {
             <label className="label">Costing Name *</label>
             <input className="input w-full" placeholder="e.g. Dobby Towel 31in"
               value={qualityName} onChange={(e) => setQualityName(e.target.value)} />
+            {/* This name used to be able to drift from the fabric quality the
+                costing is linked to — costing 15 read "60 X 46 = 31" while
+                linked to the 30" quality, and reports quietly used the link.
+                Migration 282 makes the name follow the linked quality, so
+                say so here rather than let someone type a name and assume it
+                is the one that counts. */}
+            <p className="mt-1 text-[11px] text-ink-mute">
+              A working label. Once you link this costing to a fabric quality
+              (on Costing Approvals), this name is replaced by the quality&rsquo;s
+              own name and follows it from then on &mdash; so reports and this
+              screen can never disagree.
+            </p>
           </div>
           <div>
             <label className="label">Fabric Type</label>
