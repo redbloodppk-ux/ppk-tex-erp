@@ -161,6 +161,7 @@ export type Database = {
       attendance_day: {
         Row: {
           attendance_date: string
+          counts_in_week: boolean
           id: number
           is_working: boolean
           locked_at: string | null
@@ -173,6 +174,7 @@ export type Database = {
         }
         Insert: {
           attendance_date: string
+          counts_in_week?: boolean
           id?: number
           is_working?: boolean
           locked_at?: string | null
@@ -185,6 +187,7 @@ export type Database = {
         }
         Update: {
           attendance_date?: string
+          counts_in_week?: boolean
           id?: number
           is_working?: boolean
           locked_at?: string | null
@@ -274,13 +277,6 @@ export type Database = {
             referencedColumns: ["employee_id"]
           },
           {
-            foreignKeyName: "attendance_entry_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_attendance_monthly"
-            referencedColumns: ["employee_id"]
-          },
-          {
             foreignKeyName: "attendance_entry_marked_by_fkey"
             columns: ["marked_by"]
             isOneToOne: false
@@ -319,6 +315,24 @@ export type Database = {
           old_data?: Json | null
           row_pk?: string
           table_name?: string
+        }
+        Relationships: []
+      }
+      auto_backup: {
+        Row: {
+          created_at: string
+          id: number
+          payload: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          payload: Json
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          payload?: Json
         }
         Relationships: []
       }
@@ -888,6 +902,7 @@ export type Database = {
           phone: string | null
           pincode: string
           state: string
+          tan: string | null
           updated_at: string
           website: string | null
         }
@@ -913,6 +928,7 @@ export type Database = {
           phone?: string | null
           pincode: string
           state: string
+          tan?: string | null
           updated_at?: string
           website?: string | null
         }
@@ -938,6 +954,7 @@ export type Database = {
           phone?: string | null
           pincode?: string
           state?: string
+          tan?: string | null
           updated_at?: string
           website?: string | null
         }
@@ -1907,13 +1924,6 @@ export type Database = {
             referencedColumns: ["employee_id"]
           },
           {
-            foreignKeyName: "employee_loan_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_attendance_monthly"
-            referencedColumns: ["employee_id"]
-          },
-          {
             foreignKeyName: "employee_loan_source_ledger_id_fkey"
             columns: ["source_ledger_id"]
             isOneToOne: false
@@ -2808,19 +2818,44 @@ export type Database = {
           },
         ]
       }
+      fabric_receipt_snapshot_backup: {
+        Row: {
+          backed_up_at: string
+          code: string | null
+          reason: string | null
+          receipt_date: string | null
+          receipt_id: number
+          stock_snapshot: Json | null
+        }
+        Insert: {
+          backed_up_at?: string
+          code?: string | null
+          reason?: string | null
+          receipt_date?: string | null
+          receipt_id: number
+          stock_snapshot?: Json | null
+        }
+        Update: {
+          backed_up_at?: string
+          code?: string | null
+          reason?: string | null
+          receipt_date?: string | null
+          receipt_id?: number
+          stock_snapshot?: Json | null
+        }
+        Relationships: []
+      }
       fabric_stock: {
         Row: {
           batch_id: number | null
           cost_per_m_frozen: number
           costing_id: number
           id: number
-          jw_id: number | null
           metres_available: number | null
           metres_in: number
           metres_out: number
           ow_id: number | null
           received_at: string
-          resale_lot_id: number | null
           source_type: string
         }
         Insert: {
@@ -2828,13 +2863,11 @@ export type Database = {
           cost_per_m_frozen: number
           costing_id: number
           id?: number
-          jw_id?: number | null
           metres_available?: number | null
           metres_in: number
           metres_out?: number
           ow_id?: number | null
           received_at?: string
-          resale_lot_id?: number | null
           source_type: string
         }
         Update: {
@@ -2842,13 +2875,11 @@ export type Database = {
           cost_per_m_frozen?: number
           costing_id?: number
           id?: number
-          jw_id?: number | null
           metres_available?: number | null
           metres_in?: number
           metres_out?: number
           ow_id?: number | null
           received_at?: string
-          resale_lot_id?: number | null
           source_type?: string
         }
         Relationships: [
@@ -2923,24 +2954,10 @@ export type Database = {
             referencedColumns: ["costing_id"]
           },
           {
-            foreignKeyName: "fabric_stock_jw_id_fkey"
-            columns: ["jw_id"]
-            isOneToOne: false
-            referencedRelation: "jobwork_order"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "fabric_stock_ow_id_fkey"
             columns: ["ow_id"]
             isOneToOne: false
             referencedRelation: "outsource_order"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fabric_stock_resale_lot_id_fkey"
-            columns: ["resale_lot_id"]
-            isOneToOne: false
-            referencedRelation: "resale_lot"
             referencedColumns: ["id"]
           },
         ]
@@ -2983,7 +3000,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           description: string | null
-          gst_pct: number
+          gst_pct: number | null
           id: number
           round_off: number
           status: Database["public"]["Enums"]["record_status"]
@@ -3000,7 +3017,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           description?: string | null
-          gst_pct?: number
+          gst_pct?: number | null
           id?: number
           round_off?: number
           status?: Database["public"]["Enums"]["record_status"]
@@ -3017,7 +3034,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           description?: string | null
-          gst_pct?: number
+          gst_pct?: number | null
           id?: number
           round_off?: number
           status?: Database["public"]["Enums"]["record_status"]
@@ -3044,8 +3061,59 @@ export type Database = {
           },
         ]
       }
+      general_purchase_item: {
+        Row: {
+          amount: number | null
+          created_at: string
+          general_purchase_id: number
+          gst_amount: number | null
+          gst_pct: number
+          id: number
+          item_name: string
+          position: number
+          qty: number
+          rate: number
+          unit: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          general_purchase_id: number
+          gst_amount?: number | null
+          gst_pct?: number
+          id?: number
+          item_name: string
+          position?: number
+          qty?: number
+          rate?: number
+          unit?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          general_purchase_id?: number
+          gst_amount?: number | null
+          gst_pct?: number
+          id?: number
+          item_name?: string
+          position?: number
+          qty?: number
+          rate?: number
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "general_purchase_item_general_purchase_id_fkey"
+            columns: ["general_purchase_id"]
+            isOneToOne: false
+            referencedRelation: "general_purchase"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inhouse_warp_beam_purchase: {
         Row: {
+          amount_paid: number
           code: string | null
           created_at: string
           created_by: string | null
@@ -3053,6 +3121,7 @@ export type Database = {
           fabric_quality_id: number | null
           gst_pct: number
           id: number
+          invoice_no: string | null
           metres: number
           notes: string | null
           purchase_date: string
@@ -3065,6 +3134,7 @@ export type Database = {
           yarn_count_id: number | null
         }
         Insert: {
+          amount_paid?: number
           code?: string | null
           created_at?: string
           created_by?: string | null
@@ -3072,6 +3142,7 @@ export type Database = {
           fabric_quality_id?: number | null
           gst_pct?: number
           id?: number
+          invoice_no?: string | null
           metres: number
           notes?: string | null
           purchase_date?: string
@@ -3084,6 +3155,7 @@ export type Database = {
           yarn_count_id?: number | null
         }
         Update: {
+          amount_paid?: number
           code?: string | null
           created_at?: string
           created_by?: string | null
@@ -3091,6 +3163,7 @@ export type Database = {
           fabric_quality_id?: number | null
           gst_pct?: number
           id?: number
+          invoice_no?: string | null
           metres?: number
           notes?: string | null
           purchase_date?: string
@@ -3180,6 +3253,7 @@ export type Database = {
           notes: string | null
           original_invoice_id: number | null
           party_gstin: string | null
+          party_id: number | null
           party_name: string | null
           party_state: string | null
           pdf_url: string | null
@@ -3228,6 +3302,7 @@ export type Database = {
           notes?: string | null
           original_invoice_id?: number | null
           party_gstin?: string | null
+          party_id?: number | null
           party_name?: string | null
           party_state?: string | null
           pdf_url?: string | null
@@ -3276,6 +3351,7 @@ export type Database = {
           notes?: string | null
           original_invoice_id?: number | null
           party_gstin?: string | null
+          party_id?: number | null
           party_name?: string | null
           party_state?: string | null
           pdf_url?: string | null
@@ -3378,6 +3454,20 @@ export type Database = {
             referencedColumns: ["invoice_id"]
           },
           {
+            foreignKeyName: "invoice_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "party"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "v_jobwork_payment_status"
+            referencedColumns: ["party_id"]
+          },
+          {
             foreignKeyName: "invoice_ship_to_party_id_fkey"
             columns: ["ship_to_party_id"]
             isOneToOne: false
@@ -3426,7 +3516,6 @@ export type Database = {
           original_line_id: number | null
           quantity: number
           rate: number
-          resale_lot_id: number | null
           sgst_amount: number
           so_line_id: number | null
           taxable_amount: number
@@ -3452,7 +3541,6 @@ export type Database = {
           original_line_id?: number | null
           quantity: number
           rate: number
-          resale_lot_id?: number | null
           sgst_amount?: number
           so_line_id?: number | null
           taxable_amount?: number
@@ -3478,7 +3566,6 @@ export type Database = {
           original_line_id?: number | null
           quantity?: number
           rate?: number
-          resale_lot_id?: number | null
           sgst_amount?: number
           so_line_id?: number | null
           taxable_amount?: number
@@ -3558,13 +3645,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "invoice_line_resale_lot_id_fkey"
-            columns: ["resale_lot_id"]
-            isOneToOne: false
-            referencedRelation: "resale_lot"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "invoice_line_so_line_id_fkey"
             columns: ["so_line_id"]
             isOneToOne: false
@@ -3588,6 +3668,7 @@ export type Database = {
           id: number
           issue_date: string
           jobwork_party_id: number
+          metre_per_pc: number | null
           notes: string | null
           original_pieces: number | null
           pieces_issued: number
@@ -3604,6 +3685,7 @@ export type Database = {
           id?: number
           issue_date?: string
           jobwork_party_id: number
+          metre_per_pc?: number | null
           notes?: string | null
           original_pieces?: number | null
           pieces_issued?: number
@@ -3620,6 +3702,7 @@ export type Database = {
           id?: number
           issue_date?: string
           jobwork_party_id?: number
+          metre_per_pc?: number | null
           notes?: string | null
           original_pieces?: number | null
           pieces_issued?: number
@@ -3660,132 +3743,6 @@ export type Database = {
           },
           {
             foreignKeyName: "jobwork_bobbin_issue_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      jobwork_order: {
-        Row: {
-          bobbin_pcs_received: number
-          costing_id: number
-          created_at: string
-          created_by: string | null
-          customer_id: number
-          delivered_date: string | null
-          delivered_metres: number
-          expected_metres: number
-          id: number
-          jw_number: string
-          labour_rate_per_m: number
-          notes: string | null
-          porvai_kg_received: number
-          promised_date: string | null
-          received_date: string
-          status: string
-          updated_at: string
-          updated_by: string | null
-          warp_kg_received: number
-          weft_kg_received: number
-        }
-        Insert: {
-          bobbin_pcs_received?: number
-          costing_id: number
-          created_at?: string
-          created_by?: string | null
-          customer_id: number
-          delivered_date?: string | null
-          delivered_metres?: number
-          expected_metres: number
-          id?: number
-          jw_number: string
-          labour_rate_per_m: number
-          notes?: string | null
-          porvai_kg_received?: number
-          promised_date?: string | null
-          received_date: string
-          status?: string
-          updated_at?: string
-          updated_by?: string | null
-          warp_kg_received?: number
-          weft_kg_received?: number
-        }
-        Update: {
-          bobbin_pcs_received?: number
-          costing_id?: number
-          created_at?: string
-          created_by?: string | null
-          customer_id?: number
-          delivered_date?: string | null
-          delivered_metres?: number
-          expected_metres?: number
-          id?: number
-          jw_number?: string
-          labour_rate_per_m?: number
-          notes?: string | null
-          porvai_kg_received?: number
-          promised_date?: string | null
-          received_date?: string
-          status?: string
-          updated_at?: string
-          updated_by?: string | null
-          warp_kg_received?: number
-          weft_kg_received?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "jobwork_order_costing_id_fkey"
-            columns: ["costing_id"]
-            isOneToOne: false
-            referencedRelation: "costing_master"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_costing_id_fkey"
-            columns: ["costing_id"]
-            isOneToOne: false
-            referencedRelation: "v_costing_two_cost"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_costing_id_fkey"
-            columns: ["costing_id"]
-            isOneToOne: false
-            referencedRelation: "v_quality_margin"
-            referencedColumns: ["costing_id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "v_customer_ageing"
-            referencedColumns: ["customer_id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "v_customer_outstanding"
-            referencedColumns: ["customer_id"]
-          },
-          {
-            foreignKeyName: "jobwork_order_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "app_user"
@@ -4526,44 +4483,52 @@ export type Database = {
           },
         ]
       }
-      notification: {
+      loom_status_log: {
         Row: {
-          body: string | null
-          category: string | null
+          changed_on: string
           created_at: string
           id: number
-          is_read: boolean
-          link: string | null
-          title: string
-          user_id: string
+          loom_id: number
+          new_status: string
+          old_status: string | null
         }
         Insert: {
-          body?: string | null
-          category?: string | null
+          changed_on?: string
           created_at?: string
-          id?: number
-          is_read?: boolean
-          link?: string | null
-          title: string
-          user_id: string
+          id?: never
+          loom_id: number
+          new_status: string
+          old_status?: string | null
         }
         Update: {
-          body?: string | null
-          category?: string | null
+          changed_on?: string
           created_at?: string
-          id?: number
-          is_read?: boolean
-          link?: string | null
-          title?: string
-          user_id?: string
+          id?: never
+          loom_id?: number
+          new_status?: string
+          old_status?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "notification_user_id_fkey"
-            columns: ["user_id"]
+            foreignKeyName: "loom_status_log_loom_id_fkey"
+            columns: ["loom_id"]
             isOneToOne: false
-            referencedRelation: "app_user"
+            referencedRelation: "loom"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loom_status_log_loom_id_fkey"
+            columns: ["loom_id"]
+            isOneToOne: false
+            referencedRelation: "v_loom_shift_utilisation"
+            referencedColumns: ["loom_id"]
+          },
+          {
+            foreignKeyName: "loom_status_log_loom_id_fkey"
+            columns: ["loom_id"]
+            isOneToOne: false
+            referencedRelation: "v_loom_utilisation"
+            referencedColumns: ["loom_id"]
           },
         ]
       }
@@ -4889,6 +4854,7 @@ export type Database = {
           state: string | null
           state_code: string | null
           status: Database["public"]["Enums"]["record_status"]
+          tds_pct: number | null
           updated_at: string
           updated_by: string | null
           whatsapp: string | null
@@ -4923,6 +4889,7 @@ export type Database = {
           state?: string | null
           state_code?: string | null
           status?: Database["public"]["Enums"]["record_status"]
+          tds_pct?: number | null
           updated_at?: string
           updated_by?: string | null
           whatsapp?: string | null
@@ -4957,6 +4924,7 @@ export type Database = {
           state?: string | null
           state_code?: string | null
           status?: Database["public"]["Enums"]["record_status"]
+          tds_pct?: number | null
           updated_at?: string
           updated_by?: string | null
           whatsapp?: string | null
@@ -5218,6 +5186,7 @@ export type Database = {
       }
       pavu_assign: {
         Row: {
+          actual_metres: number | null
           assigned_date: string
           costing_id: number | null
           created_at: string
@@ -5225,6 +5194,7 @@ export type Database = {
           end_date: string | null
           id: number
           loom_id: number
+          metre_variance: number | null
           metres_produced: number
           metres_start_date: string | null
           notes: string | null
@@ -5235,6 +5205,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          actual_metres?: number | null
           assigned_date?: string
           costing_id?: number | null
           created_at?: string
@@ -5242,6 +5213,7 @@ export type Database = {
           end_date?: string | null
           id?: number
           loom_id: number
+          metre_variance?: number | null
           metres_produced?: number
           metres_start_date?: string | null
           notes?: string | null
@@ -5252,6 +5224,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          actual_metres?: number | null
           assigned_date?: string
           costing_id?: number | null
           created_at?: string
@@ -5259,6 +5232,7 @@ export type Database = {
           end_date?: string | null
           id?: number
           loom_id?: number
+          metre_variance?: number | null
           metres_produced?: number
           metres_start_date?: string | null
           notes?: string | null
@@ -5337,6 +5311,7 @@ export type Database = {
       payment: {
         Row: {
           amount: number
+          contra_group_id: string | null
           created_at: string
           created_by: string | null
           customer_id: number | null
@@ -5352,15 +5327,16 @@ export type Database = {
           party_id: number | null
           payment_date: string
           payment_no: string
-          purchase_id: number | null
           reference: string | null
           sizing_job_id: number | null
           status: Database["public"]["Enums"]["record_status"]
+          stream: string
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           amount: number
+          contra_group_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: number | null
@@ -5376,15 +5352,16 @@ export type Database = {
           party_id?: number | null
           payment_date?: string
           payment_no: string
-          purchase_id?: number | null
           reference?: string | null
           sizing_job_id?: number | null
           status?: Database["public"]["Enums"]["record_status"]
+          stream?: string
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           amount?: number
+          contra_group_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: number | null
@@ -5400,10 +5377,10 @@ export type Database = {
           party_id?: number | null
           payment_date?: string
           payment_no?: string
-          purchase_id?: number | null
           reference?: string | null
           sizing_job_id?: number | null
           status?: Database["public"]["Enums"]["record_status"]
+          stream?: string
           updated_at?: string
           updated_by?: string | null
         }
@@ -5505,13 +5482,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_jobwork_payment_status"
             referencedColumns: ["party_id"]
-          },
-          {
-            foreignKeyName: "payment_purchase_id_fkey"
-            columns: ["purchase_id"]
-            isOneToOne: false
-            referencedRelation: "yarn_purchase"
-            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "payment_sizing_job_id_fkey"
@@ -5795,6 +5765,48 @@ export type Database = {
             columns: ["sizing_job_id"]
             isOneToOne: false
             referencedRelation: "v_sizing_job_balance"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_warp_beam_allocation: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          id: number
+          payment_id: number
+          warp_beam_purchase_id: number
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          id?: never
+          payment_id: number
+          warp_beam_purchase_id: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          id?: never
+          payment_id?: number
+          warp_beam_purchase_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_warp_beam_allocation_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_warp_beam_allocation_warp_beam_purchase_id_fkey"
+            columns: ["warp_beam_purchase_id"]
+            isOneToOne: false
+            referencedRelation: "inhouse_warp_beam_purchase"
             referencedColumns: ["id"]
           },
         ]
@@ -6234,13 +6246,6 @@ export type Database = {
             referencedColumns: ["employee_id"]
           },
           {
-            foreignKeyName: "production_shift_log_weaver_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_attendance_monthly"
-            referencedColumns: ["employee_id"]
-          },
-          {
             foreignKeyName: "production_shift_log_weaver_shift_log_id_fkey"
             columns: ["shift_log_id"]
             isOneToOne: false
@@ -6249,93 +6254,88 @@ export type Database = {
           },
         ]
       }
-      resale_lot: {
+      reminder: {
         Row: {
-          cost_per_m: number
-          costing_id: number | null
+          category: string
           created_at: string
           created_by: string | null
           description: string | null
+          due_date: string
           id: number
-          ledger_id: number | null
-          metres_purchased: number
-          metres_remaining: number
-          notes: string | null
-          received_date: string
-          rl_number: string
+          repeat: string
+          repeat_monthdays: number[] | null
+          repeat_weekdays: number[] | null
+          status: string
+          title: string
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
-          cost_per_m: number
-          costing_id?: number | null
+          category?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          due_date?: string
           id?: number
-          ledger_id?: number | null
-          metres_purchased: number
-          metres_remaining: number
-          notes?: string | null
-          received_date: string
-          rl_number: string
+          repeat?: string
+          repeat_monthdays?: number[] | null
+          repeat_weekdays?: number[] | null
+          status?: string
+          title: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
-          cost_per_m?: number
-          costing_id?: number | null
+          category?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          due_date?: string
           id?: number
-          ledger_id?: number | null
-          metres_purchased?: number
-          metres_remaining?: number
-          notes?: string | null
-          received_date?: string
-          rl_number?: string
+          repeat?: string
+          repeat_monthdays?: number[] | null
+          repeat_weekdays?: number[] | null
+          status?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "resale_lot_costing_id_fkey"
-            columns: ["costing_id"]
+            foreignKeyName: "fk_reminder_category"
+            columns: ["category"]
             isOneToOne: false
-            referencedRelation: "costing_master"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "resale_lot_costing_id_fkey"
-            columns: ["costing_id"]
-            isOneToOne: false
-            referencedRelation: "v_costing_two_cost"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "resale_lot_costing_id_fkey"
-            columns: ["costing_id"]
-            isOneToOne: false
-            referencedRelation: "v_quality_margin"
-            referencedColumns: ["costing_id"]
-          },
-          {
-            foreignKeyName: "resale_lot_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "resale_lot_ledger_id_fkey"
-            columns: ["ledger_id"]
-            isOneToOne: false
-            referencedRelation: "ledger"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "resale_lot_ledger_id_fkey"
-            columns: ["ledger_id"]
-            isOneToOne: false
-            referencedRelation: "v_sizing_spend_by_vendor"
-            referencedColumns: ["vendor_id"]
+            referencedRelation: "reminder_category"
+            referencedColumns: ["key"]
           },
         ]
+      }
+      reminder_category: {
+        Row: {
+          active: boolean
+          created_at: string
+          is_system: boolean
+          key: string
+          label: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          is_system?: boolean
+          key: string
+          label: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          is_system?: boolean
+          key?: string
+          label?: string
+          sort_order?: number
+        }
+        Relationships: []
       }
       sales_order: {
         Row: {
@@ -6517,6 +6517,50 @@ export type Database = {
             columns: ["so_id"]
             isOneToOne: false
             referencedRelation: "sales_order"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shed_shift_status: {
+        Row: {
+          attendance_day_id: number
+          created_at: string
+          created_by: string | null
+          id: number
+          is_running: boolean
+          note: string | null
+          shed_no: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          attendance_day_id: number
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          is_running: boolean
+          note?: string | null
+          shed_no: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          attendance_day_id?: number
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          is_running?: boolean
+          note?: string | null
+          shed_no?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shed_shift_status_attendance_day_id_fkey"
+            columns: ["attendance_day_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_day"
             referencedColumns: ["id"]
           },
         ]
@@ -6859,6 +6903,66 @@ export type Database = {
         }
         Relationships: []
       }
+      tds_payment: {
+        Row: {
+          amount: number
+          challan_no: string | null
+          created_at: string
+          created_by: string | null
+          id: number
+          interest_amount: number
+          notes: string | null
+          paid_date: string
+          period_month: string
+          source_ledger_id: number | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          challan_no?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          interest_amount?: number
+          notes?: string | null
+          paid_date: string
+          period_month: string
+          source_ledger_id?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          challan_no?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          interest_amount?: number
+          notes?: string | null
+          paid_date?: string
+          period_month?: string
+          source_ledger_id?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tds_payment_source_ledger_id_fkey"
+            columns: ["source_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tds_payment_source_ledger_id_fkey"
+            columns: ["source_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "v_sizing_spend_by_vendor"
+            referencedColumns: ["vendor_id"]
+          },
+        ]
+      }
       wage_entry: {
         Row: {
           amount: number
@@ -6931,13 +7035,6 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "v_attendance_detail"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "wage_entry_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_attendance_monthly"
             referencedColumns: ["employee_id"]
           },
           {
@@ -7018,6 +7115,84 @@ export type Database = {
           week_start?: string
         }
         Relationships: []
+      }
+      winder_cover: {
+        Row: {
+          absent_employee_id: number
+          attendance_day_id: number
+          covered_by_employee_id: number | null
+          created_at: string
+          created_by: string | null
+          id: number
+          notes: string | null
+          outcome: string
+          shed_no: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          absent_employee_id: number
+          attendance_day_id: number
+          covered_by_employee_id?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          notes?: string | null
+          outcome: string
+          shed_no: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          absent_employee_id?: number
+          attendance_day_id?: number
+          covered_by_employee_id?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          notes?: string | null
+          outcome?: string
+          shed_no?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winder_cover_absent_employee_id_fkey"
+            columns: ["absent_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "winder_cover_absent_employee_id_fkey"
+            columns: ["absent_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "winder_cover_attendance_day_id_fkey"
+            columns: ["attendance_day_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_day"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "winder_cover_covered_by_employee_id_fkey"
+            columns: ["covered_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employee"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "winder_cover_covered_by_employee_id_fkey"
+            columns: ["covered_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_attendance_detail"
+            referencedColumns: ["employee_id"]
+          },
+        ]
       }
       yarn_count: {
         Row: {
@@ -7115,7 +7290,6 @@ export type Database = {
           invoice_no: string | null
           lot_code: string
           notes: string | null
-          purchase_invoice_id: number | null
           received_date: string
           received_kg: number
           round_off: number
@@ -7142,7 +7316,6 @@ export type Database = {
           invoice_no?: string | null
           lot_code: string
           notes?: string | null
-          purchase_invoice_id?: number | null
           received_date: string
           received_kg: number
           round_off?: number
@@ -7169,7 +7342,6 @@ export type Database = {
           invoice_no?: string | null
           lot_code?: string
           notes?: string | null
-          purchase_invoice_id?: number | null
           received_date?: string
           received_kg?: number
           round_off?: number
@@ -7180,13 +7352,6 @@ export type Database = {
           yarn_kind?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "fk_yarn_lot_purchase"
-            columns: ["purchase_invoice_id"]
-            isOneToOne: false
-            referencedRelation: "yarn_purchase"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "yarn_lot_broker_ledger_id_fkey"
             columns: ["broker_ledger_id"]
@@ -7252,144 +7417,6 @@ export type Database = {
           },
           {
             foreignKeyName: "yarn_lot_yarn_count_id_fkey"
-            columns: ["yarn_count_id"]
-            isOneToOne: false
-            referencedRelation: "yarn_count"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      yarn_purchase: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          freight: number
-          gst_amount: number
-          id: number
-          internal_no: string
-          invoice_date: string
-          invoice_no: string
-          mill_id: number
-          notes: string | null
-          payment_status: Database["public"]["Enums"]["invoice_status"]
-          received_date: string | null
-          subtotal: number
-          total: number
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          freight?: number
-          gst_amount?: number
-          id?: number
-          internal_no: string
-          invoice_date: string
-          invoice_no: string
-          mill_id: number
-          notes?: string | null
-          payment_status?: Database["public"]["Enums"]["invoice_status"]
-          received_date?: string | null
-          subtotal?: number
-          total?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          freight?: number
-          gst_amount?: number
-          id?: number
-          internal_no?: string
-          invoice_date?: string
-          invoice_no?: string
-          mill_id?: number
-          notes?: string | null
-          payment_status?: Database["public"]["Enums"]["invoice_status"]
-          received_date?: string | null
-          subtotal?: number
-          total?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "yarn_purchase_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "yarn_purchase_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "app_user"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      yarn_purchase_line: {
-        Row: {
-          amount: number | null
-          id: number
-          lot_id: number | null
-          purchase_id: number
-          quantity_kg: number
-          rate_per_kg: number
-          yarn_count_id: number
-        }
-        Insert: {
-          amount?: number | null
-          id?: number
-          lot_id?: number | null
-          purchase_id: number
-          quantity_kg: number
-          rate_per_kg: number
-          yarn_count_id: number
-        }
-        Update: {
-          amount?: number | null
-          id?: number
-          lot_id?: number | null
-          purchase_id?: number
-          quantity_kg?: number
-          rate_per_kg?: number
-          yarn_count_id?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "yarn_purchase_line_lot_id_fkey"
-            columns: ["lot_id"]
-            isOneToOne: false
-            referencedRelation: "yarn_lot"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "yarn_purchase_line_purchase_id_fkey"
-            columns: ["purchase_id"]
-            isOneToOne: false
-            referencedRelation: "yarn_purchase"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "yarn_purchase_line_yarn_count_id_fkey"
-            columns: ["yarn_count_id"]
-            isOneToOne: false
-            referencedRelation: "v_stock_on_hand"
-            referencedColumns: ["yarn_count_id"]
-          },
-          {
-            foreignKeyName: "yarn_purchase_line_yarn_count_id_fkey"
-            columns: ["yarn_count_id"]
-            isOneToOne: false
-            referencedRelation: "v_yarn_cover_dashboard"
-            referencedColumns: ["yarn_count_id"]
-          },
-          {
-            foreignKeyName: "yarn_purchase_line_yarn_count_id_fkey"
             columns: ["yarn_count_id"]
             isOneToOne: false
             referencedRelation: "yarn_count"
@@ -7640,13 +7667,6 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "v_attendance_detail"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "wage_entry_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_attendance_monthly"
             referencedColumns: ["employee_id"]
           },
         ]
@@ -8105,8 +8125,10 @@ export type Database = {
           gst_amount: number | null
           gst_flag: string | null
           gst_pct: number | null
+          gst_rates: string | null
           igst_amount: number | null
           is_interstate: boolean | null
+          is_mixed_gst: boolean | null
           party_code: string | null
           party_gstin: string | null
           party_id: number | null
@@ -8152,6 +8174,7 @@ export type Database = {
           customer_name: string | null
           doc_type: Database["public"]["Enums"]["invoice_doc_type"] | null
           gst_amount: number | null
+          hsn_codes: string | null
           igst_amount: number | null
           invoice_date: string | null
           invoice_id: number | null
@@ -8397,6 +8420,26 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      fn_attendance_summary: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          absent_count: number
+          attendance_days: number
+          early_leave_count: number
+          employee_code: string
+          employee_id: number
+          employee_name: string
+          employee_role: Database["public"]["Enums"]["employee_role"]
+          half_day_count: number
+          late_count: number
+          present_count: number
+          shifts_marked: number
+        }[]
+      }
+      fn_auto_backup_run: { Args: never; Returns: Json }
+      fn_backup_export: { Args: never; Returns: Json }
+      fn_backup_restore: { Args: { payload: Json }; Returns: Json }
+      fn_bank_entry_hard_delete: { Args: { p_id: number }; Returns: undefined }
       fn_cancel_delivery_challan: {
         Args: {
           p_dc_id: number
@@ -8407,6 +8450,10 @@ export type Database = {
           p_target_batch_id?: number
         }
         Returns: Json
+      }
+      fn_credit_note_recalc_spent: {
+        Args: { p_invoice_id: number }
+        Returns: undefined
       }
       fn_dc_auto_link_so_for: { Args: { p_dc_id: number }; Returns: undefined }
       fn_fy_code: { Args: { d: string }; Returns: string }
@@ -8424,6 +8471,7 @@ export type Database = {
       }
       fn_next_doc_no: { Args: { p_doc_type: string }; Returns: string }
       fn_next_warp_beam_batch_no: { Args: never; Returns: number }
+      fn_pan_from_gstin: { Args: { p_gstin: string }; Returns: string }
       fn_party_balances_as_of: {
         Args: { p_as_of: string }
         Returns: {
@@ -8442,10 +8490,14 @@ export type Database = {
           finished_date: string
           finished_metre: number
           loaded_metre: number
+          loom_code: string
           mounted_date: string
           pavu_code: string
           pavu_id: number
+          production_mode: string
+          quality: string
           set_no: string
+          shed_no: number
           status_as_of: string
           yarn_count: string
         }[]
@@ -8690,12 +8742,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -8719,11 +8771,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -8744,11 +8796,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -8769,11 +8821,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -8786,11 +8838,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

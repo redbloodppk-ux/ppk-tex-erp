@@ -96,13 +96,7 @@ export default async function MonthlyAttendanceReport({
   // Both modes call the same function (migration 279) — the month view is
   // itself a wrapper over it, so a month asked either way gives identical
   // counts by construction rather than by coincidence.
-  //
-  // Cast because lib/database.types.ts has not been regenerated since
-  // migration 279 added the function — `npm run typegen` is overdue across
-  // several recent migrations. Same pattern the rest of this codebase uses
-  // for that gap.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .rpc('fn_attendance_summary', { p_from: from, p_to: to });
 
   const allRows = ((data as unknown as MonthlyRow[]) ?? [])
