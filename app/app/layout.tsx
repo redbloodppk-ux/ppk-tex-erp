@@ -10,8 +10,25 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   applicationName: 'PPK TEX',
   appleWebApp: { capable: true, title: 'PPK TEX', statusBarStyle: 'default' },
+  // PPK, 2026-09-07: "in bottom taskbar, ppk erp no logo showing".
+  //
+  // The only icon declared here was the SVG, and the manifest listed the
+  // SVG first too. Windows cannot use an SVG for a taskbar or shortcut
+  // icon, so the installed app had nothing raster to fall back on and
+  // showed the blank default page icon.
+  //
+  // Order matters: .ico first for Windows, then PNGs, and the SVG last for
+  // browsers that prefer it. favicon.ico carries 16/24/32/48/64/128/256 so
+  // Windows has the exact size it wants at every zoom level rather than
+  // rescaling one and blurring it.
   icons: {
-    icon: '/icon.svg',
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 24x24 32x32 48x48 64x64 128x128 256x256' },
+      { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
+      { url: '/icon-512.png', type: 'image/png', sizes: '512x512' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    shortcut: '/favicon.ico',
     apple: '/apple-touch-icon.png',
   },
 };
