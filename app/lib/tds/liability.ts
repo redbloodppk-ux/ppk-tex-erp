@@ -83,6 +83,11 @@ export interface TdsMonth {
   interest: number;
   /** outstanding + interest. */
   payable: number;
+  /** `payable` as a whole rupee — what the portal will actually take.
+   *  See toPayableRupees; the exact figure above is kept alongside it
+   *  because the liability is a legal number and the rounding is only
+   *  about what a bank screen accepts. */
+  payableRupees: number;
   overdue: boolean;
   sources: TdsSource[];
 }
@@ -94,6 +99,38 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * The income-tax portal accepts whole rupees only — PPK, 2026-09-07: "in
+ * portal, we can paid in round figures only not in decimal".
+ *
+ * So a month computed at Rs 310.44 can never be settled exactly. He paid
+ * Rs 310, and the month then sat showing 44 paise owed for ever, which is
+ * noise dressed up as a debt: it can never be cleared, because there is no
+ * way to pay 44 paise.
+ *
+ * Two consequences, both deliberate:
+ *   * the amount the app tells you to pay is a whole rupee, to nearest
+ *   * anything under a rupee outstanding counts as settled
+ *
+ * Nearest rather than always-up is PPK's call. It means a month can be
+ * remitted a few paise light — 44 paise on August. Rounding up would never
+ * underpay, but would have him paying Rs 311 against a Rs 310.44 liability
+ * and carrying a small credit instead. Either is defensible; this matches
+ * what he actually does at the portal, which is the thing least likely to
+ * be quietly worked around.
+ *
+ * The underlying `tds` figure keeps its paise throughout. Only what is
+ * ASKED FOR and what counts as CLEARED are rounded — the computed
+ * withholding is a legal figure and is not rewritten to suit a payment
+ * screen.
+ */
+export const TDS_SETTLED_TOLERANCE = 1;
+
+/** Whole rupees, to nearest — what the portal will actually accept. */
+export function toPayableRupees(n: number): number {
+  return Math.round(n);
+}
 
 /** YYYY-MM of an ISO date. */
 export function monthOf(iso: string): string {
@@ -184,7 +221,11 @@ export function buildTdsMonths(
   for (const [month, rows] of byMonth) {
     const tds = round2(rows.reduce((t, r) => t + r.amount, 0));
     const paid = round2(paidByMonth.get(month) ?? 0);
-    const outstanding = round2(Math.max(0, tds - paid));
+    const rawOutstanding = round2(Math.max(0, tds - paid));
+    // Under a rupee cannot be paid, so it is not owed. See
+    // TDS_SETTLED_TOLERANCE. Without this, August 2026 showed 44 paise
+    // outstanding for ever and would have started accruing interest on it.
+    const outstanding = rawOutstanding < TDS_SETTLED_TOLERANCE ? 0 : rawOutstanding;
     const dueDate = dueDateFor(month);
     const overdue = outstanding > 0.005 && today > dueDate;
 
@@ -202,6 +243,7 @@ export function buildTdsMonths(
       interestMonths,
       interest,
       payable: round2(outstanding + interest),
+      payableRupees: toPayableRupees(outstanding + interest),
       overdue,
       sources: [...rows].sort((a, b) => a.deductedOn.localeCompare(b.deductedOn)),
     });

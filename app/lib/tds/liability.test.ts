@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTdsMonths, totalTdsPayable, dueDateFor, labelFor, monthOf,
-  financialYearOf, assessmentYearOf,
+  financialYearOf, assessmentYearOf, toPayableRupees,
   type TdsSource,
 } from './liability';
 
@@ -154,5 +154,61 @@ describe('buildTdsMonths — payment and timing', () => {
       [{ ref: 'x', deductedOn: '2026-04-01', amount: 0, partyName: 'X' }], [], TODAY,
     );
     expect(months).toEqual([]);
+  });
+});
+
+/**
+ * The portal takes whole rupees only. PPK, 2026-09-07: "in portal, we can
+ * paid in round figures only not in decimal".
+ *
+ * August 2026 is the case that forced this: Rs 310.44 withheld, Rs 310 paid,
+ * and the month then showed 44 paise owed for ever — a debt that could not
+ * be settled, because there is no way to pay 44 paise. Worse, it was on
+ * course to start accruing 1.5% interest on that 44 paise.
+ */
+describe('whole rupees — what the portal will actually accept', () => {
+  it('rounds the amount to pay to the nearest rupee', () => {
+    expect(toPayableRupees(310.44)).toBe(310);
+    expect(toPayableRupees(310.55)).toBe(311);
+    expect(toPayableRupees(310.50)).toBe(311);
+    expect(toPayableRupees(0.44)).toBe(0);
+  });
+
+  it("August's 44 paise no longer reads as owed once Rs 310 is paid", () => {
+    const months = buildTdsMonths(
+      [{ ref: '11', deductedOn: '2026-08-12', amount: 310.44, partyName: 'SHRI NITHYA SIZING MILL' }],
+      [{ periodMonth: '2026-08', amount: 310 }],
+      '2026-09-30',
+    );
+    const aug = months.find((m) => m.month === '2026-08');
+    expect(aug?.tds).toBe(310.44);      // the legal figure is untouched
+    expect(aug?.paid).toBe(310);
+    expect(aug?.outstanding).toBe(0);   // ...but nothing is owed
+    expect(aug?.overdue).toBe(false);
+    expect(aug?.interest).toBe(0);      // and no interest accrues on it
+  });
+
+  it('a real shortfall of a rupee or more is still owed', () => {
+    // The tolerance must not become a licence to underpay. One rupee short
+    // is a debt; 44 paise is a rounding artefact.
+    const months = buildTdsMonths(
+      [{ ref: 'x', deductedOn: '2026-08-12', amount: 310.44, partyName: 'P' }],
+      [{ periodMonth: '2026-08', amount: 309 }],
+      '2026-09-30',
+    );
+    const aug = months.find((m) => m.month === '2026-08');
+    expect(aug?.outstanding).toBe(1.44);
+    expect(aug?.overdue).toBe(true);
+  });
+
+  it('states the whole-rupee figure to pay alongside the exact one', () => {
+    const months = buildTdsMonths(
+      [{ ref: 'x', deductedOn: '2026-08-12', amount: 310.44, partyName: 'P' }],
+      [],
+      '2026-08-20',
+    );
+    const aug = months.find((m) => m.month === '2026-08');
+    expect(aug?.payable).toBe(310.44);        // exact, for the books
+    expect(aug?.payableRupees).toBe(310);     // what the portal takes
   });
 });

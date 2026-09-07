@@ -13,9 +13,9 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
-import { Plus, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Plus, AlertTriangle, ExternalLink, FileText } from 'lucide-react';
 import { loadTdsMonths, daysUntil, todayISO } from '@/lib/tds/liability-data';
-import { totalTdsPayable } from '@/lib/tds/liability';
+import { totalTdsPayable, financialYearOf } from '@/lib/tds/liability';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'TDS Payable' };
@@ -58,6 +58,16 @@ export default async function TdsPage(): Promise<React.ReactElement> {
     .order('id', { ascending: true })
     .range(lo, hi));
 
+  // Which financial year the Statement button offers. The latest year that
+  // actually has something in it, so the button is never a dead link on a
+  // fresh April — falling back to the current FY when there is nothing yet.
+  const fyWithData = Array.from(new Set([
+    ...months.map((m) => financialYearOf(m.month)),
+    ...paidRes.rows.map((r) => financialYearOf(r.period_month)),
+  ])).sort();
+  const statementFy = fyWithData[fyWithData.length - 1]
+    ?? financialYearOf(todayISO().slice(0, 7));
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <PageHeader
@@ -74,6 +84,16 @@ export default async function TdsPage(): Promise<React.ReactElement> {
               className="btn-ghost inline-flex items-center gap-1.5"
             >
               Pay on Income Tax portal <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            {/* Financial year, not calendar: the return is filed Apr-Mar,
+                and a calendar year would split one year's deductions across
+                two returns. */}
+            <a
+              href={`/app/api/tds/statement?fy=${statementFy}`}
+              className="btn-secondary inline-flex items-center gap-1.5"
+              download
+            >
+              <FileText className="w-4 h-4" /> Statement {statementFy}
             </a>
             <Link href="/app/tds/new" className="btn-primary inline-flex items-center gap-1.5">
               <Plus className="w-4 h-4" /> Record challan
@@ -216,6 +236,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
                 <th className="text-left  px-3 py-2">Challan</th>
                 <th className="text-right px-3 py-2">TDS</th>
                 <th className="text-right px-3 py-2">Interest</th>
+                <th className="px-3 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -226,6 +247,15 @@ export default async function TdsPage(): Promise<React.ReactElement> {
                   <td className="px-3 py-2 font-mono text-xs">{r.challan_no ?? '—'}</td>
                   <td className="px-3 py-2 text-right num">{formatRupee(Number(r.amount))}</td>
                   <td className="px-3 py-2 text-right num">{formatRupee(Number(r.interest_amount))}</td>
+                  {/* Until this link existed a challan could be entered but
+                      never reopened, so the duplicate August row saved on
+                      7 Sep needed a database migration to remove. */}
+                  <td className="px-3 py-2 text-right">
+                    <Link href={`/app/tds/${r.id}`}
+                      className="text-xs font-semibold text-indigo hover:underline">
+                      View / edit
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
