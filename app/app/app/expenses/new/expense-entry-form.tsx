@@ -68,7 +68,7 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data } = await (supabase as any)
         .from('ledger')
-        .select('id, name, active, ledger_type:type_id ( name )')
+        .select('id, code, name, active, ledger_type:type_id ( name )')
         .eq('active', true)
         .order('name');
       if (cancelled) return;
@@ -78,9 +78,17 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
       // thing i have in my hand". No business account is touched, so
       // without this the cost simply could not be recorded at all.
       // See migration 285.
-      const ALLOWED = ['CASH', 'BANK', 'CAPITAL'];
-      const list = ((data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
-        .filter((r) => ALLOWED.includes(r.ledger_type?.name ?? ''))
+      //
+      // Type CAPITAL alone is NOT enough. Migration 286 retyped the two
+      // drawings ledgers (CREDIT CARD PAYMENT, PERSONAL EXPENSES) from
+      // EXPENSES to CAPITAL, which is correct for the balance sheet but
+      // would otherwise have listed them here as things you can pay FROM.
+      // They are the opposite - money going OUT to PPK. Owner funds is the
+      // only capital account you can spend from, so name it exactly.
+      const OWNER_FUNDS_CODE = 'LED-OWNER-FUNDS';
+      const ALLOWED = ['CASH', 'BANK'];
+      const list = ((data ?? []) as Array<{ id: number; code: string | null; name: string; ledger_type: { name: string } | null }>)
+        .filter((r) => ALLOWED.includes(r.ledger_type?.name ?? '') || r.code === OWNER_FUNDS_CODE)
         .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
         // Cash first, then bank, then owner funds last — the everyday
         // choices stay at the top of the list.
