@@ -127,9 +127,14 @@ export function SimpleNameMaster({
             <input className="input w-full" value={newName}
               onChange={(e) => setNewName(e.target.value)} />
           </div>
-          <div className="flex-1 min-w-[16rem]">
+          <div className="flex-1 min-w-[20rem]">
             <label className="label">Notes</label>
-            <input className="input w-full" placeholder="(optional)" value={newNotes}
+            {/* A textarea, not a one-line box: a note worth writing is a
+                sentence or two, and in an input you can only ever see the
+                first few words of it. PPK, 2026-09-08. */}
+            <textarea className="input w-full min-h-[4.5rem] leading-snug resize-y"
+              rows={3} placeholder="(optional) What does this hold? An example helps."
+              value={newNotes}
               onChange={(e) => setNewNotes(e.target.value)} />
           </div>
           <button type="button" className="btn-primary flex items-center gap-1.5"
@@ -155,21 +160,23 @@ export function SimpleNameMaster({
               <thead>
                 <tr className="border-b border-line/60 text-left text-ink-mute">
                   <th className="py-2 pr-3 w-32">Code</th>
-                  <th className="py-2 pr-3">Name</th>
+                  <th className="py-2 pr-3 w-[24%]">Name</th>
                   <th className="py-2 pr-3 w-24">Active</th>
-                  <th className="py-2 pr-3">Notes</th>
+                  {/* Notes gets the room, because it is the column with
+                      something to read in it. */}
+                  <th className="py-2 pr-3 w-[46%]">Notes</th>
                   <th className="py-2 pr-3 w-20" />
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-line/60">
-                    <td className="py-2 pr-3 font-mono text-xs">{r.code}</td>
+                  <tr key={r.id} className="border-b border-line/60 align-top">
+                    <td className="py-2 pr-3 font-mono text-xs pt-4">{r.code}</td>
                     <td className="py-2 pr-3">
                       <input className="input w-full" value={r.name}
                         onChange={(e) => updateRow(r.id, { name: e.target.value })} />
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 pt-4">
                       <label className="inline-flex items-center gap-1.5">
                         <input type="checkbox" checked={r.active}
                           onChange={(e) => updateRow(r.id, { active: e.target.checked })} />
@@ -177,10 +184,11 @@ export function SimpleNameMaster({
                       </label>
                     </td>
                     <td className="py-2 pr-3">
-                      <input className="input w-full" value={r.notes ?? ''}
+                      <textarea className="input w-full min-h-[4.5rem] leading-snug resize-y"
+                        rows={3} placeholder="(optional)" value={r.notes ?? ''}
                         onChange={(e) => updateRow(r.id, { notes: e.target.value === '' ? null : e.target.value })} />
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 pt-4">
                       <div className="flex items-center gap-2">
                         {busyId === r.id && <Loader2 className="h-4 w-4 animate-spin text-ink-mute" />}
                         <button type="button" className="p-1 rounded hover:bg-red-50 text-red-600"
