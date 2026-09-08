@@ -24,6 +24,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import {
+  fetchPaymentSources, paymentSourceIcon,
+  type PaymentSource, type SupabaseLike,
+} from '@/lib/ledgers/payment-sources';
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink, IndianRupee } from 'lucide-react';
@@ -49,16 +53,11 @@ interface PartyOpt {
   name: string;
   party_type_ids: number[] | null;
 }
-// A real BANK or CASH ledger that the payment can be drawn from /
-// received into. Sourced from the ledger master (filtered by type
-// CASH or BANK) so the dropdown matches the operator's own chart of
-// accounts.
-interface ModeLedgerOpt {
-  id: number;
-  code: string;
-  name: string;
-  type_name: 'BANK' | 'CASH';
-}
+// An account the payment can be drawn from / received into. The rule for
+// what qualifies lives in lib/ledgers/payment-sources.ts — one definition
+// shared with Expenses, Wages, Loans and the TDS challan screens, so the
+// operator sees the same accounts wherever money moves.
+type ModeLedgerOpt = PaymentSource;
 interface PaymentRow {
   id: number;
   payment_no: string;
@@ -315,26 +314,16 @@ function NewPaymentTab(): React.ReactElement {
     void (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = supabase as any;
-      const [ptRes, pRes, mRes] = await Promise.all([
+      const [ptRes, pRes] = await Promise.all([
         sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
         sb.from('party')
           .select('id, code, name, party_type_ids')
           .eq('status', 'active')
           .order('name'),
-        // Only BANK and CASH ledgers can be a payment source/destination.
-        sb.from('ledger')
-          .select('id, code, name, ledger_type:type_id!inner(name)')
-          .eq('active', true)
-          .in('ledger_type.name', ['BANK', 'CASH'])
-          .order('name'),
       ]);
       setPartyTypes((ptRes.data ?? []) as PartyTypeOpt[]);
       setParties((pRes.data ?? []) as PartyOpt[]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setModeLedgers(((mRes.data ?? []) as any[]).map((l) => ({
-        id: l.id, code: l.code, name: l.name,
-        type_name: l.ledger_type?.name as 'BANK' | 'CASH',
-      })));
+      setModeLedgers(await fetchPaymentSources(sb as SupabaseLike));
       setLoading(false);
     })();
   }, [supabase]);
@@ -876,7 +865,7 @@ function NewPaymentTab(): React.ReactElement {
             </option>
             {modeLedgers.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.type_name === 'CASH' ? '💵' : '🏦'} {l.name}
+                {paymentSourceIcon(l.groupName)} {l.label}
               </option>
             ))}
           </select>
@@ -1180,29 +1169,18 @@ function StatusTab(): React.ReactElement {
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
-    const [ptRes, pRes, mRes] = await Promise.all([
+    const [ptRes, pRes] = await Promise.all([
       sb.from('party_type_master').select('id, name').eq('active', true).order('name'),
       sb.from('party')
         .select('id, code, name, party_type_ids')
         .eq('status', 'active')
-        .order('name'),
-      // BANK / CASH ledgers so the operator can switch the mode_ledger
-      // on an existing payment from this screen.
-      sb.from('ledger')
-        .select('id, code, name, ledger_type:type_id!inner(name)')
-        .eq('active', true)
-        .in('ledger_type.name', ['BANK', 'CASH'])
         .order('name'),
     ]);
     if (ptRes.error)    { setError(ptRes.error.message); setLoading(false); return; }
     if (pRes.error)     { setError(pRes.error.message); setLoading(false); return; }
     setPartyTypes((ptRes.data ?? []) as PartyTypeOpt[]);
     setParties((pRes.data ?? []) as PartyOpt[]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setModeLedgers(((mRes.data ?? []) as any[]).map((l) => ({
-      id: l.id, code: l.code, name: l.name,
-      type_name: l.ledger_type?.name as 'BANK' | 'CASH',
-    })));
+    setModeLedgers(await fetchPaymentSources(sb as SupabaseLike));
     setLoading(false);
   }, [supabase]);
 
@@ -2349,7 +2327,7 @@ function PaymentEditFields({
           <option value="">— None —</option>
           {modeLedgers.map((l) => (
             <option key={l.id} value={l.id}>
-              {l.type_name === 'CASH' ? '💵' : '🏦'} {l.name}
+              {paymentSourceIcon(l.groupName)} {l.label}
             </option>
           ))}
         </select>

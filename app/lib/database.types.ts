@@ -4230,6 +4230,7 @@ export type Database = {
           gstin: string | null
           gstin_verified_at: string | null
           id: number
+          is_payment_source: boolean
           name: string
           notes: string | null
           opening_amount: number
@@ -4261,6 +4262,7 @@ export type Database = {
           gstin?: string | null
           gstin_verified_at?: string | null
           id?: number
+          is_payment_source?: boolean
           name: string
           notes?: string | null
           opening_amount?: number
@@ -4292,6 +4294,7 @@ export type Database = {
           gstin?: string | null
           gstin_verified_at?: string | null
           id?: number
+          is_payment_source?: boolean
           name?: string
           notes?: string | null
           opening_amount?: number

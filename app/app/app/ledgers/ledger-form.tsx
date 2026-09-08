@@ -29,6 +29,11 @@ export interface LedgerFormValues {
   gstin_verified_at: string | null;
   area: string;
   active: boolean;
+  /** Can money be paid out of / received into this account? Drives every
+   *  "Paid from" picker in the app — see lib/ledgers/payment-sources.ts and
+   *  migration 289. Set automatically for cash / bank / OD groups on insert;
+   *  ticked by hand for anything else, like owner funds. */
+  is_payment_source: boolean;
   notes: string;
   /** Bank account details — only shown / required when this ledger's
    *  type is BANK (migration 106). NULL on every non-bank ledger. */
@@ -56,7 +61,7 @@ const EMPTY: LedgerFormValues = {
   name: '', type_id: '', group_id: '',
   address1: '', address2: '', address3: '', address4: '',
   phone: '', email: '', pan_no: '', gstin: '', gstin_verified_at: null, area: '',
-  active: true, notes: '',
+  active: true, is_payment_source: false, notes: '',
   bank_name: '', bank_account_no: '', bank_ifsc: '', bank_branch: '',
   opening_date: '', opening_amount: '', opening_dr_cr: 'Dr',
 };
@@ -163,6 +168,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
       gstin_verified_at: form.gstin_verified_at || null,
       area:     form.area.trim() === '' ? null : form.area.trim(),
       active:   form.active,
+      is_payment_source: form.is_payment_source,
       notes:    form.notes.trim() === '' ? null : form.notes.trim(),
       // Bank account details — saved only for BANK type, cleared
       // otherwise so a re-typed ledger doesn't carry stale bank data.
@@ -438,6 +444,25 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
             <input type="checkbox" checked={form.active}
               onChange={(e) => patch({ active: e.target.checked })} />
             <span className="text-sm">Active</span>
+          </label>
+        </div>
+        {/* Migration 289 made "can I spend from this?" a fact of its own,
+            because neither the type nor the group could answer it: owner
+            funds and the two drawings ledgers share both. Cash, bank and
+            OD ledgers tick themselves on creation, so this box is really
+            only touched for the unusual ones. */}
+        <div className="md:col-span-2">
+          <label className="inline-flex items-start gap-2">
+            <input type="checkbox" className="mt-1" checked={form.is_payment_source}
+              onChange={(e) => patch({ is_payment_source: e.target.checked })} />
+            <span className="text-sm">
+              Money can be paid from / received into this account
+              <span className="block text-[11px] text-ink-mute">
+                Ticked, it appears in every &ldquo;Paid from&rdquo; list &mdash; wages,
+                expenses, loans, payments, TDS challans. Cash and bank accounts
+                are ticked automatically when created.
+              </span>
+            </span>
           </label>
         </div>
       </div>

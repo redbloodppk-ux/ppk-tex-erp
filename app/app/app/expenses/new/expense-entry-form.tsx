@@ -9,6 +9,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import {
+  fetchPaymentSources, defaultPaymentSource,
+  type PaymentSource, type SupabaseLike,
+} from '@/lib/ledgers/payment-sources';
 import { Loader2 } from 'lucide-react';
 
 export interface InitialExpense {
@@ -29,12 +33,9 @@ interface CategoryOption {
   name: string;
 }
 
-// Cash / bank account the expense was paid from.
-interface SourceLedgerOption {
-  id: number;
-  name: string;
-  type_name: string;
-}
+// Cash / bank / owner account the expense was paid from. Shape and
+// ordering both come from lib/ledgers/payment-sources.ts.
+type SourceLedgerOption = PaymentSource;
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -61,45 +62,19 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load active cash + bank ledgers for the "Paid from" picker.
+  // Load the accounts money can come out of for the "Paid from" picker.
+  // The rule lives in lib/ledgers/payment-sources.ts and nowhere else —
+  // this screen used to carry its own copy, which is how owner funds ended
+  // up reachable here and on no other screen.
   useEffect(() => {
     let cancelled = false;
     async function loadLedgers(): Promise<void> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
-        .from('ledger')
-        .select('id, code, name, active, ledger_type:type_id ( name )')
-        .eq('active', true)
-        .order('name');
+      const list = await fetchPaymentSources(supabase as unknown as SupabaseLike);
       if (cancelled) return;
-      // CAPITAL is here for OWNER FUNDS (PPK) — a business cost paid out of
-      // the proprietor's own pocket or personal card. PPK, 2026-09-07:
-      // "business things on the personal card regularly because i have only
-      // thing i have in my hand". No business account is touched, so
-      // without this the cost simply could not be recorded at all.
-      // See migration 285.
-      //
-      // Type CAPITAL alone is NOT enough. Migration 286 retyped the two
-      // drawings ledgers (CREDIT CARD PAYMENT, PERSONAL EXPENSES) from
-      // EXPENSES to CAPITAL, which is correct for the balance sheet but
-      // would otherwise have listed them here as things you can pay FROM.
-      // They are the opposite - money going OUT to PPK. Owner funds is the
-      // only capital account you can spend from, so name it exactly.
-      const OWNER_FUNDS_CODE = 'LED-OWNER-FUNDS';
-      const ALLOWED = ['CASH', 'BANK'];
-      const list = ((data ?? []) as Array<{ id: number; code: string | null; name: string; ledger_type: { name: string } | null }>)
-        .filter((r) => ALLOWED.includes(r.ledger_type?.name ?? '') || r.code === OWNER_FUNDS_CODE)
-        .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
-        // Cash first, then bank, then owner funds last — the everyday
-        // choices stay at the top of the list.
-        .sort((a, b) => {
-          const rank = (t: string): number => (t === 'CASH' ? 0 : t === 'BANK' ? 1 : 2);
-          return rank(a.type_name) - rank(b.type_name) || a.name.localeCompare(b.name);
-        });
       setSourceLedgers(list);
       if (!sourceLedgerId) {
-        const cash = list.find((l) => l.type_name === 'CASH') ?? list[0];
-        if (cash) setSourceLedgerId(String(cash.id));
+        const first = defaultPaymentSource(list);
+        if (first) setSourceLedgerId(String(first.id));
       }
     }
     void loadLedgers();
@@ -266,10 +241,7 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
         >
           {sourceLedgers.length === 0 && <option value="">Loading…</option>}
           {sourceLedgers.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-                {l.type_name === 'CASH' ? '' : l.type_name === 'BANK' ? ' (Bank)' : ' (your own money)'}
-            </option>
+            <option key={l.id} value={l.id}>{l.label}</option>
           ))}
         </select>
         <p className="text-[11px] text-ink-mute mt-1">

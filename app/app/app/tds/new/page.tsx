@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { loadTdsMonths, todayISO } from '@/lib/tds/liability-data';
 import { assessmentYearOf, financialYearOf } from '@/lib/tds/liability';
-import { fetchAll } from '@/lib/supabase/fetch-all';
+import { fetchPaymentSources, type SupabaseLike } from '@/lib/ledgers/payment-sources';
 import { TdsChallanForm, type MonthOption, type LedgerOption } from './tds-challan-form';
 
 export const metadata = { title: 'Record TDS Challan' };
@@ -38,24 +38,12 @@ export default async function NewTdsChallanPage({ searchParams }: PageProps): Pr
     .from('company_profile').select('tan').limit(1).maybeSingle();
   const tan = (cp as { tan?: string | null } | null)?.tan ?? null;
 
-  // Cash / bank accounts the payment can come out of, same as the wage form.
-  const ledgers = await fetchAll<{ id: number; name: string }>((lo, hi) =>
-    (supabase as unknown as {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      from: (t: string) => any;
-    }).from('ledger')
-      .select('id, name, group_id, ledger_group:group_id ( name )')
-      .order('id', { ascending: true })
-      .range(lo, hi));
-
-  const sourceLedgers: LedgerOption[] = (ledgers.rows as unknown as Array<{
-    id: number; name: string; ledger_group: { name: string } | null;
-  }>)
-    .filter((l) => {
-      const g = (l.ledger_group?.name ?? '').toUpperCase();
-      return g === 'CASH-IN-HAND' || g === 'BANK ACCOUNTS' || g === 'BANK OD A/C';
-    })
-    .map((l) => ({ id: l.id, name: l.name }));
+  // Where the challan money came from. One shared rule — see
+  // lib/ledgers/payment-sources.ts. This screen used to filter on the
+  // ledger group by hand, which is why it silently offered no cash option
+  // while the CASH ledger sat in the wrong group.
+  const sources = await fetchPaymentSources(supabase as unknown as SupabaseLike);
+  const sourceLedgers: LedgerOption[] = sources.map((l) => ({ id: l.id, name: l.label }));
 
   return (
     <div className="p-4 md:p-6">

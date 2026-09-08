@@ -10,6 +10,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import {
+  fetchPaymentSources, defaultPaymentSource,
+  type PaymentSource, type SupabaseLike,
+} from '@/lib/ledgers/payment-sources';
 import { Loader2, Info, AlertTriangle } from 'lucide-react';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 
@@ -72,12 +76,9 @@ interface WeekAdvanceRow {
   notes: string | null;
 }
 
-// Cash / bank account the wage was paid from.
-interface SourceLedgerOption {
-  id: number;
-  name: string;
-  type_name: string;
-}
+// Cash / bank / owner account the wage was paid from. Shape and ordering
+// both come from lib/ledgers/payment-sources.ts.
+type SourceLedgerOption = PaymentSource;
 
 interface WageEntryFormProps {
   employees: EmployeeOption[];
@@ -179,27 +180,21 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load active cash + bank ledgers for the "Paid from" picker.
+  // Load the accounts money can come out of for the "Paid from" picker.
+  // One shared rule — see lib/ledgers/payment-sources.ts. Owner funds now
+  // reaches this screen too, so a wage PPK settles out of his own pocket
+  // can be recorded rather than forced through a cash account it never
+  // touched.
   useEffect(() => {
     let cancelled = false;
     async function loadLedgers(): Promise<void> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
-        .from('ledger')
-        .select('id, name, active, ledger_type:type_id ( name )')
-        .eq('active', true)
-        .order('name');
+      const list = await fetchPaymentSources(supabase as unknown as SupabaseLike);
       if (cancelled) return;
-      const list = ((data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
-        .filter((r) => r.ledger_type?.name === 'CASH' || r.ledger_type?.name === 'BANK')
-        .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
-        // CASH first, then banks alphabetically.
-        .sort((a, b) => (a.type_name === b.type_name ? a.name.localeCompare(b.name) : a.type_name === 'CASH' ? -1 : 1));
       setSourceLedgers(list);
-      // Default selection: keep the edit value if present, else first CASH.
+      // Default selection: keep the edit value if present, else cash.
       if (!sourceLedgerId) {
-        const cash = list.find((l) => l.type_name === 'CASH') ?? list[0];
-        if (cash) setSourceLedgerId(String(cash.id));
+        const first = defaultPaymentSource(list);
+        if (first) setSourceLedgerId(String(first.id));
       }
     }
     void loadLedgers();
@@ -803,7 +798,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           {sourceLedgers.length === 0 && <option value="">Loading…</option>}
           {sourceLedgers.map((l) => (
             <option key={l.id} value={l.id}>
-              {l.name}{l.type_name === 'CASH' ? '' : ' (Bank)'}
+              {l.label}
             </option>
           ))}
         </select>

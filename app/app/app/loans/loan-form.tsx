@@ -12,6 +12,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import {
+  fetchPaymentSources, defaultPaymentSource,
+  type PaymentSource, type SupabaseLike,
+} from '@/lib/ledgers/payment-sources';
 import { Loader2 } from 'lucide-react';
 
 export interface EmployeeOption {
@@ -32,11 +36,8 @@ export interface InitialLoan {
   source_ledger_id?: number | null;
 }
 
-interface SourceLedgerOption {
-  id: number;
-  name: string;
-  type_name: string;
-}
+// Shape and ordering both come from lib/ledgers/payment-sources.ts.
+type SourceLedgerOption = PaymentSource;
 
 interface LoanFormProps {
   employees: EmployeeOption[];
@@ -74,22 +75,15 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
   // Load active cash + bank ledgers for the "Paid from" picker.
   useEffect(() => {
     let cancelled = false;
+    // One shared rule for "which account can I pay from" —
+    // see lib/ledgers/payment-sources.ts.
     async function loadLedgers(): Promise<void> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
-        .from('ledger')
-        .select('id, name, active, ledger_type:type_id ( name )')
-        .eq('active', true)
-        .order('name');
+      const list = await fetchPaymentSources(supabase as unknown as SupabaseLike);
       if (cancelled) return;
-      const list = ((data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
-        .filter((r) => r.ledger_type?.name === 'CASH' || r.ledger_type?.name === 'BANK')
-        .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
-        .sort((a, b) => (a.type_name === b.type_name ? a.name.localeCompare(b.name) : a.type_name === 'CASH' ? -1 : 1));
       setSourceLedgers(list);
       if (!sourceLedgerId) {
-        const cash = list.find((l) => l.type_name === 'CASH') ?? list[0];
-        if (cash) setSourceLedgerId(String(cash.id));
+        const first = defaultPaymentSource(list);
+        if (first) setSourceLedgerId(String(first.id));
       }
     }
     void loadLedgers();
@@ -207,7 +201,7 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
           {sourceLedgers.length === 0 && <option value="">Loading…</option>}
           {sourceLedgers.map((l) => (
             <option key={l.id} value={l.id}>
-              {l.name}{l.type_name === 'CASH' ? '' : ' (Bank)'}
+              {l.label}
             </option>
           ))}
         </select>

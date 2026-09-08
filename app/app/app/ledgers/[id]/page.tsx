@@ -27,6 +27,7 @@ interface LedgerRow {
   bank_branch: string | null;
   area: string | null;
   active: boolean;
+  is_payment_source: boolean;
   notes: string | null;
   opening_date: string | null;
   opening_amount: number | string | null;
@@ -93,6 +94,7 @@ export default async function EditLedgerPage({
     bank_ifsc:       l.bank_ifsc       ?? '',
     bank_branch:     l.bank_branch     ?? '',
     area:     l.area ?? '',
+    is_payment_source: l.is_payment_source ?? false,
     active:   l.active,
     notes:    l.notes ?? '',
     opening_date:   l.opening_date ?? '',
