@@ -1881,6 +1881,30 @@ interface PivotData {
   unit: LedgerUnit;
   columns: PivotColumn[];
   events: PivotEvent[];
+  /**
+   * Real closing stock per column, when something better than
+   * (in - out) is available.
+   *
+   * PPK, 2026-09-08, on seeing COLOR OE at -3,662 m: "those are
+   * completely ran out now". Both of that column's warp specs had every
+   * beam already marked finished, so the true answer was zero - and the
+   * system knew it. The subtraction did not, for two reasons:
+   *
+   *   1. Cloth receipts start 2026-04-06 but the first beam entered is
+   *      2026-06-06. 64,844 m of cloth came off beams that predate the
+   *      system, so the out side carries two months the in side never
+   *      saw.
+   *   2. Inflows key their column from sizing_job.warp_count_id while
+   *      outflows key theirs from the quality's costing snapshot. When
+   *      those disagree the same physical warp splits across two
+   *      columns - one driven negative, the other inflated.
+   *
+   * Neither is fixable by arithmetic on the events. But a beam's own
+   * status settles it outright: finished holds nothing, in-stock holds
+   * its full length, on-loom holds what has not yet been woven. Where
+   * that is known, it wins.
+   */
+  closingByColumn?: Record<string, number>;
 }
 
 /** Pivot-style ledger. Rows = events (date), columns = ends / yarn count /
@@ -1910,7 +1934,29 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
     if (e.direction === 'in') t.in += e.quantity;
     else                       t.out += e.quantity;
   }
-  const grandClosing = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0), 0);
+  /** Closing for one column: the beam-status figure when we have one,
+   *  else fall back to the old subtraction. */
+  const closingOf = (id: string): number =>
+    data.closingByColumn?.[id] ?? ((totals[id]?.in ?? 0) - (totals[id]?.out ?? 0));
+  /** What the events cannot account for: warp that was already on the
+   *  looms before go-live, and cloth recorded against a column its warp
+   *  never entered. Shown rather than absorbed, so the column still adds
+   *  up and the size of the gap stays visible. */
+  const gapOf = (id: string): number =>
+    closingOf(id) - ((totals[id]?.in ?? 0) - (totals[id]?.out ?? 0));
+  const hasGap = data.closingByColumn != null
+    && data.columns.some((c) => Math.abs(gapOf(c.id)) > 0.05);
+  const grandClosing = data.columns.reduce((s, c) => s + closingOf(c.id), 0);
+  /** Sticky offsets for the footer stack, bottom row upward. The closing
+   *  row is taller when it carries its explanatory line, and the gap row
+   *  only exists sometimes, so these are measured from the bottom up
+   *  rather than assumed to be uniform. */
+  const closingH = data.closingByColumn != null ? 3.25 : 2.25;
+  const footBottom = {
+    gap: `${closingH}rem`,
+    out: `${closingH + (hasGap ? 3.25 : 0)}rem`,
+    in:  `${closingH + (hasGap ? 3.25 : 0) + 2.25}rem`,
+  };
   const grandIn      = data.columns.reduce((s, c) => s + (totals[c.id]?.in ?? 0), 0);
   const grandOut     = data.columns.reduce((s, c) => s + (totals[c.id]?.out ?? 0), 0);
 
@@ -2035,32 +2081,63 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
               stacked with bottom offsets (~2.25rem per row) so they pin
               above one another instead of overlapping. */}
           <tfoot className="border-t-2 border-line bg-cloud font-semibold">
+            {/* The rows pin above one another at the bottom of the scroll
+                area. Offsets are inline rather than Tailwind classes
+                because the "Opening & unrecorded" row is conditional, so
+                the stack height changes and arbitrary class names could
+                not follow it. ROW is a plain row, TALL one carrying a
+                second explanatory line. */}
             <tr>
-              <td className="px-3 py-2 sticky left-0 bottom-[4.5rem] bg-cloud z-30" colSpan={2}>Total In</td>
+              <td className="px-3 py-2 sticky left-0 bg-cloud z-30" style={{ bottom: footBottom.in }} colSpan={2}>Total In</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.in ?? 0;
                 return (
-                  <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs sticky bottom-[4.5rem] bg-cloud z-20">
+                  <td key={c.id} className="px-3 py-2 text-right num text-emerald-700 text-xs sticky bg-cloud z-20" style={{ bottom: footBottom.in }}>
                     {'+ ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
             </tr>
             <tr>
-              <td className="px-3 py-2 sticky left-0 bottom-[2.25rem] bg-cloud z-30" colSpan={2}>Total Out</td>
+              <td className="px-3 py-2 sticky left-0 bg-cloud z-30" style={{ bottom: footBottom.out }} colSpan={2}>Total Out</td>
               {data.columns.map(c => {
                 const v = totals[c.id]?.out ?? 0;
                 return (
-                  <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs sticky bottom-[2.25rem] bg-cloud z-20">
+                  <td key={c.id} className="px-3 py-2 text-right num text-rose-700 text-xs sticky bg-cloud z-20" style={{ bottom: footBottom.out }}>
                     {'\u2212 ' + fmtUnit(v, data.unit)}
                   </td>
                 );
               })}
             </tr>
+            {hasGap && (
+              <tr>
+                <td className="px-3 py-2 sticky left-0 bg-cloud z-30" style={{ bottom: footBottom.gap }} colSpan={2}>
+                  Opening &amp; unrecorded
+                  <span className="block text-[10px] font-normal text-ink-mute">
+                    Warp on the looms before go-live, and cloth whose warp was never entered
+                  </span>
+                </td>
+                {data.columns.map(c => {
+                  const gap = gapOf(c.id);
+                  return (
+                    <td key={c.id} className="px-3 py-2 text-right num text-xs text-ink-mute sticky bg-cloud z-20" style={{ bottom: footBottom.gap }}>
+                      {Math.abs(gap) < 0.05 ? '\u2014' : (gap > 0 ? '+ ' : '\u2212 ') + fmtUnit(Math.abs(gap), data.unit)}
+                    </td>
+                  );
+                })}
+              </tr>
+            )}
             <tr className="border-t-2 border-line">
-              <td className="px-3 py-2 sticky left-0 bottom-0 bg-cloud z-30" colSpan={2}>Closing balance</td>
+              <td className="px-3 py-2 sticky left-0 bottom-0 bg-cloud z-30" colSpan={2}>
+                Closing balance
+                {data.closingByColumn != null && (
+                  <span className="block text-[10px] font-normal text-ink-mute">
+                    What is left on the beams &mdash; a finished beam counts as nil
+                  </span>
+                )}
+              </td>
               {data.columns.map(c => {
-                const closing = (totals[c.id]?.in ?? 0) - (totals[c.id]?.out ?? 0);
+                const closing = closingOf(c.id);
                 return (
                   <td key={c.id} className={`px-3 py-2 text-right num text-sm font-bold sticky bottom-0 bg-cloud z-20 ${closing < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                     {fmtUnit(closing, data.unit)}
@@ -2080,6 +2157,25 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
 async function safeSelect<T>(p: Promise<{ data: T[] | null; error: unknown }>): Promise<T[]> {
   try {
     const res = await p;
+    if (res.error) return [];
+    return (res.data ?? []) as T[];
+  } catch {
+    return [];
+  }
+}
+
+/** safeSelect's sibling for an RPC. Same contract: a failure yields an
+ *  empty list rather than taking the page down, because the warehouse
+ *  view is assembled from a dozen independent sources and one of them
+ *  being unavailable should degrade that section, not the screen. */
+async function safeRpc<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<T[]> {
+  try {
+    const res = await supabase.rpc(fn, args);
     if (res.error) return [];
     return (res.data ?? []) as T[];
   } catch {
@@ -2195,6 +2291,18 @@ async function loadInhouseOpeningStock(
 
   const colMap = new Map<string, PivotColumn>();
   const events: PivotEvent[] = [];
+  /** Real closing stock per column. See PivotData for why the plain
+   *  (in - out) subtraction cannot be trusted here. Assembled at the end
+   *  of the in-house warp branch from the three parts below. */
+  const closingByColumn: Record<string, number> = {};
+  /** Metres still on beams the system tracks: nil once finished. */
+  const beamRemainingByCol: Record<string, number> = {};
+  /** Metres already woven off those tracked beams. Needed to work out how
+   *  much of the recorded cloth came off warp the system never saw. */
+  const beamWovenByCol: Record<string, number> = {};
+  /** Opening-stock metres — warp on hand at go-live. It carries no status,
+   *  so unlike a beam it cannot say how much of itself is left. */
+  const openingInByCol: Record<string, number> = {};
 
   const unit: LedgerUnit = bucket === 'warp_beam' ? 'm' : (bucket === 'bobbin' ? 'm' : 'kg');
 
@@ -2292,6 +2400,7 @@ async function loadInhouseOpeningStock(
       // the warp_ends column existed.
       if (r.warp_ends != null) {
         colId = ensureEndsCountCol(Number(r.warp_ends), r.yarn_count_id);
+        openingInByCol[colId] = (openingInByCol[colId] ?? 0) + Number(r.quantity ?? 0);
         events.push({
           event_date: r.open_date ?? '',
           column_id: colId,
@@ -2548,12 +2657,53 @@ async function loadInhouseOpeningStock(
         countBySizingJob.set(j.id, j.warp_count_id);
       }
     }
+    // ── What is ACTUALLY left, per beam ──────────────────────────────
+    // fn_pavu_stock_report reconstructs every beam's status and its
+    // loaded / finished metres as of a date. It already backs the Beam
+    // Stock Report, so reusing it keeps one answer to "how much is left
+    // on this beam" rather than inventing a second one here that would
+    // drift away from it.
+    //
+    // Keyed by pavu_id and then mapped onto this view's own column key
+    // below, so the closing figure lands on the same column as the
+    // beam's inflow - which is the half of the split that is trustworthy.
+    const stockRows = await safeRpc<{
+      pavu_id: number; loaded_metre: number | string | null;
+      finished_metre: number | string | null; status_as_of: string | null;
+      production_mode: string | null;
+    }>(supabase, 'fn_pavu_stock_report', { p_as_of: new Date().toISOString().slice(0, 10) });
+
+    const remainingByPavu = new Map<number, number>();
+    const wovenByPavu     = new Map<number, number>();
+    for (const r of stockRows) {
+      if (r.production_mode !== 'in_house') continue;
+      wovenByPavu.set(r.pavu_id, Math.max(0, Number(r.finished_metre ?? 0)));
+      const st = (r.status_as_of ?? '').toLowerCase();
+      // A beam that is done holds nothing, whatever the metres say. This
+      // is the line that takes COLOR OE and DOBBY-OE-TOWEL-31 to zero.
+      if (st === 'finished' || st === 'scrapped' || st === 'damaged') {
+        remainingByPavu.set(r.pavu_id, 0);
+        continue;
+      }
+      const loaded   = Number(r.loaded_metre ?? 0);
+      const finished = Number(r.finished_metre ?? 0);
+      // Floored at zero: a beam woven past its own length is the separate
+      // changeover problem, and it must not lend negative stock to a
+      // column that is otherwise fine.
+      remainingByPavu.set(r.pavu_id, Math.max(0, loaded - finished));
+    }
+
     for (const p of inhousePavus) {
       const ends = Number(p.ends ?? 0);
       const meters = Number(p.meters ?? 0);
       if (ends <= 0 || meters <= 0) continue;
       const warpCountId = p.sizing_job_id != null ? (countBySizingJob.get(p.sizing_job_id) ?? null) : null;
       const colId = ensureEndsCountCol(ends, warpCountId);
+      // Only beams the report knows about contribute.
+      if (remainingByPavu.has(p.id)) {
+        beamRemainingByCol[colId] = (beamRemainingByCol[colId] ?? 0) + (remainingByPavu.get(p.id) ?? 0);
+        beamWovenByCol[colId]     = (beamWovenByCol[colId] ?? 0) + (wovenByPavu.get(p.id) ?? 0);
+      }
       const eventDate = (p.sizing_job_id != null ? dateBySizingJob.get(p.sizing_job_id) ?? null : null)
         ?? (p.created_at ?? '').slice(0, 10);
       events.push({
@@ -2726,7 +2876,47 @@ async function loadInhouseOpeningStock(
   }
 
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  return { unit, columns, events };
+  // ── Real closing stock, assembled ───────────────────────────────
+  // Only for warp; this loader is in-house by construction (it filters
+  // opening_stock on mode='inhouse'), and warp is the one bucket whose
+  // stock sits on beams that carry a status.
+  //
+  //   closing = what is left on tracked beams
+  //           + what is left of the opening stock
+  //
+  // The first part is exact. The second has to be inferred, because an
+  // opening-stock row is a single figure with no status: it cannot say
+  // how much of itself has since been woven. So work out how much of the
+  // recorded cloth did NOT come off a tracked beam, and charge that
+  // against the opening figure.
+  //
+  // Both parts are floored at zero. That is what stops a negative: a
+  // column can run its opening stock down to nothing, but not past it.
+  // Cloth beyond that point means either warp that was never entered or
+  // the beam-changeover double count, and neither is a reason to claim
+  // the mill holds minus three thousand metres of warp.
+  if (bucket === 'warp_beam') {
+    const outByCol: Record<string, number> = {};
+    for (const e of events) {
+      if (e.direction === 'out') outByCol[e.column_id] = (outByCol[e.column_id] ?? 0) + e.quantity;
+    }
+    for (const c of columns) {
+      const beamsLeft  = beamRemainingByCol[c.id] ?? 0;
+      const beamsWoven = beamWovenByCol[c.id] ?? 0;
+      const opening    = openingInByCol[c.id] ?? 0;
+      // Cloth recorded against this column that no tracked beam accounts
+      // for. Pre-go-live weaving lands here, which is exactly what should
+      // be eating into the opening figure.
+      const offUntracked = Math.max(0, (outByCol[c.id] ?? 0) - beamsWoven);
+      const openingLeft  = Math.max(0, opening - offUntracked);
+      closingByColumn[c.id] = beamsLeft + openingLeft;
+    }
+  }
+
+  return {
+    unit, columns, events,
+    closingByColumn: bucket === 'warp_beam' ? closingByColumn : undefined,
+  };
 }
 
 // ─── Sizing warehouse loader ────────────────────────────────────────────────
