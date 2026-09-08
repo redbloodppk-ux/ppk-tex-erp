@@ -72,10 +72,22 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
         .eq('active', true)
         .order('name');
       if (cancelled) return;
+      // CAPITAL is here for OWNER FUNDS (PPK) — a business cost paid out of
+      // the proprietor's own pocket or personal card. PPK, 2026-09-07:
+      // "business things on the personal card regularly because i have only
+      // thing i have in my hand". No business account is touched, so
+      // without this the cost simply could not be recorded at all.
+      // See migration 285.
+      const ALLOWED = ['CASH', 'BANK', 'CAPITAL'];
       const list = ((data ?? []) as Array<{ id: number; name: string; ledger_type: { name: string } | null }>)
-        .filter((r) => r.ledger_type?.name === 'CASH' || r.ledger_type?.name === 'BANK')
+        .filter((r) => ALLOWED.includes(r.ledger_type?.name ?? ''))
         .map((r) => ({ id: r.id, name: r.name, type_name: r.ledger_type?.name ?? '' }))
-        .sort((a, b) => (a.type_name === b.type_name ? a.name.localeCompare(b.name) : a.type_name === 'CASH' ? -1 : 1));
+        // Cash first, then bank, then owner funds last — the everyday
+        // choices stay at the top of the list.
+        .sort((a, b) => {
+          const rank = (t: string): number => (t === 'CASH' ? 0 : t === 'BANK' ? 1 : 2);
+          return rank(a.type_name) - rank(b.type_name) || a.name.localeCompare(b.name);
+        });
       setSourceLedgers(list);
       if (!sourceLedgerId) {
         const cash = list.find((l) => l.type_name === 'CASH') ?? list[0];
@@ -247,13 +259,18 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
           {sourceLedgers.length === 0 && <option value="">Loading…</option>}
           {sourceLedgers.map((l) => (
             <option key={l.id} value={l.id}>
-              {l.name}{l.type_name === 'CASH' ? '' : ' (Bank)'}
+              {l.name}
+                {l.type_name === 'CASH' ? '' : l.type_name === 'BANK' ? ' (Bank)' : ' (your own money)'}
             </option>
           ))}
         </select>
         <p className="text-[11px] text-ink-mute mt-1">
           Which account this expense was paid from. It records a matching Credit
-          on that cash/bank ledger so its balance reflects money going out.
+          on that ledger so its balance reflects money going out.
+              {' '}Pick <strong>Owner funds</strong> when you paid for something
+              business-related yourself &mdash; on your own card or out of pocket.
+              The cost is recorded and the business owes you for it; paying your
+              card bill from the business account later settles it.
         </p>
       </div>
 
