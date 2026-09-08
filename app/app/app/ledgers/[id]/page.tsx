@@ -58,6 +58,23 @@ export default async function EditLedgerPage({
   const types = (typesRes.data ?? []) as unknown as LedgerOption[];
   const groups = (groupsRes.data ?? []) as unknown as LedgerOption[];
 
+  // Both lists are filtered to active rows, so a ledger sitting in a group
+  // or type that was later switched off would open with an empty picker and
+  // silently move somewhere else on save. Pull its own group and type back
+  // in when that happens, so editing a phone number cannot reclassify the
+  // account behind your back. Migration 287 switches five empty groups off,
+  // and this is what makes doing that safe.
+  const [ownType, ownGroup] = await Promise.all([
+    types.some((t) => t.id === l.type_id)
+      ? null
+      : sb.from('ledger_type').select('id, code, name').eq('id', l.type_id).maybeSingle(),
+    groups.some((g) => g.id === l.group_id)
+      ? null
+      : sb.from('ledger_group').select('id, code, name').eq('id', l.group_id).maybeSingle(),
+  ]);
+  if (ownType?.data) types.push(ownType.data as unknown as LedgerOption);
+  if (ownGroup?.data) groups.push(ownGroup.data as unknown as LedgerOption);
+
   const initial: LedgerFormValues = {
     name:     l.name,
     type_id:  String(l.type_id),
