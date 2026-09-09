@@ -236,27 +236,45 @@ export const STATE_CODE_BY_NAME: Record<string, string> = {
   'OTHER TERRITORY': '97',
 };
 
-/** Loose unit → GST UQC code. Defaults to OTH-OTHERS. */
+/**
+ * Loose unit → GST UQC, in the full CODE-NAME form. Defaults to OTH-OTHERS.
+ *
+ * THE HYPHEN IS LOAD-BEARING. The Returns Offline Tool parses the unit by
+ * cutting at the first hyphen (returns.fct.js, the hsn(b2b) row builder):
+ *
+ *   "uqc": (inv['UQC'].substring(0, inv['UQC'].indexOf("-"))).trim(),
+ *
+ * Sent a bare "PCS", indexOf("-") is -1, substring(0, -1) is "", and the
+ * unit is silently dropped. The tool then reports a clean import and
+ * generates a JSON whose goods rows carry no uqc at all — which the portal
+ * refuses with the same unhelpful "File could not be uploaded".
+ *
+ * Confirmed against PPK's generated file on 2026-09-09: 5208, 5205 and
+ * 5206 had no uqc field, while 9988 and 997212 kept theirs because a UQC
+ * of exactly "NA" takes a different branch that passes it through whole.
+ *
+ * Strings below are copied verbatim from the tool's own $scope.UQCList.
+ */
 const UQC_BY_UOM: Record<string, string> = {
-  mtr: 'MTR',
-  meter: 'MTR',
-  metre: 'MTR',
-  m: 'MTR',
-  kg: 'KGS',
-  kgs: 'KGS',
-  pcs: 'PCS',
-  pc: 'PCS',
-  piece: 'PCS',
-  nos: 'NOS',
-  no: 'NOS',
-  bag: 'BAG',
-  bags: 'BAG',
-  box: 'BOX',
-  set: 'SET',
-  roll: 'ROL',
-  rolls: 'ROL',
-  ton: 'TON',
-  unit: 'UNT',
+  mtr: 'MTR-METERS',
+  meter: 'MTR-METERS',
+  metre: 'MTR-METERS',
+  m: 'MTR-METERS',
+  kg: 'KGS-KILOGRAMS',
+  kgs: 'KGS-KILOGRAMS',
+  pcs: 'PCS-PIECES',
+  pc: 'PCS-PIECES',
+  piece: 'PCS-PIECES',
+  nos: 'NOS-NUMBERS',
+  no: 'NOS-NUMBERS',
+  bag: 'BAG-BAGS',
+  bags: 'BAG-BAGS',
+  box: 'BOX-BOX',
+  set: 'SET-SETS',
+  roll: 'ROL-ROLLS',
+  rolls: 'ROL-ROLLS',
+  ton: 'TON-TONNES',
+  unit: 'UNT-UNITS',
 };
 
 /* ────────────────────────────── helpers ──────────────────────────────── */
@@ -314,7 +332,7 @@ function posCode(inv: Gstr1Invoice): string {
 
 function uqcOf(uom: string | null | undefined): string {
   const key = (uom ?? '').trim().toLowerCase();
-  return UQC_BY_UOM[key] ?? 'OTH';
+  return UQC_BY_UOM[key] ?? 'OTH-OTHERS';
 }
 
 function interstateOf(inv: Gstr1Invoice): boolean {
