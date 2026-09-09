@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
-import { Loader2, Save, CheckCircle2, Plus, X } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, Plus, X, AlertTriangle } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 
 type ShiftLogInsert = Database['public']['Tables']['production_shift_log']['Insert'];
@@ -1025,6 +1025,42 @@ function ShedCard({
             <div className="text-xs text-ink-mute">
               {r.logged_quality_name ?? r.mounted_quality_name ?? r.quality_name ?? r.loom_type}
             </div>
+            {/* The log says one quality, the beam on the loom that day says
+                another. Two things cause it and both are worth catching
+                here rather than months later in a stock report:
+
+                  - the beam was changed but recorded a day or two late, so
+                    the new beam's cloth is charged to the old beam. L-34,
+                    1 Sep 2026: 118 m of Cotton Thalapathy went to beam
+                    2420, an OE beam, because the change was entered on the
+                    3rd.
+                  - the loom's default quality was never updated at the
+                    changeover, and a log saved without a quality inherits
+                    it. That is how L-10's beam 3768 ran its whole life
+                    logged as Cotton Thalapathy when it was Lurex Towel -
+                    1,227 m credited to the wrong quality, which reaches
+                    profit-by-quality and costing.
+
+                A warning, not a block: the mill knows things the system
+                does not, and refusing the entry would only mean the day's
+                production goes unrecorded. */}
+            {/* Compare against the quality that WILL be saved, not just one
+                already frozen. On a fresh date nothing is logged yet, so the
+                loom's current setting is what a save would freeze - and a
+                stale setting is exactly the L-10 case. Checking only
+                logged_quality_name would catch the mistake after the fact
+                and never prevent it. */}
+            {(r.logged_quality_name ?? r.quality_name) != null
+              && r.mounted_quality_name != null
+              && (r.logged_quality_name ?? r.quality_name) !== r.mounted_quality_name && (
+              <div className="mt-0.5 text-[10px] leading-tight text-amber-700 flex items-start gap-1">
+                <AlertTriangle className="w-3 h-3 shrink-0 mt-px" />
+                <span>
+                  Beam on this loom is <strong>{r.mounted_quality_name}</strong>.
+                  Check whether the beam change was recorded late.
+                </span>
+              </div>
+            )}
                   </td>
                   {running ? (
                     <>
