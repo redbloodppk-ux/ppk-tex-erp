@@ -497,6 +497,9 @@ function buildHsn(
   invoices: Gstr1Invoice[],
   notes: Gstr1Invoice[],
   keep: (inv: Gstr1Invoice) => boolean = () => true,
+  /** Filled with any HSN whose rows were merged across different units,
+   *  so the caller can tell the operator the quantity is nominal there. */
+  mergedUnits: string[] = [],
 ): HsnRow[] {
   interface Agg {
     hsn: string;
@@ -538,29 +541,53 @@ function buildHsn(
   for (const inv of invoices) if (keep(inv)) add(inv, 1);
   for (const n of notes) if (keep(n)) add(n, -1);
 
-  // KEEP EACH (HSN, description) PAIR UNIQUE.
+  // ONE ROW PER HSN + RATE. The Offline Tool cannot hold two.
   //
-  // The Returns Offline Tool treats two Table 12 rows as the same row when
-  // the HSN and the description match — returns.fct.js, case 'hsn(b2b)':
+  // Its duplicate test is HSN + description (returns.fct.js, case
+  // 'hsn(b2b)'), and UQC and rate are not in it. Worse, before that test
+  // runs the tool THROWS AWAY the description we send and replaces it
+  // with its own text looked up from the HSN code:
   //
-  //   iExInv['HSN'] == existingInv['hsn_sc'] &&
-  //   iExInv['Description as per HSN Code'] == existingInv['desc']
+  //   ReturnStructure.fetchDescFromHsn(sInv.HSN).then(function (response) {
+  //     iData[i]['Description as per HSN Code'] = response.data;
   //
-  // UQC and rate are not part of that test. So 5208 sold in metres and
-  // 5208 sold in pieces — both legitimately separate rows, both described
-  // "Fabric" — collided, and the second silently overwrote the first.
-  // PPK, 2026-09-09: it swallowed Rs 3,08,552.05 of August fabric and the
-  // tool reported it as a cheerful "duplicate invoices updated" notice.
+  // So two rows sharing an HSN always end up sharing a description too,
+  // whatever we write, and the second silently overwrites the first. An
+  // earlier attempt here to disambiguate by appending the unit and rate
+  // to the description could never have worked, and did not.
   //
-  // Where one HSN yields more than one row, the unit and rate go into the
-  // description to keep the pair distinct. Left alone when there is only
-  // one row for that HSN, so the common case stays readable.
-  const rows = [...map.values()];
-  const perHsn = new Map<string, number>();
-  for (const a of rows) perHsn.set(a.hsn, (perHsn.get(a.hsn) ?? 0) + 1);
-  for (const a of rows) {
-    if ((perHsn.get(a.hsn) ?? 0) > 1) a.desc = `${a.desc} ${a.uqc} ${a.rt}%`;
+  // Verified against the tool's own working file on 2026-09-09: August
+  // 5208 went in as metres (Rs 1,06,807.00) and pieces (Rs 3,08,552.05)
+  // and came out as one row of Rs 1,06,807.00. Rs 3,08,552.05 of fabric
+  // and Rs 15,427.60 of tax, reported as a "duplicate updated" notice.
+  //
+  // So merge here instead, where the arithmetic is ours and visible.
+  // Grouping is HSN + rate: the rate must stay honest, and merging
+  // across rates would put a false rate against real money.
+  //
+  // THE QUANTITY BECOMES NOMINAL when a merged HSN spans units - 5,403.8
+  // metres plus 7,395 pieces is not 12,798.8 of anything. That is
+  // accepted deliberately: Table 12 has to reconcile on TAXABLE VALUE,
+  // and the value stays exact. The unit shown is whichever contributed
+  // the larger quantity. mergedUnits below reports where this happened so
+  // the screen can say so rather than leaving it to be discovered.
+  const byHsnRate = new Map<string, Agg>();
+  const unitsSeen = new Map<string, Set<string>>();
+  for (const a of [...map.values()]) {
+    const key = `${a.hsn}|${a.rt}`;
+    (unitsSeen.get(key) ?? unitsSeen.set(key, new Set()).get(key)!).add(a.uqc);
+    const cur = byHsnRate.get(key);
+    if (!cur) { byHsnRate.set(key, { ...a }); continue; }
+    // Keep the unit of whichever side carries the bigger quantity.
+    if (Math.abs(a.qty) > Math.abs(cur.qty)) cur.uqc = a.uqc;
+    cur.qty += a.qty; cur.txval += a.txval;
+    cur.iamt += a.iamt; cur.camt += a.camt; cur.samt += a.samt;
   }
+  const rows = [...byHsnRate.values()];
+  for (const [key, set] of unitsSeen) {
+    if (set.size > 1) mergedUnits.push(`${key.split('|')[0]} (${[...set].join(' + ')})`);
+  }
+
   return rows.map((a, i) => ({
     num: i + 1,
     hsn_sc: a.hsn,
