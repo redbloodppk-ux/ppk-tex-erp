@@ -537,7 +537,31 @@ function buildHsn(
   };
   for (const inv of invoices) if (keep(inv)) add(inv, 1);
   for (const n of notes) if (keep(n)) add(n, -1);
-  return [...map.values()].map((a, i) => ({
+
+  // KEEP EACH (HSN, description) PAIR UNIQUE.
+  //
+  // The Returns Offline Tool treats two Table 12 rows as the same row when
+  // the HSN and the description match — returns.fct.js, case 'hsn(b2b)':
+  //
+  //   iExInv['HSN'] == existingInv['hsn_sc'] &&
+  //   iExInv['Description as per HSN Code'] == existingInv['desc']
+  //
+  // UQC and rate are not part of that test. So 5208 sold in metres and
+  // 5208 sold in pieces — both legitimately separate rows, both described
+  // "Fabric" — collided, and the second silently overwrote the first.
+  // PPK, 2026-09-09: it swallowed Rs 3,08,552.05 of August fabric and the
+  // tool reported it as a cheerful "duplicate invoices updated" notice.
+  //
+  // Where one HSN yields more than one row, the unit and rate go into the
+  // description to keep the pair distinct. Left alone when there is only
+  // one row for that HSN, so the common case stays readable.
+  const rows = [...map.values()];
+  const perHsn = new Map<string, number>();
+  for (const a of rows) perHsn.set(a.hsn, (perHsn.get(a.hsn) ?? 0) + 1);
+  for (const a of rows) {
+    if ((perHsn.get(a.hsn) ?? 0) > 1) a.desc = `${a.desc} ${a.uqc} ${a.rt}%`;
+  }
+  return rows.map((a, i) => ({
     num: i + 1,
     hsn_sc: a.hsn,
     desc: a.desc,
