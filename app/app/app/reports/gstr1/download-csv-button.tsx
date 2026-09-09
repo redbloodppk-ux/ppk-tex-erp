@@ -48,7 +48,13 @@ export function DownloadCsvButton({ data, fp, gstin, disabled = false }: Downloa
         ['b2cs.csv', toB2csCsv(data.b2cs ?? [])],
         ['cdnr.csv', toCdnrCsv(data.cdnr ?? [])],
         ['cdnur.csv', toCdnurCsv(data.cdnur ?? [])],
-        ['hsn.csv', toHsnCsv(data.hsn?.data ?? [])],
+        // Table 12 has had separate B2B and B2C tabs since GSTN's advisory
+        // of 20 May 2025, and is mandatory. A single combined hsn.csv has
+        // nowhere to go in the current Offline Tool, so the section was
+        // silently absent from the generated JSON and the portal rejected
+        // the whole return. Two files now, named for the tab each belongs in.
+        ['hsn_b2b.csv', toHsnCsv(data.hsn_b2b?.data ?? [])],
+        ['hsn_b2c.csv', toHsnCsv(data.hsn_b2c?.data ?? [])],
         ['docs.csv', toDocsCsv(data.doc_issue?.doc_det ?? [])],
       ];
 

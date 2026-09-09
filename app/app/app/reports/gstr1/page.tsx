@@ -236,8 +236,16 @@ export default async function Gstr1Page({ searchParams }: PageProps) {
           <p>
             After downloading, unzip the file. In the GST portal&apos;s Returns Offline Tool, go to GSTR-1/IFF →
             Import Data Using Excel and CSV Import → One section at a time, and upload each CSV into its matching
-            section (b2b.csv → B2B, hsn.csv → HSN Summary, and so on). Review every section before filing, and
-            always verify totals against the Sales Register.
+            section (b2b.csv → B2B, and so on). Review every section before filing, and always verify totals
+            against the Sales Register.
+          </p>
+          <p>
+            <strong>Table 12 (HSN) must be filled, and it has two tabs.</strong> Load
+            <strong> hsn_b2b.csv</strong> into the B2B tab and <strong>hsn_b2c.csv</strong> into
+            the B2C tab. GSTN made this split mandatory in May 2025, and a return generated
+            without it is refused by the portal with only &ldquo;File could not be uploaded&rdquo;
+            to go on. If one of the two files is missing from the ZIP, there was nothing to
+            report in that tab &mdash; leave it empty.
           </p>
         </div>
       </div>

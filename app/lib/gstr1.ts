@@ -167,6 +167,10 @@ export interface Gstr1Return {
   cdnr?: CdnrGroup[];
   cdnur?: CdnurNote[];
   hsn?: { data: HsnRow[] };
+  /** Table 12 split, mandatory since GSTN's advisory of 20 May 2025.
+   *  `hsn` above stays as the combined view the screen shows. */
+  hsn_b2b?: { data: HsnRow[] };
+  hsn_b2c?: { data: HsnRow[] };
   doc_issue?: { doc_det: DocDet[] };
 }
 
@@ -460,8 +464,29 @@ function hsnCategoryLabel(description: string | null): string {
   return 'Fabric';
 }
 
-/** HSN summary across invoices (+) and credit notes (−). */
-function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
+/**
+ * HSN summary across invoices (+) and credit notes (−).
+ *
+ * SPLIT B2B / B2C SINCE MAY 2025. GSTN's advisory of 20 May 2025 made
+ * Table 12 mandatory AND separated it into a B2B tab and a B2C tab. A
+ * single combined summary no longer fits: the Returns Offline Tool has
+ * nowhere to put it, so the section ends up missing from the JSON
+ * altogether and the portal refuses the whole file with nothing more
+ * helpful than "File could not be uploaded".
+ *
+ * That is what happened to PPK's August 2026 return, 2026-09-09. The
+ * generated JSON carried b2b, cdnr and doc_issue and no hsn at all.
+ *
+ * `keep` decides which invoices this summary covers. B2B is "buyer has a
+ * valid GSTIN" — the same test that routes an invoice into the b2b
+ * section — so a bill cannot land in b2b while its HSN lands in the B2C
+ * tab.
+ */
+function buildHsn(
+  invoices: Gstr1Invoice[],
+  notes: Gstr1Invoice[],
+  keep: (inv: Gstr1Invoice) => boolean = () => true,
+): HsnRow[] {
   interface Agg {
     hsn: string;
     uqc: string;
@@ -499,8 +524,8 @@ function buildHsn(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): HsnRow[] {
       map.set(key, cur);
     }
   };
-  for (const inv of invoices) add(inv, 1);
-  for (const n of notes) add(n, -1);
+  for (const inv of invoices) if (keep(inv)) add(inv, 1);
+  for (const n of notes) if (keep(n)) add(n, -1);
   return [...map.values()].map((a, i) => ({
     num: i + 1,
     hsn_sc: a.hsn,
@@ -617,7 +642,11 @@ export function buildGstr1(
   const b2cs = buildB2cs(b2csInv);
   const cdnr = buildCdnr(cdnrNotes);
   const cdnur = buildCdnur(cdnurNotes);
-  const hsn = buildHsn(invoices, notes);
+  // Combined, for the on-screen summary; then split for Table 12, which
+  // GSTN has required as separate B2B / B2C tabs since May 2025.
+  const hsn    = buildHsn(invoices, notes);
+  const hsnB2b = buildHsn(invoices, notes, (i) => isValidGstin(i.party_gstin));
+  const hsnB2c = buildHsn(invoices, notes, (i) => !isValidGstin(i.party_gstin));
   const docDet = buildDocIssue(invoices, notes);
 
   if (b2b.length) out.b2b = b2b;
@@ -626,6 +655,8 @@ export function buildGstr1(
   if (cdnr.length) out.cdnr = cdnr;
   if (cdnur.length) out.cdnur = cdnur;
   if (hsn.length) out.hsn = { data: hsn };
+  if (hsnB2b.length) out.hsn_b2b = { data: hsnB2b };
+  if (hsnB2c.length) out.hsn_b2c = { data: hsnB2c };
   if (docDet.length) out.doc_issue = { doc_det: docDet };
 
   return out;
