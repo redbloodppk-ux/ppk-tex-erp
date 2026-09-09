@@ -244,9 +244,33 @@ export function toCdnurCsv(cdnur: CdnurNote[]): string | null {
   return csvText(CDNUR_HEADER, rows);
 }
 
+/**
+ * Table 12 (HSN) header, for the B2B and B2C tabs.
+ *
+ * 'Description as per HSN Code' is NOT the same column as the old
+ * 'Description'. Read straight out of the Returns Offline Tool V3.2.4's
+ * own validator, returns.fct.js case 'hsn(b2b)':
+ *
+ *   isDescrReq = true;
+ *   validatePattern(iInv['Description as per HSN Code'], isDescrReq, ...)
+ *
+ * The description is mandatory there and is looked up under that exact
+ * key. With our old 'Description' header the value read as undefined, so
+ * every row failed and the tool refused the import with "Data Invalid.
+ * Either all rows have invalid data or the wrong section file is
+ * copied/uploaded" — which is what PPK hit on 2026-09-09.
+ *
+ * The same validator also fixes the rest of this header, so do not
+ * reorder or rename without checking it again:
+ *   HSN                4-8 digits, or 6-8 when turnover is over Rs 5 crore
+ *   UQC                letters, spaces and hyphens only
+ *   Rate               one of 0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40
+ *   Total Quantity     up to 13 digits, 2 decimals
+ *   Taxable Value      same
+ */
 const HSN_HEADER = [
   'HSN',
-  'Description',
+  'Description as per HSN Code',
   'UQC',
   'Total Quantity',
   'Total Value',
