@@ -53,8 +53,21 @@ export function DownloadCsvButton({ data, fp, gstin, disabled = false }: Downloa
         // nowhere to go in the current Offline Tool, so the section was
         // silently absent from the generated JSON and the portal rejected
         // the whole return. Two files now, named for the tab each belongs in.
-        ['hsn_b2b.csv', toHsnCsv(data.hsn_b2b?.data ?? [])],
-        ['hsn_b2c.csv', toHsnCsv(data.hsn_b2c?.data ?? [])],
+        // THE PARENTHESES MATTER. The Offline Tool checks the FILE NAME
+        // against the section id before it reads a single row -
+        // returns.ctrl.js:
+        //
+        //   filename = filename.split('.').slice(0, -1).join('.');
+        //   if (sectionId != filename && filename != null) { ...refuse... }
+        //
+        // sectionId is literally "hsn(b2b)". A file called hsn_b2b.csv is
+        // rejected with "Data Invalid. Either all rows have invalid data
+        // or the wrong section file is copied/uploaded" - which reads like
+        // a data fault and is nothing of the kind. Cost PPK an evening on
+        // 2026-09-09. The other sections pass this check only because
+        // b2b.csv, cdnr.csv and the rest already match their ids.
+        ['hsn(b2b).csv', toHsnCsv(data.hsn_b2b?.data ?? [])],
+        ['hsn(b2c).csv', toHsnCsv(data.hsn_b2c?.data ?? [])],
         ['docs.csv', toDocsCsv(data.doc_issue?.doc_det ?? [])],
       ];
 
