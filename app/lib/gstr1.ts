@@ -281,13 +281,24 @@ function isValidGstin(g: string | null | undefined): boolean {
 }
 
 /**
- * A jobwork bill raised without charging GST (every line at 0% — kept only
- * for the business's own internal records, per the owner's filing practice).
- * These must not appear anywhere in the GSTR-1 report: not in B2B/B2CL/B2CS,
- * not in the HSN summary, not in Documents Issued, and not in the on-screen
- * totals. `buildHsn()` already skipped the individual 0% lines; this drops
+ * A jobwork bill raised without charging GST (every line at 0%). These must
+ * not appear anywhere in the GSTR-1 report: not in B2B/B2CL/B2CS, not in
+ * the HSN summary, not in Documents Issued, and not in the on-screen
+ * totals. `buildHsn()` already skips the individual 0% lines; this drops
  * the whole invoice upstream so every section (and the summary) stays
  * consistent.
+ *
+ * Confirmed by PPK on 2026-09-09, asked directly after his August return
+ * was queried: "we don't need to show jb only jwb". So the exclusion is
+ * deliberate, and the resulting gap in the JB serial range under Documents
+ * Issued (Table 13) is accepted, not an oversight.
+ *
+ * NOTE THE TEST IS THE GST RATE, NOT THE SERIES. It happens that every JB
+ * bill to date is 0% and every JWB is 5%, so the rule and the naming agree
+ * — but they are not the same thing. A JB raised WITH GST would appear in
+ * the return, and a JWB raised at 0% would be dropped from it. If the two
+ * series are ever meant to be the rule itself, that has to be said here
+ * explicitly rather than left to coincide.
  */
 function isGstFreeJobwork(inv: Gstr1Invoice): boolean {
   return inv.doc_type === 'jobwork_invoice' && inv.lines.every((l) => num(l.gst_rate_pct) === 0);
