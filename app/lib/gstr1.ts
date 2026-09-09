@@ -597,7 +597,18 @@ export function buildGstr1(
   const out: Gstr1Return = {
     gstin: company.gstin.trim().toUpperCase(),
     fp,
-    version: 'GST3.2.0',
+    // Schema version stamp. NOT used by today's export: the download is a
+    // ZIP of CSVs for the Returns Offline Tool, and the tool writes its own
+    // header when it generates the JSON. It is kept correct anyway so that
+    // if a direct-JSON download is ever added, it does not start life
+    // stamped with a version GSTN retired years ago.
+    //
+    // PPK's tool, 2026-09-09: Offline Tool V3.2.4, released 26/12/2025.
+    // Taken from his own installation rather than from a web search - the
+    // search said 3.2.2 and was wrong. Re-check against the tool's title
+    // bar before trusting this number again.
+    version: 'GST3.2.4',
+    // Literal 'hash' is what GSTN expects here; it is not computed.
     hash: 'hash',
   };
 
