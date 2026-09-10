@@ -1709,7 +1709,15 @@ function StatusTab(): React.ReactElement {
       // Count reflects the full ledger (bills + payments) so the
       // header "N transactions" line is honest about everything the
       // operator can see below — not just the payment rows.
-      count: partyId !== '' ? ledger.length : payments.length,
+      //
+      // It used to fall back to payments.length in the all-parties view,
+      // which contradicted the line above and the list underneath: the
+      // all-view renders ledger.map(...), bills included. With 165
+      // receipts and 198 bills it announced "165 transactions" over a
+      // list of 363. PPK, 2026-09-10, went looking for RN/26-27/0009 —
+      // an August rent bill sitting perfectly well further down the
+      // page — and reasonably concluded rows were missing.
+      count: ledger.length,
     };
   }, [payments, ledger, partyId]);
 
