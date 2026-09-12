@@ -530,13 +530,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     if (err) loadFailures.push(`${label}: ${err.message}`);
   }
 
-  // Cash in the drawer, from fn_cash_in_hand (migration 294) rather than
+  // Cash in the drawer, from fn_cash_in_hand (migrations 294, 295) rather than
   // summed here. PPK, 2026-09-12: "in erp itself highlight the cash in
   // hand in dashboard". The balance touches six tables and the daily
   // reminder reports the same figure, so it lives in one place; a second
   // copy of that arithmetic would drift the first time a source is added.
   // A failure leaves cashInHand null and the card simply does not render —
   // better a missing card than a confident wrong number for cash.
+  // Since migration 295 the arithmetic lives in fn_cash_movements and the
+  // Daily Cash Book report reads the same rows, so the card and the report
+  // are the same numbers by construction.
   // Cast because database.types.ts predates migration 294 and does not
   // know this function yet. Typegen needs a shell, which is unavailable
   // today; regenerate and drop the cast next time the types are refreshed.

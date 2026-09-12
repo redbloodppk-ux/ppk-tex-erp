@@ -75,6 +75,13 @@ const REPORTS: ReportLink[] = [
     ready: true,
   },
   {
+    href: '/app/reports/cashbook',
+    title: 'Daily Cash Book',
+    description:
+      'One day of the cash drawer — opening balance, every receipt and payment in the order it was entered, and the balance after each one. Closing figure matches the Cash in Hand card on the dashboard.',
+    ready: true,
+  },
+  {
     href: '/app/reports/cashflow',
     title: 'Cash-flow Snapshot',
     description:
