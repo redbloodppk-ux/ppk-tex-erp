@@ -844,15 +844,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     // Shown in full rupees, not compacted: "Rs 76,240" is countable,
     // "Rs 76.2k" is not. Turns red below zero — cash cannot really be
     // negative, so that reading always means an entry is missing.
+    // Whole rupees, no paise. Cash is counted in notes, so the decimals
+    // are never meaningful — and on a phone "Rs 76,140.00" overflowed the
+    // card and pushed the day's movement out of view (PPK, 2026-09-12).
     ...(cashInHand !== null ? [{
       label: 'Cash in Hand (Rs)',
-      value: formatRupee(cashInHand),
+      value: formatRupee(cashInHand, { decimals: 0 }),
       icon: Wallet,
       href: '/app/ledgers?tab=view&type=CASH&ledger=CASH',
       tone: cashInHand < 0 ? 'from-rose-600 to-red-600' : 'from-emerald-500 to-teal-500',
+      // Compact enough to survive a narrow card: "+12,000 / -4,900",
+      // no currency symbols, no decimals.
       sub: (cashDayIn > 0 || cashDayOut > 0)
-        ? `today  +${formatRupee(cashDayIn)}  /  -${formatRupee(cashDayOut)}`
-        : 'no cash movement today',
+        ? `today +${Math.round(cashDayIn).toLocaleString('en-IN')} / −${Math.round(cashDayOut).toLocaleString('en-IN')}`
+        : 'no cash today',
     }] : []),
     { label: 'Outstanding Receivable (Rs)', value: formatRupee(totalOutstanding + totalJobworkReceivable, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
     { label: 'Outstanding Payable (Rs)',    value: formatRupee(totalPayable,     { compact: true }), icon: Truck,   href: '/app/payments?direction=out', tone: 'from-violet-500 to-fuchsia-500' },
@@ -952,14 +957,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${c.tone} text-white grid place-items-center shrink-0`}>
                 <c.icon className="w-5 h-5" />
               </div>
-              <div className="min-w-0">
-                <div className="num text-xl font-bold text-ink leading-tight">{c.value}</div>
+              {/* min-w-0 lets the flex child shrink; without it a long
+                  value pushes the card wider than its grid column and
+                  spills, which is what "Rs 76,140.00" did on a phone. */}
+              <div className="min-w-0 flex-1">
+                <div className="num text-base sm:text-xl font-bold text-ink leading-tight break-words">{c.value}</div>
                 <div className="text-[11px] text-ink-soft uppercase tracking-wide">{c.label}</div>
                 {/* Only the cash card carries a sub-line today: the day's
                     in and out, so the figure can be checked against the
                     drawer without opening the ledger. */}
                 {'sub' in c && c.sub ? (
-                  <div className="num text-[10px] text-ink-mute mt-0.5 truncate">{c.sub}</div>
+                  <div className="num text-[10px] text-ink-mute mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">{c.sub}</div>
                 ) : null}
               </div>
               <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity ml-auto self-start" />
