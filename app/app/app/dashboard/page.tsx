@@ -530,6 +530,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     if (err) loadFailures.push(`${label}: ${err.message}`);
   }
 
+  // Cash in the drawer, from fn_cash_in_hand (migration 294) rather than
+  // summed here. PPK, 2026-09-12: "in erp itself highlight the cash in
+  // hand in dashboard". The balance touches six tables and the daily
+  // reminder reports the same figure, so it lives in one place; a second
+  // copy of that arithmetic would drift the first time a source is added.
+  // A failure leaves cashInHand null and the card simply does not render —
+  // better a missing card than a confident wrong number for cash.
+  // Cast because database.types.ts predates migration 294 and does not
+  // know this function yet. Typegen needs a shell, which is unavailable
+  // today; regenerate and drop the cast next time the types are refreshed.
+  interface CashRow { balance: number | string | null; day_in: number | string | null; day_out: number | string | null }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: cashRows } = await (supabase as any).rpc('fn_cash_in_hand', { p_as_of: tdsToday() });
+  const cashRow: CashRow | null = Array.isArray(cashRows) ? (cashRows[0] ?? null) : (cashRows ?? null);
+  const cashInHand: number | null =
+    cashRow && cashRow.balance != null ? Number(cashRow.balance) : null;
+  const cashDayIn  = Number(cashRow?.day_in  ?? 0);
+  const cashDayOut = Number(cashRow?.day_out ?? 0);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const totalOutstanding = (outstanding ?? []).reduce((s: number, r: any) => s + Number(r.outstanding ?? 0), 0);
 
@@ -820,6 +839,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const totalJobworkReceivable = jobworkGroups.reduce((s, g) => s + g.total, 0);
 
   const cards = [
+    // Cash first. It is the figure PPK checks against the drawer, and the
+    // one that tells him fastest when something has gone unrecorded.
+    // Shown in full rupees, not compacted: "Rs 76,240" is countable,
+    // "Rs 76.2k" is not. Turns red below zero — cash cannot really be
+    // negative, so that reading always means an entry is missing.
+    ...(cashInHand !== null ? [{
+      label: 'Cash in Hand (Rs)',
+      value: formatRupee(cashInHand),
+      icon: Wallet,
+      href: '/app/ledgers?tab=view&type=CASH&ledger=CASH',
+      tone: cashInHand < 0 ? 'from-rose-600 to-red-600' : 'from-emerald-500 to-teal-500',
+      sub: (cashDayIn > 0 || cashDayOut > 0)
+        ? `today  +${formatRupee(cashDayIn)}  /  -${formatRupee(cashDayOut)}`
+        : 'no cash movement today',
+    }] : []),
     { label: 'Outstanding Receivable (Rs)', value: formatRupee(totalOutstanding + totalJobworkReceivable, { compact: true }), icon: Receipt, href: '/app/invoices', tone: 'from-rose-500 to-orange-500' },
     { label: 'Outstanding Payable (Rs)',    value: formatRupee(totalPayable,     { compact: true }), icon: Truck,   href: '/app/payments?direction=out', tone: 'from-violet-500 to-fuchsia-500' },
   ];
@@ -921,6 +955,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className="min-w-0">
                 <div className="num text-xl font-bold text-ink leading-tight">{c.value}</div>
                 <div className="text-[11px] text-ink-soft uppercase tracking-wide">{c.label}</div>
+                {/* Only the cash card carries a sub-line today: the day's
+                    in and out, so the figure can be checked against the
+                    drawer without opening the ledger. */}
+                {'sub' in c && c.sub ? (
+                  <div className="num text-[10px] text-ink-mute mt-0.5 truncate">{c.sub}</div>
+                ) : null}
               </div>
               <ArrowUpRight className="w-4 h-4 text-ink-mute opacity-0 group-hover:opacity-100 transition-opacity ml-auto self-start" />
             </div>
