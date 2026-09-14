@@ -10,6 +10,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 import { loadWinderAllocation, type WinderInfo } from './winder-allocation-data';
+import { loadWeekEmployees } from './week-employees';
 
 export type WageKind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
@@ -162,63 +163,13 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   const weekNo = fyRow?.week_no ?? 0;
 
   // Employees on the payroll FOR THIS WEEK, grouped by wage_alloc_basis.
-  //
-  // Not simply status='active'. `status` is today's state and carries no
-  // date, so marking a leaver inactive used to erase her from every past
-  // week as well - and with her, any wages still owed. PACHAIYAMAAL
-  // (EMP-0022) worked 22-23 Jul 2026, was marked inactive, and silently
-  // vanished from the week she was never settled for. Nothing on the page
-  // could have reminded PPK she was owed anything.
-  //
-  // So: everyone active today, PLUS anyone inactive who has attendance or
-  // a wage entry inside this week. A leaver stays visible in the weeks she
-  // actually worked, and disappears from the weeks after - which is right.
-  //
-  // The clean fix is an employee.exit_date. That needs a backfill nobody
-  // has the dates for, so this derives presence from activity instead.
-  const EMP_COLS = 'id, full_name, code, role, wage_alloc_basis, weekly_salary, default_sheds';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sbEmp = supabase as any;
-  const [activeRes, weekAttRes, weekWageRes] = await Promise.all([
-    sbEmp.from('employee').select(EMP_COLS).eq('status', 'active').order('full_name'),
-    fetchAll<{ employee_id: number }>((lo, hi) => sbEmp
-      .from('attendance_entry')
-      .select('id, employee_id, attendance_day:attendance_day_id!inner ( attendance_date )')
-      .gte('attendance_day.attendance_date', weekStart)
-      .lte('attendance_day.attendance_date', weekEnd)
-      .order('id', { ascending: true })
-      .range(lo, hi)),
-    sbEmp
-      .from('wage_entry')
-      .select('employee_id')
-      .or(
-        `and(pay_date.gte.${weekStart},pay_date.lte.${weekEnd}),` +
-        `and(period_start.lte.${weekEnd},period_end.gte.${weekStart})`,
-      ),
-  ]);
-
-  const activeEmployees = (activeRes?.data ?? []) as EmployeeRow[];
-  const activeIds = new Set(activeEmployees.map((e) => e.id));
-  const touchedIds = new Set<number>();
-  for (const r of (weekAttRes?.rows ?? []) as Array<{ employee_id: number }>) {
-    if (!activeIds.has(r.employee_id)) touchedIds.add(r.employee_id);
-  }
-  for (const r of (weekWageRes?.data ?? []) as Array<{ employee_id: number }>) {
-    if (!activeIds.has(r.employee_id)) touchedIds.add(r.employee_id);
-  }
-
-  let leavers: EmployeeRow[] = [];
-  if (touchedIds.size > 0) {
-    const { data: leaverRaw } = await sbEmp
-      .from('employee')
-      .select(EMP_COLS)
-      .in('id', Array.from(touchedIds))
-      .order('full_name');
-    leavers = (leaverRaw ?? []) as EmployeeRow[];
-  }
-
-  const allEmployees = [...activeEmployees, ...leavers]
-    .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''));
+  // The rule for who belongs to a week - active today, plus leavers with
+  // activity inside it - lives in lib/wages/week-employees.ts, because the
+  // wage entry form needs exactly the same roster to compute a winder's
+  // pay. See that file for why a leaver has to stay visible.
+  const allEmployees = (await loadWeekEmployees(
+    supabase, weekStart, weekEnd,
+  )) as EmployeeRow[];
   const weeklyEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'weekly');
   const loomShiftEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'loom_shifts');
   const metreEmps = allEmployees.filter((e) => e.wage_alloc_basis === 'metres');

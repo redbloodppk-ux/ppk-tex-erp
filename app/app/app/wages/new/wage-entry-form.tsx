@@ -38,6 +38,29 @@ interface WorkContext {
   fetched: boolean;
 }
 
+// What a winder actually earned in the selected week, from
+// /app/api/wages/winder-amount. `found: false` means she is not a winder
+// in that week or has no weekly salary set — the form then leaves the
+// amount alone rather than prefilling a zero.
+interface WinderCalc {
+  loading: boolean;
+  fetched: boolean;
+  found: boolean;
+  /** Book salary: own retained shed-slots plus rupees covered in. */
+  amount: number | null;
+  /** The flat weekly salary, for showing what was lost against it. */
+  weeklySalary: number | null;
+  deduction: number;
+  reallocatedIn: number;
+  reallocatedOut: number;
+  /** Assigned shed-slots that did not run, so paid nobody. */
+  closedShedSlots: number;
+  /** assigned sheds × the week's shifts. */
+  expectedShedSlots: number;
+  coveredForOthers: number;
+  error: string | null;
+}
+
 export interface EmployeeOption {
   id: number;
   code: string;
@@ -293,6 +316,11 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // apply (they get settled weekly); the amount on a "settlement" auto-fills
   // from employee.weekly_salary.
   const isWeekly = selected?.wage_alloc_basis === 'weekly';
+  // Winders are weekly-basis, but their weekly_salary is a ceiling rather
+  // than a wage: it is spread over the week's shed-slots and then adjusted
+  // for sheds that did not run and for cover. The earned figure is fetched
+  // instead of assumed — see the effect below.
+  const isWinder = selected?.role.toLowerCase() === 'winder';
   // Salaried / non-attendance employees skip the attendance + shed lookup
   // entirely — they don't have daily marks to read from.
   const attendanceRequired = selected ? selected.attendance_required !== false : true;
@@ -313,8 +341,11 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // For weekly-basis employees on a settlement entry, prefill the amount from
   // employee.weekly_salary. Same auto-fill semantics as the metres branch:
   // never clobber a value the operator typed.
+  //
+  // Winders are excluded: their flat salary is the ceiling, not the wage.
+  // The effect below fetches what they actually earned.
   useEffect(() => {
-    if (!isWeekly) return;
+    if (!isWeekly || isWinder) return;
     if (kind !== 'settlement') return;
     const ws = selected?.weekly_salary;
     if (ws == null) return;
@@ -323,7 +354,104 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       autoFilledRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWeekly, kind, selected]);
+  }, [isWeekly, isWinder, kind, selected]);
+
+  // ---- Winder settlement: fetch what she actually earned ----------------
+  //
+  // PPK, 2026-09-14: "fetch winder wages automatically to weekly settlement".
+  //
+  // A winder's pay is her weekly salary divided across (assigned sheds x
+  // the week's 13 shifts) and then adjusted: a shed-slot that did not run
+  // pays nobody, and a slot she missed that somebody else wound pays the
+  // substitute instead. That arithmetic already exists and the Weekly Wage
+  // Summary has used it since August; the form was prefilling the flat
+  // salary, so every winder settlement had to be corrected by hand against
+  // the summary - or quietly overpaid.
+  //
+  // It is fetched from /app/api/wages/winder-amount rather than computed
+  // here, for two reasons: the figure needs the whole week's roster and
+  // attendance (money moves BETWEEN winders, so there is no such thing as
+  // one winder's number in isolation), and the route reaches the same
+  // shared code the summary does, so the two cannot disagree.
+  const [winderCalc, setWinderCalc] = useState<WinderCalc>({
+    loading: false, fetched: false, found: false,
+    amount: null, weeklySalary: null, deduction: 0,
+    reallocatedIn: 0, reallocatedOut: 0,
+    closedShedSlots: 0, expectedShedSlots: 0, coveredForOthers: 0,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!isWinder || kind !== 'settlement' || !employeeId || !periodStart) {
+      setWinderCalc((c) => (c.fetched || c.loading
+        ? { ...c, loading: false, fetched: false, found: false, amount: null, error: null }
+        : c));
+      return;
+    }
+    let cancelled = false;
+    setWinderCalc((c) => ({ ...c, loading: true, error: null }));
+
+    async function loadWinderAmount(): Promise<void> {
+      try {
+        const res = await fetch(
+          `/app/api/wages/winder-amount?employee=${encodeURIComponent(employeeId)}`
+          + `&week=${encodeURIComponent(periodStart)}`,
+          { cache: 'no-store' },
+        );
+        const json = await res.json() as {
+          found?: boolean; amount?: number; weeklySalary?: number;
+          deduction?: number; reallocatedIn?: number; reallocatedOut?: number;
+          closedShedSlots?: number; expectedShedSlots?: number;
+          coveredForOthers?: number; error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setWinderCalc((c) => ({
+            ...c, loading: false, fetched: true, found: false, amount: null,
+            error: json.error ?? `Could not work out the wage (${res.status}).`,
+          }));
+          return;
+        }
+        setWinderCalc({
+          loading: false,
+          fetched: true,
+          found: json.found === true,
+          amount: json.found === true ? Number(json.amount ?? 0) : null,
+          weeklySalary: json.weeklySalary ?? null,
+          deduction: Number(json.deduction ?? 0),
+          reallocatedIn: Number(json.reallocatedIn ?? 0),
+          reallocatedOut: Number(json.reallocatedOut ?? 0),
+          closedShedSlots: Number(json.closedShedSlots ?? 0),
+          expectedShedSlots: Number(json.expectedShedSlots ?? 0),
+          coveredForOthers: Number(json.coveredForOthers ?? 0),
+          error: null,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setWinderCalc((c) => ({
+          ...c, loading: false, fetched: true, found: false, amount: null,
+          error: err instanceof Error ? err.message : 'Could not work out the wage.',
+        }));
+      }
+    }
+
+    void loadWinderAmount();
+    return () => { cancelled = true; };
+  }, [isWinder, kind, employeeId, periodStart]);
+
+  // Same prefill semantics as everywhere else on this form: fill it in, and
+  // stop touching it the moment PPK types over it.
+  useEffect(() => {
+    if (!winderCalc.fetched || !winderCalc.found) return;
+    if (winderCalc.amount == null) return;
+    if (amount === '' || autoFilledRef.current) {
+      setAmount(String(winderCalc.amount));
+      autoFilledRef.current = true;
+    }
+    // `amount` is deliberately out of the deps - keystrokes must not
+    // retrigger the prefill.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winderCalc.fetched, winderCalc.found, winderCalc.amount]);
 
   // Period is derived from either the slider (when kind = settlement) or
   // the Pay date (every other kind). Both date pickers stay disabled — the
@@ -767,7 +895,9 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
             <p className="text-[11px] text-ink-mute mt-1">
               {isMetreBasis
                 ? 'Metre-basis weavers are paid against a date range — Same day is not available.'
-                : 'Weekly-basis staff are paid a fixed weekly book salary — Same day is not available.'}
+                : isWinder
+                  ? 'Winders are paid per shed per shift — the amount is worked out from the week below. Same day is not available.'
+                  : 'Weekly-basis staff are paid a fixed weekly book salary — Same day is not available.'}
             </p>
           )}
         </div>
@@ -786,6 +916,91 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           />
         </div>
       </div>
+
+      {/* Winder settlement: what she actually earned this week, and why it
+          differs from the flat salary. Shown rather than silently applied —
+          a number that arrives without explanation is a number nobody
+          trusts, and PPK has to be able to check it against the Weekly
+          Wage Summary. */}
+      {isWinder && kind === 'settlement' && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 text-xs space-y-1">
+          <div className="flex items-center gap-1.5 font-semibold text-ink-soft">
+            <Info className="w-3.5 h-3.5" />
+            Winder wage for {fmtShortDate(periodStart)} – {fmtShortDate(periodEnd)}
+          </div>
+          {winderCalc.loading ? (
+            <div className="text-ink-mute">Working out the week…</div>
+          ) : winderCalc.error ? (
+            <div className="inline-flex items-start gap-1 text-rose-700">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>{winderCalc.error} Type the amount by hand, or check the{' '}
+                <Link href={`/app/wages/weekly?week=${periodStart}`} className="underline">
+                  Weekly Wage Summary
+                </Link>.
+              </span>
+            </div>
+          ) : !winderCalc.fetched ? null : !winderCalc.found ? (
+            <div className="text-ink-mute">
+              No weekly salary set for this winder — set it on the{' '}
+              <Link href="/app/employees" className="text-indigo font-semibold">Employee</Link>{' '}
+              page, then the amount fills itself.
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-mute">Earned this week</span>
+                <span className="font-bold num text-emerald-700">
+                  ₹{(winderCalc.amount ?? 0).toFixed(2)}
+                </span>
+              </div>
+              {winderCalc.weeklySalary != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-mute">Full weekly salary</span>
+                  <span className="num">₹{winderCalc.weeklySalary.toFixed(2)}</span>
+                </div>
+              )}
+              {winderCalc.closedShedSlots > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-mute">
+                    Sheds that did not run — {winderCalc.closedShedSlots} of{' '}
+                    {winderCalc.expectedShedSlots} boxes
+                  </span>
+                  <span className="num text-rose-700">
+                    −₹{(winderCalc.deduction - winderCalc.reallocatedOut).toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {winderCalc.reallocatedOut > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-mute">Sheds someone else wound for her</span>
+                  <span className="num text-rose-700">
+                    −₹{winderCalc.reallocatedOut.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {winderCalc.reallocatedIn > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-mute">
+                    Covered for another winder — {winderCalc.coveredForOthers} box
+                    {winderCalc.coveredForOthers === 1 ? '' : 'es'}
+                  </span>
+                  <span className="num text-emerald-700">
+                    +₹{winderCalc.reallocatedIn.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              <p className="text-[10px] text-ink-mute pt-1">
+                Same figure as the{' '}
+                <Link href={`/app/wages/weekly?week=${periodStart}`} className="underline">
+                  Weekly Wage Summary
+                </Link>{' '}
+                — both read one shared calculation. Move the week selector below to
+                settle a different week. You can still type over the amount.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       <div>
         <label className="label" htmlFor="sourceLedger">Paid from</label>
