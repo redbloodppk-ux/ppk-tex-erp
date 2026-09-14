@@ -124,12 +124,11 @@ const NAV: NavItem[] = [
   // and suppliers, so it lives with the other stock reports on
   // /app/reports now rather than holding a slot in Reports & Alerts.
   { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
-  // Direct shortcut to the LOOMS change history (useful when comparing
-  // a margin shift on Profit-by-Quality with a recent calibration
-  // edit). Lives in Reports & Alerts because it's analytical / audit
-  // viewing, not configuration — still reachable from inside the
-  // calibration page header for context.
-  { href: '/app/settings/looms-calibration/history', label: 'LOOMS History', icon: BookCheck,       group: 'insights',   roles: ['owner','auditor'] },
+  // LOOMS History (/app/settings/looms-calibration/history) used to sit
+  // here. PPK, 2026-09-14: "move this from sidebar to reports". It is a
+  // read-only audit of overhead changes, read alongside Profit-by-Quality
+  // to explain a margin shift, so it belongs with the costing reports.
+  // Still reachable from the calibration page header for context.
   { href: '/app/notifications', label: 'Notifications',      icon: Bell,            group: 'insights',   roles: ['owner','mill_manager','sales_manager','accounts','floor_operator','auditor'] },
   // Owner-only, matching the reminder table's RLS (current_user_role() = 'owner').
   { href: '/app/reminders',     label: 'Reminders',          icon: AlarmClock,      group: 'insights',   roles: ['owner'] },

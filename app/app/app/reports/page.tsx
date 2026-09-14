@@ -233,6 +233,17 @@ const REPORTS: ReportLink[] = [
     ready: true, group: 'costing',
   },
   {
+    // Moved off the sidebar on PPK's request, 2026-09-14. It is a read-only
+    // audit of overhead changes, read next to Profit-by-Quality to explain
+    // a margin shift — a costing report, not a settings screen. Still
+    // reachable from the calibration page header.
+    href: '/app/settings/looms-calibration/history',
+    title: 'LOOMS Calibration History',
+    description:
+      'Every change to the per-metre overhead — power, labour, maintenance, depreciation, insurance — with who changed it, when, and the rupee movement per line. Use it to tie a margin shift on Profit by Quality to a specific calibration edit.',
+    ready: true, group: 'costing',
+  },
+  {
     href: '/app/reports/sizing-spend',
     title: 'Sizing Spend',
     description:
