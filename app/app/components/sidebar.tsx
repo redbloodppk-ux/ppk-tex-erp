@@ -11,6 +11,7 @@ import {
   FileBarChart, Bell, Settings, BookCheck, UserCog, Landmark,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
   ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins, AlarmClock,
+  NotebookPen,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -113,6 +114,11 @@ const NAV: NavItem[] = [
 
   // Insights
   { href: '/app/reports',       label: 'Reports',            icon: FileBarChart,    group: 'insights',   roles: ['owner','accounts','sales_manager','mill_manager','auditor'] },
+  // Direct shortcut, asked for by PPK on 2026-09-14. It is on the Reports
+  // index too, but the cash book is opened most days — counting the drawer
+  // against the book is a daily habit, not an occasional report — and two
+  // clicks for a daily job is one too many.
+  { href: '/app/reports/cashbook', label: 'Daily Cash Book', icon: NotebookPen,     group: 'insights',   roles: ['owner','accounts','auditor'] },
   { href: '/app/yarn',          label: 'Yarn Reports',       icon: Boxes,           group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   // Direct shortcut to the LOOMS change history (useful when comparing
