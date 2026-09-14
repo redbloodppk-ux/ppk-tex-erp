@@ -80,10 +80,27 @@ export function AppShell({
           // relative z-10 keeps this surface painted ABOVE the fixed indigo
           // push-menu (z-0) so the menu only shows once the page slides aside.
           'relative z-10 flex flex-col min-h-screen min-w-0 bg-[var(--page-bg)]',
-          'transition-transform duration-300 ease-out will-change-transform',
+          'transition-transform duration-300 ease-out',
           'md:transform-none md:transition-none',
+          // will-change: transform is applied ONLY while the drawer is open.
+          //
+          // PPK, 2026-09-14: "fix the form to the middle of the page" — the
+          // Mark-day-as-holiday dialog was hanging off the bottom of the
+          // window instead of sitting in the centre.
+          //
+          // It was not the dialog. will-change: transform makes an element a
+          // containing block for every position:fixed DESCENDANT, exactly as
+          // a real transform does — and `md:transform-none` does not clear
+          // it. So on desktop this surface was silently capturing every
+          // fixed overlay in the app: `inset-0` resolved to the surface, not
+          // the viewport, which is why the backdrop dimmed the content area
+          // but not the sidebar, and why the dialog centred itself in a box
+          // taller than the screen.
+          //
+          // Kept on during the slide, where it earns its place; dropped the
+          // rest of the time, which is nearly always.
           mobileOpen
-            ? 'scale-[0.82] translate-x-[72%] rounded-3xl overflow-hidden shadow-2xl'
+            ? 'will-change-transform scale-[0.82] translate-x-[72%] rounded-3xl overflow-hidden shadow-2xl'
             : '',
         )}
         style={{ transformOrigin: 'center' }}

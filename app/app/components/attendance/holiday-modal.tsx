@@ -15,7 +15,8 @@
  * employees still came in, they can be marked Present individually on
  * the Daily Marking screen.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, CalendarOff, X } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
@@ -53,8 +54,26 @@ export function HolidayModal({
   const [remark, setRemark] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Portals need a DOM to mount into, which the server render does not
+  // have. Flip after mount so the first client render matches the server's.
+  const [mounted, setMounted] = useState<boolean>(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  if (!open) return null;
+  // Escape closes, and the page behind does not scroll while the dialog is
+  // up — otherwise a flick on a phone scrolls the list under the backdrop.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [open, onClose]);
+
+  if (!open || !mounted) return null;
 
   async function handleSave(): Promise<void> {
     setError(null);
@@ -97,9 +116,22 @@ export function HolidayModal({
     { value: 'both', label: 'Both shifts' },
   ];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="card w-full max-w-md p-5 space-y-4">
+  // Mounted on document.body rather than in place. A `fixed` overlay is
+  // positioned against the viewport only while no ancestor has a transform,
+  // filter or will-change — the app shell has carried one of those, and any
+  // future animation could bring it back. Rendering at the body root means
+  // this dialog cannot be captured by a wrapper again.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mark day as holiday"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/* max-h keeps a tall dialog inside a short window — on a phone in
+          landscape this form is taller than the screen. */}
+      <div className="card w-full max-w-md p-5 space-y-4 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-2 font-display font-bold text-base">
             <CalendarOff className="h-5 w-5 text-amber-600" />
@@ -197,6 +229,7 @@ export function HolidayModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
