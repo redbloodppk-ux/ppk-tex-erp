@@ -12,33 +12,64 @@ export default async function YarnPage() {
     // We join the supplier party for its name and the yarn_count master
     // for its code. Field names from the yarn_lot table itself are
     // lot_code, current_kg, cost_per_kg, received_date.
+    //
+    // IN-HOUSE ONLY (PPK, 2026-09-14: "SHOW ONLY IN HOUSE ONLY here").
+    // delivery_destination = 'sizing' means the lot was bought and sent
+    // straight to the sizing mill - it never arrives at the yarn store, so
+    // it does not belong on a page about what is on the shelf. Five of the
+    // twenty-one lots are like that; all of them from the two spinning
+    // mills whose yarn goes direct for sizing.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('yarn_lot').select(`
       id, lot_code, current_kg, cost_per_kg, received_date,
       yarn_count:yarn_count_id ( code ),
       supplier:supplier_party_id ( name )
-    `).order('received_date', { ascending: false }).limit(30),
+    `)
+      .eq('delivery_destination', 'in_house')
+      .order('received_date', { ascending: false }).limit(30),
+    // v_yarn_days_of_cover counts in-house lots only since migration 299,
+    // so the cards and the list below agree about what "on hand" means.
     supabase.from('v_yarn_days_of_cover').select('yarn_count_code, on_hand_kg, days_of_cover').order('days_of_cover'),
   ]);
 
+  // Only counts actually on the shelf get a card. Ordered by cover, so the
+  // one closest to running out leads.
+  //
+  // Before this the cards showed the SIX LOWEST covers out of every active
+  // count, which meant six counts sitting at zero and every card reading
+  // "0.0 kg" - including C-30 and C-40, whose yarn all goes to sizing and
+  // never enters the store at all. A count at zero is not a cover warning,
+  // it is an empty shelf; the reorder flag on Stock On Hand is the place
+  // that belongs.
+  const onShelf = (cover ?? []).filter((c: any) => Number(c.on_hand_kg) > 0);
+
   return (
     <div>
-      <PageHeader title="Yarn & Suppliers" subtitle="Yarn purchase lots, supplier scorecards and days-of-cover by count." />
+      <PageHeader
+        title="Yarn & Suppliers"
+        subtitle="Yarn delivered to the mill — purchase lots and days-of-cover by count. Lots sent straight to the sizing mill are not shown."
+      />
 
-      <section className="grid lg:grid-cols-3 gap-4 mb-6">
-        {(cover ?? []).slice(0, 6).map((c: any) => (
-          <div key={c.yarn_count_code} className="card p-4">
-            <div className="text-xs uppercase tracking-wider text-ink-mute">{c.yarn_count_code}</div>
-            <div className="num text-xl font-bold mt-1">{formatKg(c.on_hand_kg)}</div>
-            <div className={`text-xs mt-0.5 num ${Number(c.days_of_cover) <= 14 ? 'text-rose-600 font-semibold' : 'text-ink-soft'}`}>
-              {Number(c.days_of_cover).toFixed(1)} days cover
+      {onShelf.length === 0 ? (
+        <div className="card p-4 mb-6 text-sm text-ink-mute">
+          No yarn on hand. Every in-house lot has been consumed.
+        </div>
+      ) : (
+        <section className="grid lg:grid-cols-3 gap-4 mb-6">
+          {onShelf.slice(0, 6).map((c: any) => (
+            <div key={c.yarn_count_code} className="card p-4">
+              <div className="text-xs uppercase tracking-wider text-ink-mute">{c.yarn_count_code}</div>
+              <div className="num text-xl font-bold mt-1">{formatKg(c.on_hand_kg)}</div>
+              <div className={`text-xs mt-0.5 num ${Number(c.days_of_cover) <= 14 ? 'text-rose-600 font-semibold' : 'text-ink-soft'}`}>
+                {Number(c.days_of_cover).toFixed(1)} days cover
+              </div>
             </div>
-          </div>
-        ))}
-      </section>
+          ))}
+        </section>
+      )}
 
       {!lots?.length ? (
-        <ComingSoon note="No yarn lots yet. Use the Yarn Purchase form to enter incoming bales." />
+        <ComingSoon note="No in-house yarn lots yet. Use the Yarn Purchase form to enter incoming bales." />
       ) : (
         <>
         {/* Mobile / PWA: card view. The yarn lots table is wide; below md
