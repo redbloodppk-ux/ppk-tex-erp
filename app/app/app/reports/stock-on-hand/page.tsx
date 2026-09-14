@@ -55,12 +55,27 @@ interface StockRow {
   days_of_cover: number | null;
 }
 
+/**
+ * Which production mode's stock the page is showing.
+ *
+ * PPK, 2026-09-14: "we need filter for inhouse, jobwork and outsource
+ * based". The mode-wise matrix has had those three columns since migration
+ * 129, but the detail table underneath only ever showed the mill's own
+ * yarn, so "how much 40s is sitting with my jobwork parties" had no answer.
+ *
+ * The two sides live in different tables — in-house in yarn_lot, vendor
+ * stock in jobwork_weft_bag — so the source swaps with the filter. See
+ * migration 300.
+ */
+type StockMode = 'all' | 'in_house' | 'jobwork' | 'outsource';
+
 interface PageProps {
   searchParams: Promise<{
     type?: string;
     only_low?: string;
     hide_empty?: string;
     quality?: string;
+    mode?: string;
   }>;
 }
 
@@ -140,6 +155,14 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
   // get rendered as N/A. See migration 130.
   const qualityParam = typeof params.quality === 'string' ? params.quality : undefined;
   const qualityFilter = qualityParam && /^\d+$/.test(qualityParam) ? Number(qualityParam) : null;
+  const modeParam = params.mode;
+  const modeFilter: StockMode =
+    modeParam === 'in_house' || modeParam === 'jobwork' || modeParam === 'outsource'
+      ? modeParam
+      : 'all';
+  // Vendor modes read a different table, and it carries no rate — so cost,
+  // stock value, reorder and cover are not available for them.
+  const isVendorMode = modeFilter === 'jobwork' || modeFilter === 'outsource';
 
   const supabase = await createClient();
 
@@ -159,22 +182,44 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
     .eq('active', true)
     .order('name');
 
-  let query = supabase
-    .from('v_stock_on_hand')
-    .select('*')
-    .order('stock_value', { ascending: false, nullsFirst: false });
+  // Vendor modes come from fn_stock_by_mode (migration 300), which returns
+  // the same columns so everything below renders unchanged. The three
+  // row filters are applied in JS there rather than in the query, since an
+  // RPC has no .eq() to chain.
+  let data: StockRow[] | null = null;
+  let error: { message: string } | null = null;
 
-  if (typeFilter !== 'all') {
-    query = query.eq('yarn_type', typeFilter);
-  }
-  if (onlyLow) {
-    query = query.eq('below_reorder', true);
-  }
-  if (hideEmpty) {
-    query = query.gt('available_kg', 0);
-  }
+  if (isVendorMode) {
+    const { data: modeRows, error: modeErr } = await sb.rpc('fn_stock_by_mode', {
+      p_mode: modeFilter,
+    });
+    error = modeErr ?? null;
+    let list = ((modeRows ?? []) as StockRow[]);
+    if (typeFilter !== 'all') list = list.filter((r) => r.yarn_type === typeFilter);
+    if (onlyLow) list = list.filter((r) => r.below_reorder === true);
+    if (hideEmpty) list = list.filter((r) => Number(r.available_kg ?? 0) > 0);
+    // No stock value to sort by on the vendor side — heaviest first.
+    data = list.sort((a, b) => Number(b.available_kg ?? 0) - Number(a.available_kg ?? 0));
+  } else {
+    let query = supabase
+      .from('v_stock_on_hand')
+      .select('*')
+      .order('stock_value', { ascending: false, nullsFirst: false });
 
-  const { data, error } = await query.returns<StockRow[]>();
+    if (typeFilter !== 'all') {
+      query = query.eq('yarn_type', typeFilter);
+    }
+    if (onlyLow) {
+      query = query.eq('below_reorder', true);
+    }
+    if (hideEmpty) {
+      query = query.gt('available_kg', 0);
+    }
+
+    const res = await query.returns<StockRow[]>();
+    data = res.data;
+    error = res.error;
+  }
 
   if (error) {
     return (
@@ -248,11 +293,16 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
     { key: 'bobbin_metre', label: 'Bobbin Metre',                         qualityFilterScope: [] },
     { key: 'fabric',       label: 'Fabric (received, not invoiced)',      qualityFilterScope: ['in_house', 'jobwork', 'outsource'] },
   ];
-  const SUMMARY_MODES: ReadonlyArray<{ key: SummaryMode; label: string }> = [
+  const ALL_SUMMARY_MODES: ReadonlyArray<{ key: SummaryMode; label: string }> = [
     { key: 'in_house',  label: 'In-house'  },
     { key: 'jobwork',   label: 'Job Work'  },
     { key: 'outsource', label: 'Outsource' },
   ];
+  // The mode filter narrows the matrix to a single column, so the whole
+  // page answers one question at a time.
+  const SUMMARY_MODES = modeFilter === 'all'
+    ? ALL_SUMMARY_MODES
+    : ALL_SUMMARY_MODES.filter((m) => m.key === modeFilter);
   const summaryRowsRaw = (summaryRes.data ?? []) as Array<{
     category: string; mode: string; unit: string; qty: number | string | null;
   }>;
@@ -274,7 +324,15 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
     <div>
       <PageHeader
         title="Stock on Hand"
-        subtitle="Per-count yarn position with weighted-average cost. Source: v_stock_on_hand (migration 012)."
+        subtitle={
+          modeFilter === 'in_house'
+            ? 'Yarn on your own shelf, count by count, with weighted-average cost.'
+            : modeFilter === 'jobwork'
+              ? 'Yarn sitting with your job-work parties, count by count. No rate is recorded against a bag given out, so cost and cover are blank.'
+              : modeFilter === 'outsource'
+                ? 'Yarn sitting with your outsource parties, count by count. No rate is recorded against a bag given out, so cost and cover are blank.'
+                : 'Per-count yarn position with weighted-average cost. Use the Mode filter for yarn held by job-work or outsource parties.'
+        }
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
           { label: 'Stock on Hand' },
@@ -385,6 +443,19 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
         className="card p-3 mb-3 flex flex-wrap items-end gap-3 text-sm"
       >
         <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Mode</span>
+          <select
+            name="mode"
+            defaultValue={modeFilter}
+            className="border border-cloud rounded px-2 py-1 bg-white"
+          >
+            <option value="all">All modes</option>
+            <option value="in_house">In-house</option>
+            <option value="jobwork">Job work</option>
+            <option value="outsource">Outsource</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Type</span>
           <select
             name="type"
@@ -449,25 +520,29 @@ export default async function StockOnHandReport({ searchParams }: PageProps) {
           value={fmtKg(totalKg, 0)}
           sub={`${rows.length} counts shown`}
         />
+        {/* Cost, reorder and cover belong to the mill's own shelf. A bag
+            given to a jobwork party carries no rate, and cover measures
+            the mill's consumption — so these read "not tracked" rather
+            than a zero that would look like a real answer. */}
         <Kpi
           icon={<Coins className="w-4 h-4" />}
           label="Stock value"
-          value={fmtRupees(totalValue)}
-          sub="at weighted-avg cost"
+          value={isVendorMode ? '—' : fmtRupees(totalValue)}
+          sub={isVendorMode ? 'no rate on yarn given out' : 'at weighted-avg cost'}
         />
         <Kpi
           icon={<AlertTriangle className="w-4 h-4" />}
           label="Below reorder"
-          value={String(belowReorderCount)}
-          tone={belowReorderCount > 0 ? 'warn' : 'ok'}
-          sub="counts under reorder_kg"
+          value={isVendorMode ? '—' : String(belowReorderCount)}
+          tone={!isVendorMode && belowReorderCount > 0 ? 'warn' : 'ok'}
+          sub={isVendorMode ? 'reorder is for your own shelf' : 'counts under reorder_kg'}
         />
         <Kpi
           icon={<TrendingDown className="w-4 h-4" />}
           label="Cover &lt; 14 days"
-          value={String(lowCoverCount)}
-          tone={lowCoverCount > 0 ? 'danger' : 'ok'}
-          sub="based on 30-day usage"
+          value={isVendorMode ? '—' : String(lowCoverCount)}
+          tone={!isVendorMode && lowCoverCount > 0 ? 'danger' : 'ok'}
+          sub={isVendorMode ? 'not drawn from your shelf' : 'based on 30-day usage'}
         />
       </div>
 
