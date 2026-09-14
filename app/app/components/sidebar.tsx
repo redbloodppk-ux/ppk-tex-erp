@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Calculator, PackageCheck, Boxes, ShoppingCart, Receipt,
   Truck, Hammer, ClipboardList, BadgeIndianRupee, Wallet,
   FileBarChart, Bell, Settings, BookCheck, UserCog, Landmark,
-  Factory, Disc3, Layers, Warehouse, Gauge, Calendar, Activity,
+  Factory, Disc3, Layers, Warehouse, Gauge, Calendar,
   ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins, AlarmClock,
   NotebookPen,
 } from 'lucide-react';
@@ -128,7 +128,9 @@ const NAV: NavItem[] = [
   // reports from sidebar to report page" — it is a read-only view of lots
   // and suppliers, so it lives with the other stock reports on
   // /app/reports now rather than holding a slot in Reports & Alerts.
-  { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
+  // Shed Running removed from the sidebar — PPK, 2026-09-14: "we have shed
+  // running in report page. so we don't need in sidebar". It lives on
+  // /app/reports under Production.
   // LOOMS History (/app/settings/looms-calibration/history) used to sit
   // here. PPK, 2026-09-14: "move this from sidebar to reports". It is a
   // read-only audit of overhead changes, read alongside Profit-by-Quality
