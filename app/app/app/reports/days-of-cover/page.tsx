@@ -16,6 +16,7 @@
  * is zero, cover is undefined, and the yarn is shown as "Idle" — the page
  * falls back to the reorder check so low stock still surfaces.
  */
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
@@ -39,6 +40,25 @@ interface CoverRow {
   below_reorder: boolean | null;
   cover_status: string | null;
 }
+
+/**
+ * Whose shelf the page is reporting on.
+ *
+ * PPK, 2026-09-14, asked for the in-house / jobwork / outsource filter here
+ * as well as on Stock on Hand.
+ *
+ * There is deliberately no "all". Cover is stock divided by the rate the
+ * MILL draws it down; adding yarn that is sitting at a jobwork party to the
+ * numerator would make the mill look better covered than it is. The two
+ * sides are reported separately or not at all.
+ */
+type StockMode = 'in_house' | 'jobwork' | 'outsource';
+
+const MODE_LABEL: Record<StockMode, string> = {
+  in_house: 'In-house',
+  jobwork: 'Job work',
+  outsource: 'Outsource',
+};
 
 type Tone = 'good' | 'warn' | 'bad' | 'mute';
 
@@ -68,6 +88,11 @@ function coverTone(status: string | null): Tone {
 
 function statusLabel(status: string | null): string {
   switch (status) {
+    // Vendor modes: the yarn is at a party, so there is no cover to rate.
+    case 'held':
+      return 'With the party';
+    case 'none':
+      return 'None held';
     case 'out':
       return 'Out of stock';
     case 'critical':
@@ -86,6 +111,10 @@ function statusLabel(status: string | null): string {
 /** Sort order: most urgent first. */
 function riskRank(status: string | null): number {
   switch (status) {
+    case 'held':
+      return 2;
+    case 'none':
+      return 5;
     case 'out':
       return 0;
     case 'critical':
@@ -121,12 +150,41 @@ function badgeClass(tone: Tone): string {
         : 'bg-cloud/50 text-ink-soft border-line/60';
 }
 
-export default async function DaysOfCoverReport() {
+export default async function DaysOfCoverReport({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
+  const sp = await searchParams;
+  const mode: StockMode =
+    sp.mode === 'jobwork' || sp.mode === 'outsource' ? sp.mode : 'in_house';
+  const isVendorMode = mode !== 'in_house';
+
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('v_yarn_cover_dashboard')
-    .select('*');
+  let data: unknown = null;
+  let error: { message: string } | null = null;
+
+  if (isVendorMode) {
+    // Yarn held by a jobwork / outsource party, from fn_stock_by_mode
+    // (migration 300). Cover, reorder and 30-day usage do not apply: the
+    // mill is not drawing this yarn down, the party is, and nothing here
+    // records at what rate.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (supabase as any).rpc('fn_stock_by_mode', { p_mode: mode });
+    error = res.error ?? null;
+    data = ((res.data ?? []) as CoverRow[]).map((r) => ({
+      ...r,
+      kg_30d: null,
+      days_of_cover: null,
+      below_reorder: false,
+      cover_status: Number(r.available_kg ?? 0) > 0 ? 'held' : 'none',
+    }));
+  } else {
+    const res = await supabase.from('v_yarn_cover_dashboard').select('*');
+    data = res.data;
+    error = res.error;
+  }
 
   const rows = (data as unknown as CoverRow[]) ?? [];
   rows.sort((a, b) => {
@@ -162,21 +220,43 @@ export default async function DaysOfCoverReport() {
     <div>
       <PageHeader
         title="Yarn Days-of-Cover"
-        subtitle="How long current yarn stock will last at the recent run-rate. Highest-risk yarns first, healthy stock at the bottom."
+        subtitle={
+          isVendorMode
+            ? `Yarn sitting with your ${MODE_LABEL[mode].toLowerCase()} parties, count by count. Cover cannot be worked out for it — see the note below.`
+            : 'How long current yarn stock will last at the recent run-rate. Highest-risk yarns first, healthy stock at the bottom.'
+        }
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
           { label: 'Days of Cover' },
         ]}
         actions={
           <ExcelExportButton
-            filename="yarn-days-of-cover"
+            filename={`yarn-days-of-cover-${mode}`}
             sheetName="Days of Cover"
-            title="Yarn Days-of-Cover"
+            title={`Yarn Days-of-Cover — ${MODE_LABEL[mode]}`}
             columns={exportColumns}
             rows={rows as unknown as ReadonlyArray<Record<string, unknown>>}
           />
         }
       />
+
+      {/* Mode tabs. Same vocabulary as Stock on Hand and Warehouse, so the
+          three stock screens are switched the same way. */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(['in_house', 'jobwork', 'outsource'] as StockMode[]).map((m) => (
+          <Link
+            key={m}
+            href={m === 'in_house' ? '/app/reports/days-of-cover' : `/app/reports/days-of-cover?mode=${m}`}
+            className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+              mode === m
+                ? 'bg-indigo text-white border-indigo shadow-sm'
+                : 'bg-paper text-ink-soft border-line hover:bg-haze hover:text-ink'
+            }`}
+          >
+            {MODE_LABEL[m]}
+          </Link>
+        ))}
+      </div>
 
       {error && (
         <div className="card p-4 text-sm text-err mb-4">
@@ -186,35 +266,50 @@ export default async function DaysOfCoverReport() {
 
       <div className="card p-3 mb-6 text-xs text-ink-soft border border-amber-200 bg-amber-50/40">
         <span className="font-semibold text-amber-700">How to read this:</span>{' '}
-        Days of cover = stock in kg ÷ average daily warp use over the last 30
-        days. When there has been no production in the last 30 days the
-        run-rate is zero and cover cannot be computed — those yarns show as{' '}
-        <span className="font-medium">Idle</span>, and the reorder-level check
-        still flags anything running low.
+        {isVendorMode ? (
+          <>
+            This is yarn you have given out and not yet had back as cloth, so
+            it is not on your shelf and the mill is not drawing it down.
+            Cover, reorder level and 30-day usage are all blank for that
+            reason — showing a number would suggest something is being
+            measured that is not. Use it to see how much is out with whom.
+          </>
+        ) : (
+          <>
+            Days of cover = stock in kg ÷ average daily warp use over the last
+            30 days. When there has been no production in the last 30 days the
+            run-rate is zero and cover cannot be computed — those yarns show as{' '}
+            <span className="font-medium">Idle</span>, and the reorder-level
+            check still flags anything running low.
+          </>
+        )}
       </div>
 
       {/* ─────────────── KPI strip ─────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Kpi label="Yarn counts tracked" value={fmtNum(totalCounts)} />
         <Kpi
-          label="In stock"
+          label={isVendorMode ? 'Counts held' : 'In stock'}
           value={`${inStock} of ${totalCounts}`}
           tone={inStock > 0 ? 'good' : 'mute'}
         />
         <Kpi
-          label="Out of stock"
-          value={fmtNum(outOfStock)}
-          tone={outOfStock > 0 ? 'bad' : 'good'}
+          label={isVendorMode ? 'Total kg out' : 'Out of stock'}
+          value={isVendorMode ? `${fmtNum(totalAvailable, 0)} kg` : fmtNum(outOfStock)}
+          tone={isVendorMode ? 'mute' : outOfStock > 0 ? 'bad' : 'good'}
         />
         <Kpi
           label="Below reorder level"
-          value={fmtNum(belowReorder)}
-          tone={belowReorder > 0 ? 'warn' : 'good'}
+          value={isVendorMode ? '—' : fmtNum(belowReorder)}
+          tone={isVendorMode ? 'mute' : belowReorder > 0 ? 'warn' : 'good'}
         />
       </div>
 
-      {/* ─────────────── Highlight cards ─────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+      {/* ─────────────── Highlight cards ───────────────
+          Both are about the mill's own shelf running low, which says
+          nothing about yarn already given to a party. Hidden there rather
+          than shown reading zero. */}
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 ${isVendorMode ? 'hidden' : ''}`}>
         <HighlightCard
           icon={<PackageX className="w-4 h-4" />}
           tone={outOfStock > 0 ? 'bad' : 'good'}
@@ -250,8 +345,12 @@ export default async function DaysOfCoverReport() {
       {/* ─────────────── Per-yarn table ─────────────── */}
       <SectionHeader
         icon={<Layers className="w-4 h-4" />}
-        title="Cover by yarn count"
-        subtitle={`${fmtNum(totalAvailable, 0)} kg of yarn on hand in total`}
+        title={isVendorMode ? `Yarn with ${MODE_LABEL[mode].toLowerCase()} parties` : 'Cover by yarn count'}
+        subtitle={
+          isVendorMode
+            ? `${fmtNum(totalAvailable, 0)} kg out with parties in total`
+            : `${fmtNum(totalAvailable, 0)} kg of yarn on hand in total`
+        }
       />
 
       {rows.length === 0 ? (
@@ -363,11 +462,25 @@ export default async function DaysOfCoverReport() {
       )}
 
       <p className="text-xs text-ink-mute mt-4">
-        &quot;Used 30d&quot; is the estimated warp yarn drawn down by production
-        batches started in the last 30 days. Days of cover divides current
-        stock by the daily average of that figure, so it is a planning guide,
-        not an exact forecast. Yarns with no recent production show
-        &quot;Idle&quot; — judge those by the reorder level instead.
+        {isVendorMode ? (
+          <>
+            Source: <code>fn_stock_by_mode</code> (migration 300) — open weft
+            bags given to {MODE_LABEL[mode].toLowerCase()} parties, summed per
+            yarn count. The totals here match the {MODE_LABEL[mode]} column on{' '}
+            <Link href={`/app/reports/stock-on-hand?mode=${mode}`} className="underline">
+              Stock on Hand
+            </Link>.
+          </>
+        ) : (
+          <>
+            &quot;Used 30d&quot; is the estimated warp yarn drawn down by
+            production batches started in the last 30 days. Days of cover
+            divides current stock by the daily average of that figure, so it is
+            a planning guide, not an exact forecast. Yarns with no recent
+            production show &quot;Idle&quot; — judge those by the reorder level
+            instead.
+          </>
+        )}
       </p>
     </div>
   );
