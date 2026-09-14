@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { Boxes, Package, PackageOpen, Layers, AlertTriangle, Coins, TrendingDown, Factory, Truck, Ruler } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { formatKg, formatMetres, formatRupee } from '@/lib/utils';
+import { formatKg, formatMetres, formatRupee, snapZero } from '@/lib/utils';
 import { OpeningStockForm, type ExistingOpeningRow, type BobbinEndsOpt } from './opening-stock-form';
 import { InhouseBobbinOpeningStockForm, type InhouseBobbinMasterOpt } from './inhouse-bobbin-form';
 import { InhouseBobbinOpeningForm, type BobbinMasterForOpening } from './inhouse-bobbin-opening-form';
@@ -1935,9 +1935,18 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
     else                       t.out += e.quantity;
   }
   /** Closing for one column: the beam-status figure when we have one,
-   *  else fall back to the old subtraction. */
+   *  else fall back to the old subtraction.
+   *
+   *  Snapped to the precision it will be shown at. Without that, a column
+   *  whose in and out are equal lands on about -6e-14 rather than 0 — which
+   *  prints as 0.00 but is still < 0, so the cell was painted red as though
+   *  the stock had gone negative. PPK, 2026-09-14: "why zero is negative?" */
+  const displayDp = data.unit === 'm' ? 1 : 2;
   const closingOf = (id: string): number =>
-    data.closingByColumn?.[id] ?? ((totals[id]?.in ?? 0) - (totals[id]?.out ?? 0));
+    snapZero(
+      data.closingByColumn?.[id] ?? ((totals[id]?.in ?? 0) - (totals[id]?.out ?? 0)),
+      displayDp,
+    );
   /** What the events cannot account for: warp that was already on the
    *  looms before go-live, and cloth recorded against a column its warp
    *  never entered. Shown rather than absorbed, so the column still adds
@@ -2224,7 +2233,9 @@ interface LedgerGroup {
 function fmtUnit(qty: number, unit: LedgerUnit): string {
   if (unit === 'm')   return formatMetres(qty, 1);
   if (unit === 'kg')  return formatKg(qty, 2);
-  return qty.toFixed(2) + ' pcs';
+  // snapZero here too: toFixed keeps the sign of -0 just as toLocaleString
+  // does, so pieces would show "-0.00 pcs" for the same reason.
+  return snapZero(qty, 2).toFixed(2) + ' pcs';
 }
 
 function sortEvents(a: LedgerEvent, b: LedgerEvent): number {
