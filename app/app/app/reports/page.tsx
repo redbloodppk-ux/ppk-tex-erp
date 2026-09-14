@@ -1,9 +1,8 @@
-import Link from 'next/link';
-
 import { PageHeader } from '@/app/components/page-header';
 import {
-  FileText, ArrowRight, Wallet, Factory, Boxes, Truck, Receipt, Calculator, Users,
+  FileText, Wallet, Factory, Boxes, Truck, Receipt, Calculator, Users,
 } from 'lucide-react';
+import { ReportsBrowser, type BrowserGroup } from './reports-browser';
 
 export const metadata = { title: 'Reports' };
 
@@ -142,6 +141,16 @@ const REPORTS: ReportLink[] = [
     ready: true, group: 'stock',
   },
   {
+    // Moved out of the sidebar on PPK's request, 2026-09-14: it is a
+    // read-only view of yarn lots and suppliers, so it belongs with the
+    // other stock reports rather than taking a slot in Reports & Alerts.
+    href: '/app/yarn',
+    title: 'Yarn & Suppliers',
+    description:
+      'Yarn purchase lots delivered to the mill — lot number, count, supplier, quantity and rate — with days-of-cover cards for the counts actually on the shelf. Lots sent straight to the sizing mill are not shown.',
+    ready: true, group: 'stock',
+  },
+  {
     href: '/app/reports/days-of-cover',
     title: 'Yarn Days-of-Cover',
     description:
@@ -270,68 +279,26 @@ const REPORTS: ReportLink[] = [
 ];
 
 export default function ReportsIndex() {
+  const browserGroups: BrowserGroup[] = GROUP_ORDER.map((key) => ({
+    key,
+    label: GROUP_META[key].label,
+    blurb: GROUP_META[key].blurb,
+    reports: REPORTS.filter((r) => r.group === key).map((r) => ({
+      href: r.href, title: r.title, description: r.description, ready: r.ready,
+    })),
+  })).filter((g) => g.reports.length > 0);
+
   return (
     <div>
       <PageHeader
         title="Reports"
-        subtitle="Read-only dashboards for understanding what happened, grouped by the question they answer."
+        subtitle="Read-only dashboards for understanding what happened. Point at a group to see its reports; click to keep it open."
       />
-      {GROUP_ORDER.map((key) => {
-        const meta = GROUP_META[key];
-        const items = REPORTS.filter((r) => r.group === key);
-        if (items.length === 0) return null;
-        const GroupIcon = meta.icon;
-        return (
-          <section key={key} className="mb-7">
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-ink-mute self-center">
-                <GroupIcon className="w-4 h-4" />
-              </span>
-              <h2 className="text-base font-semibold">{meta.label}</h2>
-              <span className="text-xs text-ink-mute">{meta.blurb}</span>
-              <span className="text-xs text-ink-mute ml-auto">{items.length}</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {items.map((r) => (
-                <ReportCard key={r.title} report={r} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {/* The group row and the card list are interactive (hover previews, a
+          click pins), so they live in a client component. This page stays a
+          server component because it exports metadata. Icons are resolved
+          on the other side: a component cannot cross the boundary. */}
+      <ReportsBrowser groups={browserGroups} />
     </div>
-  );
-}
-
-function ReportCard({ report }: { report: ReportLink }) {
-  const inner = (
-    <div className="card p-4 flex items-start gap-3 h-full">
-      <span className="text-ink-mute mt-0.5">
-        <FileText className="w-4 h-4" />
-      </span>
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <h3 className="font-semibold">{report.title}</h3>
-          {!report.ready && (
-            <span className="text-xs text-ink-mute bg-cloud/60 px-2 py-0.5 rounded">
-              Soon
-            </span>
-          )}
-        </div>
-        <p className="text-sm text-ink-soft mt-1">{report.description}</p>
-      </div>
-      {report.ready && (
-        <span className="text-ink-mute mt-0.5">
-          <ArrowRight className="w-4 h-4" />
-        </span>
-      )}
-    </div>
-  );
-
-  if (!report.ready) return <div className="opacity-60">{inner}</div>;
-  return (
-    <Link href={report.href} className="block hover:opacity-90">
-      {inner}
-    </Link>
   );
 }

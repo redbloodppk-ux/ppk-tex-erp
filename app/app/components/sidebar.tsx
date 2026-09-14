@@ -119,7 +119,10 @@ const NAV: NavItem[] = [
   // against the book is a daily habit, not an occasional report — and two
   // clicks for a daily job is one too many.
   { href: '/app/reports/cashbook', label: 'Daily Cash Book', icon: NotebookPen,     group: 'insights',   roles: ['owner','accounts','auditor'] },
-  { href: '/app/yarn',          label: 'Yarn Reports',       icon: Boxes,           group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
+  // Yarn Reports (/app/yarn) used to sit here. PPK, 2026-09-14: "move yarn
+  // reports from sidebar to report page" — it is a read-only view of lots
+  // and suppliers, so it lives with the other stock reports on
+  // /app/reports now rather than holding a slot in Reports & Alerts.
   { href: '/app/reports/shed-running', label: 'Shed Running', icon: Activity,        group: 'insights',   roles: ['owner','mill_manager','accounts','auditor'] },
   // Direct shortcut to the LOOMS change history (useful when comparing
   // a margin shift on Profit-by-Quality with a recent calibration
