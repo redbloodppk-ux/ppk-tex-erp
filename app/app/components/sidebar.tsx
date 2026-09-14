@@ -106,7 +106,7 @@ const NAV: NavItem[] = [
   //   cash withdrawals) — closes the gap for True Cost + P&L.
   { href: '/app/payments',         label: 'Payments',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','sales_manager','auditor'] },
   { href: '/app/wages',            label: 'Wages',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
-  { href: '/app/wages/weekly',     label: 'Weekly Summary',     icon: Calendar,        group: 'finance',    roles: ['owner','accounts','auditor'] },
+  // Weekly Summary moved to Reports & Alerts below — PPK, 2026-09-14.
   { href: '/app/bonus',            label: 'Bonus',              icon: BadgeIndianRupee,group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/expenses',         label: 'Expenses',           icon: Wallet,          group: 'finance',    roles: ['owner','accounts','auditor'] },
   { href: '/app/bank-entries',     label: 'Bank Entries',       icon: BookCheck,       group: 'finance',    roles: ['owner','accounts','auditor'] },
@@ -119,6 +119,11 @@ const NAV: NavItem[] = [
   // against the book is a daily habit, not an occasional report — and two
   // clicks for a daily job is one too many.
   { href: '/app/reports/cashbook', label: 'Daily Cash Book', icon: NotebookPen,     group: 'insights',   roles: ['owner','accounts','auditor'] },
+  // Weekly Summary reads like a report — it totals a week that has already
+  // happened rather than recording anything — so PPK moved it out of
+  // Finance (where the entry screens live) into Reports & Alerts on
+  // 2026-09-14. Entry still happens on Wages; this is the read-back.
+  { href: '/app/wages/weekly',  label: 'Weekly Summary',     icon: Calendar,        group: 'insights',   roles: ['owner','accounts','auditor'] },
   // Yarn Reports (/app/yarn) used to sit here. PPK, 2026-09-14: "move yarn
   // reports from sidebar to report page" — it is a read-only view of lots
   // and suppliers, so it lives with the other stock reports on
