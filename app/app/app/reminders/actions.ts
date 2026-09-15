@@ -110,6 +110,23 @@ export async function markReminderDone(id: number): Promise<ActionResult> {
   const { data: auth } = await supabase.auth.getUser();
   const updated_by = auth?.user?.id ?? null;
 
+  // Record the tick BEFORE moving the due date, and carry the due date it
+  // was settling. Without this the app knew only when a reminder is next
+  // due, never whether it had been done — which is what PPK could not read
+  // off the dashboard (migration 301).
+  //
+  // A failure here is logged but does not block the tick: losing one line
+  // of history is better than a maintenance job that refuses to be marked
+  // done and then nags as overdue.
+  const { error: logErr } = await sb.from('reminder_completion').insert([{
+    reminder_id: id,
+    for_due_on: row.due_date as string,
+    done_by: updated_by,
+  }]);
+  if (logErr) {
+    console.error('reminder_completion insert failed', { id, error: logErr.message });
+  }
+
   const payload = row.repeat === 'none'
     ? { status: 'done', updated_by }
     : {
