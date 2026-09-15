@@ -62,6 +62,64 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Notes you have used before, for this category ──────────────────────
+  //
+  // PPK, 2026-09-15: "remember the notes data for next time".
+  //
+  // The same note gets retyped constantly — the books already carry
+  // "TOILET CLEANING", "toilet cleaning", "Toilet Cleaning" and "Toilet
+  // cleaning" as four separate notes across eight entries, and loom
+  // cleaning three ways. So this is not only saved typing: picking a
+  // previous note keeps one spelling, and a category whose notes agree can
+  // actually be grouped and totalled later.
+  //
+  // Scoped to the chosen category, because that is what makes a short list
+  // useful rather than a wall of every note ever written.
+  const [noteSuggestions, setNoteSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadNotes(): Promise<void> {
+      if (!category) { setNoteSuggestions([]); return; }
+      // ilike without wildcards is a case-insensitive equality, which is
+      // what is wanted here: the category column itself holds both
+      // "Office" and "OFFICE" from before the list was managed centrally.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from('expense_entry')
+        .select('notes, pay_date')
+        .ilike('category', category)
+        .not('notes', 'is', null)
+        .order('pay_date', { ascending: false })
+        .limit(200);
+      if (cancelled) return;
+
+      // Fold the spellings together: compare on lowercase with runs of
+      // whitespace collapsed, and keep the FIRST spelling seen — the rows
+      // arrive newest first, so that is the most recent way PPK wrote it.
+      const seen = new Map<string, { text: string; uses: number }>();
+      for (const r of (data ?? []) as Array<{ notes: string | null }>) {
+        const text = (r.notes ?? '').trim();
+        if (!text) continue;
+        const key = text.toLowerCase().replace(/\s+/g, ' ');
+        const hit = seen.get(key);
+        if (hit) hit.uses += 1;
+        else seen.set(key, { text, uses: 1 });
+      }
+      // Most-used first, so the everyday ones lead; insertion order breaks
+      // ties, which means recency.
+      setNoteSuggestions(
+        Array.from(seen.values())
+          .sort((a, b) => b.uses - a.uses)
+          .slice(0, 8)
+          .map((s) => s.text),
+      );
+    }
+    void loadNotes();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, category]);
+
   // Load the accounts money can come out of for the "Paid from" picker.
   // The rule lives in lib/ledgers/payment-sources.ts and nowhere else —
   // this screen used to carry its own copy, which is how owner funds ended
@@ -263,6 +321,35 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Bill number, who attended, anything you want to recall later"
         />
+        {/* Chips rather than a dropdown: a textarea cannot carry a datalist,
+            and a tap target works on the phone where most entry happens. */}
+        {noteSuggestions.length > 0 && (
+          <div className="mt-2">
+            <div className="text-[11px] text-ink-mute mb-1">
+              Used before for {category} — tap to fill:
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {noteSuggestions.map((s) => {
+                const chosen = notes.trim().toLowerCase() === s.toLowerCase();
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setNotes(s)}
+                    title={s}
+                    className={`text-xs px-2.5 py-1 rounded-full border max-w-full truncate transition-colors ${
+                      chosen
+                        ? 'bg-indigo text-white border-indigo'
+                        : 'bg-paper text-ink-soft border-line hover:bg-haze hover:text-ink'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <p className="text-sm text-err">{error}</p>}
