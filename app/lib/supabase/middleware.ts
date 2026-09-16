@@ -87,6 +87,21 @@ export async function updateSession(request: NextRequest) {
 
   // Protect /app/* routes — redirect to /login if not authenticated.
   const url = request.nextUrl.clone();
+
+  // The phone widget feed carries its own bearer token and has no cookie
+  // session, so the redirect below would bounce it to /login and hand
+  // Scriptable an HTML page where it expects JSON. Caught by fetching the
+  // live URL after deploying, 2026-09-16 — it returned the login page.
+  //
+  // Exempting it is safe because the route refuses everything itself: a
+  // constant-time token check, and a database function granted to
+  // service_role alone. Listed by exact path, not a prefix, so nothing
+  // else under /app can inherit the exemption by accident.
+  const TOKEN_AUTHED_PATHS = new Set(['/app/api/widget/status']);
+  if (TOKEN_AUTHED_PATHS.has(url.pathname)) {
+    return supabaseResponse;
+  }
+
   const isProtected = url.pathname.startsWith('/app') || url.pathname === '/';
   const isAuthPage = url.pathname.startsWith('/login') || url.pathname.startsWith('/signup');
 
