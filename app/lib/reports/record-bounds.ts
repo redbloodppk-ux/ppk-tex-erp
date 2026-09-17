@@ -66,10 +66,37 @@ export const ALL_SOURCES: DateSource[] = Array.from(
   ).values(),
 );
 
+/** Today in the mill's own calendar (IST), as YYYY-MM-DD. */
+function todayIso(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 /**
  * Reads min and max across `sources`. Returns null when NOTHING is found —
  * an empty database must leave the pickers open rather than lock them onto
  * a date that does not exist.
+ *
+ * THE UPPER BOUND IS NEVER EARLIER THAN TODAY.
+ *
+ * PPK, 2026-09-17, on the Purchase Register: "why to not able to select to
+ * date?" — the To picker had every day after 11 September greyed out. The
+ * last purchase bill was the Jeeva yarn lot of 11-Sep, so `max` sat there
+ * and today, the 17th, could not be chosen.
+ *
+ * That was this helper taking its own rule too far. The problem it was
+ * written for (2026-09-02) was a FROM default of "a year ago" spanning
+ * eleven months that never happened. Nothing about that argues for blocking
+ * the days between the last bill and today: "1 Sep to today" is a perfectly
+ * ordinary thing to ask for, and being silently pulled back to the 11th made
+ * the report claim a narrower window than was asked for — which reads like
+ * data is being hidden.
+ *
+ * A stretch with no records in it is not a lie. It is the answer "nothing
+ * was bought since the 11th", which is worth being able to ask for.
+ *
+ * Genuinely future dates stay blocked, unless the books already run ahead —
+ * some sources legitimately hold future rows (a planned attendance day, a
+ * dated job) and those must remain selectable.
  *
  * Two cheap indexed reads per source (first ascending, first descending)
  * rather than an aggregate, because PostgREST has no min()/max() and
@@ -103,9 +130,13 @@ export async function recordDateBounds(
   });
 
   if (dates.length === 0) return null;
+  const latestRecord = dates.reduce((a, b) => (a > b ? a : b));
+  const today = todayIso();
   return {
     min: dates.reduce((a, b) => (a < b ? a : b)),
-    max: dates.reduce((a, b) => (a > b ? a : b)),
+    // Whichever is later. Today is always reachable; a source whose rows
+    // already run past today keeps its own reach.
+    max: latestRecord > today ? latestRecord : today,
   };
 }
 

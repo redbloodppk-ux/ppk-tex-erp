@@ -237,7 +237,11 @@ describe('toHsnCsv', () => {
     ];
     expect(toHsnCsv(hsn)).toBe(
       [
-        'HSN,Description,UQC,Total Quantity,Total Value,Rate,Taxable Value,Integrated Tax Amount,Central Tax Amount,State/UT Tax Amount,Cess Amount',
+        // The offline tool's Table 12 template calls this column
+        // "Description as per HSN Code". Changed in the GSTR-1 upload work
+        // (commit 3a12fa2); this expectation was left behind and the suite
+        // has been red since.
+        'HSN,Description as per HSN Code,UQC,Total Quantity,Total Value,Rate,Taxable Value,Integrated Tax Amount,Central Tax Amount,State/UT Tax Amount,Cess Amount',
         '5208,Cotton fabric,MTR,100,10500,5,10000,0,250,250,0',
       ].join('\r\n'),
     );
