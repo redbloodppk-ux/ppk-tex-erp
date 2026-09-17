@@ -357,7 +357,7 @@ export default function BonusPage(): React.ReactElement {
         <div>
           <label className="label" htmlFor="bn-to">To *</label>
           <input id="bn-to" type="date" className="input"
-            min={from || bounds?.min} max={bounds?.max}
+            min={bounds?.min} max={bounds?.max}
             value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
         {bounds && (

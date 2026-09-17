@@ -326,7 +326,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
           <input type="date" name="to" defaultValue={to}
-            min={from || bounds?.min} max={bounds?.max} className="input" />
+            min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Customer</span>

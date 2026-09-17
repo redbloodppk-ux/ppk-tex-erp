@@ -2,20 +2,20 @@
  * Fabric Movements report
  *
  * Per-event audit log of every fabric movement: each row is either
- *   â€¢ IN  â€” a fabric_receipt_item or fabric_purchase delivery (resale),
+ *   • IN  — a fabric_receipt_item or fabric_purchase delivery (resale),
  *           tagged with its source DC and party (the weaver / supplier).
- *   â€¢ OUT â€” a delivery_challan_item heading out to a customer (or a
+ *   • OUT — a delivery_challan_item heading out to a customer (or a
  *           jobwork return / outsource send), joined to its sales
  *           invoice + payment rollup; plus Fabric Sale "Direct from
  *           Stock" invoice lines.
  *
  * The data + status-pill logic was previously the second half of the
- * warehouse In-house â†’ Fabric (m) tab. It's a read-only owner view, so
+ * warehouse In-house → Fabric (m) tab. It's a read-only owner view, so
  * lifting it into Reports & Alerts keeps the warehouse page focused on
  * live stock and gives the owner a permanent home for the audit trail.
  *
  * URL params:
- *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this month â†’ today)
+ *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: 1st of this month → today)
  *   ?party=<text>                     (case-insensitive substring on party_name)
  *   ?quality_id=<id>                  (optional fabric_quality.id filter)
  */
@@ -32,7 +32,7 @@ import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/repo
 export const metadata = { title: 'Fabric Movements' };
 export const dynamic = 'force-dynamic';
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── types ─────────────── */
 
 type FabricLineageDirection = 'in' | 'out';
 type FabricLineageStatus =
@@ -72,9 +72,9 @@ interface FabricQualityOpt {
 
 const LINEAGE_STATUS_PILL: Record<FabricLineageStatus, { label: string; cls: string }> = {
   in_stock:         { label: 'In Stock',          cls: 'bg-emerald-50 text-emerald-700' },
-  invoiced_paid:    { label: 'Invoiced Â· Paid',   cls: 'bg-emerald-100 text-emerald-800' },
-  invoiced_partial: { label: 'Invoiced Â· Part',   cls: 'bg-amber-50 text-amber-700' },
-  invoiced_unpaid:  { label: 'Invoiced Â· Unpaid', cls: 'bg-rose-50 text-rose-700' },
+  invoiced_paid:    { label: 'Invoiced · Paid',   cls: 'bg-emerald-100 text-emerald-800' },
+  invoiced_partial: { label: 'Invoiced · Part',   cls: 'bg-amber-50 text-amber-700' },
+  invoiced_unpaid:  { label: 'Invoiced · Unpaid', cls: 'bg-rose-50 text-rose-700' },
   draft_dc:         { label: 'DC (no invoice)',   cls: 'bg-slate-100 text-slate-600' },
 };
 
@@ -83,10 +83,10 @@ const SOURCE_KIND_LABEL: Record<FabricLineageRow['source_kind'], string> = {
   jobwork:   'Job Work',
   outsource: 'Outsource',
   resale:    'Resale',
-  unknown:   'â€”',
+  unknown:   '—',
 };
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ small helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── small helpers ─────────────── */
 
 function startOfMonthISO(): string {
   const d = new Date();
@@ -99,7 +99,7 @@ function todayISO(): string {
 }
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('en-IN', {
@@ -109,7 +109,7 @@ function fmtDate(iso: string | null | undefined): string {
   });
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ data loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── data loader ─────────────── */
 /* Mirrors warehouse/page.tsx `loadFabricLineage`. Lifted here so the
  * report can live without depending on the warehouse module. The query
  * shape is unchanged so the per-event status pills remain consistent
@@ -119,7 +119,7 @@ function fmtDate(iso: string | null | undefined): string {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadFabricLineage(supabase: any, qualityFilter: number | null): Promise<FabricLineageRow[]> {
-  // IN side: fabric_receipt_item Ã— fabric_receipt Ã— delivery_challan
+  // IN side: fabric_receipt_item × fabric_receipt × delivery_challan
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let inQ: any = supabase.from('fabric_receipt_item').select(`
     id, fabric_quality_id, received_metres,
@@ -132,7 +132,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
   if (qualityFilter !== null) inQ = inQ.eq('fabric_quality_id', qualityFilter);
   const { data: inRowsRaw } = await inQ;
 
-  // OUT side: delivery_challan_item Ã— delivery_challan Ã— invoice â€” for
+  // OUT side: delivery_challan_item × delivery_challan × invoice — for
   // all three DC modes (inhouse / outsource / jobwork) because cloth
   // physically leaves the shed in every case.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,7 +163,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
     invoice:invoice_id!inner ( id, invoice_no, invoice_date, total, amount_paid, balance, status, party_name )
   `).not('fabric_purchase_id', 'is', null);
 
-  // Quality lookup â€” one round-trip for all distinct quality ids seen.
+  // Quality lookup — one round-trip for all distinct quality ids seen.
   const qIds = new Set<number>();
   for (const r of (inRowsRaw ?? []) as Array<{ fabric_quality_id: number | null }>) {
     if (r.fabric_quality_id) qIds.add(r.fabric_quality_id);
@@ -216,7 +216,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       direction: 'in',
       event_date: r.receipt?.receipt_date ?? '',
       quality_id: qid,
-      quality_code: q?.code ?? 'â€”',
+      quality_code: q?.code ?? '—',
       quality_name: q?.name ?? '',
       source_kind: sourceKindFromMode(r.receipt?.dc?.production_mode),
       dc_id: r.receipt?.dc?.id ?? null,
@@ -225,7 +225,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       receipt_code: r.receipt?.code ?? null,
       invoice_id: null,
       invoice_no: null,
-      party_name: r.receipt?.party?.name ?? 'â€”',
+      party_name: r.receipt?.party?.name ?? '—',
       metres: Number(r.received_metres ?? 0),
       invoice_total: 0,
       invoice_paid: 0,
@@ -263,7 +263,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       direction: 'out',
       event_date: r.dc?.dc_date ?? '',
       quality_id: qid,
-      quality_code: q?.code ?? 'â€”',
+      quality_code: q?.code ?? '—',
       quality_name: q?.name ?? '',
       source_kind: sourceKindFromMode(r.dc?.production_mode),
       dc_id: r.dc?.id ?? null,
@@ -272,7 +272,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       receipt_code: null,
       invoice_id: inv?.id ?? null,
       invoice_no: inv?.invoice_no ?? null,
-      party_name: r.dc?.bill_to_name ?? 'â€”',
+      party_name: r.dc?.bill_to_name ?? '—',
       metres: Number(r.metres ?? 0),
       invoice_total: total,
       invoice_paid: paid,
@@ -281,7 +281,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
     };
   });
 
-  // Fabric purchases â†’ IN events (resale stock arriving)
+  // Fabric purchases → IN events (resale stock arriving)
   const purchaseRows: FabricLineageRow[] = ((purRowsRaw ?? []) as Array<{
     id: number; code: string | null; received_date: string | null;
     received_metres: number | string | null; fabric_quality_id: number | null;
@@ -293,7 +293,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       direction: 'in',
       event_date: r.received_date ?? '',
       quality_id: r.fabric_quality_id,
-      quality_code: q?.code ?? 'â€”',
+      quality_code: q?.code ?? '—',
       quality_name: q?.name ?? '',
       source_kind: 'resale',
       dc_id: null,
@@ -302,7 +302,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
       receipt_code: null,
       invoice_id: null,
       invoice_no: null,
-      party_name: r.supplier?.name ?? 'â€”',
+      party_name: r.supplier?.name ?? '—',
       metres: Number(r.received_metres ?? 0),
       invoice_total: 0,
       invoice_paid: 0,
@@ -311,7 +311,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
     };
   });
 
-  // Fabric Sale "Direct from Stock" lines â†’ OUT events
+  // Fabric Sale "Direct from Stock" lines → OUT events
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saleRows: FabricLineageRow[] = (((saleRowsRaw ?? []) as any[])
     .filter((r) => qualityFilter === null || Number(r.purchase?.fabric_quality_id) === qualityFilter)
@@ -330,7 +330,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
         direction: 'out',
         event_date: String(r.invoice?.invoice_date ?? ''),
         quality_id: qid,
-        quality_code: q?.code ?? 'â€”',
+        quality_code: q?.code ?? '—',
         quality_name: q?.name ?? '',
         source_kind: 'resale',
         dc_id: null,
@@ -339,7 +339,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
         receipt_code: null,
         invoice_id: r.invoice?.id ?? null,
         invoice_no: r.invoice?.invoice_no ?? null,
-        party_name: r.invoice?.party_name ?? 'â€”',
+        party_name: r.invoice?.party_name ?? '—',
         metres: Number(r.quantity ?? 0),
         invoice_total: total,
         invoice_paid: paid,
@@ -353,7 +353,7 @@ async function loadFabricLineage(supabase: any, qualityFilter: number | null): P
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── page ─────────────── */
 
 interface PageProps {
   searchParams: Promise<{
@@ -398,7 +398,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
   // single SQL date predicate would be awkward; doing it here keeps the
   // status-pill logic single-sourced.
   const rows = allRows.filter((r) => {
-    // event_date may be '' (string) for orphan rows â€” treat those as
+    // event_date may be '' (string) for orphan rows — treat those as
     // out-of-range so an unbounded sale line doesn't sneak in.
     const d = r.event_date || '';
     if (d && (d < from || d > to)) return false;
@@ -439,9 +439,9 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
     { key: 'invoice_no',     label: 'Invoice',       type: 'text',   width: 16 },
     { key: 'party_name',     label: 'Party',         type: 'text',   width: 28 },
     { key: 'metres',         label: 'Metres',        type: 'metre',  width: 12, total: true },
-    { key: 'invoice_total',  label: 'Invoice â‚¹',     type: 'rupee',  width: 14, total: true },
-    { key: 'invoice_paid',   label: 'Paid â‚¹',        type: 'rupee',  width: 14, total: true },
-    { key: 'invoice_balance',label: 'Balance â‚¹',     type: 'rupee',  width: 14, total: true },
+    { key: 'invoice_total',  label: 'Invoice ₹',     type: 'rupee',  width: 14, total: true },
+    { key: 'invoice_paid',   label: 'Paid ₹',        type: 'rupee',  width: 14, total: true },
+    { key: 'invoice_balance',label: 'Balance ₹',     type: 'rupee',  width: 14, total: true },
     { key: 'status',         label: 'Status',        type: 'text',   width: 18 },
   ];
   const exportRows = rows.map((r) => ({
@@ -474,14 +474,14 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
           <ExcelExportButton
             filename="fabric-movements"
             sheetName="Fabric Movements"
-            title={`Fabric Movements Â· ${from} to ${to}`}
+            title={`Fabric Movements · ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
         }
       />
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Filter strip ─────────────── */}
       <form
         className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm"
         action=""
@@ -492,7 +492,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
+          <input type="date" name="to" defaultValue={to} min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Fabric Quality</span>
@@ -504,7 +504,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
             <option value="">All qualities</option>
             {qualities.map((q) => (
               <option key={q.id} value={q.id}>
-                {q.code} â€” {q.name}
+                {q.code} — {q.name}
               </option>
             ))}
           </select>
@@ -530,19 +530,19 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
         </a>
       </form>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── KPI strip ─────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Kpi label="Events shown" value={String(rows.length)} icon={Layers} />
         <Kpi label="Received (in)" value={formatMetres(received, 0)} icon={Truck} />
         <Kpi label="Sold (out)" value={formatMetres(invoicedOut, 0)} icon={Truck} />
         <Kpi
-          label="Unpaid (â‚¹)"
+          label="Unpaid (₹)"
           value={formatRupee(unpaidValue, { compact: true })}
           icon={Coins}
         />
       </div>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Errors / empty / table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Errors / empty / table ─────────────── */}
       {loadError && (
         <div className="card p-4 text-sm text-err mb-4 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -560,7 +560,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
         </div>
       ) : (
         <>
-        <CardFilter placeholder="Search movementsâ€¦">
+        <CardFilter placeholder="Search movements…">
           {rows.map((r) => {
             let pill = LINEAGE_STATUS_PILL[r.status];
             if (r.direction === 'out' && r.source_kind === 'jobwork') {
@@ -613,14 +613,14 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                         (r.direction === 'in' ? 'bg-emerald-500' : 'bg-rose-500')
                       }
                     />
-                    {SOURCE_KIND_LABEL[r.source_kind]} Â· {r.direction === 'in' ? 'IN' : 'OUT'}
+                    {SOURCE_KIND_LABEL[r.source_kind]} · {r.direction === 'in' ? 'IN' : 'OUT'}
                   </div>
                   <div>Party: <span className="text-ink">{r.party_name}</span></div>
                   {r.dc_id != null && (
-                    <div>DC: <Link href={`/app/delivery-challan/${r.dc_id}`} className="font-mono text-indigo-700 hover:underline">{r.dc_code ?? 'â€”'}</Link></div>
+                    <div>DC: <Link href={`/app/delivery-challan/${r.dc_id}`} className="font-mono text-indigo-700 hover:underline">{r.dc_code ?? '—'}</Link></div>
                   )}
                   {r.receipt_id != null && (
-                    <div>Receipt: <Link href={`/app/jobwork/fabric-receipt/${r.receipt_id}`} className="font-mono text-indigo-700 hover:underline">{r.receipt_code ?? 'â€”'}</Link></div>
+                    <div>Receipt: <Link href={`/app/jobwork/fabric-receipt/${r.receipt_id}`} className="font-mono text-indigo-700 hover:underline">{r.receipt_code ?? '—'}</Link></div>
                   )}
                   {r.invoice_id != null && (
                     <div>Invoice: <Link href={`/app/invoices/${r.invoice_id}`} className="font-mono text-indigo-700 hover:underline">{r.invoice_no ?? `#${r.invoice_id}`}</Link></div>
@@ -653,7 +653,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
             <tbody>
               {rows.map((r) => {
                 // For non-inhouse OUT events the invoice-status pill is
-                // meaningless (no sale invoice) â€” show the movement type
+                // meaningless (no sale invoice) — show the movement type
                 // instead so the operator isn't confused by a stale "DC
                 // (no invoice)" tag on a jobwork return / outsource send.
                 let pill = LINEAGE_STATUS_PILL[r.status];
@@ -702,7 +702,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                             (r.direction === 'in' ? 'bg-emerald-500' : 'bg-rose-500')
                           }
                         />
-                        {SOURCE_KIND_LABEL[r.source_kind]} Â·{' '}
+                        {SOURCE_KIND_LABEL[r.source_kind]} ·{' '}
                         {r.direction === 'in' ? 'IN' : 'OUT'}
                       </span>
                     </td>
@@ -712,10 +712,10 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                           href={`/app/delivery-challan/${r.dc_id}`}
                           className="text-indigo-700 hover:underline"
                         >
-                          {r.dc_code ?? 'â€”'}
+                          {r.dc_code ?? '—'}
                         </Link>
                       ) : (
-                        <span className="text-ink-mute">â€”</span>
+                        <span className="text-ink-mute">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
@@ -724,10 +724,10 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                           href={`/app/jobwork/fabric-receipt/${r.receipt_id}`}
                           className="text-indigo-700 hover:underline"
                         >
-                          {r.receipt_code ?? 'â€”'}
+                          {r.receipt_code ?? '—'}
                         </Link>
                       ) : (
-                        <span className="text-ink-mute">â€”</span>
+                        <span className="text-ink-mute">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
@@ -739,7 +739,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                           {r.invoice_no ?? `#${r.invoice_id}`}
                         </Link>
                       ) : (
-                        <span className="text-ink-mute">â€”</span>
+                        <span className="text-ink-mute">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs">{r.party_name}</td>
@@ -779,7 +779,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ presentational helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── presentational helpers ─────────────── */
 
 interface KpiProps {
   label: string;

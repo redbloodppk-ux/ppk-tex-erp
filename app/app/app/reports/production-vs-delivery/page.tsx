@@ -1,5 +1,5 @@
 /**
- * /app/reports/production-vs-delivery â€” Production vs Delivery.
+ * /app/reports/production-vs-delivery — Production vs Delivery.
  *
  * Per-quality variance between metres produced and metres delivered
  * in a chosen window, split by production mode (in-house, jobwork,
@@ -115,7 +115,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
   const fromRaw = fromInput ?? preset?.from ?? def.from;
   const toRaw   = toInput   ?? preset?.to   ?? def.to;
 
-  // Outsource is no longer surfaced â€” this report compares loom
+  // Outsource is no longer surfaced — this report compares loom
   // utilisation (shift_log) vs delivery, so only In-house and Job Work
   // appear as real production streams.
   const modeFilter: 'all' | 'inhouse' | 'jobwork' =
@@ -138,8 +138,8 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
   // report entirely (the report is a loom-utilisation vs delivery
   // comparison; outsource fabric never touches the mill's looms).
   // 'unattributed' rows are dropped when the user picks a specific
-  // mode â€” they're a data-quality flag, not a real production stream
-  // â€” and shown only on 'all'.
+  // mode — they're a data-quality flag, not a real production stream
+  // — and shown only on 'all'.
   const filteredRows: PvDRow[] = allRows.filter((r) => {
     if (r.production_mode === 'outsource') return false;
     if (modeFilter === 'all') return true;
@@ -162,7 +162,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
   const netVariance    = totalProduced - totalDelivered;
   const lineCount      = sortedRows.length;
 
-  // â”€â”€ Excel export: quality-grouped sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Excel export: quality-grouped sections ────────────────────────
   const exportColumns: ExcelColumn[] = [
     { key: 'quality',        label: 'Quality',        type: 'text',   width: 28 },
     { key: 'mode',           label: 'Mode',           type: 'text',   width: 14 },
@@ -205,7 +205,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
     if (bucket.length === 0) continue;
     const first = bucket[0]!;
     const header = first.quality_code
-      ? `${first.quality_code} â€” ${first.quality_name ?? ''}`
+      ? `${first.quality_code} — ${first.quality_name ?? ''}`
       : (first.quality_name ?? 'Unattributed');
     exportRows.push({
       quality: header, mode: '',
@@ -293,7 +293,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
           <ExcelExportButton
             filename={`production-vs-delivery-${from}-to-${to}`}
             sheetName="Production vs Delivery"
-            title={`Production vs Delivery â€” ${from} to ${to}`}
+            title={`Production vs Delivery — ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
@@ -336,19 +336,19 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
         </label>
         <label className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-ink-mute">To</span>
-          <input name="to" type="date" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input py-1 text-xs" />
+          <input name="to" type="date" defaultValue={to} min={bounds?.min} max={bounds?.max} className="input py-1 text-xs" />
         </label>
         <button type="submit" className="btn-secondary text-xs py-1 px-3">Apply</button>
         <div className="flex items-center gap-1 ml-auto text-[11px]">
           <span className="text-ink-mute">Quick:</span>
           <Link href={`/app/reports/production-vs-delivery?preset=this_month${modeFilter !== 'all' ? `&mode=${modeFilter}` : ''}`}   className="text-indigo-700 underline">This month</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/production-vs-delivery?preset=last_month${modeFilter !== 'all' ? `&mode=${modeFilter}` : ''}`}   className="text-indigo-700 underline">Last month</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/production-vs-delivery?preset=this_quarter${modeFilter !== 'all' ? `&mode=${modeFilter}` : ''}`} className="text-indigo-700 underline">Quarter</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/production-vs-delivery?preset=fy_to_date${modeFilter !== 'all' ? `&mode=${modeFilter}` : ''}`}   className="text-indigo-700 underline">FY-to-date</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/production-vs-delivery?preset=last_30d${modeFilter !== 'all' ? `&mode=${modeFilter}` : ''}`}     className="text-indigo-700 underline">Last 30d</Link>
         </div>
       </form>
@@ -396,7 +396,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
         </div>
       ) : (
         <>
-        <CardFilter placeholder="Search qualitiesâ€¦">
+        <CardFilter placeholder="Search qualities…">
           {sortedRows.map((r) => {
             const v = num(r.variance_m);
             const variancePct = r.variance_pct == null ? null : Number(r.variance_pct);
@@ -430,7 +430,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                           {r.quality_code}
                         </Link>
                       ) : (
-                        <span className="font-semibold text-ink-mute break-words">{r.quality_name ?? 'â€”'}</span>
+                        <span className="font-semibold text-ink-mute break-words">{r.quality_name ?? '—'}</span>
                       )}
                       {r.is_merged && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 uppercase tracking-wide">merged</span>
@@ -446,13 +446,13 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                 </div>
                 <div className="text-xs text-ink-soft mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
                   <div>Produced (m): <span className="num text-ink">{fmtMetres(num(r.produced_m))}</span></div>
-                  <div>Produced (pcs): <span className="num">{producedPcs != null ? fmtPcs(producedPcs) : 'â€”'}</span></div>
+                  <div>Produced (pcs): <span className="num">{producedPcs != null ? fmtPcs(producedPcs) : '—'}</span></div>
                   <div>Delivered (m): <span className="num text-ink">{fmtMetres(num(r.delivered_m))}</span></div>
-                  <div>Delivered (pcs): <span className="num">{deliveredPcs != null ? fmtPcs(deliveredPcs) : 'â€”'}</span></div>
+                  <div>Delivered (pcs): <span className="num">{deliveredPcs != null ? fmtPcs(deliveredPcs) : '—'}</span></div>
                   <div>Variance (m): <span className={'num font-semibold ' + varClass}>{v >= 0 ? '+' : ''}{fmtMetres(v)}</span></div>
-                  <div>Variance (pcs): <span className={'num ' + varClass}>{variancePcs != null ? `${variancePcs >= 0 ? '+' : ''}${fmtPcs(variancePcs)}` : 'â€”'}</span></div>
-                  <div>Var %: <span className={'num ' + varClass}>{variancePct == null ? 'â€”' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}</span></div>
-                  <div>Last activity: <span className="num">{r.last_activity ?? 'â€”'}</span></div>
+                  <div>Variance (pcs): <span className={'num ' + varClass}>{variancePcs != null ? `${variancePcs >= 0 ? '+' : ''}${fmtPcs(variancePcs)}` : '—'}</span></div>
+                  <div>Var %: <span className={'num ' + varClass}>{variancePct == null ? '—' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}</span></div>
+                  <div>Last activity: <span className="num">{r.last_activity ?? '—'}</span></div>
                 </div>
               </div>
             );
@@ -489,7 +489,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                   r.production_mode === 'outsource'    ? 'bg-indigo-50 text-indigo-700' :
                                                           'bg-rose-50 text-rose-700';
                 const varClass = v > 0 ? 'text-emerald-700' : v < 0 ? 'text-rose-700' : 'text-ink-soft';
-                // Pieces conversion â€” only when meter_per_pc is set.
+                // Pieces conversion — only when meter_per_pc is set.
                 // Renders a faded sub-line below each metres cell.
                 const mpp = r.meter_per_pc == null ? null : Number(r.meter_per_pc);
                 const showPcs = mpp != null && mpp > 0;
@@ -506,7 +506,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                       {r.quality_code}
                     </Link>
                   )
-                  : <span className="font-semibold text-ink-mute">{r.quality_name ?? 'â€”'}</span>;
+                  : <span className="font-semibold text-ink-mute">{r.quality_name ?? '—'}</span>;
                 return (
                   <tr key={`${r.fabric_quality_id ?? 'na'}-${r.production_mode}`} className="border-t border-line/40 hover:bg-haze/60 align-top">
                     <td className="px-3 py-2">
@@ -532,13 +532,13 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                       {fmtMetres(num(r.produced_m))}
                     </td>
                     <td className="px-3 py-2 text-right num text-ink-soft">
-                      {producedPcs != null ? fmtPcs(producedPcs) : 'â€”'}
+                      {producedPcs != null ? fmtPcs(producedPcs) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right num">
                       {fmtMetres(num(r.delivered_m))}
                     </td>
                     <td className="px-3 py-2 text-right num text-ink-soft">
-                      {deliveredPcs != null ? fmtPcs(deliveredPcs) : 'â€”'}
+                      {deliveredPcs != null ? fmtPcs(deliveredPcs) : '—'}
                     </td>
                     <td className={'px-3 py-2 text-right num font-semibold ' + varClass}>
                       {v >= 0 ? '+' : ''}{fmtMetres(v)}
@@ -546,13 +546,13 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
                     <td className={'px-3 py-2 text-right num ' + varClass}>
                       {variancePcs != null
                         ? `${variancePcs >= 0 ? '+' : ''}${fmtPcs(variancePcs)}`
-                        : 'â€”'}
+                        : '—'}
                     </td>
                     <td className={'px-3 py-2 text-right num ' + varClass}>
-                      {variancePct == null ? 'â€”' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}
+                      {variancePct == null ? '—' : `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}%`}
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft whitespace-nowrap">
-                      {r.last_activity ?? 'â€”'}
+                      {r.last_activity ?? '—'}
                     </td>
                   </tr>
                 );
@@ -567,7 +567,7 @@ export default async function ProductionVsDeliveryPage({ searchParams }: PagePro
         Period: <strong>{from}</strong> to <strong>{to}</strong>. {lineCount} row{lineCount === 1 ? '' : 's'}.
         Variance &gt; 0 = stock building (produced more than delivered); variance &lt; 0 = stock depleting
         (delivered more than produced this period). <strong>Produced</strong> is sourced exclusively from
-        the production shift logs on the mill&apos;s own looms â€” fabric received back from external weavers
+        the production shift logs on the mill&apos;s own looms — fabric received back from external weavers
         is <em>not</em> counted here. Row mode = the fabric quality&apos;s production_mode (In-house or
         Job Work). <strong>Delivered</strong> is the sum of DC items (status confirmed / invoiced) for the
         same quality and mode. &ldquo;Unattributed&rdquo; metres are shift-log production on looms with no

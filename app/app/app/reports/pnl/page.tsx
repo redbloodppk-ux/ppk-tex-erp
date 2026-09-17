@@ -1,12 +1,12 @@
 /**
- * /app/reports/pnl â€” Period Profit & Loss.
+ * /app/reports/pnl — Period Profit & Loss.
  *
  * Single-screen P&L for any date window. Pulls revenue, COGS, period
  * expenses (wages + factory expenses + bank entries flagged
  * pl_treatment='expense'), bank income, and computes gross + net
  * profit. Balance-sheet items (cash withdrawal, loan principal, GST
  * payment, loan disbursement, cash deposit) are excluded by the
- * underlying SQL function â€” they don't affect profit.
+ * underlying SQL function — they don't affect profit.
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
@@ -103,14 +103,14 @@ function num(v: number | string | null | undefined): number {
 }
 
 function pct(numerator: number, denominator: number): string {
-  if (denominator <= 0) return 'â€”';
+  if (denominator <= 0) return '—';
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
 }
 
 export default async function PeriodPnlPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const view: 'combined' | 'split' = sp.view === 'split' ? 'split' : 'combined';
-  // Explicit truthy check â€” `sp.preset && presetRange(sp.preset)` would
+  // Explicit truthy check — `sp.preset && presetRange(sp.preset)` would
   // short-circuit to "" (the empty string) when sp.preset is empty,
   // narrowing the type to `string | {from,to}` and breaking `?.from`
   // access. Ternary keeps `preset` as `{from,to} | null`.
@@ -183,7 +183,7 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
         ]}
       />
 
-      {/* View toggle â€” Combined keeps the existing single-column report.
+      {/* View toggle — Combined keeps the existing single-column report.
           Split shows a three-column own / jobwork / combined view. */}
       <div className="mb-3 flex items-center gap-1">
         <Link
@@ -215,19 +215,19 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
         </label>
         <label className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-ink-mute">To</span>
-          <input name="to" type="date" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input py-1 text-xs" />
+          <input name="to" type="date" defaultValue={to} min={bounds?.min} max={bounds?.max} className="input py-1 text-xs" />
         </label>
         <button type="submit" className="btn-secondary text-xs py-1 px-3">Apply</button>
         <div className="flex items-center gap-1 ml-auto text-[11px]">
           <span className="text-ink-mute">Quick:</span>
           <Link href={`/app/reports/pnl?preset=this_month&view=${view}`}   className="text-indigo-700 underline">This month</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/pnl?preset=last_month&view=${view}`}   className="text-indigo-700 underline">Last month</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/pnl?preset=this_quarter&view=${view}`} className="text-indigo-700 underline">Quarter</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/pnl?preset=fy_to_date&view=${view}`}   className="text-indigo-700 underline">FY-to-date</Link>
-          <span className="text-ink-mute">Â·</span>
+          <span className="text-ink-mute">·</span>
           <Link href={`/app/reports/pnl?preset=last_30d&view=${view}`}     className="text-indigo-700 underline">Last 30d</Link>
         </div>
       </form>
@@ -352,7 +352,7 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
       </>)}
 
       {view === 'split' && (() => {
-        // â”€â”€ Split (Own / Jobwork / Combined) view â”€â”€
+        // ── Split (Own / Jobwork / Combined) view ──
         // Reads fn_period_pnl_split for the same period and shows three
         // columns plus an allocation footnote. Shared period costs are
         // pre-split inside the SQL by the metre ratio (own_metres vs
@@ -402,17 +402,17 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
               <div className="card p-3 border-emerald-200">
-                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Own Production Â· Net Profit</div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Own Production · Net Profit</div>
                 <div className={'num text-xl font-extrabold ' + cls(npOwn)}>{fmt(npOwn)}</div>
                 <div className="text-[10px] text-ink-mute">Margin: {pct(npOwn, netRevOwn)}</div>
               </div>
               <div className="card p-3 border-amber-200">
-                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Job Work Â· Net Profit</div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-mute">Job Work · Net Profit</div>
                 <div className={'num text-xl font-extrabold ' + cls(npJw)}>{fmt(npJw)}</div>
                 <div className="text-[10px] text-ink-mute">Margin: {pct(npJw, netRevJw)}</div>
               </div>
               <div className="card p-3 border-2 border-indigo-300">
-                <div className="text-[11px] uppercase tracking-wide text-indigo-700 font-semibold">Combined Â· Net Profit</div>
+                <div className="text-[11px] uppercase tracking-wide text-indigo-700 font-semibold">Combined · Net Profit</div>
                 <div className={'num text-2xl font-extrabold ' + cls(npCom)}>{fmt(npCom)}</div>
                 <div className="text-[10px] text-ink-mute">Margin: {pct(npCom, netRevCom)}</div>
               </div>

@@ -876,7 +876,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   // the table isn't pushed down by an empty form on first load.
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [addBusy, setAddBusy] = useState<boolean>(false);
-  // â”€â”€â”€ Multi-item Add form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Multi-item Add form ────────────────────────────────────────
   // Top section (party + date + supplier + reference) is shared
   // across every line item in this submission. Items[] holds one
   // entry per bobbin spec, each with its own quantity. One Save
@@ -1422,7 +1422,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
               <th className="text-right px-3 py-3">Ends</th>
               <th className="text-right px-3 py-3" title="Metres per piece">M/pc</th>
               <th className="text-right px-3 py-3">Qty (pcs)</th>
-              <th className="text-right px-3 py-3" title="Qty Ã— M/pc">Total m</th>
+              <th className="text-right px-3 py-3" title="Qty × M/pc">Total m</th>
               <th className="text-right px-3 py-3" title="Empty bobbin pcs returned to supplier">Returned</th>
               <th className="text-right px-3 py-3" title="Qty issued - returned">Balance</th>
               <th className="text-right px-3 py-3"></th>
@@ -1971,7 +1971,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     return () => { cancelled = true; };
   }, [showAdd, kind, supabase, parties]);
 
-  // â”€â”€ Cascade memos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cascade memos ──────────────────────────────────────────────
   const selectedOutsourceLedgerId = form.jobwork_party_id === ''
     ? null
     : outsourcePartyLedger.get(Number(form.jobwork_party_id)) ?? null;

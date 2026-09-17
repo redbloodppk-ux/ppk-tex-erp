@@ -1,13 +1,13 @@
 /**
  * Purchase Register
  *
- * Owner / accountant view of every supplier bill we received â€” unions
+ * Owner / accountant view of every supplier bill we received — unions
  * yarn lots, bobbin purchases, sizing jobs, fabric purchases, and
  * outsource-weaving / jobwork bills (invoice table). Source:
  * `public.v_purchase_register` from migration 175.
  *
  * Filters via querystring:
- *   ?from=YYYY-MM-DD&to=YYYY-MM-DD       (defaults: 1st of this month â†’ today)
+ *   ?from=YYYY-MM-DD&to=YYYY-MM-DD       (defaults: 1st of this month → today)
  *   ?party_id=123                         (optional, single supplier)
  *   ?source=yarn|bobbin|sizing|fabric|outsource_weaving|jobwork|all
  *   ?gst=with|without|all                 (filter rows where GST > 0 vs = 0)
@@ -81,7 +81,7 @@ interface PartyOpt {
   name: string;
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── helpers ─────────────── */
 
 function startOfMonthISO(): string {
   const d = new Date();
@@ -97,12 +97,12 @@ function fmtRupees(
   n: number | string | null | undefined,
   decimals = 0,
 ): string {
-  if (n == null) return 'â€”';
+  if (n == null) return '—';
   const num = Number(n);
   const sign = num < 0 ? '-' : '';
   return (
     sign +
-    'â‚¹' +
+    '₹' +
     Math.abs(num).toLocaleString('en-IN', {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -114,7 +114,7 @@ function fmtNum(
   n: number | string | null | undefined,
   decimals = 0,
 ): string {
-  if (n == null) return 'â€”';
+  if (n == null) return '—';
   return Number(n).toLocaleString('en-IN', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -122,7 +122,7 @@ function fmtNum(
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   const d = new Date(iso);
   return d.toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -139,7 +139,7 @@ function sourceLabel(s: string | null): string {
     case 'fabric':            return 'Fabric';
     case 'general':           return 'General';
     case 'outsource_weaving': return 'Outsource';
-    default:                  return s ?? 'â€”';
+    default:                  return s ?? '—';
   }
 }
 
@@ -163,7 +163,7 @@ function statusTone(s: string | null): string {
   return 'text-ink-soft';
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── page ─────────────── */
 
 interface PageProps {
   searchParams: Promise<{
@@ -238,7 +238,7 @@ export default async function PurchaseRegisterReport({
 
   const [rowsRes, partyRes] = await Promise.all([
     query,
-    // Suppliers dropdown â€” broad enough to cover all 5 sources.
+    // Suppliers dropdown — broad enough to cover all 5 sources.
     sb
       .from('party')
       .select('id, code, name')
@@ -349,14 +349,14 @@ export default async function PurchaseRegisterReport({
           <ExcelExportButton
             filename="purchase-register"
             sheetName="Purchase Register (GSTR 2B)"
-            title={`Purchase Register (GSTR 2B) Â· ${from} to ${to}`}
+            title={`Purchase Register (GSTR 2B) · ${from} to ${to}`}
             columns={exportColumns}
             rows={exportRows}
           />
         }
       />
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Filter strip ─────────────── */}
       <form
         className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm"
         action=""
@@ -372,7 +372,7 @@ export default async function PurchaseRegisterReport({
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
+          <input type="date" name="to" defaultValue={to} min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Supplier</span>
@@ -384,7 +384,7 @@ export default async function PurchaseRegisterReport({
             <option value="">All suppliers</option>
             {parties.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.code ? `${p.code} â€” ${p.name}` : p.name}
+                {p.code ? `${p.code} — ${p.name}` : p.name}
               </option>
             ))}
           </select>
@@ -420,13 +420,13 @@ export default async function PurchaseRegisterReport({
         </a>
       </form>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── KPI strip ─────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Kpi
           icon={<FileText className="w-4 h-4" />}
           label="Documents"
           value={fmtNum(n)}
-          sub={`${cntWithGst} with GST Â· ${cntWithoutGst} without GST`}
+          sub={`${cntWithGst} with GST · ${cntWithoutGst} without GST`}
         />
         <Kpi
           icon={<ReceiptText className="w-4 h-4" />}
@@ -437,17 +437,17 @@ export default async function PurchaseRegisterReport({
           icon={<RotateCcw className="w-4 h-4" />}
           label="Net GST"
           value={fmtRupees(totalGst)}
-          sub={`CGST ${fmtRupees(totalCgst)} Â· SGST ${fmtRupees(totalSgst)} Â· IGST ${fmtRupees(totalIgst)}`}
+          sub={`CGST ${fmtRupees(totalCgst)} · SGST ${fmtRupees(totalSgst)} · IGST ${fmtRupees(totalIgst)}`}
         />
         <Kpi
           icon={<Building2 className="w-4 h-4" />}
           label="Net total"
           value={fmtRupees(totalTotal)}
-          sub={`Paid ${fmtRupees(totalPaid)} Â· Balance ${fmtRupees(totalBalance)}`}
+          sub={`Paid ${fmtRupees(totalPaid)} · Balance ${fmtRupees(totalBalance)}`}
         />
       </div>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Error / empty / table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Error / empty / table ─────────────── */}
       {rowsRes.error && (
         <div className="card p-4 text-sm text-err mb-4 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -468,7 +468,7 @@ export default async function PurchaseRegisterReport({
         <>
         {/* Mobile / PWA: card view. The register table is very wide; below
             md we render each bill as a tap-friendly card. */}
-        <CardFilter placeholder="Search billsâ€¦">
+        <CardFilter placeholder="Search bills…">
           {rows.map((r, i) => {
             const withoutGst = r.gst_flag === 'without_gst';
             return (
@@ -479,10 +479,10 @@ export default async function PurchaseRegisterReport({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-semibold text-ink break-words font-mono text-sm">
-                      {r.bill_no ?? 'â€”'}
+                      {r.bill_no ?? '—'}
                     </div>
                     <div className="text-xs text-ink-soft mt-0.5">
-                      {r.party_name ?? 'â€”'}
+                      {r.party_name ?? '—'}
                       {r.party_code ? (
                         <span className="ml-1 text-ink-mute">({r.party_code})</span>
                       ) : null}
@@ -497,7 +497,7 @@ export default async function PurchaseRegisterReport({
 
                 <div className="text-xs text-ink-soft mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
                   <span>{fmtDate(r.bill_date)}</span>
-                  <span className={statusTone(r.status)}>{r.status ?? 'â€”'}</span>
+                  <span className={statusTone(r.status)}>{r.status ?? '—'}</span>
                   {r.party_state ? (
                     <span>
                       {r.party_state}
@@ -553,13 +553,13 @@ export default async function PurchaseRegisterReport({
                 <th className="text-left px-3 py-2">State</th>
                 <th className="text-right px-3 py-2">Qty</th>
                 <th className="text-right px-3 py-2">GST %</th>
-                <th className="text-right px-3 py-2">Taxable â‚¹</th>
+                <th className="text-right px-3 py-2">Taxable ₹</th>
                 <th className="text-right px-3 py-2">CGST</th>
                 <th className="text-right px-3 py-2">SGST</th>
                 <th className="text-right px-3 py-2">IGST</th>
-                <th className="text-right px-3 py-2">Total â‚¹</th>
-                <th className="text-right px-3 py-2">Paid â‚¹</th>
-                <th className="text-right px-3 py-2">Balance â‚¹</th>
+                <th className="text-right px-3 py-2">Total ₹</th>
+                <th className="text-right px-3 py-2">Paid ₹</th>
+                <th className="text-right px-3 py-2">Balance ₹</th>
                 <th className="text-left px-3 py-2">Status</th>
               </tr>
             </thead>
@@ -582,11 +582,11 @@ export default async function PurchaseRegisterReport({
                       </span>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
-                      {r.bill_no ?? 'â€”'}
+                      {r.bill_no ?? '—'}
                     </td>
                     <td className="px-3 py-2">
                       <span className="font-medium">
-                        {r.party_name ?? 'â€”'}
+                        {r.party_name ?? '—'}
                       </span>
                       {r.party_code ? (
                         <span className="ml-1 text-xs text-ink-mute">
@@ -595,10 +595,10 @@ export default async function PurchaseRegisterReport({
                       ) : null}
                     </td>
                     <td className="px-3 py-2 font-mono text-[11px] text-ink-soft">
-                      {r.party_gstin ?? 'â€”'}
+                      {r.party_gstin ?? '—'}
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">
-                      {r.party_state ?? 'â€”'}
+                      {r.party_state ?? '—'}
                       {r.is_interstate ? (
                         <span className="ml-1 text-[10px] text-amber-700">
                           (IS)
@@ -614,7 +614,7 @@ export default async function PurchaseRegisterReport({
                     <td className="px-3 py-2 text-right num text-xs">
                       {r.is_mixed_gst ? (
                         // Blended header rate is meaningless (e.g. 17.05%
-                        // for an 18% + 5% bill) â€” show the real rates.
+                        // for an 18% + 5% bill) — show the real rates.
                         <span
                           title={`Mixed rates: ${r.gst_rates}%`}
                           className="inline-block px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 text-[10px] font-medium cursor-help"
@@ -624,7 +624,7 @@ export default async function PurchaseRegisterReport({
                       ) : Number(r.gst_pct ?? 0) > 0 ? (
                         `${fmtNum(r.gst_pct, 0)}%`
                       ) : (
-                        'â€”'
+                        '—'
                       )}
                     </td>
                     <td className="px-3 py-2 text-right num">
@@ -658,7 +658,7 @@ export default async function PurchaseRegisterReport({
                     </td>
                     <td className="px-3 py-2 text-xs">
                       <span className={statusTone(r.status)}>
-                        {r.status ?? 'â€”'}
+                        {r.status ?? '—'}
                       </span>
                     </td>
                   </tr>
@@ -704,7 +704,7 @@ export default async function PurchaseRegisterReport({
       <p className="text-xs text-ink-mute mt-4">
         Source: <span className="font-mono">v_purchase_register</span>{' '}
         (migration 175). Draft and cancelled documents are excluded. (IS) =
-        interstate bill â€” supplier outside your home state, so GST shows as
+        interstate bill — supplier outside your home state, so GST shows as
         IGST instead of CGST + SGST. Rows shaded grey are without-GST (cash
         purchases / unregistered suppliers).
       </p>
@@ -712,7 +712,7 @@ export default async function PurchaseRegisterReport({
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ presentational helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── presentational helpers ─────────────── */
 
 interface KpiProps {
   icon: React.ReactNode;

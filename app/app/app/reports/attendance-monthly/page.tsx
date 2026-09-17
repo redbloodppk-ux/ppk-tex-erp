@@ -221,7 +221,7 @@ export default async function MonthlyAttendanceReport({
         <div>
           <label className="label" htmlFor="to">To</label>
           <input id="to" name="to" type="date" defaultValue={to}
-            min={from || bounds?.min} max={bounds?.max} className="input" />
+            min={bounds?.min} max={bounds?.max} className="input" />
         </div>
         <button type="submit" className="btn-secondary min-h-[44px]">
           Show date range

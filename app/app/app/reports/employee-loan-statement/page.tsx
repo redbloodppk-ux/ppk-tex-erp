@@ -2,10 +2,10 @@
  * Employee Loan Statement
  *
  * Per-worker loan ledger. Two underlying sources:
- *   - employee_loan       â†’ cash advances GIVEN to the worker  (disbursement, +)
- *   - wage_entry.loan_deduction â†’ repayment WITHHELD from wages (repayment, âˆ’)
+ *   - employee_loan       → cash advances GIVEN to the worker  (disbursement, +)
+ *   - wage_entry.loan_deduction → repayment WITHHELD from wages (repayment, −)
  *
- * Outstanding for an employee = SUM(disbursements) âˆ’ SUM(repayments).
+ * Outstanding for an employee = SUM(disbursements) − SUM(repayments).
  * There is no separate repayments table.
  *
  * Top section: per-employee summary (disbursed / repaid in the window, plus
@@ -13,8 +13,8 @@
  * ledger with a running outstanding balance (opening balance carried in).
  *
  * Filters via querystring:
- *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: start of FY â†’ today)
- *   ?emp=123                         (optional â€” opens the drill-down)
+ *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   (defaults: start of FY → today)
+ *   ?emp=123                         (optional — opens the drill-down)
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
@@ -26,7 +26,7 @@ import { recordDateBounds, clampDate, ALL_SOURCES } from '@/lib/reports/record-b
 export const metadata = { title: 'Employee Loan Statement' };
 export const dynamic = 'force-dynamic';
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ source row shapes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── source row shapes ─────────────── */
 
 interface LoanRow {
   id: number;
@@ -63,7 +63,7 @@ interface EmpSummary {
   outstandingAll: number; // true all-time balance
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── helpers ─────────────── */
 
 function startOfFinYearISO(): string {
   const d = new Date();
@@ -76,12 +76,12 @@ function todayISO(): string {
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {
-  if (n == null) return 'â€”';
+  if (n == null) return '—';
   const num = Number(n);
   const sign = num < 0 ? '-' : '';
   return (
     sign +
-    'â‚¹' +
+    '₹' +
     Math.abs(num).toLocaleString('en-IN', {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -90,12 +90,12 @@ function fmtRupees(n: number | null | undefined, decimals = 0): string {
 }
 
 function fmtNum(n: number | null | undefined): string {
-  if (n == null) return 'â€”';
+  if (n == null) return '—';
   return Number(n).toLocaleString('en-IN');
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   const d = new Date(iso);
   return d.toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -104,7 +104,7 @@ function fmtDate(iso: string | null): string {
   });
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── page ─────────────── */
 
 interface PageProps {
   searchParams: Promise<{
@@ -129,7 +129,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
   const from = clampDate(fromRaw, bounds);
   const to = clampDate(toRaw, bounds);
 
-  // employee_loan / wage_entry.loan_deduction added in migration 219 â€” types
+  // employee_loan / wage_entry.loan_deduction added in migration 219 — types
   // not yet regenerated, cast through any. Runtime shapes asserted below.
   // We pull the FULL history (no date filter) so the all-time outstanding and
   // the opening balance for the drill-down are correct. Window filtering is
@@ -218,7 +218,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
   const tRepaidWin = emps.reduce((s, e) => s + e.repaidWin, 0);
   const tOutstanding = emps.reduce((s, e) => s + e.outstandingAll, 0);
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ drill-down for a selected employee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  /* ─────────────── drill-down for a selected employee ─────────────── */
   const selected = empId != null ? byEmp.get(empId) ?? null : null;
 
   // opening balance = net of all events strictly before `from`
@@ -260,7 +260,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         subtitle={`Cash advances given to workers and repayments withheld from their wages between ${from} and ${to}. Outstanding is the true running balance: total ever disbursed minus total ever repaid.`}
       />
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Filter strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Filter strip ─────────────── */}
       <form className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm" action="">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">From</span>
@@ -268,7 +268,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">To</span>
-          <input type="date" name="to" defaultValue={to} min={from || bounds?.min} max={bounds?.max} className="input" />
+          <input type="date" name="to" defaultValue={to} min={bounds?.min} max={bounds?.max} className="input" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Employee</span>
@@ -276,7 +276,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
             <option value="">All employees</option>
             {emps.map((e) => (
               <option key={e.employee_id} value={e.employee_id}>
-                {e.code ? `${e.code} â€” ${e.full_name}` : e.full_name}
+                {e.code ? `${e.code} — ${e.full_name}` : e.full_name}
               </option>
             ))}
           </select>
@@ -292,7 +292,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         </a>
       </form>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ KPI strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── KPI strip ─────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Kpi
           icon={<Users className="w-4 h-4" />}
@@ -319,7 +319,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         />
       </div>
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Error / empty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Error / empty ─────────────── */}
       {error && (
         <div className="card p-4 text-sm text-err mb-4 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -334,14 +334,14 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         <div className="card p-8 text-center text-sm text-ink-mute">
           No employee loans recorded.{' '}
           <Link href="/app/loans/new" className="text-indigo font-semibold">
-            Issue the first one â†’
+            Issue the first one →
           </Link>
         </div>
       ) : null}
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Per-employee summary (mobile cards) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Per-employee summary (mobile cards) ─────────────── */}
       {emps.length > 0 && (
-        <CardFilter placeholder="Search workersâ€¦" className="mb-6">
+        <CardFilter placeholder="Search workers…" className="mb-6">
           {emps.map((e) => {
             const isSel = e.employee_id === empId;
             return (
@@ -352,7 +352,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
                       href={`/app/reports/employee-loan-statement?${dateQs}&emp=${e.employee_id}`}
                       className="font-semibold text-indigo hover:underline break-words"
                     >
-                      {e.full_name ?? 'â€”'}
+                      {e.full_name ?? '—'}
                     </Link>
                     {e.code ? (
                       <span className="ml-1 text-xs text-ink-mute">({e.code})</span>
@@ -381,7 +381,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         </CardFilter>
       )}
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Per-employee summary (desktop table) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Per-employee summary (desktop table) ─────────────── */}
       {emps.length > 0 && (
         <div className="card p-0 overflow-x-auto mb-6 hidden md:block">
           <table className="w-full text-sm">
@@ -406,7 +406,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
                         href={`/app/reports/employee-loan-statement?${dateQs}&emp=${e.employee_id}`}
                         className="font-medium text-indigo hover:underline"
                       >
-                        {e.full_name ?? 'â€”'}
+                        {e.full_name ?? '—'}
                       </Link>
                       {e.code ? (
                         <span className="ml-1 text-xs text-ink-mute">({e.code})</span>
@@ -437,7 +437,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         </div>
       )}
 
-      {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Drill-down ledger for a selected worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ─────────────── Drill-down ledger for a selected worker ─────────────── */}
       {selected && (
         <div className="mb-2">
           <div className="flex items-center justify-between mb-2">
@@ -446,7 +446,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
               {selected.code ? (
                 <span className="ml-1 text-sm text-ink-mute">({selected.code})</span>
               ) : null}{' '}
-              â€” loan ledger
+              — loan ledger
             </h2>
             <a
               href={`/app/reports/employee-loan-statement?${dateQs}`}
@@ -457,7 +457,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
           </div>
 
           {/* Mobile cards */}
-          <CardFilter placeholder="Search ledgerâ€¦">
+          <CardFilter placeholder="Search ledger…">
             <div className="card p-3 bg-cloud/30">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-ink-mute">Opening balance (before {from})</span>
@@ -489,7 +489,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
                           ev.kind === 'loan' ? 'text-rose-700' : 'text-emerald-700'
                         }`}
                       >
-                        {ev.kind === 'loan' ? '+' : 'âˆ’'}
+                        {ev.kind === 'loan' ? '+' : '−'}
                         {fmtRupees(ev.amount, 2)}
                       </div>
                       <div className="text-[10px] uppercase tracking-wide text-ink-mute mt-0.5">
@@ -544,12 +544,12 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
                           {ev.kind === 'loan' ? 'Loan given' : 'Repaid'}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-xs text-ink-soft">{ev.notes ?? 'â€”'}</td>
+                      <td className="px-3 py-2 text-xs text-ink-soft">{ev.notes ?? '—'}</td>
                       <td className="px-3 py-2 text-right num text-rose-700">
-                        {ev.kind === 'loan' ? fmtRupees(ev.amount, 2) : 'â€”'}
+                        {ev.kind === 'loan' ? fmtRupees(ev.amount, 2) : '—'}
                       </td>
                       <td className="px-3 py-2 text-right num text-emerald-700">
-                        {ev.kind === 'repay' ? fmtRupees(ev.amount, 2) : 'â€”'}
+                        {ev.kind === 'repay' ? fmtRupees(ev.amount, 2) : '—'}
                       </td>
                       <td className="px-3 py-2 text-right num font-semibold">
                         {fmtRupees(balance, 2)}
@@ -594,7 +594,7 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ presentational helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────── presentational helper ─────────────── */
 
 interface KpiProps {
   icon: React.ReactNode;

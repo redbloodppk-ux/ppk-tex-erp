@@ -2,7 +2,7 @@
  * Holidays / Non-working Days (CORR-A5)
  *
  * Lists every day (or shift) that was marked as non-working in a date
- * range â€” power cut, national holiday, maintenance, other. Defaults to the
+ * range — power cut, national holiday, maintenance, other. Defaults to the
  * current calendar month.
  *
  * Source: v_non_working_days.
@@ -106,17 +106,17 @@ export default async function AttendanceHolidaysReport({
     <div>
       <PageHeader
         title="Holidays / Non-working Days"
-        subtitle="Days (or shifts) when the shed did not run â€” power cut, national holiday, maintenance, other."
+        subtitle="Days (or shifts) when the shed did not run — power cut, national holiday, maintenance, other."
         crumbs={[
           { label: 'Reports', href: '/app/reports' },
-          { label: 'Attendance â€” Holidays' },
+          { label: 'Attendance — Holidays' },
         ]}
         actions={
           rows.length > 0 ? (
             <ExcelExportButton
               filename={`holidays-${from}-to-${to}`}
               sheetName="Holidays"
-              title={`Non-working Days â€” ${from} to ${to}`}
+              title={`Non-working Days — ${from} to ${to}`}
               columns={exportColumns}
               rows={rows as unknown as ReadonlyArray<Record<string, unknown>>}
             />
@@ -147,7 +147,7 @@ export default async function AttendanceHolidaysReport({
             id="to"
             name="to"
             type="date"
-            defaultValue={to} min={from || bounds?.min} max={bounds?.max}
+            defaultValue={to} min={bounds?.min} max={bounds?.max}
             className="input"
           />
         </div>
@@ -155,7 +155,7 @@ export default async function AttendanceHolidaysReport({
           Show
         </button>
         <span className="text-xs text-ink-mute ml-1">
-          {fmtDate(from)} â†’ {fmtDate(to)}
+          {fmtDate(from)} → {fmtDate(to)}
         </span>
       </form>
 
@@ -194,14 +194,14 @@ export default async function AttendanceHolidaysReport({
         </div>
       ) : (
         <>
-        <CardFilter placeholder="Search non-working daysâ€¦">
+        <CardFilter placeholder="Search non-working days…">
           {rows.map((r, i) => {
             const key = r.reason ?? 'other';
             return (
               <div key={`${r.attendance_date}-${r.shift}-${i}`} className="card p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="font-semibold text-ink break-words">
-                    {r.attendance_date ? fmtDate(r.attendance_date) : 'â€”'}
+                    {r.attendance_date ? fmtDate(r.attendance_date) : '—'}
                   </div>
                   <span
                     className={`text-xs font-semibold px-2 py-0.5 rounded shrink-0 ${REASON_TONE[key] ?? 'bg-cloud/60 text-ink-soft'}`}
@@ -210,9 +210,9 @@ export default async function AttendanceHolidaysReport({
                   </span>
                 </div>
                 <div className="text-xs text-ink-soft mt-2 space-y-1">
-                  <div>Shift: <span className="capitalize text-ink">{r.shift ?? 'â€”'}</span></div>
+                  <div>Shift: <span className="capitalize text-ink">{r.shift ?? '—'}</span></div>
                   {r.remark && <div>Remark: <span className="text-ink">{r.remark}</span></div>}
-                  <div>Marked by: <span className="text-ink">{r.marked_by_name ?? 'â€”'}</span></div>
+                  <div>Marked by: <span className="text-ink">{r.marked_by_name ?? '—'}</span></div>
                 </div>
               </div>
             );
@@ -239,10 +239,10 @@ export default async function AttendanceHolidaysReport({
                   >
                     <td className="px-3 py-2">
                       <div className="font-medium">
-                        {r.attendance_date ? fmtDate(r.attendance_date) : 'â€”'}
+                        {r.attendance_date ? fmtDate(r.attendance_date) : '—'}
                       </div>
                     </td>
-                    <td className="px-3 py-2 capitalize text-xs">{r.shift ?? 'â€”'}</td>
+                    <td className="px-3 py-2 capitalize text-xs">{r.shift ?? '—'}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`text-xs font-semibold px-2 py-0.5 rounded ${REASON_TONE[key] ?? 'bg-cloud/60 text-ink-soft'}`}
@@ -254,7 +254,7 @@ export default async function AttendanceHolidaysReport({
                       {r.remark ?? ''}
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">
-                      {r.marked_by_name ?? 'â€”'}
+                      {r.marked_by_name ?? '—'}
                     </td>
                   </tr>
                 );
