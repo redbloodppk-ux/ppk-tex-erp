@@ -78,11 +78,25 @@ export function round2(value: MoneyInput): Decimal {
  *
  * Per Correction Guide v1.1 §1.5: ₹ symbol, Indian comma grouping, 2 decimals.
  * Pass `compact: true` to render large numbers as "₹1.50 L" / "₹1.50 Cr".
+ *
+ * A MISSING AMOUNT RENDERS AS AN EM-DASH, NOT AS ZERO.
+ *
+ * money() turns null into Decimal(0) deliberately — that is right for
+ * arithmetic, where a missing input should not poison a sum. It is wrong
+ * for display: "₹0.00" is a claim that the figure is zero, when the truth
+ * is that nobody knows it. That is the same shape as the failed-read-counts-
+ * as-zero problem behind the dashboard's "totals are INCOMPLETE" banner.
+ *
+ * So the split is: zero for adding up, dash for showing. formatRupee in
+ * lib/utils.ts — the formatter 175 call sites actually use — has always
+ * behaved this way; this one had drifted, and its own test had been failing
+ * since. Settled 2026-09-17 in the direction the test asked for.
  */
 export function formatINR(
   value: MoneyInput,
   opts: { decimals?: number; compact?: boolean } = {}
 ): string {
+  if (value === null || value === undefined || value === '') return '—';
   const d = money(value);
   if (!d.isFinite()) return '—';
   const n = d.toNumber();
