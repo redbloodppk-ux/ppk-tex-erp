@@ -175,6 +175,12 @@ interface Row {
    *  invoice_line.costing_id so the Profit by Quality report can
    *  attribute revenue to a quality. */
   costing_id: string;
+  /** Laid out by the form as a convenience, not asked for by the operator —
+   *  the taxable and exempt maintenance lines on a rental bill. If one is
+   *  left unpriced it is dropped at save rather than failing validation,
+   *  because not every tenant has both. Never set on a row the operator
+   *  added or edited themselves. */
+  optional_seed?: boolean;
 }
 
 const DOC_OPTIONS: { key: DocType; label: string; icon: any; tagline: string }[] = [
@@ -990,30 +996,52 @@ export default function NewInvoicePage() {
     return out;
   }, [docType, isRentalCustomer, docSequences]);
 
-  // When a Rental customer is picked on a general-sale invoice, pre-fill
-  // sensible defaults on the first row: HSN 997212 ("Renting of
-  // commercial space"), description "COMMERCIAL RENT", GST 18%, and
-  // UOM "Nos" (rent is billed per unit, not per metre). We only
-  // overwrite blank/default fields so the operator's edits aren't trampled.
+  // When a Rental customer is picked on a general-sale invoice, seed the
+  // three lines a rent bill actually has.
+  //
+  // PPK, 2026-09-20: the rent collected is not the rent billed. Venkateshwarra
+  // pays Rs 25,440 a month against a Rs 9,440 invoice; Varnaa pays Rs 25,960
+  // by bank plus Rs 6,000-7,110 in cash. The difference is maintenance, and
+  // because the invoice had one line there was nowhere to put it — so
+  // Rs 1,13,010 of income this year was never billed at all, and sat as an
+  // unexplained credit on two debtor accounts.
+  //
+  // "need two separate column for taxable and exempted" — so maintenance
+  // gets TWO lines, not one with a toggle. Each invoice_line already
+  // carries its own gst_rate_pct, so a taxable line and an exempt line on
+  // the same bill is the natural shape, splits correctly into the GSTR-1
+  // taxable / exempt buckets, and needs no new column anywhere.
+  //
+  // Amounts are left blank on purpose. Rent differs per tenant and the
+  // maintenance moves month to month (Venkateshwarra: 8,000 in April,
+  // 16,000 from May, 19,000 in August), so a remembered figure would be
+  // wrong more often than right. Only the wording, SAC and rate are seeded.
+  //
+  // SAC 997212 is "rental or leasing services involving own or leased
+  // non-residential property"; 9987 is the maintenance-and-repair heading.
+  // Both are defaults to be confirmed with the CA, not settled law — which
+  // is why they stay editable rather than locked.
+  //
+  // Nothing already typed is overwritten: the seed only runs while the
+  // sheet is still untouched.
   useEffect(() => {
     if (docType !== 'general_sale' || !isRentalCustomer) return;
     setRows((prev) => {
       const first = prev[0];
       if (!first) return prev;
-      const needsDescription = first.description.trim() === '';
-      const needsHsn         = first.hsn_sac.trim() === '';
-      const needsGst         = first.gst_rate_pct === '' || first.gst_rate_pct === GST_DEFAULT;
-      const needsUom         = first.uom === '' || first.uom === 'mtr';
-      if (!needsDescription && !needsHsn && !needsGst && !needsUom) return prev;
-      const next = [...prev];
-      next[0] = {
-        ...first,
-        description:  needsDescription ? 'COMMERCIAL RENT' : first.description,
-        hsn_sac:      needsHsn         ? '997212'          : first.hsn_sac,
-        gst_rate_pct: needsGst         ? '18'              : first.gst_rate_pct,
-        uom:          needsUom         ? 'Nos'             : first.uom,
-      };
-      return next;
+      // Only seed a pristine sheet — one row, nothing entered on it.
+      const untouched =
+        prev.length === 1 &&
+        first.description.trim() === '' &&
+        first.hsn_sac.trim() === '' &&
+        first.quantity.trim() === '' &&
+        first.rate.trim() === '';
+      if (!untouched) return prev;
+      return [
+        { ...newRow(), description: 'COMMERCIAL RENT',       hsn_sac: '997212', gst_rate_pct: '18', uom: 'Nos', quantity: '1' },
+        { ...newRow(), description: 'MAINTENANCE (TAXABLE)', hsn_sac: '9987',   gst_rate_pct: '18', uom: 'Nos', quantity: '1', optional_seed: true },
+        { ...newRow(), description: 'MAINTENANCE (EXEMPT)',  hsn_sac: '9987',   gst_rate_pct: '0',  uom: 'Nos', quantity: '1', optional_seed: true },
+      ];
     });
   }, [docType, isRentalCustomer]);
 
@@ -1185,9 +1213,21 @@ export default function NewInvoicePage() {
       return setError('Tick at least one in-house fabric receipt to invoice.');
     }
 
+    // A seeded-but-unpriced line is an offer that was not taken up, not a
+    // mistake. The rental sheet lays out rent, taxable maintenance and
+    // exempt maintenance; a tenant with no exempt portion should be able to
+    // save without first deleting a row, and a line worth zero has nothing
+    // to bill either way. Dropped here rather than hidden, so the operator
+    // still sees all three while typing.
+    const unpriced = rows.filter((r) => r.optional_seed && !Number(r.rate));
+    if (unpriced.length > 0) {
+      setRows((prev) => prev.filter((r) => !(r.optional_seed && !Number(r.rate))));
+    }
+    const rowsToBill = computedRows.filter((r) => !(r.optional_seed && !Number(r.rate)));
+
     // Validate rows
-    if (!computedRows.length) return setError('At least one line item is required.');
-    for (const r of computedRows) {
+    if (!rowsToBill.length) return setError('At least one line item is required.');
+    for (const r of rowsToBill) {
       if (!r.description.trim()) return setError('Every line needs a description.');
       if (!Number(r.quantity))   return setError(`"${r.description}": quantity must be > 0.`);
       if (!Number(r.rate))       return setError(`"${r.description}": rate must be > 0.`);
@@ -1349,8 +1389,9 @@ export default function NewInvoicePage() {
       return setError(invErr?.message ?? 'Could not create invoice.');
     }
 
-    // Lines insert
-    const lineRows = computedRows.map(r => ({
+    // Lines insert — rowsToBill, not computedRows, so an unpriced optional
+    // maintenance line is not written to the bill as a zero.
+    const lineRows = rowsToBill.map(r => ({
       invoice_id:     inv.id,
       description:    r.description.trim(),
       hsn_sac:        r.hsn_sac.trim() || null,
