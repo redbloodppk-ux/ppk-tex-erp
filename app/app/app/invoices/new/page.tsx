@@ -1012,6 +1012,16 @@ export default function NewInvoicePage() {
   // the same bill is the natural shape, splits correctly into the GSTR-1
   // taxable / exempt buckets, and needs no new column anywhere.
   //
+  // PPK, 2026-09-20: "all maintainance are exempt now". So the EXEMPT line
+  // leads and carries the whole maintenance charge by default; the taxable
+  // one stays available underneath for the month that needs it, and drops
+  // itself when left unpriced.
+  //
+  // Recorded rather than argued with: whether maintenance billed alongside
+  // commercial rent is exempt is a question for PPK's CA, and he has not
+  // said it is settled. The point of two lines is that moving the split
+  // later costs one figure, not a re-issued bill.
+  //
   // Amounts are left blank on purpose. Rent differs per tenant and the
   // maintenance moves month to month (Venkateshwarra: 8,000 in April,
   // 16,000 from May, 19,000 in August), so a remembered figure would be
@@ -1039,8 +1049,8 @@ export default function NewInvoicePage() {
       if (!untouched) return prev;
       return [
         { ...newRow(), description: 'COMMERCIAL RENT',       hsn_sac: '997212', gst_rate_pct: '18', uom: 'Nos', quantity: '1' },
-        { ...newRow(), description: 'MAINTENANCE (TAXABLE)', hsn_sac: '9987',   gst_rate_pct: '18', uom: 'Nos', quantity: '1', optional_seed: true },
         { ...newRow(), description: 'MAINTENANCE (EXEMPT)',  hsn_sac: '9987',   gst_rate_pct: '0',  uom: 'Nos', quantity: '1', optional_seed: true },
+        { ...newRow(), description: 'MAINTENANCE (TAXABLE)', hsn_sac: '9987',   gst_rate_pct: '18', uom: 'Nos', quantity: '1', optional_seed: true },
       ];
     });
   }, [docType, isRentalCustomer]);
