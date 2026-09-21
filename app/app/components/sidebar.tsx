@@ -84,7 +84,10 @@ const NAV: NavItem[] = [
 
   // Production
   { href: '/app/sizing',        label: 'Sizing Jobs',        icon: Disc3,           group: 'production', roles: ['owner','mill_manager','floor_operator','accounts','auditor'] },
-  { href: '/app/pavu',          label: 'Pavu (Sized Beams)', icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
+  // Named to match the page's own heading — PPK, 2026-09-21. The sidebar
+  // said "Pavu (Sized Beams)" while the screen said "Pavu Master", so the
+  // menu and the page it opened disagreed about what the thing was called.
+  { href: '/app/pavu',          label: 'Pavu Master',        icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
