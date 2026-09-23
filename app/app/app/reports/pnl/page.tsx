@@ -154,6 +154,10 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
   const grossProfit     = num(row?.gross_profit);
   const wages           = num(row?.wages);
   const factoryExpenses = num(row?.factory_expenses);
+  // Part of factoryExpenses: depreciation on capital categories (MACHINERY,
+  // 15% WDV) - migration 307. The purchases themselves are not expensed.
+  const { data: depData } = await sb.rpc('fn_capital_depreciation', { p_from: from, p_to: to });
+  const depreciation    = num(depData as number | string | null);
   const bankExpenses    = num(row?.bank_expenses);
   const bankIncome      = num(row?.bank_income);
   const periodCosts     = num(row?.period_costs);
@@ -317,7 +321,12 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
               <td className="px-3 py-2 text-right text-xs text-ink-soft">{pct(-wages, netRevenue)}</td>
             </tr>
             <tr className="border-t border-line/40">
-              <td className="px-3 py-2">Factory Expenses (expense_entry)</td>
+              <td className="px-3 py-2">
+                Factory Expenses (expense_entry)
+                <div className="text-[11px] text-ink-mute">
+                  incl. machinery depreciation {formatRupee(depreciation, { decimals: 0 })} (15% a year) · machinery purchases and PERSONAL drawings not counted
+                </div>
+              </td>
               <td className="px-3 py-2 text-right num text-rose-700">&minus; {formatRupee(factoryExpenses, { decimals: 0 })}</td>
               <td className="px-3 py-2 text-right text-xs text-ink-soft">{pct(-factoryExpenses, netRevenue)}</td>
             </tr>
