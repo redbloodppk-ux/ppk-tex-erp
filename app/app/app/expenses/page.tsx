@@ -68,7 +68,40 @@ export default async function ExpensesPage({
   const { data, error } = await query;
 
   const rows = (data as unknown as ExpenseRow[]) ?? [];
-  const total = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+
+  // Spend by category — over EVERY entry matching the filters, not just the
+  // 200 rows listed below. Paged in 1000s (PostgREST's max rows per request).
+  const byCat = new Map<string, { amount: number; count: number }>();
+  let allCount = 0;
+  let allTotal = 0;
+  for (let offset = 0; ; offset += 1000) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase as any)
+      .from('expense_entry')
+      .select('category, amount')
+      .order('id')
+      .range(offset, offset + 999);
+    if (category !== '') q = q.eq('category', category);
+    if (from !== '') q = q.gte('pay_date', from);
+    if (to !== '') q = q.lte('pay_date', to);
+    const { data: page } = await q;
+    const list = (page as unknown as { category: string; amount: number }[]) ?? [];
+    for (const r of list) {
+      const amt = Number(r.amount || 0);
+      const cur = byCat.get(r.category) ?? { amount: 0, count: 0 };
+      cur.amount += amt;
+      cur.count += 1;
+      byCat.set(r.category, cur);
+      allCount += 1;
+      allTotal += amt;
+    }
+    if (list.length < 1000) break;
+  }
+  const catSummary = [...byCat.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.amount - a.amount);
+  const topAmount = catSummary[0]?.amount ?? 0;
+  const dateQs = `${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`;
 
   return (
     <div>
@@ -126,14 +159,51 @@ export default async function ExpensesPage({
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Entries shown</div>
-          <div className="num text-xl font-bold">{rows.length}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Entries</div>
+          <div className="num text-xl font-bold">{allCount}</div>
+          {allCount > rows.length && (
+            <div className="text-[11px] text-ink-mute">latest {rows.length} listed below</div>
+          )}
         </div>
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total paid (shown)</div>
-          <div className="num text-xl font-bold">{formatRupee(total)}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total paid</div>
+          <div className="num text-xl font-bold">{formatRupee(allTotal)}</div>
         </div>
       </div>
+
+      {catSummary.length > 0 && category === '' && (
+        <div className="card p-4 mb-4">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm font-semibold text-ink">Spend by category</h2>
+            <span className="text-[11px] text-ink-mute">
+              {from || to ? 'for the dates above' : 'all time'} · tap a category to see its entries
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {catSummary.map((c) => (
+              <Link
+                key={c.name}
+                href={`/app/expenses?category=${encodeURIComponent(c.name)}${dateQs}`}
+                className="grid grid-cols-[minmax(90px,150px)_1fr_auto] items-center gap-3 rounded-md px-1 py-0.5 hover:bg-haze/60"
+              >
+                <span className="text-xs font-semibold text-ink-soft truncate">{c.name}</span>
+                <span className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                  <span
+                    className="block h-full rounded-full bg-indigo-500"
+                    style={{ width: `${topAmount > 0 ? Math.max(1, (c.amount / topAmount) * 100) : 0}%` }}
+                  />
+                </span>
+                <span className="text-right text-xs whitespace-nowrap">
+                  <span className="num font-semibold">{formatRupee(c.amount)}</span>
+                  <span className="text-ink-mute">
+                    {' '}· {allTotal > 0 ? ((c.amount / allTotal) * 100).toFixed(1) : '0.0'}% · {c.count}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Mobile / PWA: card view. The wide expense table forces
           horizontal scrolling on a phone, so below md we render each
