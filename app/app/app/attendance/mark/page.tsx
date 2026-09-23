@@ -25,6 +25,7 @@
  *   attendance_entry  one row per (attendance_day_id, employee_id)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
@@ -96,13 +97,35 @@ const HOLIDAY_REASONS: { value: NonWorkingReason; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+// Local calendar date (IST on the mill's devices), not UTC. toISOString()
+// is UTC, so before 05:30 IST it used to return YESTERDAY's date.
+const today = (): string => {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+};
 
 export default function AttendanceMarkPage() {
   const supabase = createClient();
 
-  const [markDate, setMarkDate] = useState<string>(today());
-  const [shift, setShift] = useState<ShiftCode>('morning');
+  // Deep links (dashboard "shift never recorded" card, notifications,
+  // weekly wages) open a specific day/shift via ?date=YYYY-MM-DD&shift=night.
+  const searchParams = useSearchParams();
+  const qDate = searchParams.get('date');
+  const qShift = searchParams.get('shift');
+  const [markDate, setMarkDate] = useState<string>(
+    qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate) ? qDate : today(),
+  );
+  const [shift, setShift] = useState<ShiftCode>(
+    qShift === 'night' ? 'night' : 'morning',
+  );
+  // Same route, new query (e.g. clicking the notification bell while already
+  // on this screen): Next keeps the component mounted, so re-apply the link.
+  useEffect(() => {
+    if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) setMarkDate(qDate);
+    if (qShift === 'night' || qShift === 'morning') setShift(qShift);
+  }, [qDate, qShift]);
   // True when THIS day's other shift has no attendance_day row at all —
   // neither worked nor marked a holiday. Such a shift drops silently out
   // of the week and changes every winder's pay. See lib/attendance/
