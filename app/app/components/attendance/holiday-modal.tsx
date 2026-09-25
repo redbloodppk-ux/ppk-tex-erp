@@ -59,6 +59,16 @@ export function HolidayModal({
   const [mounted, setMounted] = useState<boolean>(false);
   useEffect(() => { setMounted(true); }, []);
 
+  // The modal stays mounted between openings, so useState(defaultShift) only
+  // saw the shift the page loaded with. Every time it opens, start from the
+  // shift currently selected on the marking screen.
+  useEffect(() => {
+    if (open) {
+      setShiftChoice(defaultShift);
+      setError(null);
+    }
+  }, [open, defaultShift]);
+
   // Escape closes, and the page behind does not scroll while the dialog is
   // up — otherwise a flick on a phone scrolls the list under the backdrop.
   useEffect(() => {
