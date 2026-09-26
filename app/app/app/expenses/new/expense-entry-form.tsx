@@ -14,6 +14,7 @@ import {
   type PaymentSource, type SupabaseLike,
 } from '@/lib/ledgers/payment-sources';
 import { Loader2 } from 'lucide-react';
+import { SearchSelect } from '@/app/components/search-select';
 
 export interface InitialExpense {
   id: number;
@@ -161,10 +162,8 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
           list.unshift({ id: -1, name: initial.category });
         }
         setCategories(list);
-        const first = list[0];
-        if (!initial && first && !category) {
-          setCategory(first.name);
-        }
+        // New entries start empty so the operator types to find the
+        // category, instead of silently saving under the first one (AUTO).
       }
       setCatLoading(false);
     }
@@ -233,26 +232,20 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="category">Category</label>
-          <select
-            id="category"
-            className="input"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            required
-            disabled={catLoading}
-          >
-            {catLoading ? (
-              <option value="">Loading…</option>
-            ) : categories.length === 0 ? (
-              <option value="">No categories — add one in Settings</option>
-            ) : (
-              categories.map((c) => (
-                <option key={c.id} value={c.name}>
-                  {c.name}
-                </option>
-              ))
-            )}
-          </select>
+          {catLoading ? (
+            <div className="input text-ink-mute">Loading…</div>
+          ) : categories.length === 0 ? (
+            <div className="input text-ink-mute">No categories — add one in Settings</div>
+          ) : (
+            <SearchSelect
+              options={categories.map((c) => ({ value: c.name, label: c.name }))}
+              value={category}
+              onChange={setCategory}
+              placeholder="Type to search category…"
+              noMatchText="No such category — add it in Settings"
+              required
+            />
+          )}
           <p className="text-[11px] text-ink-mute mt-1">
             Manage this list in <a className="underline" href="/app/settings/expense-categories">Settings → Expense Categories</a>.
           </p>
