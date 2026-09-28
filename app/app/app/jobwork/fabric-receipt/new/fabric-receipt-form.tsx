@@ -30,6 +30,7 @@ import { Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { applyFabricReceiptStockReductions, type ReceiptItemForReduction, type Shortfall } from '@/lib/fabric-receipt/stock-reductions';
 import { measureStock, buildSnapshot } from '@/lib/fabric-receipt/stock-measure';
 import { cancelFabricReceipt } from '../[id]/actions';
+import { formatDay } from '@/lib/utils';
 
 export interface DcInfo {
   id: number;
@@ -535,7 +536,7 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
               >
                 {dcOptions.map((o) => (
                   <option key={o.id} value={String(o.id)} disabled={dcConflict != null && o.id === dc.id}>
-                    {o.code} · {o.party_name || '—'} · {o.total_metres > 0 ? `${o.total_metres} m` : '-'}{o.dc_date ? ` · ${o.dc_date}` : ''}
+                    {o.code} · {o.party_name || '—'} · {o.total_metres > 0 ? `${o.total_metres} m` : '-'}{o.dc_date ? ` · ${formatDay(o.dc_date)}` : ''}
                     {dcConflict != null && o.id === dc.id ? ` (held by ${dcConflict})` : reuse.originalDcId === o.id ? ' (current)' : ''}
                   </option>
                 ))}

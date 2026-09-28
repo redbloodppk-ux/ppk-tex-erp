@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Loader2, RotateCw } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 interface StockRow {
   pavu_id: number;
@@ -303,8 +304,8 @@ export default function PavuStockReportPage() {
                         : ''}
                     </span>
                   </td>
-                  <td className="py-1.5 pr-3">{r.mounted_date ?? '—'}</td>
-                  <td className="py-1.5 pr-3">{r.finished_date ?? '—'}</td>
+                  <td className="py-1.5 pr-3">{formatDay(r.mounted_date)}</td>
+                  <td className="py-1.5 pr-3">{formatDay(r.finished_date)}</td>
                 </tr>
               ))}
             </tbody>

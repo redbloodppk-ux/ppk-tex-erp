@@ -12,7 +12,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, formatDay } from '@/lib/utils';
 import { Plus, AlertTriangle, ExternalLink, FileText } from 'lucide-react';
 import { loadTdsMonths, daysUntil, todayISO } from '@/lib/tds/liability-data';
 import { totalTdsPayable, financialYearOf } from '@/lib/tds/liability';
@@ -243,7 +243,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
               {paidRes.rows.map((r) => (
                 <tr key={r.id} className="border-t border-line/40">
                   <td className="px-3 py-2">{r.period_month}</td>
-                  <td className="px-3 py-2 num text-ink-soft">{r.paid_date}</td>
+                  <td className="px-3 py-2 num text-ink-soft">{formatDay(r.paid_date)}</td>
                   <td className="px-3 py-2 font-mono text-xs">{r.challan_no ?? '—'}</td>
                   <td className="px-3 py-2 text-right num">{formatRupee(Number(r.amount))}</td>
                   <td className="px-3 py-2 text-right num">{formatRupee(Number(r.interest_amount))}</td>

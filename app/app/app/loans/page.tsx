@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, formatDay } from '@/lib/utils';
 import { DeleteLoanButton } from './delete-loan-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
@@ -224,7 +224,7 @@ export default async function LoansPage({
             </div>
 
             <div className="text-xs text-ink-soft mt-2">
-              <span className="num">{r.loan_date}</span>
+              <span className="num">{formatDay(r.loan_date)}</span>
               {r.source?.name && <> · <span className="text-ink-mute">From: </span>{r.source.name}</>}
             </div>
             {r.notes && (
@@ -272,7 +272,7 @@ export default async function LoansPage({
           <tbody>
             {rows.length ? rows.map((r) => (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3 num text-xs">{r.loan_date}</td>
+                <td className="px-4 py-3 num text-xs">{formatDay(r.loan_date)}</td>
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.employee?.full_name ?? '—'}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{r.employee?.code ?? ''}</div>
@@ -365,7 +365,7 @@ export default async function LoansPage({
           <tbody>
             {repayments.length ? repayments.map((r) => (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-2 num text-xs">{r.pay_date}</td>
+                <td className="px-4 py-2 num text-xs">{formatDay(r.pay_date)}</td>
                 <td className="px-4 py-2">
                   <div className="font-medium">{r.employee?.full_name ?? '—'}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{r.employee?.code ?? ''}</div>

@@ -76,10 +76,33 @@ export function formatDate(date: string | Date | null | undefined, fmt: 'short' 
       day: 'numeric', month: 'long', year: 'numeric',
     });
   }
-  return d.toLocaleDateString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+  // Short form = the app-wide "26-Sep-2026" (see formatDay). A bare
+  // YYYY-MM-DD is a calendar day, not an instant: format it directly so it
+  // can never shift across midnight.
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return formatDay(date);
+  if (Number.isNaN(d.getTime())) return String(date);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d); // "2026-09-26"
+  return formatDay(parts);
+}
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The app's one display format for a calendar day: "26-Sep-2026".
+ * Takes the ISO "YYYY-MM-DD" the database returns (or a timestamp) and
+ * never goes through the browser's locale or time zone, so server and
+ * phone render the same text and a date never slips a day.
+ * Returns `empty` for null/blank, and the input unchanged if unparseable.
+ */
+export function formatDay(value: string | null | undefined, empty = '—'): string {
+  if (value == null || value === '') return empty;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) return String(value);
+  const mi = Number(m[2]) - 1;
+  if (mi < 0 || mi > 11) return String(value);
+  return `${m[3]}-${MONTHS_SHORT[mi]}-${m[1]}`;
 }
 
 /** Convert Denier to NeC (English cotton count). Used for Porvai polyester yarn. */

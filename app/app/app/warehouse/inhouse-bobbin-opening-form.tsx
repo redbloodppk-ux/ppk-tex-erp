@@ -23,6 +23,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Plus, X, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { ExistingOpeningRow } from './opening-stock-form';
+import { formatDay } from '@/lib/utils';
 
 export interface BobbinMasterForOpening {
   id: number;
@@ -380,7 +381,7 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
                 const isDeleting = deletingId === r.id;
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.open_date ?? '—'}</td>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{formatDay(r.open_date)}</td>
                     <td className="px-3 py-2 font-medium">{label}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtMetres(r.quantity)}</td>
                     <td className="px-3 py-2 text-ink-soft">{r.reference_no ?? ''}</td>

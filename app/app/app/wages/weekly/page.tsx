@@ -13,7 +13,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, formatDay } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Archive } from 'lucide-react';
 import { SaveSnapshotForm } from './save-snapshot-form';
 import { ExportButtons } from './export-buttons';
@@ -930,7 +930,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
               const emp = empById.get(w.employee_id);
               return (
                 <tr key={w.id} className="border-t border-line/40 hover:bg-haze/60">
-                  <td className="px-4 py-3 num text-xs">{w.pay_date}</td>
+                  <td className="px-4 py-3 num text-xs">{formatDay(w.pay_date)}</td>
                   <td className="px-4 py-3">
                     <div className="font-medium">{emp?.full_name ?? `#${w.employee_id}`}</div>
                     <div className="text-[11px] text-ink-mute font-mono">{emp?.code ?? ''}</div>
@@ -968,7 +968,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
           <tbody>
             {expenses.length ? expenses.map((e) => (
               <tr key={e.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3 num text-xs">{e.pay_date}</td>
+                <td className="px-4 py-3 num text-xs">{formatDay(e.pay_date)}</td>
                 <td className="px-4 py-3">
                   <span className="pill bg-slate-100 text-slate-700">{e.category}</span>
                 </td>

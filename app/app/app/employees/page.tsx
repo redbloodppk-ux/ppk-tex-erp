@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { Plus, Phone, Pencil } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
 import { EmployeeActiveToggle } from '@/app/components/employee-active-toggle';
+import { formatDay } from '@/lib/utils';
 
 export const metadata = { title: 'Employees' };
 export const dynamic = 'force-dynamic';
@@ -140,7 +141,7 @@ export default async function EmployeesPage({
             )}
             {e.date_of_joining && (
               <div className="text-xs text-ink-soft mt-1">
-                <span className="text-ink-mute">Joined: </span>{e.date_of_joining}
+                <span className="text-ink-mute">Joined: </span>{formatDay(e.date_of_joining)}
               </div>
             )}
 
@@ -196,7 +197,7 @@ export default async function EmployeesPage({
                   ) : '—'}
                 </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">
-                  {e.date_of_joining ?? '—'}
+                  {formatDay(e.date_of_joining)}
                 </td>
                 <td className="px-4 py-3">
                   {e.status === 'resigned' ? (

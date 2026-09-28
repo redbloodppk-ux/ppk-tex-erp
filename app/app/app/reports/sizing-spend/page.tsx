@@ -35,6 +35,7 @@ import {
   GitCompare,
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { formatDay } from '@/lib/utils';
 
 export const metadata = { title: 'Sizing Spend' };
 export const dynamic = 'force-dynamic';
@@ -341,7 +342,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                       {v.effective_rate_per_kg != null ? fmtRupees(v.effective_rate_per_kg, 2) : '—'}
                     </span>
                   </div>
-                  <div className="col-span-2">Window: {v.first_job_date ?? '—'} → {v.last_job_date ?? '—'}</div>
+                  <div className="col-span-2">Window: {formatDay(v.first_job_date)} → {formatDay(v.last_job_date)}</div>
                 </div>
               </div>
             );
@@ -399,7 +400,7 @@ export default async function SizingSpendReport({ searchParams }: PageProps) {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">
-                      {v.first_job_date ?? '—'} → {v.last_job_date ?? '—'}
+                      {formatDay(v.first_job_date)} → {formatDay(v.last_job_date)}
                     </td>
                   </tr>
                 );

@@ -32,6 +32,7 @@ import {
   groupSelectionToBundles,
   type PieceSel,
 } from '@/lib/dc-leftover';
+import { formatDay } from '@/lib/utils';
 
 export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -1889,7 +1890,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               {openSos.map((s) => {
                 const balance = Math.max(0, s.total_metres - s.delivered_metres);
                 const parts = [s.so_number];
-                if (s.delivery_date) parts.push(`delivery ${s.delivery_date}`);
+                if (s.delivery_date) parts.push(`delivery ${formatDay(s.delivery_date)}`);
                 parts.push(`${balance.toFixed(2)} m left`);
                 return (
                   <option key={s.id} value={s.id}>
@@ -1904,7 +1905,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
               const balance = Math.max(0, s.total_metres - s.delivered_metres);
               return (
                 <p className="text-[11px] text-ink-mute mt-1">
-                  {s.so_number} · delivery {s.delivery_date ?? '—'} ·
+                  {s.so_number} · delivery {formatDay(s.delivery_date)} ·
                   ordered {s.total_metres.toFixed(2)} m · delivered {s.delivered_metres.toFixed(2)} m ·
                   <span className="font-semibold text-indigo-700"> balance {balance.toFixed(2)} m</span>
                 </p>

@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, formatDay } from '@/lib/utils';
 import { DeleteWageButton } from './delete-wage-button';
 import { WageFilters } from './wage-filters';
 import { CardFilter } from '@/app/components/card-filter';
@@ -189,8 +189,8 @@ export default async function WagesPage({
 
             <div className="flex items-end justify-between mt-2">
               <div className="text-xs text-ink-soft">
-                <div className="num">{r.pay_date}</div>
-                <div className="num mt-0.5">{r.period_start} → {r.period_end}</div>
+                <div className="num">{formatDay(r.pay_date)}</div>
+                <div className="num mt-0.5">{formatDay(r.period_start)} → {formatDay(r.period_end)}</div>
                 <div className="mt-0.5 capitalize">
                   Basis: {(r.employee?.wage_alloc_basis ?? 'metres').replace('_', '-')}
                 </div>
@@ -250,13 +250,13 @@ export default async function WagesPage({
           <tbody>
             {rows.length ? rows.map((r) => (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3 num text-xs">{r.pay_date}</td>
+                <td className="px-4 py-3 num text-xs">{formatDay(r.pay_date)}</td>
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.employee?.full_name ?? '—'}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{r.employee?.code ?? ''}</div>
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell num text-xs text-ink-soft">
-                  {r.period_start} → {r.period_end}
+                  {formatDay(r.period_start)} → {formatDay(r.period_end)}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`pill ${KIND_PILL[r.kind]}`}>{r.kind}</span>

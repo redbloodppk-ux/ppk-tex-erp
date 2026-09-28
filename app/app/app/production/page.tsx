@@ -18,6 +18,7 @@ import { ProductionBatchDeleteButton } from '@/app/components/production-batch-d
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
+import { formatDay } from '@/lib/utils';
 
 export const metadata = { title: 'Production' };
 export const dynamic = 'force-dynamic';
@@ -454,7 +455,7 @@ export default async function ProductionPage({
                     <span className="text-ink-mute">Loom: </span>
                     <span className="font-mono">{b.loom?.loom_code ?? '—'}</span>
                     <span className="mx-1">·</span>
-                    {b.start_date ?? '—'} → {b.end_date ?? 'open'}
+                    {formatDay(b.start_date)} → {formatDay(b.end_date, 'open')}
                   </div>
                   {showTrueCost && b.actual_true_cost_per_m != null && (
                     <div className="text-xs mt-1">
@@ -562,7 +563,7 @@ export default async function ProductionPage({
                         )}
                       </td>
                       <td className="px-3 py-2 text-xs text-ink-soft">
-                        {b.start_date ?? '—'} → {b.end_date ?? 'open'}
+                        {formatDay(b.start_date)} → {formatDay(b.end_date, 'open')}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <QtyMP

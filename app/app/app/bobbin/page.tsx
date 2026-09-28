@@ -32,6 +32,7 @@ import React from 'react';
 import { CardFilter } from '@/app/components/card-filter';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
+import { formatDay } from '@/lib/utils';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -991,7 +992,7 @@ export default function BobbinPurchasePage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-mono text-xs font-semibold text-ink break-words">{label}</div>
-                    <div className="text-xs text-ink-soft mt-0.5">{p.purchase_date ?? '—'}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">{formatDay(p.purchase_date)}</div>
                   </div>
                   {bm && (
                     <span className={
@@ -1099,7 +1100,7 @@ export default function BobbinPurchasePage() {
                 return (
                   <React.Fragment key={p.id}>
                   <tr className={'border-t border-line/40 hover:bg-haze/60' + (editingId === p.id ? ' bg-indigo-50/50' : '')}>
-                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{p.purchase_date ?? '—'}</td>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{formatDay(p.purchase_date)}</td>
                     <td className="px-3 py-2 font-mono text-xs font-semibold">{label}</td>
                     <td className="px-3 py-2">
                       {bm && (
@@ -1253,7 +1254,7 @@ export default function BobbinPurchasePage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-mono text-xs font-semibold text-ink break-words">{lbl}</div>
-                      <div className="text-xs text-ink-soft mt-0.5">{r.return_date}</div>
+                      <div className="text-xs text-ink-soft mt-0.5">{formatDay(r.return_date)}</div>
                     </div>
                     <div className="num font-semibold text-amber-700 shrink-0">
                       {Number(r.quantity_pcs ?? 0).toLocaleString('en-IN')} pcs
@@ -1317,7 +1318,7 @@ export default function BobbinPurchasePage() {
                 const lbl = bm ? `${bm.code} (${bm.ends_per_bobbin} ends)` : `Bobbin #${r.bobbin_id}`;
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.return_date}</td>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{formatDay(r.return_date)}</td>
                     <td className="px-3 py-2 font-mono text-xs font-semibold">{lbl}</td>
                     <td className="px-3 py-2 text-xs">{sup?.name ?? '—'}</td>
                     <td className="px-3 py-2 text-right num font-semibold text-amber-700">

@@ -27,6 +27,7 @@ import { useColumnHistory } from '@/app/components/use-column-history';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Save, AlertTriangle } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 // ────────────────────────────────────────────────────────────────────────
 // Types
@@ -610,9 +611,9 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       if (lastBill?.invoice_date && billDate < lastBill.invoice_date) {
         setError(
           `This date (${billDate}) is before your last bill ` +
-          `${lastBill.invoice_no} dated ${lastBill.invoice_date}. ` +
+          `${lastBill.invoice_no} dated ${formatDay(lastBill.invoice_date)}. ` +
           `Bill numbers are issued in date order — pick a date on or ` +
-          `after ${lastBill.invoice_date}.`,
+          `after ${formatDay(lastBill.invoice_date)}.`,
         );
         return;
       }

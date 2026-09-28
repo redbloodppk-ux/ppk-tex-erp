@@ -15,6 +15,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 interface PartyOpt {
   id: number;
@@ -449,7 +450,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
                     {r.direction === 'receivable' ? 'Receivable' : 'Payable'}
                   </span>
                 </div>
-                <div className="text-xs text-ink-soft mt-1">{r.invoice_date}</div>
+                <div className="text-xs text-ink-soft mt-1">{formatDay(r.invoice_date)}</div>
                 <div className="flex items-end justify-between mt-2 text-xs">
                   <div className="text-ink-soft">
                     <div>Amount: <span className="num font-semibold text-ink">{fmtMoney(r.amount)}</span></div>
@@ -600,7 +601,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
                       </span>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{r.invoice_no}</td>
-                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.invoice_date}</td>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{formatDay(r.invoice_date)}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(r.amount)}</td>
                     <td className="px-3 py-2 text-right num text-ink-soft">{fmtMoney(r.amount_paid)}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtMoney(r.balance)}</td>

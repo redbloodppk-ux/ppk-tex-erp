@@ -7,6 +7,7 @@ import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
+import { formatDay } from '@/lib/utils';
 
 export const metadata = { title: 'Invoices' };
 
@@ -207,7 +208,7 @@ export default async function InvoicesPage({
           const waMessage = [
             `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
             `Party: ${partyName}`,
-            `Date: ${inv.invoice_date}`,
+            `Date: ${formatDay(inv.invoice_date)}`,
             `Total: Rs ${Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
           ].join('\n');
           return (
@@ -230,7 +231,7 @@ export default async function InvoicesPage({
 
               <div className="mt-2 text-sm">
                 <span className="font-semibold">{partyName}</span>
-                <span className="text-ink-soft text-xs"> · {inv.invoice_date}</span>
+                <span className="text-ink-soft text-xs"> · {formatDay(inv.invoice_date)}</span>
               </div>
               {comm && (
                 comm.status === 'cancelled' ? (
@@ -336,7 +337,7 @@ export default async function InvoicesPage({
                 const waMessage = [
                   `*${DOC_LABEL[inv.doc_type] ?? 'Invoice'} ${inv.invoice_no}* — PPK Tex Industries`,
                   `Party: ${partyName}`,
-                  `Date: ${inv.invoice_date}`,
+                  `Date: ${formatDay(inv.invoice_date)}`,
                   `Total: Rs ${Math.round(Number(inv.total)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
                 ].join('\n');
                 return (
@@ -351,7 +352,7 @@ export default async function InvoicesPage({
                         {DOC_LABEL[inv.doc_type] ?? inv.doc_type}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2.5 text-xs text-ink-soft whitespace-nowrap">{inv.invoice_date}</td>
+                    <td className="px-2.5 py-2.5 text-xs text-ink-soft whitespace-nowrap">{formatDay(inv.invoice_date)}</td>
                     <td className="px-2.5 py-2.5 max-w-[170px]">
                       <div className="truncate" title={partyName}>{partyName}</div>
                       {comm && (

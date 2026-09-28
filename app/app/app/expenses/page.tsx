@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, formatDay } from '@/lib/utils';
 import { DeleteExpenseButton } from './delete-expense-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
@@ -218,7 +218,7 @@ export default async function ExpensesPage({
               <div className="min-w-0">
                 <span className="pill bg-slate-100 text-slate-700">{r.category}</span>
                 <div className="text-xs text-ink-soft mt-1">
-                  <span className="text-ink-mute">Pay date: </span><span className="num">{r.pay_date}</span>
+                  <span className="text-ink-mute">Pay date: </span><span className="num">{formatDay(r.pay_date)}</span>
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -269,7 +269,7 @@ export default async function ExpensesPage({
           <tbody>
             {rows.length ? rows.map((r) => (
               <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-3 num text-xs">{r.pay_date}</td>
+                <td className="px-4 py-3 num text-xs">{formatDay(r.pay_date)}</td>
                 <td className="px-4 py-3">
                   <span className="pill bg-slate-100 text-slate-700">
                     {r.category}

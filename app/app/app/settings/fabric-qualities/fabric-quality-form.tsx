@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 // One row of the "past jobwork bills" modal — surfaces enough to let the
 // user decide whether to retro-apply the new rate. `current_cost` is the
@@ -1108,7 +1109,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-1.5 text-xs">{l.invoice_date}</td>
+                        <td className="px-3 py-1.5 text-xs">{formatDay(l.invoice_date)}</td>
                         <td className="px-3 py-1.5 text-xs">{l.party_name ?? '-'}</td>
                         <td className="px-3 py-1.5 text-right num">{l.quantity.toFixed(2)}</td>
                         <td className="px-3 py-1.5 text-right num">

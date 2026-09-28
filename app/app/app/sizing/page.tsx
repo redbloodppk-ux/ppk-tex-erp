@@ -6,6 +6,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { SizingJobDeleteButton } from './sizing-job-delete-button';
 import { SizingPaymentTab } from './sizing-payment-tab';
 import { CardFilter } from '@/app/components/card-filter';
+import { formatDay } from '@/lib/utils';
 
 export const metadata = { title: 'Sizing Jobs' };
 
@@ -245,7 +246,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                   </div>
                   {j.date_received && (
                     <div className="text-xs text-ink-soft mt-1">
-                      <span className="text-ink-mute">Recv: </span>{j.date_received}
+                      <span className="text-ink-mute">Recv: </span>{formatDay(j.date_received)}
                     </div>
                   )}
 
@@ -317,7 +318,7 @@ export default async function SizingListPage({ searchParams }: PageProps) {
                         {(warpMetresByJob.get(j.id) ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-xs text-ink-soft">
-                        {j.date_received ?? '—'}
+                        {formatDay(j.date_received)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`pill ${STATUS_STYLE[j.status] ?? 'bg-slate-100 text-slate-700'}`}>

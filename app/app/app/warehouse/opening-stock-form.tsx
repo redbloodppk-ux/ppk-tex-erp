@@ -26,6 +26,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Plus, X, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { formatDay } from '@/lib/utils';
 
 type Bucket = 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin';
 
@@ -469,7 +470,7 @@ export function OpeningStockForm({
                 const isDeleting = deletingId === r.id;
                 return (
                   <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{r.open_date ?? '—'}</td>
+                    <td className="px-3 py-2 text-ink-soft whitespace-nowrap">{formatDay(r.open_date)}</td>
                     <td className="px-3 py-2 font-medium">{label}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{fmtQty(r.quantity, r.unit)}</td>
                     <td className="px-3 py-2 text-ink-soft">{r.reference_no ?? ''}</td>

@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2, History } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 interface Loom {
   id: number;
@@ -603,12 +604,12 @@ export default function PavuAssignPage() {
                     )}
                     {cur.start_date && (
                       <div className="text-xs text-ink-soft">
-                        Mounted: <span className="font-semibold">{cur.start_date}</span>
+                        Mounted: <span className="font-semibold">{formatDay(cur.start_date)}</span>
                       </div>
                     )}
                     {cur.metres_start_date && (
                       <div className="text-xs text-ink-soft">
-                        Counting from: <span className="font-semibold">{cur.metres_start_date}</span>
+                        Counting from: <span className="font-semibold">{formatDay(cur.metres_start_date)}</span>
                       </div>
                     )}
                     {(() => {
@@ -1514,7 +1515,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
                         {nominal > 0 ? ` · ${nominal.toFixed(0)} m nominal` : ''}
                       </div>
                       <div className="text-xs text-ink-soft">
-                        {b.start_date ?? b.assigned_date ?? '—'} → {b.end_date ?? 'on loom'}
+                        {formatDay(b.start_date ?? b.assigned_date, '—')} → {formatDay(b.end_date, 'on loom')}
                         {' · '}
                         <span className="num">{Number(b.metres_produced ?? 0).toFixed(0)} m made</span>
                         {b.actual_metres != null && ` · actual ${Number(b.actual_metres).toFixed(0)} m`}
@@ -1583,7 +1584,7 @@ function LoomHistoryModal({ loom, onClose }: { loom: Loom; onClose: () => void }
                 return (
                   <div key={l.id} className="flex items-start justify-between gap-2 rounded-lg border border-line/60 px-3 py-2 text-xs">
                     <div>
-                      <span className="font-semibold">{l.log_date}</span>{' '}
+                      <span className="font-semibold">{formatDay(l.log_date)}</span>{' '}
                       <span className="uppercase text-ink-mute">{l.shift === 'morning' ? 'M' : l.shift === 'night' ? 'N' : l.shift}</span>
                       <div className="text-ink-soft mt-0.5">
                         <span className="font-mono text-indigo">{l.quality?.code ?? '—'}</span>

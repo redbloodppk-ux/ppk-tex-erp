@@ -24,6 +24,7 @@ import { HsnDatalist } from '@/app/components/hsn-datalist';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
+import { formatDay } from '@/lib/utils';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
 type SourceKind = 'sales_order' | 'fabric_stock' | 'fabric_receipt' | 'yarn_lot' | 'free' | 'return';
@@ -1269,9 +1270,9 @@ export default function NewInvoicePage() {
       if (lastInv?.invoice_date && invoiceDate < lastInv.invoice_date) {
         return setError(
           `This date (${invoiceDate}) is before your last invoice ` +
-          `${lastInv.invoice_no} dated ${lastInv.invoice_date}. ` +
+          `${lastInv.invoice_no} dated ${formatDay(lastInv.invoice_date)}. ` +
           `Invoice numbers are issued in date order — pick a date on or ` +
-          `after ${lastInv.invoice_date}.`,
+          `after ${formatDay(lastInv.invoice_date)}.`,
         );
       }
     }
@@ -2083,7 +2084,7 @@ export default function NewInvoicePage() {
                                   <input type="checkbox" readOnly checked={stockPickedDcIds.has(d.id)} className="w-4 h-4 accent-indigo-600" />
                                 </td>
                                 <td className="px-2 py-1.5 font-mono">{d.code ?? '—'}</td>
-                                <td className="px-2 py-1.5 text-ink-soft">{d.dc_date ?? '—'}</td>
+                                <td className="px-2 py-1.5 text-ink-soft">{formatDay(d.dc_date)}</td>
                                 <td className="px-2 py-1.5 font-mono">{d.so_number ?? <span className="text-ink-mute">—</span>}</td>
                                 <td className="px-2 py-1.5 text-right num">{Number(d.total_metres ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                               </tr>
