@@ -51,7 +51,6 @@ const ROLE_OPTIONS = [
   'weaver', 'fitter', 'folder', 'winder', 'knotter', 'auto', 'office', 'other',
 ] as const;
 const SHIFT_OPTIONS = ['morning', 'night', 'either'] as const;
-const STATUS_OPTIONS = ['active', 'inactive', 'resigned'] as const;
 // All four sheds available for shed-picker pills. Keep in sync with the
 // Attendance Marking page's SHEDS constant.
 const SHED_OPTIONS = ['1', '2', '3', '4'] as const;
@@ -175,15 +174,44 @@ export function EmployeeForm({ initial, employeeId }: Props) {
         </div>
         <div>
           <label className="label">Status</label>
-          <select
-            value={values.status}
-            onChange={e => set('status', e.target.value)}
-            className="input capitalize"
-          >
-            {STATUS_OPTIONS.map(s => (
-              <option key={s} value={s} className="capitalize">{s}</option>
-            ))}
-          </select>
+          {/* On/off switch: Active <-> Inactive. Resigned is a separate tick
+              below, since someone who left should not be one tap from active. */}
+          <div className="flex flex-wrap items-center gap-3 min-h-[42px]">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={values.status === 'active'}
+              disabled={values.status === 'resigned'}
+              onClick={() => set('status', values.status === 'active' ? 'inactive' : 'active')}
+              className="inline-flex items-center gap-2 select-none disabled:opacity-50"
+            >
+              <span
+                className={
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ' +
+                  (values.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300')
+                }
+              >
+                <span
+                  className={
+                    'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ' +
+                    (values.status === 'active' ? 'translate-x-[22px]' : 'translate-x-0.5')
+                  }
+                />
+              </span>
+              <span className={'text-sm font-semibold ' + (values.status === 'active' ? 'text-emerald-700' : values.status === 'resigned' ? 'text-slate-500' : 'text-amber-700')}>
+                {values.status === 'active' ? 'Active' : values.status === 'resigned' ? 'Resigned' : 'Inactive'}
+              </span>
+            </button>
+            <label className="inline-flex items-center gap-1.5 text-xs text-ink-soft cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4"
+                checked={values.status === 'resigned'}
+                onChange={e => set('status', e.target.checked ? 'resigned' : 'inactive')}
+              />
+              Resigned
+            </label>
+          </div>
         </div>
       </div>
 

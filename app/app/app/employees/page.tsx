@@ -11,6 +11,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import Link from 'next/link';
 import { Plus, Phone, Pencil } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { EmployeeActiveToggle } from '@/app/components/employee-active-toggle';
 
 export const metadata = { title: 'Employees' };
 export const dynamic = 'force-dynamic';
@@ -123,7 +124,11 @@ export default async function EmployeesPage({
                 </Link>
                 <div className="font-mono text-xs text-ink-soft mt-0.5">{e.code}</div>
               </div>
-              <span className={`pill ${STATUS_PILL[e.status]} shrink-0`}>{e.status}</span>
+              {e.status === 'resigned' ? (
+                <span className={`pill ${STATUS_PILL[e.status]} shrink-0`}>{e.status}</span>
+              ) : (
+                <EmployeeActiveToggle key={`${e.id}-${e.status}`} id={e.id} name={e.full_name} initialActive={e.status === 'active'} />
+              )}
             </div>
 
             <div className="text-xs text-ink-soft mt-2">
@@ -194,7 +199,11 @@ export default async function EmployeesPage({
                   {e.date_of_joining ?? '—'}
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`pill ${STATUS_PILL[e.status]}`}>{e.status}</span>
+                  {e.status === 'resigned' ? (
+                    <span className={`pill ${STATUS_PILL[e.status]}`}>{e.status}</span>
+                  ) : (
+                    <EmployeeActiveToggle key={`${e.id}-${e.status}`} id={e.id} name={e.full_name} initialActive={e.status === 'active'} />
+                  )}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link
