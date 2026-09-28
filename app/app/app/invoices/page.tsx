@@ -8,6 +8,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { formatDay } from '@/lib/utils';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Invoices' };
 
@@ -139,6 +140,7 @@ export default async function InvoicesPage({
 
   return (
     <div>
+      <RememberFilters path="/app/invoices" keys={['type']} />
       <PageHeader
         title="Invoices"
         subtitle="Tax invoices, yarn sales, general sales, and returns — all in one place."

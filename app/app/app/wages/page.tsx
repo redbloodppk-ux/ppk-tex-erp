@@ -21,6 +21,7 @@ import { SortableTh, type SortDir } from '@/app/components/sortable-th';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
@@ -139,6 +140,7 @@ export default async function WagesPage({
 
   return (
     <div>
+      <RememberFilters path="/app/wages" keys={['emp', 'from', 'to', 'sort', 'dir']} />
       <PageHeader
         title="Wages"
         subtitle="Mill wages register. Advances and weekly settlements both live here — each entry is spread across in-house batches by the employee's chosen basis."

@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import { recordDateBounds, clampDate, ALL_SOURCES } from '@/lib/reports/record-bounds';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Period P&L' };
 export const dynamic = 'force-dynamic';
@@ -178,6 +179,7 @@ export default async function PeriodPnlPage({ searchParams }: PageProps) {
 
   return (
     <div>
+      <RememberFilters path="/app/reports/pnl" keys={['from', 'to', 'preset', 'view']} />
       <PageHeader
         title="Period Profit & Loss"
         subtitle="Revenue minus COGS, period expenses, plus bank income. Balance-sheet items (cash withdrawals, loan principal, GST payment) are excluded so profit isn't double-counted."

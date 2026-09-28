@@ -19,6 +19,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { SmartSelect } from '@/app/components/smart-select';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Expenses' };
 export const dynamic = 'force-dynamic';
@@ -109,6 +110,7 @@ export default async function ExpensesPage({
 
   return (
     <div>
+      <RememberFilters path="/app/expenses" keys={['category', 'from', 'to']} />
       <PageHeader
         title="Expenses"
         subtitle="Mill cash expenses — pick a category, enter amount and pay date. Each entry spreads pro-rata across in-house batches by metres."

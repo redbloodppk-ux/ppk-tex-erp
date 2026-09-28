@@ -25,6 +25,7 @@ import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 import { SmartSelect } from '@/app/components/smart-select';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Bank Entries' };
 export const dynamic = 'force-dynamic';
@@ -128,6 +129,7 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
 
   return (
     <div>
+      <RememberFilters path="/app/bank-entries" keys={['direction', 'category', 'from', 'to', 'pl']} />
       <PageHeader
         title="Bank Entries"
         subtitle="Non-party bank transactions: EB, loan EMI, interest, cash withdrawals, GST payments. Feeds LOOMS Calibration + P&L."

@@ -29,6 +29,8 @@ import {
   Building2,
   AlertCircle,
 } from 'lucide-react';
+import { RememberFilters } from '@/app/components/remember-filters';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Sales Register' };
 export const dynamic = 'force-dynamic';
@@ -78,7 +80,7 @@ function startOfMonthISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 /** Formats a YYYY-MM-DD date as "JULY-26" (month name + 2-digit year),
@@ -290,6 +292,7 @@ export default async function SalesRegisterReport({ searchParams }: PageProps) {
 
   return (
     <div>
+      <RememberFilters path="/app/reports/sales-register" keys={['from', 'to', 'customer_id', 'doc']} />
       <PageHeader
         title="Sales Register"
         crumbs={[

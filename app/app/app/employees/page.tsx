@@ -13,6 +13,7 @@ import { Plus, Phone, Pencil } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
 import { EmployeeActiveToggle } from '@/app/components/employee-active-toggle';
 import { formatDay } from '@/lib/utils';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Employees' };
 export const dynamic = 'force-dynamic';
@@ -72,6 +73,7 @@ export default async function EmployeesPage({
 
   return (
     <div>
+      <RememberFilters path="/app/employees" keys={['role', 'status', 'sort', 'dir']} />
       <PageHeader
         title="Employees"
         subtitle="Master list of staff used by attendance, wages, and shift logs."

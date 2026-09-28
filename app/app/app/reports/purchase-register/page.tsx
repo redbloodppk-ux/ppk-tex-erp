@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 import { SmartSelect } from '@/app/components/smart-select';
+import { RememberFilters } from '@/app/components/remember-filters';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Purchase Register (GSTR 2B)' };
 export const dynamic = 'force-dynamic';
@@ -91,7 +93,7 @@ function startOfMonthISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtRupees(
@@ -339,6 +341,7 @@ export default async function PurchaseRegisterReport({
 
   return (
     <div>
+      <RememberFilters path="/app/reports/purchase-register" keys={['from', 'to', 'party_id', 'source', 'gst']} />
       <PageHeader
         title="Purchase Register (GSTR 2B)"
         crumbs={[

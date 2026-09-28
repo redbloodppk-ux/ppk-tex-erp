@@ -6,6 +6,7 @@ import { Plus, Pencil, Printer, PackageCheck } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
 import { CancelDcButton } from './cancel-dc-button';
 import { DcFilters } from './dc-filters';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Delivery Challan' };
 export const dynamic = 'force-dynamic';
@@ -294,6 +295,7 @@ export default async function DeliveryChallanListPage({
 
   return (
     <div>
+      <RememberFilters path="/app/delivery-challan" keys={['mode', 'from', 'to', 'party', 'quality', 'sort', 'dir']} />
       <PageHeader
         title={mode !== null ? `Delivery Challan — ${MODE_LABEL[mode]}` : 'Delivery Challan'}
         subtitle={subtitle}

@@ -25,6 +25,7 @@ import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 import { SmartSelect } from '@/app/components/smart-select';
+import { RememberFilters } from '@/app/components/remember-filters';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -224,6 +225,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
 
   return (
     <div>
+      <RememberFilters path="/app/jobwork/fabric-receipt" keys={['tab', 'party', 'from', 'to']} />
       <PageHeader
         title="Fabric Receipts"
         subtitle="Inbound fabric, segregated by production mode. Pick a tab to see only receipts of that kind."
