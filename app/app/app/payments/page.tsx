@@ -39,6 +39,7 @@ import {
 } from '@/lib/party-streams';
 import { loadPartyBills } from '@/lib/party-bills';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -1590,7 +1591,7 @@ function StatusTab(): React.ReactElement {
       `Amount: ₹${fmtINR(p.amount)} (${p.direction === 'in' ? 'inflow' : 'outflow'})\n` +
       `Date:   ${fmtDate(p.payment_date)}\n\n` +
       `Any bill adjustments tied to this payment will also be removed and the affected bills' balances will be restored.`;
-    if (!window.confirm(msg)) return;
+    if (!(await appConfirm(msg))) return;
     setBusyRowId(p.id);
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1618,7 +1619,7 @@ function StatusTab(): React.ReactElement {
       `enter the correct amount and re-tick the bills.\n\n` +
       `Current: ₹${fmtINR(p.amount)} (${p.direction === 'in' ? 'inflow' : 'outflow'}), ${fmtDate(p.payment_date)}\n\n` +
       `Continue?`;
-    if (!window.confirm(msg)) return;
+    if (!(await appConfirm(msg))) return;
     setBusyRowId(p.id);
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

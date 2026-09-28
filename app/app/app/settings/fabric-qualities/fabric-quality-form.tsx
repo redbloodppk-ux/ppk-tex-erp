@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 // One row of the "past jobwork bills" modal — surfaces enough to let the
 // user decide whether to retro-apply the new rate. `current_cost` is the
@@ -634,9 +635,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
 
   async function handleDelete(): Promise<void> {
     if (!isEdit || props.fabricQualityId == null) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete fabric quality "${name}"?\n\nThis cannot be undone. If it is referenced by orders / production, the delete will fail.`,
-    );
+    ));
     if (!ok) return;
     setSaveError(null);
     setDeleting(true);

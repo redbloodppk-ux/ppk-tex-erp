@@ -22,6 +22,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Trash2, RotateCcw, Plus, X } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface PartyOpt {
   id: number;
@@ -280,7 +281,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
 
   async function onCancelBill(): Promise<void> {
     if (!isEdit || initial?.id == null) return;
-    if (!window.confirm('Cancel this general purchase bill? Status flips to "cancelled" — the row stays for audit but drops out of the Purchase Register.')) return;
+    if (!(await appConfirm('Cancel this general purchase bill? Status flips to "cancelled" — the row stays for audit but drops out of the Purchase Register.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -293,7 +294,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
 
   async function onDeleteBill(): Promise<void> {
     if (!isEdit || initial?.id == null) return;
-    if (!window.confirm('Delete this general purchase bill permanently? This removes the row entirely and cannot be undone.')) return;
+    if (!(await appConfirm('Delete this general purchase bill permanently? This removes the row entirely and cannot be undone.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 interface DeletePartyButtonProps {
   partyId: number;
@@ -23,7 +24,7 @@ export function DeletePartyButton({ partyId, partyName }: DeletePartyButtonProps
   const [busy, setBusy] = useState<boolean>(false);
 
   async function handleClick(): Promise<void> {
-    const ok = window.confirm(`Delete party "${partyName}"?\n\nIf it's referenced by orders / invoices / jobwork, the delete will be blocked and you'll be offered an archive instead.`);
+    const ok = (await appConfirm(`Delete party "${partyName}"?\n\nIf it's referenced by orders / invoices / jobwork, the delete will be blocked and you'll be offered an archive instead.`));
     if (!ok) return;
 
     setBusy(true);
@@ -31,11 +32,11 @@ export function DeletePartyButton({ partyId, partyName }: DeletePartyButtonProps
     const sb = supabase as any;
     const { error: delErr } = await sb.from('party').delete().eq('id', partyId);
     if (delErr) {
-      const archive = window.confirm(`Hard delete failed (${delErr.message}).\n\nArchive "${partyName}" instead so it stops appearing in active lists?`);
+      const archive = (await appConfirm(`Hard delete failed (${delErr.message}).\n\nArchive "${partyName}" instead so it stops appearing in active lists?`));
       if (archive) {
         const { error: arcErr } = await sb.from('party').update({ status: 'archived' }).eq('id', partyId);
         if (arcErr) {
-          window.alert('Archive failed: ' + arcErr.message);
+          (await appAlert('Archive failed: ' + arcErr.message));
         } else {
           router.refresh();
         }

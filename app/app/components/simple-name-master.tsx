@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface NameRow {
   id: number;
@@ -87,14 +88,14 @@ export function SimpleNameMaster({
   }
 
   async function deleteRow(id: number, name: string) {
-    const ok = window.confirm('Delete ' + itemLabel + ' "' + name + '"?\n\nIf any ledger uses this, the database will block the delete.');
+    const ok = (await appConfirm('Delete ' + itemLabel + ' "' + name + '"?\n\nIf any ledger uses this, the database will block the delete.'));
     if (ok === false) return;
     setError(null); setSavedMsg(null); setBusyId(id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from(tableName).delete().eq('id', id);
     setBusyId(null);
     if (err) {
-      const archiveOk = window.confirm('Hard delete failed (' + err.message + ').\n\nMark inactive instead?');
+      const archiveOk = (await appConfirm('Hard delete failed (' + err.message + ').\n\nMark inactive instead?'));
       if (archiveOk) {
         await updateRow(id, { active: false });
         setSavedMsg('Marked inactive.');

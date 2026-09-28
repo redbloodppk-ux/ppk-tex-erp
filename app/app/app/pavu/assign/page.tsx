@@ -15,6 +15,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2, History } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface Loom {
   id: number;
@@ -393,7 +394,7 @@ export default function PavuAssignPage() {
     // "850 of 880 m woven, 30 m left" answers it far better than the words
     // alone. See migration 276.
     const left = nominal > 0 ? nominal - actual : null;
-    const isFinished = window.confirm(
+    const isFinished = (await appConfirm(
       `Is ${a.pavu?.pavu_code ?? 'this beam'} FULLY finished — no yarn left, won't be reassigned?\n\n` +
       (left === null
         ? ''
@@ -401,7 +402,7 @@ export default function PavuAssignPage() {
           (left > 0 ? `${left.toFixed(0)} m still on the beam.\n\n` : `nothing left on the beam.\n\n`)) +
       `OK = Finished (removed from stock counts)\n` +
       `Cancel = Just removed early, still has yarn (stays in stock for reuse)`,
-    );
+    ));
     setRemoving(a.id);
     const { error: rmErr } = await sb
       .from('pavu_assign')

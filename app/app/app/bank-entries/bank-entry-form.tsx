@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Trash2 } from 'lucide-react';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface BankCategoryOpt {
   id: number;
@@ -219,7 +220,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
 
   async function onCancelEntry(): Promise<void> {
     if (!isEdit || initial?.id == null) return;
-    if (!window.confirm('Cancel this bank entry? Status flips to "cancelled" — the row stays in the audit log but is hidden from the list.')) return;
+    if (!(await appConfirm('Cancel this bank entry? Status flips to "cancelled" — the row stays in the audit log but is hidden from the list.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -232,7 +233,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
 
   async function onDeleteEntry(): Promise<void> {
     if (!isEdit || initial?.id == null) return;
-    if (!window.confirm(`Permanently DELETE entry ${initial.entry_no ?? ''}? This is the newest entry, so its number will be reused by the next entry. This cannot be undone.`)) return;
+    if (!(await appConfirm(`Permanently DELETE entry ${initial.entry_no ?? ''}? This is the newest entry, so its number will be reused by the next entry. This cannot be undone.`))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

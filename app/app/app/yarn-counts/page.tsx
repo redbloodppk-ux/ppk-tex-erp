@@ -21,6 +21,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
 type RecordStatus = 'active' | 'discontinued' | 'archived';
@@ -195,9 +196,9 @@ export default function YarnCountsPage() {
   }
 
   async function deleteRow(id: number, code: string) {
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       'Delete count ' + code + '?\n\nIf this count is referenced by other records the database will block the delete.',
-    );
+    ));
     if (ok === false) return;
 
     setError(null);
@@ -209,9 +210,9 @@ export default function YarnCountsPage() {
     setBusyId(null);
 
     if (err) {
-      const archiveOk = window.confirm(
+      const archiveOk = (await appConfirm(
         'Hard delete failed (' + err.message + ').\n\nArchive it instead so it stops appearing in lists?',
-      );
+      ));
       if (archiveOk) {
         await updateRow(id, { status: 'archived' });
         setRows((prev) => prev.filter((r) => r.id !== id));

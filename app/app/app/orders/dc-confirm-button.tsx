@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, CheckCircle2 } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 interface DcConfirmButtonProps {
   dcId: number;
@@ -20,7 +21,7 @@ export function DcConfirmButton({ dcId, dcCode }: DcConfirmButtonProps): React.R
   const [busy, setBusy] = useState<boolean>(false);
 
   async function handleClick(): Promise<void> {
-    const ok = window.confirm(`Confirm ${dcCode}? It will become ready for invoicing.`);
+    const ok = (await appConfirm(`Confirm ${dcCode}? It will become ready for invoicing.`));
     if (!ok) return;
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +31,7 @@ export function DcConfirmButton({ dcId, dcCode }: DcConfirmButtonProps): React.R
       .eq('id', dcId);
     setBusy(false);
     if (error) {
-      window.alert('Confirm failed: ' + error.message);
+      (await appAlert('Confirm failed: ' + error.message));
       return;
     }
     router.refresh();

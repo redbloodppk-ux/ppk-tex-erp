@@ -34,6 +34,7 @@ import {
 } from '@/lib/dc-leftover';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -1389,11 +1390,11 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       form.production_mode === 'inhouse' &&
       openSos.length > 0 &&
       form.sales_order_id === '' &&
-      !window.confirm(
+      !(await appConfirm(
         `This customer has ${openSos.length} open sales order(s) but this DC is not linked to any. ` +
         `If it should fulfil one, pick it under "Against Sales Order" so the order status updates. ` +
         `Save without linking?`,
-      )
+      ))
     ) {
       return;
     }

@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Pencil, Trash2, Loader2, CheckCircle2, Ban } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 const MODIFIABLE_STATUSES = new Set(['draft', 'pending_approval', 'approved']);
 const CLOSABLE_STATUSES = new Set(['partial_dispatch', 'dispatched', 'invoiced']);
@@ -39,7 +40,7 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
   const isClosed = status === 'closed';
 
   async function updateStatus(next: 'cancelled', confirmMsg: string): Promise<void> {
-    if (!window.confirm(confirmMsg)) {
+    if (!(await appConfirm(confirmMsg))) {
       return;
     }
     setBusy(true);
@@ -48,7 +49,7 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
     const { error } = await sb.from('sales_order').update({ status: next }).eq('id', soId);
     setBusy(false);
     if (error) {
-      window.alert(`Could not update ${soNumber}: ${error.message}`);
+      (await appAlert(`Could not update ${soNumber}: ${error.message}`));
       return;
     }
     router.refresh();
@@ -61,9 +62,9 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
   // move it to 'invoiced' rather than 'closed'. Only a genuinely un-invoiced
   // order is frozen as 'closed'.
   async function handleClose(): Promise<void> {
-    if (!window.confirm(
+    if (!(await appConfirm(
       `Close order ${soNumber}? If it has already been invoiced it will be marked Invoiced; otherwise it is marked Closed and stops tracking deliveries.`,
-    )) {
+    ))) {
       return;
     }
     setBusy(true);
@@ -86,14 +87,14 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
     const { error } = await sb.from('sales_order').update({ status: next }).eq('id', soId);
     setBusy(false);
     if (error) {
-      window.alert(`Could not close ${soNumber}: ${error.message}`);
+      (await appAlert(`Could not close ${soNumber}: ${error.message}`));
       return;
     }
     router.refresh();
   }
 
   async function handleDelete(): Promise<void> {
-    if (!window.confirm(`Delete order ${soNumber}? This permanently removes the order and its lines.`)) {
+    if (!(await appConfirm(`Delete order ${soNumber}? This permanently removes the order and its lines.`))) {
       return;
     }
     setBusy(true);
@@ -102,7 +103,7 @@ export function SoRowActions({ soId, soNumber, status }: SoRowActionsProps): Rea
     const { error } = await sb.from('sales_order').delete().eq('id', soId);
     setBusy(false);
     if (error) {
-      window.alert(`Could not delete ${soNumber}: ${error.message}`);
+      (await appAlert(`Could not delete ${soNumber}: ${error.message}`));
       return;
     }
     router.refresh();

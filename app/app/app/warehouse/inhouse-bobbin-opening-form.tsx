@@ -25,6 +25,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { ExistingOpeningRow } from './opening-stock-form';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 export interface BobbinMasterForOpening {
   id: number;
@@ -127,12 +128,12 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
   async function save(): Promise<void> {
     const validItems = form.items.filter((it) => it.bobbin_id !== '' && Number(it.qty_pcs) > 0);
     if (validItems.length === 0) {
-      window.alert('Pick a bobbin and enter a positive quantity (pcs) for at least one line.');
+      (await appAlert('Pick a bobbin and enter a positive quantity (pcs) for at least one line.'));
       return;
     }
     const badIdx = form.items.findIndex((it) => it.bobbin_id !== '' && !(Number(it.qty_pcs) > 0));
     if (badIdx !== -1) {
-      window.alert(`Line ${badIdx + 1}: enter a positive quantity (pcs).`);
+      (await appAlert(`Line ${badIdx + 1}: enter a positive quantity (pcs).`));
       return;
     }
     setBusy(true);
@@ -165,7 +166,7 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
   }
 
   async function remove(id: number, label: string): Promise<void> {
-    if (!window.confirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`)) {
+    if (!(await appConfirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`))) {
       return;
     }
     setDeletingId(id);
@@ -176,7 +177,7 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
       .update({ status: 'deleted', updated_at: new Date().toISOString() })
       .eq('id', id);
     setDeletingId(null);
-    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    if (error) { (await appAlert('Delete failed: ' + error.message)); return; }
     startTransition(() => router.refresh());
   }
 

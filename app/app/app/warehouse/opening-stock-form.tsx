@@ -28,6 +28,7 @@ import { Loader2, Plus, X, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 type Bucket = 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin';
 
@@ -163,31 +164,31 @@ export function OpeningStockForm({
 
   async function save(): Promise<void> {
     const qty = Number(form.quantity);
-    if (!Number.isFinite(qty) || qty <= 0) { window.alert('Enter a positive quantity.'); return; }
+    if (!Number.isFinite(qty) || qty <= 0) { (await appAlert('Enter a positive quantity.')); return; }
 
     // Bucket-specific key validation.
     if (bucket === 'warp_beam') {
       const ends = Number(form.warp_ends);
       if (!Number.isFinite(ends) || ends <= 0) {
-        window.alert('Enter a positive warp ends count (e.g. 2400, 3600, 5000).');
+        (await appAlert('Enter a positive warp ends count (e.g. 2400, 3600, 5000).'));
         return;
       }
       // Warp count is now part of the composite key. Without it, the
       // pivot would collapse "1770 × 29s" and "1770 × 2/40s" onto the
       // same column — exactly the bug we're fixing.
       if (form.yarn_count_id === '') {
-        window.alert('Pick the warp yarn count — the pivot keys columns by (ends + count).');
+        (await appAlert('Pick the warp yarn count — the pivot keys columns by (ends + count).'));
         return;
       }
     }
     if ((bucket === 'weft_yarn' || bucket === 'porvai_yarn') && form.yarn_count_id === '') {
-      window.alert('Pick a yarn count.');
+      (await appAlert('Pick a yarn count.'));
       return;
     }
     if (bucket === 'bobbin') {
       const ends = Number(form.ends_per_bobbin);
       if (!Number.isFinite(ends) || ends <= 0) {
-        window.alert('Enter a positive ends-per-bobbin value.');
+        (await appAlert('Enter a positive ends-per-bobbin value.'));
         return;
       }
     }
@@ -234,14 +235,14 @@ export function OpeningStockForm({
     };
     const { error } = await sb.from('opening_stock').insert(payload);
     setBusy(false);
-    if (error) { window.alert('Save failed: ' + error.message); return; }
+    if (error) { (await appAlert('Save failed: ' + error.message)); return; }
     reset();
     setOpen(false);
     startTransition(() => router.refresh());
   }
 
   async function remove(id: number, label: string): Promise<void> {
-    if (!window.confirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`)) {
+    if (!(await appConfirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`))) {
       return;
     }
     setDeletingId(id);
@@ -252,7 +253,7 @@ export function OpeningStockForm({
       .update({ status: 'deleted', updated_at: new Date().toISOString() })
       .eq('id', id);
     setDeletingId(null);
-    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    if (error) { (await appAlert('Delete failed: ' + error.message)); return; }
     startTransition(() => router.refresh());
   }
 

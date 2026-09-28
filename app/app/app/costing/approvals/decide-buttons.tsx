@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Check, X, Loader2 } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface Props {
   costingId: number;
@@ -25,10 +26,10 @@ export function DecideButtons({ costingId, qualityCode }: Props) {
   async function decide(next: 'approved' | 'rejected') {
     setError(null);
     if (next === 'rejected') {
-      const ok = confirm(
+      const ok = (await appConfirm(
         `Reject costing ${qualityCode}? Sales Orders cannot price against it ` +
         `until it's edited and re-submitted for approval.`
-      );
+      ));
       if (!ok) return;
     }
     setBusy(next === 'approved' ? 'approve' : 'reject');

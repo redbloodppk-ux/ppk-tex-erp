@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface RecordActiveToggleProps {
   table: string;
@@ -46,7 +47,7 @@ export function RecordActiveToggle({
 
   async function toggle(next: boolean): Promise<void> {
     if (busy) return;
-    if (!next && confirmOff && !window.confirm(confirmOff)) return;
+    if (!next && confirmOff && !(await appConfirm(confirmOff))) return;
     setErr(null);
     setOn(next);
     setBusy(true);

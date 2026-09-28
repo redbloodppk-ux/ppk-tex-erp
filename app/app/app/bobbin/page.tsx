@@ -34,6 +34,7 @@ import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -597,7 +598,7 @@ export default function BobbinPurchasePage() {
   }
 
   async function deleteReturn(id: number): Promise<void> {
-    if (!window.confirm('Delete this return entry?\n\nThis hard-deletes the bobbin_return row.')) return;
+    if (!(await appConfirm('Delete this return entry?\n\nThis hard-deletes the bobbin_return row.'))) return;
     setError(null);
     setSavedMsg(null);
     setDeletingReturnId(id);
@@ -610,7 +611,7 @@ export default function BobbinPurchasePage() {
   }
 
   async function deleteRow(id: number, label: string): Promise<void> {
-    const ok = window.confirm(`Delete purchase entry ${label}?\n\nThis hard-deletes the bobbin_purchase row.`);
+    const ok = (await appConfirm(`Delete purchase entry ${label}?\n\nThis hard-deletes the bobbin_purchase row.`));
     if (!ok) return;
     setError(null);
     setSavedMsg(null);

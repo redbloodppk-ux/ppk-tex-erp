@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2, Archive } from 'lucide-react';
 import { StatusSwitchField } from '@/app/components/status-switch-field';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface JobworkPartyFormValues {
   name: string;
@@ -149,7 +150,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
 
   async function handleArchive() {
     if (!isEdit) return;
-    if (!window.confirm('Archive this jobwork party? Hidden from active lists; data preserved.')) return;
+    if (!(await appConfirm('Archive this jobwork party? Hidden from active lists; data preserved.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -162,7 +163,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
 
   async function handleDelete() {
     if (!isEdit) return;
-    if (!window.confirm('Permanently delete this jobwork party? This cannot be undone. Delete will fail if bobbin records reference this party.')) return;
+    if (!(await appConfirm('Permanently delete this jobwork party? This cannot be undone. Delete will fail if bobbin records reference this party.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

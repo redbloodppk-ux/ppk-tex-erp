@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
 import { StatusSwitchField } from '@/app/components/status-switch-field';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface CustomerFormValues {
   name: string;
@@ -164,7 +165,7 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
 
   async function handleArchive() {
     if (!isEdit) return;
-    const ok = window.confirm('Archive this customer? It will be hidden from active lists but data is preserved.');
+    const ok = (await appConfirm('Archive this customer? It will be hidden from active lists but data is preserved.'));
     if (ok === false) return;
     setBusy(true);
     setError(null);
@@ -184,9 +185,9 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
 
   async function handleDelete() {
     if (!isEdit) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       'Permanently delete this customer? This cannot be undone. If invoices or orders reference this customer, deletion will be blocked.',
-    );
+    ));
     if (ok === false) return;
     setBusy(true);
     setError(null);

@@ -19,6 +19,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -224,7 +225,7 @@ export default function BobbinMasterPage() {
     const explain = archiving
       ? `Archive bobbin ${code}?\n\nIt will be hidden from add-bobbin-stock dropdowns but stays in the database. You can restore it from this page later.`
       : `Restore bobbin ${code} to active?\n\nIt will appear again in add-bobbin-stock dropdowns.`;
-    if (!window.confirm(explain)) return;
+    if (!(await appConfirm(explain))) return;
     setError(null);
     setSavedMsg(null);
     setBusyId(id);

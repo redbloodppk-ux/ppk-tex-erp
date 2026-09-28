@@ -3,6 +3,7 @@ import './globals.css';
 import { NumberWheelGuard } from './components/number-wheel-guard';
 import { AppleSplashLinks } from './components/apple-splash-links';
 import { LaunchSplash } from './components/launch-splash';
+import { DialogHost } from './components/dialog-host';
 
 export const metadata: Metadata = {
   title: { default: 'PPK TEX ERP', template: '%s · PPK TEX' },
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <LaunchSplash />
         <NumberWheelGuard />
         {children}
+        <DialogHost />
       </body>
     </html>
   );

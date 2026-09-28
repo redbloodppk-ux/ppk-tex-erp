@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 interface ProductionBatchDeleteButtonProps {
   id: number;
@@ -28,9 +29,9 @@ export function ProductionBatchDeleteButton({
   async function onClick(): Promise<void> {
     if (busy) return;
     const label = code ?? `#${id}`;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete production batch ${label}?\n\nThis hard-deletes the batch AND removes all stock-ledger movements it posted (raw material outflows + produced fabric inflow). This cannot be undone.`,
-    );
+    ));
     if (!ok) return;
 
     setErr(null);
@@ -47,7 +48,7 @@ export function ProductionBatchDeleteButton({
     if (ledErr) {
       setBusy(false);
       setErr(ledErr.message);
-      window.alert(`Failed to clear stock ledger: ${ledErr.message}`);
+      (await appAlert(`Failed to clear stock ledger: ${ledErr.message}`));
       return;
     }
 
@@ -60,7 +61,7 @@ export function ProductionBatchDeleteButton({
     if (fsErr) {
       setBusy(false);
       setErr(fsErr.message);
-      window.alert(`Failed to clear fabric stock: ${fsErr.message}`);
+      (await appAlert(`Failed to clear fabric stock: ${fsErr.message}`));
       return;
     }
 
@@ -71,12 +72,12 @@ export function ProductionBatchDeleteButton({
       const pgCode = (delErr as { code?: string }).code;
       if (pgCode === '23503') {
         setErr('In use by other records.');
-        window.alert(
+        (await appAlert(
           `Cannot delete batch ${label}.\n\nIt is referenced by other records (e.g. a linked fabric receipt). Remove those first, then try again.`,
-        );
+        ));
       } else {
         setErr(delErr.message);
-        window.alert(`Failed to delete: ${delErr.message}`);
+        (await appAlert(`Failed to delete: ${delErr.message}`));
       }
       return;
     }

@@ -18,6 +18,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface Props {
   jobId: number;
@@ -38,12 +39,12 @@ export function SizingJobDeleteButton({ jobId, jobCode, yarnSentKg, yarnLotId }:
   const [, startTransition] = useTransition();
 
   async function handleDelete(): Promise<void> {
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete sizing job ${jobCode}?\n\n` +
       `This also removes the linked bill (if any) and the job's beams.\n` +
       `The source yarn lot will be credited back ${yarnSentKg.toFixed(2)} kg.\n\n` +
       `This cannot be undone.`,
-    );
+    ));
     if (!ok) return;
 
     setBusy(true);

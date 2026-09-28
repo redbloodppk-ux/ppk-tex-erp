@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 interface CostingDeleteButtonProps {
   id: number;
@@ -24,9 +25,9 @@ export function CostingDeleteButton({ id, code }: CostingDeleteButtonProps): Rea
   async function onClick(): Promise<void> {
     if (busy) return;
     const label = code ?? `#${id}`;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete costing ${label}?\n\nThis cannot be undone. If the costing is in use by sales orders, invoices, or production, the delete will fail — untick Active to archive it instead.`,
-    );
+    ));
     if (!ok) return;
 
     setErr(null);
@@ -39,12 +40,12 @@ export function CostingDeleteButton({ id, code }: CostingDeleteButtonProps): Rea
       const pgCode = (error as { code?: string }).code;
       if (pgCode === '23503') {
         setErr('In use by other records — untick Active to archive instead.');
-        window.alert(
+        (await appAlert(
           `Cannot delete costing ${label}.\n\nIt is referenced by sales orders, invoices, production batches, fabric stock or similar records. Untick Active on the row to archive it.`,
-        );
+        ));
       } else {
         setErr(error.message);
-        window.alert(`Failed to delete: ${error.message}`);
+        (await appAlert(`Failed to delete: ${error.message}`));
       }
       return;
     }

@@ -29,6 +29,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { ExistingOpeningRow, BobbinEndsOpt } from './opening-stock-form';
 import { formatDay } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 export interface InhouseBobbinMasterOpt {
   id: number;
@@ -162,7 +163,7 @@ export function InhouseBobbinOpeningStockForm({
   }
 
   async function save(): Promise<void> {
-    if (!form.open_date) { window.alert('Open date is required.'); return; }
+    if (!form.open_date) { (await appAlert('Open date is required.')); return; }
     // A line is valid when a bobbin is picked AND total_metre resolves
     // to a positive number (either typed directly or auto-computed
     // from qty × m/pc).
@@ -170,7 +171,7 @@ export function InhouseBobbinOpeningStockForm({
       (it) => it.bobbin_id !== '' && Number(it.total_metre) > 0,
     );
     if (validItems.length === 0) {
-      window.alert('Pick a bobbin and enter total metres (or qty + m/pc) > 0 for at least one line.');
+      (await appAlert('Pick a bobbin and enter total metres (or qty + m/pc) > 0 for at least one line.'));
       return;
     }
     // Catch half-filled lines so the operator doesn't silently lose
@@ -179,7 +180,7 @@ export function InhouseBobbinOpeningStockForm({
       (it) => it.bobbin_id !== '' && !(Number(it.total_metre) > 0),
     );
     if (badIdx !== -1) {
-      window.alert(`Line ${badIdx + 1}: enter total metres directly, or enter qty (pcs) and m/pc so total metres > 0.`);
+      (await appAlert(`Line ${badIdx + 1}: enter total metres directly, or enter qty (pcs) and m/pc so total metres > 0.`));
       return;
     }
 
@@ -204,7 +205,7 @@ export function InhouseBobbinOpeningStockForm({
         })
         .eq('id', editingId);
       setBusy(false);
-      if (error) { window.alert('Update failed: ' + error.message); return; }
+      if (error) { (await appAlert('Update failed: ' + error.message)); return; }
       reset();
       setOpen(false);
       startTransition(() => router.refresh());
@@ -269,7 +270,7 @@ export function InhouseBobbinOpeningStockForm({
   }
 
   async function remove(id: number, label: string): Promise<void> {
-    if (!window.confirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`)) {
+    if (!(await appConfirm(`Delete opening stock entry "${label}"?\n\nThis removes it from the warehouse pivot. The row stays in the database as status='deleted' for audit.`))) {
       return;
     }
     setDeletingId(id);
@@ -280,7 +281,7 @@ export function InhouseBobbinOpeningStockForm({
       .update({ status: 'deleted', updated_at: new Date().toISOString() })
       .eq('id', id);
     setDeletingId(null);
-    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    if (error) { (await appAlert('Delete failed: ' + error.message)); return; }
     startTransition(() => router.refresh());
   }
 

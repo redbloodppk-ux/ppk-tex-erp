@@ -20,6 +20,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
 
@@ -229,7 +230,7 @@ export default function EndsMasterPage() {
   }
 
   async function deleteRow(id: number, code: string) {
-    const ok = window.confirm('Delete ends spec ' + code + '?');
+    const ok = (await appConfirm('Delete ends spec ' + code + '?'));
     if (ok === false) return;
 
     setError(null);

@@ -12,6 +12,7 @@ import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
 import { StatusSwitchField } from '@/app/components/status-switch-field';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface PartyTypeOpt { id: number; code: string; name: string; }
 
@@ -361,7 +362,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
 
   async function handleArchive() {
     if (!isEdit) return;
-    if (!window.confirm('Archive this party? Hidden from active lists; data preserved.')) return;
+    if (!(await appConfirm('Archive this party? Hidden from active lists; data preserved.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -374,7 +375,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
 
   async function handleDelete() {
     if (!isEdit) return;
-    if (!window.confirm('Permanently delete this party? Blocked by FK if referenced.')) return;
+    if (!(await appConfirm('Permanently delete this party? Blocked by FK if referenced.'))) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

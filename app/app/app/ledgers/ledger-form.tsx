@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface LedgerOption { id: number; code: string; name: string; }
 
@@ -254,7 +255,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
 
   async function handleArchive() {
     if (!isEdit) return;
-    const ok = window.confirm('Archive this ledger? It will be hidden from active lists.');
+    const ok = (await appConfirm('Archive this ledger? It will be hidden from active lists.'));
     if (ok === false) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -266,7 +267,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
 
   async function handleDelete() {
     if (!isEdit) return;
-    const ok = window.confirm('Permanently delete this ledger?');
+    const ok = (await appConfirm('Permanently delete this ledger?'));
     if (ok === false) return;
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

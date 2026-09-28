@@ -13,6 +13,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface ExpenseCategory {
   id: number;
@@ -89,9 +90,9 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
   }
 
   async function hardDelete(id: number, name: string): Promise<void> {
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete category "${name}"? This only works if it has never been used in an expense entry.`,
-    );
+    ));
     if (!ok) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: dbErr } = await (supabase as any)

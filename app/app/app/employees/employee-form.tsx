@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface EmployeeFormValues {
   code: string;
@@ -125,11 +126,11 @@ export function EmployeeForm({ initial, employeeId }: Props) {
 
   async function onDelete() {
     if (!isEdit) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Permanently delete ${values.full_name} (${values.code})?\n\n` +
       `This cannot be undone. If the employee has attendance or wage history, ` +
       `the delete will fail — set status to "resigned" instead.`,
-    );
+    ));
     if (!ok) return;
 
     setBusy(true);

@@ -17,6 +17,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Trash2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface ChallanRow {
   id: number;
@@ -94,12 +95,12 @@ export function ChallanEditForm({
   }
 
   async function remove(): Promise<void> {
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete this challan?\n\n` +
       `${monthLabel} · ${challan.challan_no ?? 'no number'} · Rs ${challan.amount}\n\n` +
       `The month will go back to showing this tax as unpaid. Only do this ` +
       `for a duplicate or a row entered by mistake.`,
-    );
+    ));
     if (!ok) return;
     setBusy('delete');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

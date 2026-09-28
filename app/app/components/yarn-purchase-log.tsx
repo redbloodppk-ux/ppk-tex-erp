@@ -26,6 +26,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
+import { appConfirm } from '@/lib/app-dialog';
 
 type YarnKind = 'yarn' | 'porvai';
 type Delivery = 'in_house' | 'sizing';
@@ -440,7 +441,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
   }
 
   async function deleteRow(id: number, lotCode: string) {
-    const ok = window.confirm('Delete yarn lot ' + lotCode + '?\n\nIf any downstream record references this lot, the database will block the delete.');
+    const ok = (await appConfirm('Delete yarn lot ' + lotCode + '?\n\nIf any downstream record references this lot, the database will block the delete.'));
     if (ok === false) return;
     setError(null);
     setSavedMsg(null);

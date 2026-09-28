@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 interface FabricDeleteButtonProps {
   id: number;
@@ -21,9 +22,9 @@ export function FabricDeleteButton({ id, label }: FabricDeleteButtonProps): Reac
 
   async function onClick(): Promise<void> {
     if (busy) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete fabric "${label}"?\n\nThis cannot be undone. If the fabric is in use by sales orders, invoices, or production, the delete will fail — untick Active to archive it instead.`,
-    );
+    ));
     if (!ok) return;
     setErr(null);
     setBusy(true);
@@ -35,12 +36,12 @@ export function FabricDeleteButton({ id, label }: FabricDeleteButtonProps): Reac
       const pgCode = (error as { code?: string }).code;
       if (pgCode === '23503') {
         setErr('In use by other records.');
-        window.alert(
+        (await appAlert(
           `Cannot delete fabric "${label}".\n\nIt is referenced by sales orders, invoices, production or other records. Untick Active to archive it instead.`,
-        );
+        ));
       } else {
         setErr(error.message);
-        window.alert(`Failed to delete: ${error.message}`);
+        (await appAlert(`Failed to delete: ${error.message}`));
       }
       return;
     }

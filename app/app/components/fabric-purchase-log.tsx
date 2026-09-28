@@ -25,6 +25,7 @@ import { UnpaidBillsPicker, splitAllocationsByKind, type BillAllocation } from '
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 type RateUnit = 'm' | 'pcs';
 type Delivery = 'in_house' | 'sizing';
@@ -592,7 +593,7 @@ export function FabricPurchaseLog(): React.ReactElement {
   }
 
   async function deleteRow(id: number, code: string): Promise<void> {
-    const ok = window.confirm('Delete fabric purchase ' + code + '?\n\nIf any downstream record references this batch, the database will block the delete.');
+    const ok = (await appConfirm('Delete fabric purchase ' + code + '?\n\nIf any downstream record references this batch, the database will block the delete.'));
     if (ok === false) return;
     setError(null);
     setSavedMsg(null);

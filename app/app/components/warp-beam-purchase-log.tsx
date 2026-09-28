@@ -19,6 +19,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface BeamRow {
   id: number;
@@ -350,7 +351,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
 
   async function deleteRow(id: number, code: string | null): Promise<void> {
     const label = code ?? '#' + String(id);
-    const ok = window.confirm('Delete warp beam purchase ' + label + '?');
+    const ok = (await appConfirm('Delete warp beam purchase ' + label + '?'));
     if (ok === false) return;
     setError(null);
     setSavedMsg(null);

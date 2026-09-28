@@ -7,13 +7,14 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 export function ClearAllButton({ disabled = false }: { disabled?: boolean }): React.ReactElement {
   const router = useRouter();
   const [busy, setBusy] = useState<boolean>(false);
 
   async function clearAll(): Promise<void> {
-    if (!window.confirm('Clear all current notifications? New events will appear again as they happen.')) return;
+    if (!(await appConfirm('Clear all current notifications? New events will appear again as they happen.'))) return;
     setBusy(true);
     try {
       const res = await fetch('/api/notifications/clear', { method: 'POST' });

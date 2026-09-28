@@ -12,6 +12,7 @@ import { formatRupee } from '@/lib/utils';
 import { Calculator, Info, Save, Loader2, CheckCircle2, Trash2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 const DEFAULT_BAGS_PER_M = 0.50;
 const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
@@ -558,9 +559,9 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
 
   async function handleDelete(): Promise<void> {
     if (id == null) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Delete costing ${qualityCode || '#' + id}?\n\nThis cannot be undone. If the costing is in use by sales orders, invoices, or production, the delete will fail.`,
-    );
+    ));
     if (!ok) return;
     setSaveError(null);
     setDeleting(true);

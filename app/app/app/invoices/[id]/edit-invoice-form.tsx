@@ -21,6 +21,7 @@ import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/
 import { useColumnHistory } from '@/app/components/use-column-history';
 import { Loader2, Save, Calculator } from 'lucide-react';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm } from '@/lib/app-dialog';
 
 type Status = 'draft' | 'issued' | 'partial_paid' | 'paid' | 'overdue' | 'cancelled';
 
@@ -271,11 +272,11 @@ export function EditInvoiceForm({
     if (trimmedNo === '') { setError('Invoice number cannot be empty.'); return; }
 
     if (trimmedNo !== initial.invoice_no) {
-      const ok = window.confirm(
+      const ok = (await appConfirm(
         `Change invoice number from "${initial.invoice_no}" to "${trimmedNo}"?\n\n` +
           `This is the customer-facing reference and may already be on ` +
           `printed copies / GST filings. Continue?`,
-      );
+      ));
       if (!ok) return;
     }
 

@@ -9,6 +9,7 @@
 import { useState, useTransition } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { deleteLedger } from './actions';
+import { appAlert } from '@/lib/app-dialog';
 
 export function LedgerDeleteButton({ id, name }: { id: number; name: string }): React.ReactElement {
   const [isPending, startTransition] = useTransition();
@@ -20,7 +21,7 @@ export function LedgerDeleteButton({ id, name }: { id: number; name: string }): 
     startTransition(async () => {
       const res = await deleteLedger(id);
       if (!res.ok) {
-        window.alert(`Delete failed: ${res.error ?? 'Unknown error'}`);
+        (await appAlert(`Delete failed: ${res.error ?? 'Unknown error'}`));
         return;
       }
       if (res.soft_deleted) {

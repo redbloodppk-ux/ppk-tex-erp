@@ -16,6 +16,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface PartyOpt {
   id: number;
@@ -208,7 +209,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
   }
 
   async function deleteRow(id: number, label: string): Promise<void> {
-    if (!window.confirm(`Delete opening entry "${label}"?\n\nSoft-delete: row stays in the DB with status='cancelled' for audit.`)) return;
+    if (!(await appConfirm(`Delete opening entry "${label}"?\n\nSoft-delete: row stays in the DB with status='cancelled' for audit.`))) return;
     setDeletingId(id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;

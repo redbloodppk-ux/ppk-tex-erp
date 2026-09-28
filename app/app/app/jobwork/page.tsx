@@ -63,6 +63,7 @@ import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
 import { CardFilter } from '@/app/components/card-filter';
 import { SmartSelect } from '@/app/components/smart-select';
+import { appConfirm, appAlert } from '@/lib/app-dialog';
 
 type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'payment' | 'weavers';
 
@@ -862,7 +863,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
   const allPartyById = new Map(allParties.map((p) => [p.id, p]));
   const [deletingReturnId, setDeletingReturnId] = useState<number | null>(null);
   async function deleteReturn(id: number): Promise<void> {
-    if (!window.confirm('Delete this return entry? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this return entry? This cannot be undone.'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     setDeletingReturnId(id);
@@ -870,7 +871,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     // .eq('status', 'active') filter used to load `returns`.
     const { error } = await sb.from('bobbin_return').update({ status: 'archived' }).eq('id', id);
     setDeletingReturnId(null);
-    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    if (error) { (await appAlert('Delete failed: ' + error.message)); return; }
     onChanged();
   }
   // Add-new form state. The form panel only renders when showAdd=true so
@@ -970,20 +971,20 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
 
   async function addBobbin(): Promise<void> {
     const partyId = addForm.jobwork_party_id === '' ? null : Number(addForm.jobwork_party_id);
-    if (partyId === null) { window.alert('Select a jobwork party.'); return; }
+    if (partyId === null) { (await appAlert('Select a jobwork party.')); return; }
     // Each non-empty item becomes one row. Empty rows (no bobbin
     // picked) are skipped so the operator can leave trailing blank
     // rows around without it being an error.
     const validItems = addForm.items.filter((it) => it.bobbin_id !== '' && Number(it.qty) > 0);
     if (validItems.length === 0) {
-      window.alert('Pick a bobbin and enter a positive quantity for at least one line.');
+      (await appAlert('Pick a bobbin and enter a positive quantity for at least one line.'));
       return;
     }
     // Cross-check: any line with bobbin picked but qty <= 0 — surface
     // the row number so the operator can fix it.
     const badIdx = addForm.items.findIndex((it) => it.bobbin_id !== '' && !(Number(it.qty) > 0));
     if (badIdx !== -1) {
-      window.alert(`Line ${badIdx + 1}: enter a positive quantity (pcs).`);
+      (await appAlert(`Line ${badIdx + 1}: enter a positive quantity (pcs).`));
       return;
     }
     setAddBusy(true);
@@ -1071,7 +1072,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const qty = Number(data.qty.qty ?? 0);
-    if (qty <= 0) { window.alert('Quantity required'); return; }
+    if (qty <= 0) { (await appAlert('Quantity required')); return; }
     const supplierPartyId = data.supplier_party_id === '' ? null : Number(data.supplier_party_id);
     // Restock = a fresh jobwork_bobbin_issue row pointing at the same
     // canonical bobbin master. We never spawn a new bobbin code.
@@ -1090,19 +1091,19 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       status: 'active',
     };
     const { error } = await sb.from('jobwork_bobbin_issue').insert(payload);
-    if (error) { window.alert('Restock failed: ' + error.message); return; }
+    if (error) { (await appAlert('Restock failed: ' + error.message)); return; }
     setRestockId(null);
     onChanged();
   }
 
   async function del(id: number): Promise<void> {
-    if (!window.confirm('Delete this bobbin entry? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this bobbin entry? This cannot be undone.'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     // Soft-delete by status flip - matches what the page already filters
     // out via .eq('status', 'active').
     const { error } = await sb.from('jobwork_bobbin_issue').update({ status: 'archived' }).eq('id', id);
-    if (error) { window.alert('Delete failed: ' + error.message); return; }
+    if (error) { (await appAlert('Delete failed: ' + error.message)); return; }
     onChanged();
   }
 
@@ -1111,7 +1112,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const qty = Math.trunc(Number(data.qty.qty ?? 0));
-    if (qty <= 0) { window.alert('Quantity must be greater than zero.'); return; }
+    if (qty <= 0) { (await appAlert('Quantity must be greater than zero.')); return; }
     const payload = {
       bobbin_id: parent.bobbin_id,
       supplier_party_id: data.supplier_party_id === '' ? (parent.supplier_party_id ?? null) : Number(data.supplier_party_id),
@@ -1123,7 +1124,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
       status: 'active',
     };
     const { error } = await sb.from('bobbin_return').insert(payload);
-    if (error) { window.alert('Return failed: ' + error.message); return; }
+    if (error) { (await appAlert('Return failed: ' + error.message)); return; }
     setReturnId(null);
     onChanged();
   }
@@ -2479,7 +2480,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
   }
 
   async function del(id: number) {
-    if (!window.confirm('Delete this warp beam entry?')) return;
+    if (!(await appConfirm('Delete this warp beam entry?'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error } = await sb.from('jobwork_warp_beam').delete().eq('id', id);
@@ -2502,10 +2503,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       ? r.pavu_ids.map((x) => Number(x)).filter((n) => Number.isFinite(n))
       : (r.pavu_id != null ? [r.pavu_id] : []);
     if (ids.length === 0) {
-      window.alert('No pavu link on this warp beam entry to release.');
+      (await appAlert('No pavu link on this warp beam entry to release.'));
       return;
     }
-    if (!window.confirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? They stay on the same outsource weaver and become editable again in Pavu Master.`)) return;
+    if (!(await appConfirm(`Release ${ids.length} pavu beam${ids.length === 1 ? '' : 's'} back to in-stock? They stay on the same outsource weaver and become editable again in Pavu Master.`))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     // Revert the pavu rows — only the status flips. The
@@ -2529,7 +2530,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     try {
       restockBatchNo = await fetchNextBatchNo(sb);
     } catch (e) {
-      window.alert('Restock failed: ' + (e instanceof Error ? e.message : String(e)));
+      (await appAlert('Restock failed: ' + (e instanceof Error ? e.message : String(e))));
       return;
     }
     const payload = {
@@ -2546,7 +2547,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       batch_no: restockBatchNo,
     };
     const { error } = await sb.from('jobwork_warp_beam').insert(payload);
-    if (error) { window.alert('Restock failed: ' + error.message); return; }
+    if (error) { (await appAlert('Restock failed: ' + error.message)); return; }
     setRestockId(null);
     onChanged();
   }
@@ -2571,7 +2572,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       .map((b) => ({ beamNo: b.beamNo.trim(), ends: b.ends, metres: b.metres }))
       .filter((b) => b.beamNo !== '' && b.ends !== '' && b.metres !== '');
     if (beams.length === 0) {
-      window.alert('Enter the beam no., ends and metres for at least one beam.');
+      (await appAlert('Enter the beam no., ends and metres for at least one beam.'));
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2580,7 +2581,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
     try {
       splitBatchNo = await fetchNextBatchNo(sb);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'Could not generate a batch number for this split.');
+      (await appAlert(e instanceof Error ? e.message : 'Could not generate a batch number for this split.'));
       return;
     }
     const notesTrimmed = (parent.notes ?? '').trim();
@@ -3492,7 +3493,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
     onChanged();
   }
   async function del(id: number) {
-    if (!window.confirm('Delete this weft bag entry?')) return;
+    if (!(await appConfirm('Delete this weft bag entry?'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error } = await sb.from('jobwork_weft_bag').delete().eq('id', id);
@@ -3513,7 +3514,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
       supplier_party_id: data.supplier_party_id === '' ? null : Number(data.supplier_party_id),
     };
     const { error } = await sb.from('jobwork_weft_bag').insert(payload);
-    if (error) { window.alert('Restock failed: ' + error.message); return; }
+    if (error) { (await appAlert('Restock failed: ' + error.message)); return; }
     setRestockId(null);
     onChanged();
   }
@@ -3779,7 +3780,7 @@ function WarpYarnTab({
     onChanged();
   }
   async function del(id: number): Promise<void> {
-    if (!window.confirm('Delete this warp yarn entry?')) return;
+    if (!(await appConfirm('Delete this warp yarn entry?'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error } = await sb.from('jobwork_warp_yarn').delete().eq('id', id);
@@ -3804,7 +3805,7 @@ function WarpYarnTab({
       supplier_party_id: data.supplier_party_id === '' ? null : Number(data.supplier_party_id),
     };
     const { error } = await sb.from('jobwork_warp_yarn').insert(payload);
-    if (error) { window.alert('Restock failed: ' + error.message); return; }
+    if (error) { (await appAlert('Restock failed: ' + error.message)); return; }
     setRestockId(null);
     onChanged();
   }

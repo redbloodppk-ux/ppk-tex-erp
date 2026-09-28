@@ -15,6 +15,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface BobbinEndsRow {
   id: number;
@@ -130,7 +131,7 @@ export default function BobbinEndsMasterPage() {
   }
 
   async function deleteRow(id: number, ends: number) {
-    const ok = window.confirm(`Delete ${ends} ends/bobbin entry?`);
+    const ok = (await appConfirm(`Delete ${ends} ends/bobbin entry?`));
     if (!ok) return;
     setError(null);
     setSavedMsg(null);

@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Wallet, ArrowUpRight } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface BillRow {
   id: number;                 // sizing_job.id
@@ -151,7 +152,7 @@ export function SizingPaymentTab(): React.ReactElement {
   }, [bills]);
 
   async function handleDelete(paymentId: number): Promise<void> {
-    if (!window.confirm('Delete this payment? This will restore the balance on the bill.')) return;
+    if (!(await appConfirm('Delete this payment? This will restore the balance on the bill.'))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('payment').delete().eq('id', paymentId);

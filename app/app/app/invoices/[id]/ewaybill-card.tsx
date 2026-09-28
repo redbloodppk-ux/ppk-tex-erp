@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, ExternalLink, Truck, AlertTriangle, X } from 'lucide-react';
+import { appConfirm } from '@/lib/app-dialog';
 
 interface EwaybillCardProps {
   invoiceId: number;
@@ -145,7 +146,7 @@ export function EwaybillCard({
   }
 
   async function handleClear(): Promise<void> {
-    const ok = window.confirm(`Clear e-waybill ${ewaybillNo} from ${invoiceNo}?`);
+    const ok = (await appConfirm(`Clear e-waybill ${ewaybillNo} from ${invoiceNo}?`));
     if (!ok) return;
     await save({
       ewaybill_no: null,

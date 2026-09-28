@@ -33,6 +33,7 @@ import { canEdit, type EditorRole } from '@/lib/attendance/canEdit';
 import { enqueue as enqueueOffline, queueCount } from '@/lib/attendance/offlineQueue';
 import { Loader2, Save, CheckCircle2, CalendarOff, Undo2, Lock, WifiOff } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
+import { appConfirm } from '@/lib/app-dialog';
 
 type AttendanceStatus = Database['public']['Enums']['attendance_status'];
 type ShiftCode = Database['public']['Enums']['shift_code'];
@@ -745,11 +746,11 @@ export default function AttendanceMarkPage() {
       const lines = closedSheds.map(
         (s) => `Shed ${s} is closed/off - no weaver.`,
       );
-      const ok = window.confirm(
+      const ok = (await appConfirm(
         `${shift === 'morning' ? 'Morning' : 'Night'} shift:\n\n` +
         lines.join('\n') +
         '\n\nSave anyway?',
-      );
+      ));
       if (!ok) {
         return;
       }

@@ -31,6 +31,7 @@ import { applyFabricReceiptStockReductions, type ReceiptItemForReduction, type S
 import { measureStock, buildSnapshot } from '@/lib/fabric-receipt/stock-measure';
 import { cancelFabricReceipt } from '../[id]/actions';
 import { formatDay } from '@/lib/utils';
+import { appConfirm } from '@/lib/app-dialog';
 
 export interface DcInfo {
   id: number;
@@ -181,9 +182,9 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
 
   async function handleCancelSavedReceipt(): Promise<void> {
     if (!savedReceipt) return;
-    const ok = window.confirm(
+    const ok = (await appConfirm(
       `Cancel fabric receipt ${savedReceipt.code}?\n\nEvery stock reduction it applied will be restored, the receipt is deleted, and DC ${dc.code} becomes free again.`,
-    );
+    ));
     if (!ok) return;
     setBusy(true);
     const res = await cancelFabricReceipt(savedReceipt.id);

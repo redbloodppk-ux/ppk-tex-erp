@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2 } from 'lucide-react';
+import { appAlert } from '@/lib/app-dialog';
 
 interface DeleteInvoiceButtonProps {
   invoiceId: number;
@@ -41,7 +42,7 @@ export function DeleteInvoiceButton({
     );
     if (typed === null) return;
     if (typed.trim() !== invoiceNo) {
-      window.alert('Confirmation does not match. Delete cancelled.');
+      (await appAlert('Confirmation does not match. Delete cancelled.'));
       return;
     }
 
@@ -59,7 +60,7 @@ export function DeleteInvoiceButton({
       .eq('invoice_id', invoiceId);
     if (dcErr) {
       setBusy(false);
-      window.alert('Could not unlink DCs: ' + dcErr.message);
+      (await appAlert('Could not unlink DCs: ' + dcErr.message));
       return;
     }
 
@@ -71,7 +72,7 @@ export function DeleteInvoiceButton({
       .eq('invoice_id', invoiceId);
     if (lineErr) {
       setBusy(false);
-      window.alert('Could not delete invoice lines: ' + lineErr.message);
+      (await appAlert('Could not delete invoice lines: ' + lineErr.message));
       return;
     }
 
@@ -82,7 +83,7 @@ export function DeleteInvoiceButton({
       .eq('id', invoiceId);
     if (invErr) {
       setBusy(false);
-      window.alert('Could not delete invoice: ' + invErr.message);
+      (await appAlert('Could not delete invoice: ' + invErr.message));
       return;
     }
 
