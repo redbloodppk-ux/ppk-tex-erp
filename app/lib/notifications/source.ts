@@ -25,10 +25,11 @@ import {
   loadUnrecordedShifts, describeShift, todayISO,
 } from '@/lib/attendance/unrecorded-shifts';
 import { loadTdsMonths, daysUntil } from '@/lib/tds/liability-data';
+import { todayIST } from '@/lib/utils';
 
 export type NotificationKind =
   | 'costing_approval' | 'bill_due' | 'reminder' | 'attendance_gap'
-  | 'tds_overdue';
+  | 'tds_overdue' | 'dc_receipt_mismatch' | 'quality_mismatch';
 
 /** Kinds that "Clear all" must NOT hide.
  *
@@ -43,6 +44,8 @@ const UNCLEARABLE: ReadonlySet<NotificationKind> = new Set([
   // Overdue TDS costs 1.5% more every month it is ignored. Dismissing it
   // would hide a bill that is actively growing.
   'tds_overdue',
+  // Stock is wrong until the receipt is re-saved; dismissing hides it.
+  'dc_receipt_mismatch',
 ]);
 
 export interface NotificationItem {
@@ -81,19 +84,21 @@ export async function fetchNotifications(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [pendingApprovals, billDues, dueReminders, attendanceGaps, tdsOverdue, clearedAt] =
+  const [pendingApprovals, billDues, dueReminders, attendanceGaps, tdsOverdue, dcMismatch, qualityMismatch, clearedAt] =
     await Promise.all([
       fetchPendingApprovals(sb),
       fetchBillDues(sb),
       fetchDueReminders(sb),
       fetchAttendanceGaps(sb),
       fetchTdsOverdue(sb),
+      fetchDcReceiptMismatch(sb),
+      fetchQualityMismatch(sb),
       fetchClearedAt(sb),
     ]);
 
   const items = [
     ...pendingApprovals, ...billDues, ...dueReminders,
-    ...attendanceGaps, ...tdsOverdue,
+    ...attendanceGaps, ...tdsOverdue, ...dcMismatch, ...qualityMismatch,
   ]
     .filter((i) => UNCLEARABLE.has(i.kind) || clearedAt == null || i.occurred_at > clearedAt)
     // Most urgent first, then most recent.
@@ -235,7 +240,7 @@ async function fetchBillDues(sb: any): Promise<NotificationItem[]> {
  *  as a fresh event and resurfaces past a Clear-all automatically. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchDueReminders(sb: any): Promise<NotificationItem[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIST();
   const [{ data }, categoryLabels] = await Promise.all([
     sb
       .from('reminder')
@@ -316,6 +321,67 @@ async function fetchTdsOverdue(sb: any): Promise<NotificationItem[]> {
       occurred_at: `${m.dueDate}T00:00:00Z`,
       severity: 'critical' as const,
     }));
+}
+
+/**
+ * A DC corrected after its fabric receipt was saved (migration 310).
+ * The receipt still consumed warp / weft / bobbin for the OLD quantity
+ * until it is opened, Edited and saved again. PPK, 2026-09-26: JDC/0059
+ * went 705 -> 702 while FR/0121 stayed at 705.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchDcReceiptMismatch(sb: any): Promise<NotificationItem[]> {
+  try {
+    const { data } = await sb
+      .from('v_dc_receipt_mismatch')
+      .select('dc_code, dc_date, bill_to_name, dc_qty, receipt_id, receipt_code, receipt_qty, changed_at')
+      .order('dc_date', { ascending: false })
+      .limit(20);
+    return ((data ?? []) as Array<{
+      dc_code: string; dc_date: string; bill_to_name: string | null; dc_qty: number;
+      receipt_id: number; receipt_code: string; receipt_qty: number; changed_at: string | null;
+    }>).map((r) => ({
+      id: `dc_receipt:${r.receipt_id}`,
+      kind: 'dc_receipt_mismatch' as const,
+      title: `${r.dc_code} says ${Number(r.dc_qty)}, receipt ${r.receipt_code} says ${Number(r.receipt_qty)}`,
+      body: 'Warehouse stock was taken for the receipt figure. Open the receipt, tap Edit and save to re-apply it.',
+      link: `/app/jobwork/fabric-receipt/${r.receipt_id}`,
+      occurred_at: r.changed_at ?? `${r.dc_date}T00:00:00Z`,
+      severity: 'critical' as const,
+    }));
+  } catch {
+    return []; // view missing (migration 310 not applied)
+  }
+}
+
+/**
+ * Shift-log rows whose quality is not the beam's (migration 310). New rows
+ * already take the beam's quality (308); these are older saves or a beam
+ * change entered late. PPK, 2026-09-26: L-31, 23 Sep, 30" vs beam 34".
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchQualityMismatch(sb: any): Promise<NotificationItem[]> {
+  try {
+    const { data } = await sb
+      .from('v_shift_log_beam_mismatch')
+      .select('shift_log_id, log_date, shift, loom_code, logged_quality, beam_quality')
+      .order('log_date', { ascending: false })
+      .limit(20);
+    return ((data ?? []) as Array<{
+      shift_log_id: number; log_date: string; shift: string; loom_code: string;
+      logged_quality: string | null; beam_quality: string | null;
+    }>).map((r) => ({
+      id: `quality_mismatch:${r.shift_log_id}`,
+      kind: 'quality_mismatch' as const,
+      title: `${r.loom_code} on ${r.log_date}: logged ${r.logged_quality ?? '?'}, beam is ${r.beam_quality ?? '?'}`,
+      body: 'Folding pay, costing and stock by quality use the logged quality. Check the entry or the beam change date.',
+      link: `/app/production/shift-log?date=${r.log_date}&shift=${r.shift}`,
+      occurred_at: `${r.log_date}T00:00:00Z`,
+      severity: 'warn' as const,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function sevRank(s: 'info' | 'warn' | 'critical'): number {

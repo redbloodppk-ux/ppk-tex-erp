@@ -31,9 +31,11 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Save, CheckCircle2, Plus, X, AlertTriangle } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
+import { todayIST } from '@/lib/utils';
 
 type ShiftLogInsert = Database['public']['Tables']['production_shift_log']['Insert'];
 type ShiftLogWeaverInsert =
@@ -160,7 +162,7 @@ function focusNextOnEnter(e: React.KeyboardEvent<HTMLInputElement>): void {
   }
 }
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+const today = (): string => todayIST();
 
 function emptyShed(shedNo: number, looms: Loom[]): ShedState {
   return {
@@ -213,8 +215,18 @@ function shedTotal(s: ShedState): number {
 export default function ShiftLogPage(): React.ReactElement {
   const supabase = createClient();
 
-  const [logDate, setLogDate] = useState<string>(today());
-  const [shift, setShift] = useState<'day' | 'night'>('day');
+  // Deep links from the notification bell: ?date=YYYY-MM-DD&shift=day|night
+  const searchParams = useSearchParams();
+  const qDate = searchParams.get('date');
+  const qShift = searchParams.get('shift');
+  const [logDate, setLogDate] = useState<string>(
+    qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate) ? qDate : today(),
+  );
+  const [shift, setShift] = useState<'day' | 'night'>(qShift === 'night' ? 'night' : 'day');
+  useEffect(() => {
+    if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) setLogDate(qDate);
+    if (qShift === 'day' || qShift === 'night') setShift(qShift);
+  }, [qDate, qShift]);
   const [nightEnabled, setNightEnabled] = useState<boolean>(false);
   const [activeShed, setActiveShed] = useState<number>(1);
   // Adjustment column is per-shed and shown by default. The operator can

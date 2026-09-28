@@ -27,6 +27,8 @@ const KIND_LABEL: Record<NotificationItem['kind'], string> = {
   reminder:         'Reminder',
   attendance_gap:   'Unrecorded shift',
   tds_overdue:      'TDS overdue',
+  dc_receipt_mismatch: 'DC ≠ fabric receipt',
+  quality_mismatch: 'Loom quality check',
 };
 
 interface PageProps {
@@ -41,7 +43,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
   const kindFilter = (
     sp.kind === 'costing_approval' || sp.kind === 'bill_due' ||
     sp.kind === 'reminder' || sp.kind === 'attendance_gap' ||
-    sp.kind === 'tds_overdue'
+    sp.kind === 'tds_overdue' || sp.kind === 'dc_receipt_mismatch' ||
+    sp.kind === 'quality_mismatch'
   ) ? sp.kind : null;
   const sevFilter      = (sp.severity === 'info' || sp.severity === 'warn' || sp.severity === 'critical') ? sp.severity : null;
 
@@ -107,6 +110,8 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <FilterPill href="/app/notifications?kind=reminder" active={kindFilter === 'reminder'} label="Reminders" />
         <FilterPill href="/app/notifications?kind=attendance_gap" active={kindFilter === 'attendance_gap'} label="Unrecorded shifts" />
         <FilterPill href="/app/notifications?kind=tds_overdue" active={kindFilter === 'tds_overdue'} label="TDS overdue" />
+        <FilterPill href="/app/notifications?kind=dc_receipt_mismatch" active={kindFilter === 'dc_receipt_mismatch'} label="DC ≠ receipt" />
+        <FilterPill href="/app/notifications?kind=quality_mismatch" active={kindFilter === 'quality_mismatch'} label="Loom quality" />
       </div>
 
       {items.length === 0 ? (
