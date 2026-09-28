@@ -166,6 +166,9 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
   const [hsn, setHsn] = useState('');
   const [crimpPct, setCrimpPct] = useState(0);
   const [gstPct, setGstPct] = useState(5);
+  // Folder's piece rate (migration 309). '' = not set.
+  const [foldingRate, setFoldingRate] = useState<string>('');
+  const [foldingUnit, setFoldingUnit] = useState<'pc' | 'm'>('pc');
   // Migration 078: cost of pick yarn allocated per metre of fabric. Manually
   // entered. Empty string = NULL in DB.
   const [pickCostPerM, setPickCostPerM] = useState<string>('');
@@ -233,7 +236,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       const sb = supabase as any;
       const { data } = await sb
         .from('fabric_quality')
-        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, pick_cost_per_m, is_merged, merged_name, notes, calc_snapshot')
+        .select('name, code, fabric_type, production_mode, hsn, crimp_pct, gst_pct, pick_cost_per_m, is_merged, merged_name, notes, calc_snapshot, folding_rate, folding_unit')
         .eq('id', props.fabricQualityId)
         .single();
       if (!data) return;
@@ -248,6 +251,8 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       setHsn(data.hsn ?? '');
       if (data.crimp_pct != null) setCrimpPct(Number(data.crimp_pct));
       if (data.gst_pct   != null) setGstPct(Number(data.gst_pct));
+      setFoldingRate(data.folding_rate == null ? '' : String(data.folding_rate));
+      if (data.folding_unit === 'm' || data.folding_unit === 'pc') setFoldingUnit(data.folding_unit);
       {
         const loadedCost = data.pick_cost_per_m == null ? '' : String(data.pick_cost_per_m);
         setPickCostPerM(loadedCost);
@@ -372,11 +377,15 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
       meter_per_pc: isTowel ? towelLength : null,
       crimp_pct: crimpPct,
       gst_pct: gstPct,
+      folding_rate: foldingRate.trim() === '' ? null : Number(foldingRate),
+      folding_unit: foldingRate.trim() === '' ? null : foldingUnit,
       pick_cost_per_m: pickCostPerM.trim() === '' ? null : Number(pickCostPerM),
       is_merged: isMerged,
       merged_name: isMerged ? (mergedName.trim() || null) : null,
       weight_gsm: Number(r.gramsPerSqM.toFixed(2)),
-      active: true,
+      // Only a NEW quality starts active; editing must not undo the
+      // Active/Inactive switch on the list.
+      ...(isEdit ? {} : { active: true }),
       notes: notes.trim() || null,
       weft_kg_per_m: Number(r.weftKgPerM.toFixed(6)),
       porvai_kg_per_m: usePorvai && r.porvaiMPerKg > 0
@@ -931,6 +940,20 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
             <label className="label">GST %</label>
             <input type="number" className="input num w-full" step={0.5}
               value={gstPct} onChange={(e) => setGstPct(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">Folding rate (Rs)</label>
+            <div className="flex gap-1.5">
+              <input type="number" inputMode="decimal" className="input num w-full" step={0.01} min={0}
+                placeholder="not set"
+                value={foldingRate} onChange={(e) => setFoldingRate(e.target.value)} />
+              <select className="input w-24" value={foldingUnit}
+                onChange={(e) => setFoldingUnit(e.target.value === 'm' ? 'm' : 'pc')}>
+                <option value="pc">/ piece</option>
+                <option value="m">/ metre</option>
+              </select>
+            </div>
+            <p className="text-[10px] text-ink-mute mt-0.5">Folder's pay. Used for the folding estimate on the wage form.</p>
           </div>
           {/* Pick cost / m (Rs) only matters for Job Work qualities —
               it's the per-metre wages we pay the jobwork party. For

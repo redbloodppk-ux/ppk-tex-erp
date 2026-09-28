@@ -1050,14 +1050,28 @@ function ShedCard({
                 stale setting is exactly the L-10 case. Checking only
                 logged_quality_name would catch the mistake after the fact
                 and never prevent it. */}
-            {(r.logged_quality_name ?? r.quality_name) != null
-              && r.mounted_quality_name != null
-              && (r.logged_quality_name ?? r.quality_name) !== r.mounted_quality_name && (
-              <div className="mt-0.5 text-[10px] leading-tight text-amber-700 flex items-start gap-1">
-                <AlertTriangle className="w-3 h-3 shrink-0 mt-px" />
+            {/* Migration 308: a NEW row is saved with the beam's quality
+                when the beam is known, so only two cases still need a flag:
+                  - an already-saved row that disagrees with the beam, and
+                  - a loom whose master setting is stale (the save is right,
+                    but the next loom-based report will not be). */}
+            {r.mounted_quality_name != null && r.logged_quality_name != null
+              && r.logged_quality_name !== r.mounted_quality_name && (
+              <div className="mt-1 rounded-md bg-amber-50 border border-amber-200 px-1.5 py-1 text-[11px] leading-tight text-amber-800 flex items-start gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
                 <span>
-                  Beam on this loom is <strong>{r.mounted_quality_name}</strong>.
-                  Check whether the beam change was recorded late.
+                  Saved as <strong>{r.logged_quality_name}</strong>, but the beam on this loom that day is{' '}
+                  <strong>{r.mounted_quality_name}</strong>. Check the entry or the beam change date.
+                </span>
+              </div>
+            )}
+            {r.mounted_quality_name != null && r.logged_quality_name == null
+              && r.quality_name != null && r.quality_name !== r.mounted_quality_name && (
+              <div className="mt-1 rounded-md bg-sky-50 border border-sky-200 px-1.5 py-1 text-[11px] leading-tight text-sky-800 flex items-start gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                <span>
+                  Will save as <strong>{r.mounted_quality_name}</strong> (beam on loom). Loom setting still says{' '}
+                  {r.quality_name} — update it in Settings → Looms.
                 </span>
               </div>
             )}

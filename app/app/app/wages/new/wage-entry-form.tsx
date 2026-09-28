@@ -321,6 +321,41 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   // for sheds that did not run and for cover. The earned figure is fetched
   // instead of assumed — see the effect below.
   const isWinder = selected?.role.toLowerCase() === 'winder';
+  // Folders are paid per piece folded (migration 309). The shift log gives
+  // an estimate of what was WOVEN; the folder is paid on what he actually
+  // folded, so the estimate is shown beside the amount, never forced in.
+  const isFolder = selected?.role.toLowerCase() === 'folder';
+  const [foldRows, setFoldRows] = useState<Array<{
+    code: string; name: string; metres: number; pieces: number | null;
+    folding_unit: string | null; folding_rate: number | null; amount: number | null;
+  }> | null>(null);
+  const [foldErr, setFoldErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isFolder || kind !== 'settlement' || !periodStart || !periodEnd) {
+      setFoldRows(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error: rpcErr } = await (supabase as any)
+        .rpc('fn_folding_estimate', { p_from: periodStart, p_to: periodEnd });
+      if (cancelled) return;
+      if (rpcErr) { setFoldErr(rpcErr.message); setFoldRows([]); return; }
+      setFoldErr(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setFoldRows(((data ?? []) as any[]).map((r) => ({
+        code: r.code, name: r.name,
+        metres: Number(r.metres ?? 0),
+        pieces: r.pieces == null ? null : Number(r.pieces),
+        folding_unit: r.folding_unit ?? null,
+        folding_rate: r.folding_rate == null ? null : Number(r.folding_rate),
+        amount: r.amount == null ? null : Number(r.amount),
+      })));
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, isFolder, kind, periodStart, periodEnd]);
+  const foldTotal = (foldRows ?? []).reduce((a, r) => a + (r.amount ?? 0), 0);
   // Salaried / non-attendance employees skip the attendance + shed lookup
   // entirely — they don't have daily marks to read from.
   const attendanceRequired = selected ? selected.attendance_required !== false : true;
@@ -922,6 +957,62 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           a number that arrives without explanation is a number nobody
           trusts, and PPK has to be able to check it against the Weekly
           Wage Summary. */}
+      {isFolder && kind === 'settlement' && foldRows != null && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 text-xs space-y-1.5">
+          <div className="flex items-center gap-1.5 font-semibold text-ink-soft">
+            <Info className="w-3.5 h-3.5" />
+            Folding estimate from the shift log, {fmtShortDate(periodStart)} – {fmtShortDate(periodEnd)}
+          </div>
+          {foldErr ? (
+            <div className="text-rose-700">{foldErr}</div>
+          ) : foldRows.length === 0 ? (
+            <div className="text-ink-mute">No shift-log entries in this week yet.</div>
+          ) : (
+            <>
+              <table className="w-full">
+                <tbody>
+                  {foldRows.map((r) => (
+                    <tr key={r.code} className="border-t border-emerald-100 first:border-t-0">
+                      <td className="py-1 pr-2">{r.name}</td>
+                      <td className="py-1 pr-2 text-right num text-ink-soft whitespace-nowrap">
+                        {r.folding_unit === 'pc' && r.pieces != null
+                          ? `${Math.round(r.pieces).toLocaleString('en-IN')} pcs`
+                          : `${r.metres.toLocaleString('en-IN')} m`}
+                      </td>
+                      <td className="py-1 pr-2 text-right num text-ink-soft whitespace-nowrap">
+                        {r.folding_rate != null ? `× ₹${r.folding_rate.toFixed(2)}` : ''}
+                      </td>
+                      <td className="py-1 text-right num font-semibold whitespace-nowrap">
+                        {r.amount != null ? `₹${r.amount.toFixed(2)}` : (
+                          <Link href="/app/settings/fabric-qualities" className="text-amber-700 underline font-normal">rate not set</Link>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-emerald-200">
+                    <td className="py-1 font-semibold" colSpan={3}>Estimated total</td>
+                    <td className="py-1 text-right num font-bold text-emerald-700">₹{foldTotal.toFixed(2)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <p className="text-[10px] text-ink-mute">
+                  Pieces = metres woven ÷ length per piece. Pay on the folding book; cloth woven but not
+                  yet folded carries to next week.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => handleAmountChange(String(Math.round(foldTotal)))}
+                >
+                  Use ₹{Math.round(foldTotal).toLocaleString('en-IN')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {isWinder && kind === 'settlement' && (
         <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 text-xs space-y-1">
           <div className="flex items-center gap-1.5 font-semibold text-ink-soft">
