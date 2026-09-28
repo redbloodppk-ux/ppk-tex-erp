@@ -11,6 +11,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Calculator, Info, Plus } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface BobbinOption { id: number; code: string; description: string; }
 
@@ -297,7 +298,7 @@ export default function CostingCalcPage() {
                     <div className="space-y-2">
                       <div>
                         <L>Bobbin</L>
-                        <select className="input h-8 text-sm w-full mt-1"
+                        <SmartSelect className="input h-8 text-sm w-full mt-1"
                           value={row.bobbinId}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -309,7 +310,7 @@ export default function CostingCalcPage() {
                           {bobbins.map((b) => (
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </div>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                         <Row>

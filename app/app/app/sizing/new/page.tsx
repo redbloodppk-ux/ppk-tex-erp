@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Trash2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
+import { SmartSelect } from '@/app/components/smart-select';
 
 // Insert types — the form builds payloads in plain shapes (string-coerced
 // from <input>) and we cast at the .insert() call so the typed client is
@@ -591,17 +592,17 @@ export default function NewSizingJobPage() {
               </div>
               <div>
                 <label className="label">Sizing Mill *</label>
-                <select required value={sizingVendorId} onChange={e => setSizingVendorId(e.target.value)} className="input">
+                <SmartSelect required value={sizingVendorId} onChange={e => setSizingVendorId(e.target.value)} className="input">
                   <option value="" disabled>Select sizing vendor…</option>
                   {sizingVendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                </SmartSelect>
               </div>
               <div>
                 <label className="label">Yarn Supplier *</label>
-                <select required value={yarnSupplierId} onChange={e => setYarnSupplierId(e.target.value)} className="input">
+                <SmartSelect required value={yarnSupplierId} onChange={e => setYarnSupplierId(e.target.value)} className="input">
                   <option value="" disabled>Select yarn supplier…</option>
                   {eligibleSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                </SmartSelect>
                 <p className="text-[11px] text-ink-mute mt-1">
                   Showing only suppliers who have shipped yarn to the
                   sizing warehouse (delivery&nbsp;=&nbsp;sizing).
@@ -616,7 +617,7 @@ export default function NewSizingJobPage() {
               </div>
               <div>
                 <label className="label">Warp Yarn Count *</label>
-                <select required value={warpCountId} onChange={e => setWarpCountId(e.target.value)} className="input">
+                <SmartSelect required value={warpCountId} onChange={e => setWarpCountId(e.target.value)} className="input">
                   <option value="" disabled>
                     {yarnSupplierId === ''
                       ? 'Pick a yarn supplier first…'
@@ -625,7 +626,7 @@ export default function NewSizingJobPage() {
                         : 'Select count…'}
                   </option>
                   {eligibleCounts.map(c => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
-                </select>
+                </SmartSelect>
                 <p className="text-[11px] text-ink-mute mt-1">
                   Showing only counts the selected supplier has yarn for.
                 </p>
@@ -663,7 +664,7 @@ export default function NewSizingJobPage() {
 
             <div>
               <label className="label">Yarn Lot *</label>
-              <select required value={yarnLotId} onChange={e => setYarnLotId(e.target.value)} className="input">
+              <SmartSelect required value={yarnLotId} onChange={e => setYarnLotId(e.target.value)} className="input">
                 <option value="" disabled>
                   {matchingLots.length
                     ? 'Select a lot…'
@@ -686,7 +687,7 @@ export default function NewSizingJobPage() {
                     </option>
                   );
                 })}
-              </select>
+              </SmartSelect>
               <p className="text-[11px] text-ink-mute mt-1">
                 Showing lots in the <b>{yarnSource === 'in_house' ? 'In-house' : 'Sizing'} warehouse</b> that match the chosen count and supplier.
                 The lot&apos;s <b>current_kg</b> will be reduced by the yarn-sent amount on save.
@@ -765,7 +766,7 @@ export default function NewSizingJobPage() {
               {defaultMode === 'outsource' && (
                 <div className="mt-3">
                   <label className="label">Outsource Weaver (applies to all beams)</label>
-                  <select value={defaultOutsourceVendorId} onChange={e => {
+                  <SmartSelect value={defaultOutsourceVendorId} onChange={e => {
                     setDefaultOutsourceVendorId(e.target.value);
                     setEndsGroups((prev) => prev.map((g) => ({
                       ...g,
@@ -774,7 +775,7 @@ export default function NewSizingJobPage() {
                   }} className="input">
                     <option value="">— Choose later per beam —</option>
                     {weavingVendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+                  </SmartSelect>
                 </div>
               )}
             </div>
@@ -889,14 +890,14 @@ export default function NewSizingJobPage() {
                           {b.production_mode === 'outsource' && (
                             <div>
                               <label className="label">Outsource Weaver *</label>
-                              <select
+                              <SmartSelect
                                 value={b.outsource_vendor_id}
                                 onChange={(e) => patchBeam(gIdx, bIdx, { outsource_vendor_id: e.target.value })}
                                 className="input"
                               >
                                 <option value="">Select weaver…</option>
                                 {weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                              </select>
+                              </SmartSelect>
                             </div>
                           )}
                         </div>

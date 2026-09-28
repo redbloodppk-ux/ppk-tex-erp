@@ -19,6 +19,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/app/components/toggle-switch';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
 
@@ -290,7 +291,7 @@ export default function EndsMasterPage() {
           </div>
           <div>
             <label className="label" htmlFor="ne-count-id">Yarn count</label>
-            <select
+            <SmartSelect
               id="ne-count-id"
               className="input w-56"
               value={neu.count_id}
@@ -302,7 +303,7 @@ export default function EndsMasterPage() {
                   {c.code} - {c.display_name}
                 </option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
           <div className="min-w-[14rem]">
             <label className="label">Display name (auto)</label>
@@ -382,7 +383,7 @@ export default function EndsMasterPage() {
                 </div>
                 <div className="flex-1 min-w-[12rem]">
                   <label className="label text-xs">Yarn count</label>
-                  <select
+                  <SmartSelect
                     className="input w-full"
                     value={r.count_id === null ? '' : String(r.count_id)}
                     onChange={(e) =>
@@ -395,7 +396,7 @@ export default function EndsMasterPage() {
                         {c.code} - {c.display_name}
                       </option>
                     ))}
-                  </select>
+                  </SmartSelect>
                 </div>
               </div>
               <div>
@@ -443,7 +444,7 @@ export default function EndsMasterPage() {
                       />
                     </td>
                     <td className="py-2 pr-3">
-                      <select
+                      <SmartSelect
                         className="input w-48"
                         value={r.count_id === null ? '' : String(r.count_id)}
                         onChange={(e) =>
@@ -458,7 +459,7 @@ export default function EndsMasterPage() {
                             {c.code} - {c.display_name}
                           </option>
                         ))}
-                          </select>
+                          </SmartSelect>
                     </td>
                     <td className="py-2 pr-3 font-semibold text-ink">{r.name}</td>
                     <td className="py-2 pr-3">

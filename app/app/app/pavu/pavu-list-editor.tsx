@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Lock } from 'lucide-react';
 import { syncWarpBeamFromPavu } from './sync-warp-beam';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type ProdMode = 'in_house' | 'outsource';
 
@@ -348,14 +349,14 @@ export function PavuListEditor({ rows, vendors, scope }: Props): React.ReactElem
                         {r.outsource_vendor_name ?? '—'}
                       </div>
                     ) : s.mode === 'outsource' ? (
-                      <select
+                      <SmartSelect
                         value={s.vendorId}
                         onChange={(e) => patch(r.id, { vendorId: e.target.value, saved: false, dirty: true })}
                         className="input py-1 text-xs min-w-[160px]"
                       >
                         <option value="">Select weaver…</option>
                         {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
+                      </SmartSelect>
                     ) : (
                       <span className="text-ink-mute text-xs">—</span>
                     )}

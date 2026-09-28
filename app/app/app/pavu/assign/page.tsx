@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2, History } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface Loom {
   id: number;
@@ -1149,12 +1150,12 @@ function AssignModal({
 
           <div>
             <label className="label">Quality being woven</label>
-            <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
+            <SmartSelect value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
               <option value="">— Not set —</option>
               {qualities.map(q => (
                 <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
 
           <div>
@@ -1271,12 +1272,12 @@ function EditAssignmentModal({
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
           <div>
             <label className="label">Quality being woven</label>
-            <select value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
+            <SmartSelect value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
               <option value="">— Not set —</option>
               {qualities.map(q => (
                 <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
 
           <div>

@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Trash2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface ChallanRow {
   id: number;
@@ -162,13 +163,13 @@ export function ChallanEditForm({
         </div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="ch-ledger">Paid from</label>
-          <select id="ch-ledger" className="input"
+          <SmartSelect id="ch-ledger" className="input"
             value={ledgerId} onChange={(e) => setLedgerId(e.target.value)}>
             <option value="">— not recorded —</option>
             {ledgers.map((l) => (
               <option key={l.id} value={String(l.id)}>{l.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="ch-notes">Notes</label>

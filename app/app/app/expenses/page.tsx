@@ -18,6 +18,7 @@ import { DeleteExpenseButton } from './delete-expense-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Expenses' };
 export const dynamic = 'force-dynamic';
@@ -135,7 +136,7 @@ export default async function ExpensesPage({
       <form method="get" className="card p-4 mb-4 flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-[11px] uppercase tracking-wide text-ink-mute">Category</label>
-          <select
+          <SmartSelect
             name="category"
             defaultValue={category}
             className="input min-w-[180px]"
@@ -144,7 +145,7 @@ export default async function ExpensesPage({
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-[11px] uppercase tracking-wide text-ink-mute">From date</label>

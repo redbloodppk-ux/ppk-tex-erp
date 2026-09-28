@@ -28,6 +28,7 @@ import { formatMetres, formatRupee } from '@/lib/utils';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Layers, Truck, Coins, AlertCircle } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Fabric Movements' };
 export const dynamic = 'force-dynamic';
@@ -496,7 +497,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Fabric Quality</span>
-          <select
+          <SmartSelect
             name="quality_id"
             defaultValue={qualityIdParam}
             className="input min-w-[200px]"
@@ -507,7 +508,7 @@ export default async function FabricMovementsReport({ searchParams }: PageProps)
                 {q.code} — {q.name}
               </option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Party (contains)</span>

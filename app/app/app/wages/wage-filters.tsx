@@ -9,6 +9,7 @@
  */
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, X } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface EmployeeOption {
   id: number;
@@ -41,7 +42,7 @@ export function WageFilters({ employees }: WageFiltersProps): React.ReactElement
     <div className="card p-3 mb-4 flex flex-wrap items-end gap-3">
       <div className="flex flex-col gap-1">
         <label className="text-[11px] uppercase tracking-wide text-ink-mute">Employee</label>
-        <select
+        <SmartSelect
           value={emp}
           onChange={(e) => setParam('emp', e.target.value)}
           className="input input-sm min-w-[200px]"
@@ -52,7 +53,7 @@ export function WageFilters({ employees }: WageFiltersProps): React.ReactElement
               {e.full_name} ({e.code})
             </option>
           ))}
-        </select>
+        </SmartSelect>
       </div>
 
       <div className="flex flex-col gap-1">

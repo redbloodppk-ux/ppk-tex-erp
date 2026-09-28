@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
 import { StatusSwitchField } from '@/app/components/status-switch-field';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface PartyTypeOpt { id: number; code: string; name: string; }
 
@@ -560,7 +561,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
           to the right group. */}
       <div>
         <label className="label">Ledger type</label>
-        <select
+        <SmartSelect
           className="input"
           value={ledgerTypeId}
           onChange={(e) => setLedgerTypeId(e.target.value)}
@@ -569,7 +570,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
           {ledgerTypes.map((t) => (
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
-        </select>
+        </SmartSelect>
         <p className="text-[11px] text-ink-mute mt-1">
           Optional. When set, the party&rsquo;s linked ledger row is
           re-tagged with this type on save. Leave as default if the

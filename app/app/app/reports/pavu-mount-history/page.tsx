@@ -23,6 +23,7 @@ import { formatMetres } from '@/lib/utils';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { History, Layers, Gauge } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Pavu Mount History' };
 export const dynamic = 'force-dynamic';
@@ -469,12 +470,12 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Loom</span>
-          <select name="loom_id" defaultValue={loomIdParam} className="input min-w-[140px]">
+          <SmartSelect name="loom_id" defaultValue={loomIdParam} className="input min-w-[140px]">
             <option value="">All looms</option>
             {looms.map((l) => (
               <option key={l.id} value={l.id}>{l.loom_code}</option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Shed</span>
@@ -496,21 +497,21 @@ export default async function PavuMountHistoryReport({ searchParams }: PageProps
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Quality</span>
-          <select name="quality_code" defaultValue={qualityCodeFilter} className="input min-w-[180px]">
+          <SmartSelect name="quality_code" defaultValue={qualityCodeFilter} className="input min-w-[180px]">
             <option value="">All qualities</option>
             {qualityOptions.map(([code, name]) => (
               <option key={code} value={code}>{code} — {name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Ends</span>
-          <select name="ends" defaultValue={endsParam} className="input min-w-[100px]">
+          <SmartSelect name="ends" defaultValue={endsParam} className="input min-w-[100px]">
             <option value="">All</option>
             {endsOptions.map((e) => (
               <option key={e} value={e}>{e}</option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <button type="submit" className="btn-primary">Apply</button>
         <a href="/app/reports/pavu-mount-history" className="text-xs text-ink-mute self-center hover:text-ink underline">

@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Calculator, Info, Save, Loader2, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 // One row of the "past jobwork bills" modal — surfaces enough to let the
 // user decide whether to retro-apply the new rate. `current_cost` is the
@@ -858,7 +859,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           <div>
             <label className="label">Fabric type *</label>
             <div className="flex items-stretch gap-1.5">
-              <select className="input w-full" value={fabricType}
+              <SmartSelect className="input w-full" value={fabricType}
                 onChange={(e) => setFabricType(e.target.value as string)}>
                 {fabricTypes.length === 0 && (
                   <>
@@ -870,7 +871,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                 {fabricTypes.map((t) => (
                   <option key={t.id} value={t.name.toLowerCase()}>{t.name}</option>
                 ))}
-              </select>
+              </SmartSelect>
               <NewLink href="/app/settings/fabric-types" title="Add new fabric type" />
             </div>
           </div>
@@ -891,44 +892,44 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           <div>
             <label className="label">Warp Count</label>
             <div className="flex items-stretch gap-1.5">
-              <select className="input w-full" value={warpCountId}
+              <SmartSelect className="input w-full" value={warpCountId}
                 onChange={(e) => setWarpCountId(e.target.value)}>
                 <option value="">--- pick ---</option>
                 {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-              </select>
+              </SmartSelect>
               <NewLink href="/app/yarn-counts" title="Add new yarn count" />
             </div>
           </div>
           <div>
             <label className="label">Weft Count</label>
             <div className="flex items-stretch gap-1.5">
-              <select className="input w-full" value={weftCountId}
+              <SmartSelect className="input w-full" value={weftCountId}
                 onChange={(e) => setWeftCountId(e.target.value)}>
                 <option value="">--- pick ---</option>
                 {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-              </select>
+              </SmartSelect>
               <NewLink href="/app/yarn-counts" title="Add new yarn count" />
             </div>
           </div>
           <div>
             <label className="label">Ends spec</label>
             <div className="flex items-stretch gap-1.5">
-              <select className="input w-full" value={endsId}
+              <SmartSelect className="input w-full" value={endsId}
                 onChange={(e) => setEndsId(e.target.value)}>
                 <option value="">--- use form value ---</option>
                 {props.endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
-              </select>
+              </SmartSelect>
               <NewLink href="/app/settings/ends-master" title="Add new ends spec" />
             </div>
           </div>
           <div>
             <label className="label">Porvai yarn count</label>
             <div className="flex items-stretch gap-1.5">
-              <select className="input w-full" value={porvaiCountId}
+              <SmartSelect className="input w-full" value={porvaiCountId}
                 onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
                 <option value="">--- none ---</option>
                 {props.countOptions.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-              </select>
+              </SmartSelect>
               <NewLink href="/app/yarn-counts" title="Add new yarn count" />
             </div>
           </div>

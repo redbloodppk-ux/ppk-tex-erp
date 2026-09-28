@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2 } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 const SHEDS = [1, 2, 3, 4] as const;
 
@@ -300,7 +301,7 @@ export default function LoomsPage() {
           </div>
           <div>
             <label className="label" htmlFor="nl-quality">Fabric quality</label>
-            <select
+            <SmartSelect
               id="nl-quality"
               className="input w-80"
               value={newLoom.fabric_quality_id}
@@ -315,7 +316,7 @@ export default function LoomsPage() {
                   {q.width_in != null ? ` (${q.width_in}in)` : ''}
                 </option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label" htmlFor="nl-shed">Shed</label>
@@ -436,7 +437,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
             </div>
             <div className="flex-1 min-w-[12rem]">
               <label className="label text-xs">Fabric quality</label>
-              <select
+              <SmartSelect
                 className="input w-full"
                 value={l.fabric_quality_id ?? ''}
                 onChange={(e) =>
@@ -450,7 +451,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                     {q.width_in != null ? ` (${q.width_in}in)` : ''}
                   </option>
                 ))}
-              </select>
+              </SmartSelect>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -524,7 +525,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                 />
               </td>
               <td className="py-2 pr-3">
-                <select
+                <SmartSelect
                   className="input w-full min-w-[20rem]"
                   value={l.fabric_quality_id ?? ''}
                   onChange={(e) =>
@@ -541,7 +542,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                       {q.width_in != null ? ` (${q.width_in}in)` : ''}
                     </option>
                   ))}
-                </select>
+                </SmartSelect>
               </td>
               <td className="py-2 pr-3">
                 {l.status === 'running' ? (

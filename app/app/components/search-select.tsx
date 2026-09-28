@@ -49,6 +49,11 @@ export function SearchSelect({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  // The list is position:fixed so a scrolling table or card around the
+  // box (overflow-x-auto) cannot clip it. Its place is measured from the
+  // input whenever it opens, the page scrolls, or the window resizes; it
+  // flips above the input when there is no room below.
+  const [listPos, setListPos] = useState<{ top: number; left: number; width: number; maxH: number } | null>(null);
 
   const selected = useMemo<SearchSelectOption | null>(
     () => options.find((o) => o.value === value) ?? null,
@@ -153,6 +158,31 @@ export function SearchSelect({
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, []);
 
+  useEffect(() => {
+    if (!open) { setListPos(null); return; }
+    function place(): void {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 8;
+      const above = r.top - 8;
+      const want = 256;
+      if (below >= Math.min(want, 160) || below >= above) {
+        setListPos({ top: r.bottom + 4, left: r.left, width: r.width, maxH: Math.max(120, Math.min(want, below)) });
+      } else {
+        const h = Math.min(want, above);
+        setListPos({ top: r.top - 4 - h, left: r.left, width: r.width, maxH: h });
+      }
+    }
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
+
   // Keep the highlighted option scrolled into view while arrowing.
   useEffect(() => {
     if (!open || !listRef.current) return;
@@ -244,7 +274,13 @@ export function SearchSelect({
       {open && (
         <ul
           ref={listRef}
-          className="absolute z-30 mt-1 w-full max-h-64 overflow-auto rounded-lg border border-line bg-white shadow-lg py-1 text-sm"
+          style={listPos
+            ? { position: 'fixed', top: listPos.top, left: listPos.left, width: listPos.width, maxHeight: listPos.maxH }
+            : undefined}
+          className={
+            (listPos ? '' : 'absolute mt-1 w-full max-h-64 ') +
+            'z-50 overflow-auto rounded-lg border border-line bg-white shadow-lg py-1 text-sm'
+          }
         >
           {filtered.length === 0 ? (
             <li className="px-3 py-2 text-ink-mute text-xs">{noMatchText}</li>

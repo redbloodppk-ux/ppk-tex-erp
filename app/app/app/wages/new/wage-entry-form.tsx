@@ -16,6 +16,7 @@ import {
 } from '@/lib/ledgers/payment-sources';
 import { Loader2, Info, AlertTriangle } from 'lucide-react';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
 
@@ -879,7 +880,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     <form onSubmit={submit} className="card p-5 space-y-4 max-w-xl">
       <div>
         <label className="label" htmlFor="employee">Employee</label>
-        <select
+        <SmartSelect
           id="employee"
           className="input"
           value={employeeId}
@@ -892,7 +893,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
               {emp.code} — {emp.full_name} ({emp.role})
             </option>
           ))}
-        </select>
+        </SmartSelect>
         {selected && (
           <p className="text-[11px] text-ink-mute mt-1">
             Allocation basis for this employee:{' '}
@@ -1095,7 +1096,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
 
       <div>
         <label className="label" htmlFor="sourceLedger">Paid from</label>
-        <select
+        <SmartSelect
           id="sourceLedger"
           className="input"
           value={sourceLedgerId}
@@ -1107,7 +1108,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
               {l.label}
             </option>
           ))}
-        </select>
+        </SmartSelect>
         <p className="text-[11px] text-ink-mute mt-1">
           Which account this wage was paid from. It records a matching Credit on
           that cash/bank ledger so its balance reflects money going out.

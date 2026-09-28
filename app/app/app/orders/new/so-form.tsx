@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface CustomerOpt {
   id: number;
@@ -425,7 +426,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
                 <div className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-12 md:col-span-5">
                     <label className="label text-[10px]">Fabric Quality *</label>
-                    <select
+                    <SmartSelect
                       className="input h-9 text-sm w-full"
                       value={l.fabric_quality_id}
                       onChange={(e) => pickQuality(idx, e.target.value)}
@@ -435,7 +436,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
                       {qualities.map((q) => (
                         <option key={q.id} value={q.id}>{q.name}</option>
                       ))}
-                    </select>
+                    </SmartSelect>
                   </div>
                   <div className="col-span-6 md:col-span-2">
                     <label className="label text-[10px]">UoM *</label>

@@ -24,6 +24,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -294,12 +295,12 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
         <input type="hidden" name="tab" value={tab.kind} />
         <div className="flex flex-col">
           <label htmlFor="party" className="text-[10px] uppercase tracking-wide text-ink-mute">Party</label>
-          <select id="party" name="party" defaultValue={partyId !== null ? String(partyId) : ''} className="input py-1 text-xs min-w-[200px]">
+          <SmartSelect id="party" name="party" defaultValue={partyId !== null ? String(partyId) : ''} className="input py-1 text-xs min-w-[200px]">
             <option value="">All parties</option>
             {parties.map((p) => (
               <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div className="flex flex-col">
           <label htmlFor="from" className="text-[10px] uppercase tracking-wide text-ink-mute">From</label>

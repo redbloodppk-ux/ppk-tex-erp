@@ -33,6 +33,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -708,7 +709,7 @@ export default function BobbinPurchasePage() {
             </div>
             <div>
               <label className="label text-xs">Supplier (optional)</label>
-              <select
+              <SmartSelect
                 className="input h-9 text-sm"
                 value={form.supplier_party_id}
                 onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}
@@ -717,7 +718,7 @@ export default function BobbinPurchasePage() {
                 {suppliers.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
-              </select>
+              </SmartSelect>
             </div>
             <div>
               <label className="label text-xs">Notes</label>
@@ -772,7 +773,7 @@ export default function BobbinPurchasePage() {
                     <tr key={idx} className="border-t border-line/40 align-middle">
                       <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
                       <td className="px-2 py-1.5">
-                        <select
+                        <SmartSelect
                           className="input h-8 text-xs w-full"
                           value={it.bobbin_id}
                           onChange={(e) => pickBobbinForItem(idx, e.target.value)}
@@ -790,7 +791,7 @@ export default function BobbinPurchasePage() {
                               {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
                             </option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
                         <input

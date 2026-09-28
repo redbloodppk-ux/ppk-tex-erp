@@ -30,6 +30,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type PavuInsert = Database['public']['Tables']['pavu']['Insert'];
 
@@ -553,17 +554,17 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           </div>
           <div>
             <label className="label">Sizing Mill *</label>
-            <select required value={sizingVendorId} onChange={(e) => setSizingVendorId(e.target.value)} className="input">
+            <SmartSelect required value={sizingVendorId} onChange={(e) => setSizingVendorId(e.target.value)} className="input">
               <option value="" disabled>Select sizing vendor…</option>
               {masters.sizingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Yarn Supplier *</label>
-            <select required value={yarnSupplierId} onChange={(e) => setYarnSupplierId(e.target.value)} className="input">
+            <SmartSelect required value={yarnSupplierId} onChange={(e) => setYarnSupplierId(e.target.value)} className="input">
               <option value="" disabled>Select yarn supplier…</option>
               {eligibleSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            </SmartSelect>
             <p className="text-[11px] text-ink-mute mt-1">
               Showing only suppliers who have shipped yarn to the sizing
               warehouse, plus the current selection.
@@ -571,7 +572,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           </div>
           <div>
             <label className="label">Warp Yarn Count *</label>
-            <select required value={warpCountId} onChange={(e) => setWarpCountId(e.target.value)} className="input">
+            <SmartSelect required value={warpCountId} onChange={(e) => setWarpCountId(e.target.value)} className="input">
               <option value="" disabled>
                 {yarnSupplierId === ''
                   ? 'Pick a yarn supplier first…'
@@ -580,7 +581,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                     : 'Select count…'}
               </option>
               {eligibleCounts.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.display_name}</option>)}
-            </select>
+            </SmartSelect>
             <p className="text-[11px] text-ink-mute mt-1">
               Showing only counts the selected supplier has yarn for.
               The current selection is always kept available.
@@ -613,7 +614,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
 
         <div>
           <label className="label">Yarn Lot *</label>
-          <select required value={yarnLotId} onChange={(e) => setYarnLotId(e.target.value)} className="input">
+          <SmartSelect required value={yarnLotId} onChange={(e) => setYarnLotId(e.target.value)} className="input">
             <option value="" disabled>
               {matchingLots.length ? 'Select a lot…' : 'No matching lots — change count, supplier or warehouse'}
             </option>
@@ -627,7 +628,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                 </option>
               );
             })}
-          </select>
+          </SmartSelect>
           <p className="text-[11px] text-ink-mute mt-1">
             Changing the lot or yarn-sent qty will adjust both lots&rsquo;
             <b> current_kg</b> on save.
@@ -685,7 +686,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           {defaultMode === 'outsource' && (
             <div className="mt-3">
               <label className="label">Outsource Weaver (applies to all beams)</label>
-              <select
+              <SmartSelect
                 value={defaultOutsourceVendorId}
                 onChange={(e) => {
                   setDefaultOutsourceVendorId(e.target.value);
@@ -698,7 +699,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
               >
                 <option value="">— Choose later per beam —</option>
                 {masters.weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
+              </SmartSelect>
             </div>
           )}
         </div>
@@ -785,10 +786,10 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                       {b.production_mode === 'outsource' && (
                         <div>
                           <label className="label">Outsource Weaver *</label>
-                          <select value={b.outsource_vendor_id} onChange={(e) => patchBeam(gIdx, bIdx, { outsource_vendor_id: e.target.value })} className="input">
+                          <SmartSelect value={b.outsource_vendor_id} onChange={(e) => patchBeam(gIdx, bIdx, { outsource_vendor_id: e.target.value })} className="input">
                             <option value="">Select weaver…</option>
                             {masters.weavingVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                          </select>
+                          </SmartSelect>
                         </div>
                       )}
                     </div>

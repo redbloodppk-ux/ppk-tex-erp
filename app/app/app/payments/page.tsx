@@ -38,6 +38,7 @@ import {
   type PartyStream,
 } from '@/lib/party-streams';
 import { loadPartyBills } from '@/lib/party-bills';
+import { SmartSelect } from '@/app/components/smart-select';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -795,12 +796,12 @@ function NewPaymentTab(): React.ReactElement {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="label">Party type</label>
-          <select className="input" value={partyTypeId} onChange={(e) => setPartyTypeId(e.target.value)}>
+          <SmartSelect className="input" value={partyTypeId} onChange={(e) => setPartyTypeId(e.target.value)}>
             <option value="">All types</option>
             {partyTypes.map((pt) => (
               <option key={pt.id} value={pt.id}>{pt.name}</option>
             ))}
-          </select>
+          </SmartSelect>
           <p className="text-[11px] text-ink-mute mt-1">
             Filter the party dropdown — Customer, Mill / Yarn Supplier, Sizing Vendor, Weaving Vendor, etc.
           </p>
@@ -852,7 +853,7 @@ function NewPaymentTab(): React.ReactElement {
 
         <div>
           <label className="label">Mode (Bank / Cash ledger) *</label>
-          <select
+          <SmartSelect
             required
             className="input"
             value={modeLedgerId}
@@ -868,7 +869,7 @@ function NewPaymentTab(): React.ReactElement {
                 {paymentSourceIcon(l.groupName)} {l.label}
               </option>
             ))}
-          </select>
+          </SmartSelect>
           {modeLedgers.length === 0 && (
             <p className="text-[11px] text-amber-700 mt-1">
               No Bank / Cash ledgers exist yet. <a className="underline font-semibold" href="/app/ledgers/new">Add one</a> with type CASH (for cash drawers) or BANK (for each bank account).
@@ -1734,12 +1735,12 @@ function StatusTab(): React.ReactElement {
       <div className="card p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label className="label">Party type</label>
-          <select className="input" value={partyTypeId} onChange={(e) => setPartyTypeId(e.target.value)}>
+          <SmartSelect className="input" value={partyTypeId} onChange={(e) => setPartyTypeId(e.target.value)}>
             <option value="">All types</option>
             {partyTypes.map((pt) => (
               <option key={pt.id} value={pt.id}>{pt.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div>
           <label className="label">Party</label>
@@ -2327,7 +2328,7 @@ function PaymentEditFields({
       </div>
       <div className="sm:col-span-2">
         <label className="label text-[10px]">Bank / Cash ledger</label>
-        <select
+        <SmartSelect
           className="input h-8 text-xs"
           value={ledger}
           onChange={(e) => setLedger(e.target.value)}
@@ -2338,7 +2339,7 @@ function PaymentEditFields({
               {paymentSourceIcon(l.groupName)} {l.label}
             </option>
           ))}
-        </select>
+        </SmartSelect>
       </div>
       <div className="sm:col-span-2">
         <label className="label text-[10px]">Reference</label>

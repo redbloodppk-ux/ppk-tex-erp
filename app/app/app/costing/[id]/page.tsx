@@ -11,6 +11,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import { Calculator, Info, Save, Loader2, CheckCircle2, Trash2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { SmartSelect } from '@/app/components/smart-select';
 
 const DEFAULT_BAGS_PER_M = 0.50;
 const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
@@ -747,7 +748,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
                     <div className="space-y-2">
                       <div>
                         <L>Bobbin</L>
-                        <select
+                        <SmartSelect
                           className={
                             'input h-8 text-sm w-full mt-1 ' +
                             (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')
@@ -764,7 +765,7 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
                           {bobbins.map((b) => (
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </div>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                         <Row>
@@ -917,39 +918,39 @@ export default function EditCostingPage({ params }: EditCostingPageProps): React
           </div>
           <div>
             <label className="label">Warp Count *</label>
-            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+            <SmartSelect className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
               value={warpCountId} disabled={lockConstruction}
               onChange={(e) => setWarpCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Weft Count *</label>
-            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+            <SmartSelect className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
               value={weftCountId} disabled={lockConstruction}
               onChange={(e) => setWeftCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Ends spec</label>
-            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+            <SmartSelect className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
               value={endsId} disabled={lockConstruction}
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {endsOptions.map((e) => (<option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Porvai yarn count</label>
-            <select className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
+            <SmartSelect className={'input w-full ' + (lockConstruction ? 'bg-cloud/40 text-ink-soft cursor-not-allowed' : '')}
               value={porvaiCountId} disabled={lockConstruction || usePorvai === false}
               onChange={(e) => setPorvaiCountId(e.target.value)}>
               <option value="">--- none ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
         </div>
 

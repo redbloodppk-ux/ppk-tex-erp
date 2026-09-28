@@ -37,6 +37,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type ProductionBatchInsert = Database['public']['Tables']['production_batch']['Insert'];
 
@@ -941,7 +942,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
             <label className="label">
               {productionMode === 'jobwork' ? 'Jobwork Party *' : 'Outsource Weaver *'}
             </label>
-            <select
+            <SmartSelect
               required
               value={partyId}
               onChange={(e) => setPartyId(e.target.value)}
@@ -955,7 +956,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                   {p.code} — {p.name}
                 </option>
               ))}
-            </select>
+            </SmartSelect>
             {filteredParties.length === 0 && (
               <div className="text-xs text-amber-700 mt-1">
                 No {productionMode === 'jobwork' ? 'jobwork parties' : 'outsource weavers'} found.

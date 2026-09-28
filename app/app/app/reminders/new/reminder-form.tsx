@@ -19,6 +19,7 @@ import {
   REPEAT_LABEL, WEEKDAY_OPTIONS, MONTHDAY_OPTIONS,
   type ReminderCategory, type ReminderRepeat, type ReminderCategoryRow,
 } from '@/lib/reminders/constants';
+import { SmartSelect } from '@/app/components/smart-select';
 
 const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'biweekly', 'twice_weekly', 'monthly', 'twice_monthly'];
 
@@ -115,7 +116,7 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="category">Category</label>
-          <select
+          <SmartSelect
             id="category"
             className="input"
             value={category}
@@ -124,7 +125,7 @@ export function ReminderForm({ categories }: { categories: ReminderCategoryRow[]
             {categories.map((c) => (
               <option key={c.key} value={c.key}>{c.label}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div>
           <label className="label" htmlFor="dueDate">Due date</label>

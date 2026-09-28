@@ -24,6 +24,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, ExternalLink } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface MonthOption {
   month: string;
@@ -352,13 +353,13 @@ export function TdsChallanForm({
 
       <div>
         <label className="label" htmlFor="ledger">Paid from</label>
-        <select
+        <SmartSelect
           id="ledger" className="input" value={ledgerId}
           onChange={(e) => setLedgerId(e.target.value)}
         >
           {ledgers.length === 0 && <option value="">No cash or bank ledger found</option>}
           {ledgers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
+        </SmartSelect>
       </div>
 
       <div>

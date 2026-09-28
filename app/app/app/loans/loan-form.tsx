@@ -17,6 +17,7 @@ import {
   type PaymentSource, type SupabaseLike,
 } from '@/lib/ledgers/payment-sources';
 import { Loader2 } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface EmployeeOption {
   id: number;
@@ -146,7 +147,7 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
     <form onSubmit={submit} className="card p-5 space-y-4 max-w-xl">
       <div>
         <label className="label" htmlFor="employee">Employee</label>
-        <select
+        <SmartSelect
           id="employee"
           className="input"
           value={employeeId}
@@ -159,7 +160,7 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
               {emp.code} — {emp.full_name} ({emp.role})
             </option>
           ))}
-        </select>
+        </SmartSelect>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -192,7 +193,7 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
 
       <div>
         <label className="label" htmlFor="sourceLedger">Paid from</label>
-        <select
+        <SmartSelect
           id="sourceLedger"
           className="input"
           value={sourceLedgerId}
@@ -204,7 +205,7 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
               {l.label}
             </option>
           ))}
-        </select>
+        </SmartSelect>
         <p className="text-[11px] text-ink-mute mt-1">
           Which account the loan cash came from. It records a matching Credit on
           that cash/bank ledger so its balance reflects money going out.

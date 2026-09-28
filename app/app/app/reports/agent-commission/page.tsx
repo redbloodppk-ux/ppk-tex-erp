@@ -29,6 +29,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Agent Commission' };
 export const dynamic = 'force-dynamic';
@@ -344,7 +345,7 @@ export default async function AgentCommissionReport({
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Agent</span>
-          <select
+          <SmartSelect
             name="agent_id"
             defaultValue={agentIdParam}
             className="input min-w-[200px]"
@@ -355,7 +356,7 @@ export default async function AgentCommissionReport({
                 {a.agent_code ? `${a.agent_code} — ${a.agent_name}` : a.agent_name}
               </option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <button type="submit" className="btn-primary">
           Apply

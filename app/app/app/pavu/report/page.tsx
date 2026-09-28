@@ -17,6 +17,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Loader2, RotateCw } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface StockRow {
   pavu_id: number;
@@ -182,10 +183,10 @@ export default function PavuStockReportPage() {
         </div>
         <div>
           <label className="label">Ends</label>
-          <select value={endsFilter} onChange={e => setEndsFilter(e.target.value)} className="input">
+          <SmartSelect value={endsFilter} onChange={e => setEndsFilter(e.target.value)} className="input">
             <option value="">All</option>
             {endsOptions.map(e => <option key={e} value={e}>{e}</option>)}
-          </select>
+          </SmartSelect>
         </div>
         <div>
           <label className="label">Yarn count</label>

@@ -25,6 +25,7 @@ import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
 type SourceKind = 'sales_order' | 'fabric_stock' | 'fabric_receipt' | 'yarn_lot' | 'free' | 'return';
@@ -2137,7 +2138,7 @@ export default function NewInvoicePage() {
                       <td className="px-2 py-1.5">
                         {/* Source picker if applicable */}
                         {docType === 'yarn_sale' && sourceKind === 'yarn_lot' ? (
-                          <select value={r.yarn_lot_id}
+                          <SmartSelect value={r.yarn_lot_id}
                             onChange={e => pickYarnLotForRow(r.id, e.target.value)}
                             className="input input-sm w-full mb-1">
                             <option value="">— pick yarn lot —</option>
@@ -2146,7 +2147,7 @@ export default function NewInvoicePage() {
                                 {l.lot_code} · {l.yarn_count?.display_name ?? ''} · {Number(l.current_kg).toFixed(0)} kg avail
                               </option>
                             ))}
-                          </select>
+                          </SmartSelect>
                         ) : (docType === 'tax_invoice' && sourceKind === 'fabric_stock') ? (
                           (r.production_fabric_quality_id || r.fabric_purchase_id) ? (
                             /* Stock already picked — collapse into a
@@ -2171,7 +2172,7 @@ export default function NewInvoicePage() {
                               </button>
                             </div>
                           ) : (
-                            <select
+                            <SmartSelect
                               value=""
                               onChange={e => pickFabricStockForRow(r.id, e.target.value)}
                               className="input input-sm w-full mb-1">
@@ -2194,7 +2195,7 @@ export default function NewInvoicePage() {
                                   ))}
                                 </optgroup>
                               )}
-                            </select>
+                            </SmartSelect>
                           )
                         ) : null}
                         <input value={r.description}
@@ -2284,14 +2285,14 @@ export default function NewInvoicePage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="label">Agent</label>
-                  <select
+                  <SmartSelect
                     className="input w-full"
                     value={agentId}
                     onChange={(e) => setAgentId(e.target.value)}
                   >
                     <option value="">— none —</option>
                     {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                  </select>
+                  </SmartSelect>
                 </div>
                 <div>
                   <label className="label">Commission type</label>

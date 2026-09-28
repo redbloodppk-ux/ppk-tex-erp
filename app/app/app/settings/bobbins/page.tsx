@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -268,7 +269,7 @@ export default function BobbinMasterPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="label text-xs">Ends spec *</label>
-            <select
+            <SmartSelect
               className="input h-9 text-sm w-48"
               value={neu.bobbin_ends_master_id}
               onChange={(e) => setNeu((n) => ({ ...n, bobbin_ends_master_id: e.target.value }))}
@@ -277,7 +278,7 @@ export default function BobbinMasterPage() {
               {ends.map((e) => (
                 <option key={e.id} value={e.id}>{e.label}</option>
               ))}
-            </select>
+            </SmartSelect>
             <p className="text-[10px] text-ink-mute mt-1">
               From <strong>Bobbin Ends Master</strong>.
             </p>

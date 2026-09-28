@@ -62,6 +62,7 @@ const VARIANTS: Record<PartyKind, PageVariant> = {
 import { JobworkDcTab } from './dc-tab';
 import { JobworkPaymentTab } from './payment-tab';
 import { CardFilter } from '@/app/components/card-filter';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type Tab = 'dc' | 'bobbin' | 'warp_beam' | 'weft_bag' | 'warp_yarn' | 'payment' | 'weavers';
 
@@ -725,12 +726,12 @@ function RestockForm({ onCancel, onSave, parties, qtyFields, submitLabel }: {
           TEXTILES PRIVATE LIMITED" stay readable. */}
       <div className="min-w-0 md:col-span-2">
         <label className="label text-[10px]">Supplier party</label>
-        <select className="input h-8 text-sm w-full" value={supplier} onChange={(e) => setSupplier(e.target.value)} title={parties.find((p) => String(p.id) === supplier)?.name}>
+        <SmartSelect className="input h-8 text-sm w-full" value={supplier} onChange={(e) => setSupplier(e.target.value)} title={parties.find((p) => String(p.id) === supplier)?.name}>
           <option value="">--- none ---</option>
           {parties.map((p) => (
             <option key={p.id} value={p.id} title={p.name}>{p.name}</option>
           ))}
-        </select>
+        </SmartSelect>
       </div>
       <div className="flex gap-1.5 justify-end min-w-0 md:col-span-2">
         <button type="button" onClick={onCancel} className="btn-ghost h-8 text-xs">Cancel</button>
@@ -1181,7 +1182,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
             </div>
             <div>
               <label className="label text-xs">Supplier (optional)</label>
-              <select
+              <SmartSelect
                 className="input h-9 text-sm"
                 value={addForm.supplier_party_id}
                 onChange={(e) => setAddForm({ ...addForm, supplier_party_id: e.target.value })}
@@ -1190,7 +1191,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                 {bobbinSuppliers.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
-              </select>
+              </SmartSelect>
             </div>
             <div>
               <label className="label text-xs">Reference (DC / Slip no.)</label>
@@ -1251,7 +1252,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                     <tr key={idx} className="border-t border-line/40 align-middle">
                       <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
                       <td className="px-2 py-1.5">
-                        <select
+                        <SmartSelect
                           className="input h-8 text-xs w-full"
                           value={it.bobbin_id}
                           onChange={(e) => pickBobbinForItem(idx, e.target.value)}
@@ -1262,7 +1263,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                               {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
                             </option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
                         <input
@@ -2803,10 +2804,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label>
-            <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Fabric quality</label>
             {/* onFabricChange, not a plain setter: picking a quality must
                 cascade its warp count + ends. This used to be a bare
@@ -2818,10 +2819,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select></div>
           <div><label className="label text-xs">Warp count</label>
-            <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
+            <SmartSelect className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
               <option value="">---</option>
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Total ends (all beams)</label>
             <input type="number" className="input num" value={form.total_ends}
               onChange={(e) => setForm({ ...form, total_ends: e.target.value })}
@@ -2848,10 +2849,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               return <p className="text-[10px] text-ink-mute mt-0.5">Matches {qualities.find((q) => q.id === fid)?.name ?? 'the quality'} ({expected} ends). Applies to all {editingGroupIds.length} beams.</p>;
             })()}</div>
           <div><label className="label text-xs">Sizing party</label>
-            <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
               {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Sizing Set No</label>
             <input className="input" placeholder="e.g. 12" value={form.sizingSetNo}
               onChange={(e) => setForm({ ...form, sizingSetNo: e.target.value })} /></div>
@@ -2870,20 +2871,20 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label>
-            <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Fabric quality</label>
             <select className="input" value={form.fabric_quality_id} onChange={(e) => onFabricChange(e.target.value)}>
               <option value="">---</option>
               {qualities.filter((q) => kind !== 'jobwork' || q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select></div>
           <div><label className="label text-xs">Warp count</label>
-            <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
+            <SmartSelect className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
               <option value="">---</option>
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Total ends</label>
             <input type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
           <div><label className="label text-xs">No. of beams</label>
@@ -2891,10 +2892,10 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div><label className="label text-xs">Total metres</label>
             <input type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
           <div><label className="label text-xs">Sizing party</label>
-            <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
               {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Reference / DC no</label>
             <input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div className="md:col-span-3"><label className="label text-xs">Notes</label>
@@ -2909,25 +2910,25 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label>
-            <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Fabric quality</label>
             <select className="input" value={form.fabric_quality_id} onChange={(e) => onFabricChange(e.target.value)}>
               <option value="">---</option>
               {qualities.filter((q) => q.production_mode === 'job_work').map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
             </select></div>
           <div><label className="label text-xs">Warp count</label>
-            <select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
+            <SmartSelect className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}>
               <option value="">---</option>
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Sizing party</label>
-            <select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
               {sizingParties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Sizing Set No</label>
             <input
               className="input"
@@ -3043,12 +3044,12 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div><label className="label text-xs">Date *</label>
             <input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label>
-            <select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
+            <SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}>
               <option value="">--- pick ---</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Sizing party *</label>
-            <select
+            <SmartSelect
               className="input"
               value={form.supplier_party_id}
               onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}
@@ -3064,9 +3065,9 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {eligibleSizingVendors.map((v) => (
                 <option key={v.ledger_id} value={v.ledger_id}>{v.name}</option>
               ))}
-            </select></div>
+            </SmartSelect></div>
           <div><label className="label text-xs">Sizing job *</label>
-            <select
+            <SmartSelect
               className="input"
               value={form.sizing_job_id}
               onChange={(e) => setForm({ ...form, sizing_job_id: e.target.value })}
@@ -3084,7 +3085,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {eligibleSizingJobs.map((j) => (
                 <option key={j.id} value={j.id}>{j.job_code}{j.set_no ? ' · Set ' + j.set_no : ''}</option>
               ))}
-            </select></div>
+            </SmartSelect></div>
         </div>
 
         {/* Step 2 — pavu beam checklist. Visible once a sizing job is
@@ -3178,14 +3179,14 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             warp-given row. */}
         <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
           <div><label className="label text-xs">Fabric quality *</label>
-            <select
+            <SmartSelect
               className="input"
               value={form.fabric_quality_id}
               onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}
             >
               <option value="">--- pick ---</option>
               {fabricQualitiesForEnds.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
-            </select>
+            </SmartSelect>
             <p className="text-[10px] text-ink-mute mt-0.5">
               {autoEndsValues.length === 1
                 ? `Filtered to qualities with ${autoEndsValues[0]} ends.`
@@ -3215,7 +3216,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
       <div className="card p-3 mb-3 flex flex-wrap items-end gap-3">
         <div>
           <label className="label text-[10px]">Filter by quality</label>
-          <select
+          <SmartSelect
             className="input h-9 w-56"
             value={filterQualityId}
             onChange={(e) => setFilterQualityId(e.target.value)}
@@ -3224,11 +3225,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             {qualities.map((q) => (
               <option key={q.id} value={String(q.id)}>{q.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <div>
           <label className="label text-[10px]">Filter by party</label>
-          <select
+          <SmartSelect
             className="input h-9 w-56"
             value={filterPartyId}
             onChange={(e) => setFilterPartyId(e.target.value)}
@@ -3237,7 +3238,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             {parties.map((p) => (
               <option key={p.id} value={String(p.id)}>{p.code} - {p.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         {(filterQualityId !== '' || filterPartyId !== '') && (
           <button
@@ -3544,11 +3545,11 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
-          <div><label className="label text-xs">{partyLabel} *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
-          <div><label className="label text-xs">Yarn count</label><select className="input" value={form.yarn_count_id} onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</select></div>
+          <div><label className="label text-xs">{partyLabel} *</label><SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</SmartSelect></div>
+          <div><label className="label text-xs">Yarn count</label><SmartSelect className="input" value={form.yarn_count_id} onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Bag count</label><input type="number" className="input num" value={form.bag_count} onChange={(e) => setForm({ ...form, bag_count: e.target.value })} /></div>
           <div><label className="label text-xs">Total kg</label><input type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
-          <div><label className="label text-xs">Supplier party</label><select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+          <div><label className="label text-xs">Supplier party</label><SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Reference / DC no</label><input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div><label className="label text-xs">Notes</label><input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
@@ -3835,14 +3836,14 @@ function WarpYarnTab({
         )}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
-          <div><label className="label text-xs">{partyLabel} *</label><select className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</select></div>
-          <div><label className="label text-xs">Fabric quality</label><select className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></div>
-          <div><label className="label text-xs">Ends spec</label><select className="input" value={form.ends_id} onChange={(e) => setForm({ ...form, ends_id: e.target.value })}><option value="">---</option>{endsOptions.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></div>
-          <div><label className="label text-xs">Warp count</label><select className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</select></div>
+          <div><label className="label text-xs">{partyLabel} *</label><SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</SmartSelect></div>
+          <div><label className="label text-xs">Fabric quality</label><SmartSelect className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</SmartSelect></div>
+          <div><label className="label text-xs">Ends spec</label><SmartSelect className="input" value={form.ends_id} onChange={(e) => setForm({ ...form, ends_id: e.target.value })}><option value="">---</option>{endsOptions.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</SmartSelect></div>
+          <div><label className="label text-xs">Warp count</label><SmartSelect className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Total kg</label><input type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
           <div><label className="label text-xs">Sizing rate Rs/kg</label><input type="number" step={0.5} className="input num" value={form.sizing_rate_per_kg} onChange={(e) => setForm({ ...form, sizing_rate_per_kg: e.target.value })} /></div>
           <div><label className="label text-xs">Total cost</label><input type="number" step={0.01} className="input num" value={form.total_cost} onChange={(e) => setForm({ ...form, total_cost: e.target.value })} /></div>
-          <div><label className="label text-xs">Supplier party</label><select className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+          <div><label className="label text-xs">Supplier party</label><SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Reference / DC no</label><input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div className="md:col-span-2"><label className="label text-xs">Notes</label><input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>

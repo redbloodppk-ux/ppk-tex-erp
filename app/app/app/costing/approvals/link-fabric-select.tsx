@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ExternalLink, Loader2 } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface FabricOption {
   id: number;
@@ -72,7 +73,7 @@ export function LinkFabricSelect({ costingId, fabrics, linkedFabricId }: LinkFab
 
   return (
     <div className="inline-flex items-center gap-2 max-w-full" title={err ?? undefined}>
-      <select
+      <SmartSelect
         value={value}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
@@ -84,7 +85,7 @@ export function LinkFabricSelect({ costingId, fabrics, linkedFabricId }: LinkFab
             {f.code ? `${f.code} - ` : ''}{f.name}
           </option>
         ))}
-      </select>
+      </SmartSelect>
       {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-ink-mute shrink-0" />}
       {value !== '' && !busy && (
         <Link

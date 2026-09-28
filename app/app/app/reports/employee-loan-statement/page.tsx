@@ -22,6 +22,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Users, HandCoins, Wallet, AlertCircle } from 'lucide-react';
 import { recordDateBounds, clampDate, ALL_SOURCES } from '@/lib/reports/record-bounds';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Employee Loan Statement' };
 export const dynamic = 'force-dynamic';
@@ -272,14 +273,14 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Employee</span>
-          <select name="emp" defaultValue={empParam} className="input min-w-[200px]">
+          <SmartSelect name="emp" defaultValue={empParam} className="input min-w-[200px]">
             <option value="">All employees</option>
             {emps.map((e) => (
               <option key={e.employee_id} value={e.employee_id}>
                 {e.code ? `${e.code} — ${e.full_name}` : e.full_name}
               </option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <button type="submit" className="btn-primary">
           Apply

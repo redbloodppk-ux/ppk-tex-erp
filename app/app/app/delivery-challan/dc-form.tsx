@@ -33,6 +33,7 @@ import {
   type PieceSel,
 } from '@/lib/dc-leftover';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export type ProductionMode = 'inhouse' | 'jobwork' | 'outsource';
 
@@ -2227,14 +2228,14 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                   <div className="col-span-12 md:col-span-1 text-xs text-ink-mute pt-2">Item #{it.sno}</div>
                   <div className="col-span-12 md:col-span-4">
                     <label className="label text-[10px]">Fabric Quality</label>
-                    <select className="input h-9 text-sm w-full"
+                    <SmartSelect className="input h-9 text-sm w-full"
                       value={it.fabric_quality_id}
                       onChange={(e) => pickFabric(itemIdx, e.target.value)}>
                       <option value="">--- pick ---</option>
                       {filteredQualities.map((q) => (
                         <option key={q.id} value={q.id}>{q.name}</option>
                       ))}
-                    </select>
+                    </SmartSelect>
                   </div>
                   <div className="col-span-8 md:col-span-4">
                     <label className="label text-[10px]">Description</label>

@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Pencil, Printer, Receipt, PackageCheck } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { SmartSelect } from '@/app/components/smart-select';
 
 interface PartyOpt { id: number; code: string; name: string }
 interface QualityOpt { id: number; code: string | null; name: string }
@@ -234,7 +235,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
       <div className="card p-3 flex flex-wrap items-end gap-3">
         <div className="flex flex-col">
           <label htmlFor="dc-party" className="text-[10px] uppercase tracking-wide text-ink-mute">Jobwork party</label>
-          <select
+          <SmartSelect
             id="dc-party"
             value={partyFilter}
             onChange={(e) => setPartyFilter(e.target.value)}
@@ -244,12 +245,12 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
             {parties.map((p) => (
               <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
 
         <div className="flex flex-col">
           <label htmlFor="dc-quality" className="text-[10px] uppercase tracking-wide text-ink-mute">Fabric quality</label>
-          <select
+          <SmartSelect
             id="dc-quality"
             value={qualityFilter}
             onChange={(e) => setQualityFilter(e.target.value)}
@@ -259,7 +260,7 @@ export function JobworkDcTab({ qualities, kind = 'jobwork' }: JobworkDcTabProps)
             {qualities.map((q) => (
               <option key={q.id} value={q.id}>{q.code ?? q.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
 
         {(partyFilter !== '' || qualityFilter !== '') && (

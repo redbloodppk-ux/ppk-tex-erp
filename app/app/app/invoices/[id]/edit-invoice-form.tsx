@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ShipToPicker, shipToPayload, EMPTY_SHIP_TO, type ShipToValue } from '@/app/components/ship-to-picker';
 import { useColumnHistory } from '@/app/components/use-column-history';
 import { Loader2, Save, Calculator } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type Status = 'draft' | 'issued' | 'partial_paid' | 'paid' | 'overdue' | 'cancelled';
 
@@ -555,10 +556,10 @@ export function EditInvoiceForm({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="label">Agent</label>
-                <select className="input w-full" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+                <SmartSelect className="input w-full" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
                   <option value="">— none —</option>
                   {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                </select>
+                </SmartSelect>
               </div>
               <div>
                 <label className="label">Commission type</label>

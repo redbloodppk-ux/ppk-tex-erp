@@ -28,6 +28,7 @@ import { Loader2, Plus, X, Trash2, Pencil, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { ExistingOpeningRow, BobbinEndsOpt } from './opening-stock-form';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface InhouseBobbinMasterOpt {
   id: number;
@@ -370,7 +371,7 @@ export function InhouseBobbinOpeningStockForm({
                     <tr key={idx} className="border-t border-line/40 align-middle">
                       <td className="px-2 py-1.5 text-ink-mute">{idx + 1}</td>
                       <td className="px-2 py-1.5">
-                        <select
+                        <SmartSelect
                           className="input h-8 text-xs w-full"
                           value={it.bobbin_id}
                           onChange={(e) => pickBobbinForItem(idx, e.target.value)}
@@ -383,7 +384,7 @@ export function InhouseBobbinOpeningStockForm({
                               {b.code} ({b.ends_per_bobbin} ends{b.is_lurex ? ' · lurex' : ''})
                             </option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
                         <input

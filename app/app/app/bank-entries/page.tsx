@@ -24,6 +24,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Bank Entries' };
 export const dynamic = 'force-dynamic';
@@ -149,12 +150,12 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
         </label>
         <label className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-ink-mute">Category</span>
-          <select name="category" defaultValue={categoryFilter !== null ? String(categoryFilter) : ''} className="input py-1 text-xs min-w-[180px]">
+          <SmartSelect name="category" defaultValue={categoryFilter !== null ? String(categoryFilter) : ''} className="input py-1 text-xs min-w-[180px]">
             <option value="">All categories</option>
             {categoryOptions.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <label className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-ink-mute">P&amp;L treatment</span>

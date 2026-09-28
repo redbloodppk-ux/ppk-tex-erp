@@ -29,6 +29,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Purchase Register (GSTR 2B)' };
 export const dynamic = 'force-dynamic';
@@ -376,7 +377,7 @@ export default async function PurchaseRegisterReport({
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Supplier</span>
-          <select
+          <SmartSelect
             name="party_id"
             defaultValue={partyIdParam}
             className="input min-w-[200px]"
@@ -387,7 +388,7 @@ export default async function PurchaseRegisterReport({
                 {p.code ? `${p.code} — ${p.name}` : p.name}
               </option>
             ))}
-          </select>
+          </SmartSelect>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">Source</span>

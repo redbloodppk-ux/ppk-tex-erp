@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, ChevronDown, ChevronRight } from 'lucide-react';
 import { syncWarpBeamFromPavus } from './sync-warp-beam';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type ProdMode = 'in_house' | 'outsource';
 type Scope    = 'whole' | 'beam_wise';
@@ -301,14 +302,14 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
                     )}
 
                     {showOutsourceControls && s.scope === 'whole' && (
-                      <select
+                      <SmartSelect
                         value={s.vendorId}
                         onChange={(e) => patch(j.id, { vendorId: e.target.value, saved: false })}
                         className="input py-1 text-xs min-w-[180px]"
                       >
                         <option value="">Select weaver…</option>
                         {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
+                      </SmartSelect>
                     )}
 
                     {showOutsourceControls && s.scope === 'beam_wise' && (
@@ -337,14 +338,14 @@ export function BulkRoutingForm({ jobs, vendors }: Props): React.ReactElement {
                             <span className="text-ink-mute w-24 inline-block">
                               {b.ends} ends · {b.meters.toLocaleString('en-IN', { maximumFractionDigits: 0 })} m
                             </span>
-                            <select
+                            <SmartSelect
                               value={s.beamVendorIds[b.id] ?? ''}
                               onChange={(e) => setBeamVendor(j.id, b.id, e.target.value)}
                               className="input py-1 text-xs flex-1 min-w-[180px]"
                             >
                               <option value="">Keep in-house</option>
                               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                            </select>
+                            </SmartSelect>
                           </div>
                         ))}
                       </div>

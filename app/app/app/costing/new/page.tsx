@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { formatRupee } from '@/lib/utils';
 import { Calculator, Info, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 const DEFAULT_BAGS_PER_M = 0.50;
 const DEFAULT_EMPTY_BEAM_PER_M = 1.00;
@@ -507,7 +508,7 @@ export default function NewCostingPage() {
                     <div className="space-y-2">
                       <div>
                         <L>Bobbin</L>
-                        <select className="input h-8 text-sm w-full mt-1"
+                        <SmartSelect className="input h-8 text-sm w-full mt-1"
                           value={row.bobbinId}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -519,7 +520,7 @@ export default function NewCostingPage() {
                           {bobbins.map((b) => (
                             <option key={b.id} value={String(b.id)}>{b.code} - {b.description}</option>
                           ))}
-                        </select>
+                        </SmartSelect>
                       </div>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                         <Row>
@@ -716,39 +717,39 @@ export default function NewCostingPage() {
           </div>
           <div>
             <label className="label">Warp Count *</label>
-            <select className="input w-full" value={warpCountId}
+            <SmartSelect className="input w-full" value={warpCountId}
               onChange={(e) => setWarpCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Weft Count *</label>
-            <select className="input w-full" value={weftCountId}
+            <SmartSelect className="input w-full" value={weftCountId}
               onChange={(e) => setWeftCountId(e.target.value)}>
               <option value="">--- pick ---</option>
               {counts.map((c) => (<option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Ends spec</label>
-            <select className="input w-full" value={endsId}
+            <SmartSelect className="input w-full" value={endsId}
               onChange={(e) => setEndsId(e.target.value)}>
               <option value="">--- use form value ---</option>
               {endsOptions.map((e) => (
                 <option key={e.id} value={String(e.id)}>{e.code} - {e.name}</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
           <div>
             <label className="label">Porvai yarn count</label>
-            <select className="input w-full" value={porvaiCountId}
+            <SmartSelect className="input w-full" value={porvaiCountId}
               onChange={(e) => setPorvaiCountId(e.target.value)} disabled={usePorvai === false}>
               <option value="">--- none ---</option>
               {counts.map((c) => (
                 <option key={c.id} value={String(c.id)}>{c.code} - {c.display_name}</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
         </div>
 

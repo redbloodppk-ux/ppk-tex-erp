@@ -27,6 +27,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Plus, X, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDay } from '@/lib/utils';
+import { SmartSelect } from '@/app/components/smart-select';
 
 type Bucket = 'warp_beam' | 'weft_yarn' | 'porvai_yarn' | 'bobbin';
 
@@ -312,7 +313,7 @@ export function OpeningStockForm({
               </div>
               <div>
                 <label className="label text-xs">Warp Count *</label>
-                <select
+                <SmartSelect
                   className="input h-9 text-sm"
                   value={form.yarn_count_id}
                   onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}
@@ -321,7 +322,7 @@ export function OpeningStockForm({
                   {counts.map((c) => (
                     <option key={c.id} value={c.id}>{c.code} - {c.display_name ?? ''}</option>
                   ))}
-                </select>
+                </SmartSelect>
                 <p className="text-[10px] text-ink-mute mt-1">
                   Combined with ends so &ldquo;1770 × 29s&rdquo; and &ldquo;1770 × 2/40s&rdquo; sit on separate pivot columns.
                 </p>
@@ -332,7 +333,7 @@ export function OpeningStockForm({
           {(bucket === 'weft_yarn' || bucket === 'porvai_yarn') && (
             <div>
               <label className="label text-xs">Yarn Count *</label>
-              <select
+              <SmartSelect
                 className="input h-9 text-sm"
                 value={form.yarn_count_id}
                 onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}
@@ -341,7 +342,7 @@ export function OpeningStockForm({
                 {counts.map((c) => (
                   <option key={c.id} value={c.id}>{c.code} - {c.display_name ?? ''}</option>
                 ))}
-              </select>
+              </SmartSelect>
             </div>
           )}
 
@@ -349,7 +350,7 @@ export function OpeningStockForm({
             <>
               <div>
                 <label className="label text-xs">Bobbin master</label>
-                <select
+                <SmartSelect
                   className="input h-9 text-sm"
                   value={form.bobbin_id}
                   onChange={(e) => {
@@ -373,7 +374,7 @@ export function OpeningStockForm({
                   {bobbinMasters.map((b) => (
                     <option key={b.id} value={b.id}>{b.code} {b.ends_per_bobbin ? `· ${b.ends_per_bobbin} ends` : ''}</option>
                   ))}
-                </select>
+                </SmartSelect>
               </div>
               <div>
                 <label className="label text-xs">Ends per bobbin *</label>
@@ -382,7 +383,7 @@ export function OpeningStockForm({
                     Set up Bobbin Ends Master first.
                   </div>
                 ) : (
-                  <select
+                  <SmartSelect
                     className="input h-9 text-sm"
                     value={form.ends_per_bobbin}
                     onChange={(e) => setForm({ ...form, ends_per_bobbin: e.target.value })}
@@ -391,7 +392,7 @@ export function OpeningStockForm({
                     {bobbinEndsOptions.map((o) => (
                       <option key={o.id} value={o.ends_count}>{o.label}</option>
                     ))}
-                  </select>
+                  </SmartSelect>
                 )}
                 <p className="text-[10px] text-ink-mute mt-1">
                   Managed in Settings &rarr; Bobbin Ends Master.

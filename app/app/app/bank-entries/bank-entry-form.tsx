@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, Trash2 } from 'lucide-react';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface BankCategoryOpt {
   id: number;
@@ -287,7 +288,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
 
       <div>
         <label className="label">Category *</label>
-        <select
+        <SmartSelect
           className="input"
           required={!addOpen}
           value={form.category_id}
@@ -309,7 +310,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
             </option>
           ))}
           <option value="__add_new__">+ Add new category…</option>
-        </select>
+        </SmartSelect>
 
         {/* Inline "create a new category" form — appears below the
             select when the operator picks "+ Add new category…". */}
@@ -382,26 +383,26 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="label">Bank / Cash account *</label>
-          <select className="input" required value={form.bank_ledger_id}
+          <SmartSelect className="input" required value={form.bank_ledger_id}
             onChange={(e) => setForm({ ...form, bank_ledger_id: e.target.value })}>
             <option value="">--- pick a bank or cash ledger ---</option>
             {bankLedgers.map((l) => (
               <option key={l.id} value={l.id}>{l.name}</option>
             ))}
-          </select>
+          </SmartSelect>
           <p className="text-[10px] text-ink-mute mt-1">
             Only ledgers tagged as Bank / Cash type show here.
           </p>
         </div>
         <div>
           <label className="label">Other ledger (the &ldquo;against&rdquo; side)</label>
-          <select className="input" value={form.other_ledger_id}
+          <SmartSelect className="input" value={form.other_ledger_id}
             onChange={(e) => setForm({ ...form, other_ledger_id: e.target.value })}>
             <option value="">--- optional ---</option>
             {allLedgers.map((l) => (
               <option key={l.id} value={l.id}>{l.name}{l.type_name ? ` · ${l.type_name}` : ''}</option>
             ))}
-          </select>
+          </SmartSelect>
           <p className="text-[10px] text-ink-mute mt-1">
             E.g. for EB bill → &ldquo;EB Expense&rdquo;; for Loan EMI → &ldquo;Loan A/c&rdquo;; for Cash Withdraw → &ldquo;Cash in Hand&rdquo;.
             <br />

@@ -15,6 +15,7 @@ import {
 } from '@/lib/ledgers/payment-sources';
 import { Loader2 } from 'lucide-react';
 import { SearchSelect } from '@/app/components/search-select';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export interface InitialExpense {
   id: number;
@@ -284,7 +285,7 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
 
       <div>
         <label className="label" htmlFor="sourceLedger">Paid from</label>
-        <select
+        <SmartSelect
           id="sourceLedger"
           className="input"
           value={sourceLedgerId}
@@ -294,7 +295,7 @@ export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.Reac
           {sourceLedgers.map((l) => (
             <option key={l.id} value={l.id}>{l.label}</option>
           ))}
-        </select>
+        </SmartSelect>
         <p className="text-[11px] text-ink-mute mt-1">
           Which account this expense was paid from. It records a matching Credit
           on that ledger so its balance reflects money going out.

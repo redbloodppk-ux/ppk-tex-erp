@@ -17,6 +17,7 @@ import { DeleteLoanButton } from './delete-loan-button';
 import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Loans' };
 export const dynamic = 'force-dynamic';
@@ -178,12 +179,12 @@ export default async function LoansPage({
       <form method="GET" className="card p-3 mb-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="label" htmlFor="emp">Employee</label>
-          <select id="emp" name="emp" defaultValue={empId != null ? String(empId) : ''} className="input min-w-[200px]">
+          <SmartSelect id="emp" name="emp" defaultValue={empId != null ? String(empId) : ''} className="input min-w-[200px]">
             <option value="">All employees</option>
             {employees.map((e) => (
               <option key={e.id} value={e.id}>{e.code} — {e.full_name}</option>
             ))}
-          </select>
+          </SmartSelect>
         </div>
         <button type="submit" className="btn-primary min-h-[40px]">Apply</button>
       </form>

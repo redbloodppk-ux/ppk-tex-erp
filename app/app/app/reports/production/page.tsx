@@ -25,6 +25,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { SmartSelect } from '@/app/components/smart-select';
 
 export const metadata = { title: 'Production Report' };
 export const dynamic = 'force-dynamic';
@@ -577,7 +578,7 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
 
           <div className="flex flex-col">
             <label htmlFor="weaver" className="text-[10px] uppercase tracking-wide text-ink-mute">Weaver</label>
-            <select
+            <SmartSelect
               id="weaver"
               name="weaver"
               defaultValue={weaverFilter !== null ? String(weaverFilter) : ''}
@@ -587,12 +588,12 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
               {allWeavers.map((w) => (
                 <option key={w.id} value={w.id}>{w.full_name} ({w.code})</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
 
           <div className="flex flex-col">
             <label htmlFor="quality" className="text-[10px] uppercase tracking-wide text-ink-mute">Quality</label>
-            <select
+            <SmartSelect
               id="quality"
               name="quality"
               defaultValue={qualityFilter !== null ? String(qualityFilter) : ''}
@@ -602,7 +603,7 @@ export default async function ProductionReportPage({ searchParams }: PageProps) 
               {allQualities.map((q) => (
                 <option key={q.id} value={q.id}>{q.code} - {q.name}</option>
               ))}
-            </select>
+            </SmartSelect>
           </div>
 
           <button type="submit" className="btn-secondary text-xs py-1 px-3">Apply</button>
