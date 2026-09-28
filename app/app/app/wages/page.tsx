@@ -18,6 +18,9 @@ import { DeleteWageButton } from './delete-wage-button';
 import { WageFilters } from './wage-filters';
 import { CardFilter } from '@/app/components/card-filter';
 import { SortableTh, type SortDir } from '@/app/components/sortable-th';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Wages' };
 export const dynamic = 'force-dynamic';
@@ -62,9 +65,10 @@ const KIND_PILL: Record<Kind, string> = {
 export default async function WagesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ emp?: string; from?: string; to?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<{ emp?: string; from?: string; to?: string; sort?: string; dir?: string; limit?: string }>;
 }): Promise<React.ReactElement> {
   const sp = await searchParams;
+  const limit = readLimit(sp.limit, 200);
   const empId = sp.emp != null && /^\d+$/.test(sp.emp) ? Number(sp.emp) : null;
   // Basic ISO-date guard so a malformed param can't break the query.
   const isDate = (s: string | undefined): s is string => s != null && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -87,11 +91,11 @@ export default async function WagesPage({
     .select(`
       id, pay_date, period_start, period_end, kind, amount, notes, created_at,
       employee:employee_id ( code, full_name, wage_alloc_basis )
-    `)
+    `, { count: 'exact' })
     .order(sortKey, { ascending: dir === 'asc' })
     // Stable tiebreaker so equal sort keys keep a deterministic order.
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(limit);
 
   // Employee filter.
   if (empId != null) query = query.eq('employee_id', empId);
@@ -101,7 +105,18 @@ export default async function WagesPage({
   if (to != null)   query = query.lte('period_start', to);
   if (from != null) query = query.gte('period_end', from);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
+
+  // Total over EVERY matching entry, not just the rows on screen.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const amounts = await fetchAll<{ amount: number }>((lo, hi) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase as any).from('wage_entry').select('amount').order('id').range(lo, hi);
+    if (empId != null) q = q.eq('employee_id', empId);
+    if (to != null)   q = q.lte('period_start', to);
+    if (from != null) q = q.gte('period_end', from);
+    return q;
+  });
 
   // Employee dropdown options — active employees, name-sorted.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,7 +127,8 @@ export default async function WagesPage({
   const employees = ((empData ?? []) as Array<{ id: number; code: string; full_name: string }>);
 
   const rows = (data as unknown as WageRow[]) ?? [];
-  const total = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  const total = amounts.rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  const totalCount: number | null = typeof count === 'number' ? count : null;
 
   // Preserve the active filters when a sortable header is clicked.
   const sortParams: Record<string, string | undefined> = {
@@ -143,11 +159,14 @@ export default async function WagesPage({
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Entries shown</div>
-          <div className="num text-xl font-bold">{rows.length}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Entries</div>
+          <div className="num text-xl font-bold">{totalCount ?? rows.length}</div>
+          {totalCount != null && totalCount > rows.length && (
+            <div className="text-[11px] text-ink-mute">latest {rows.length} listed below</div>
+          )}
         </div>
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total paid (shown)</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total paid</div>
           <div className="num text-xl font-bold">{formatRupee(total)}</div>
         </div>
       </div>
@@ -283,6 +302,7 @@ export default async function WagesPage({
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={totalCount} limit={limit} basePath="/app/wages" params={sp} noun="wage entries" />
     </div>
   );
 }

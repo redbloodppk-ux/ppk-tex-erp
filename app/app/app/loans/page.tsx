@@ -15,6 +15,8 @@ import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { DeleteLoanButton } from './delete-loan-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
 
 export const metadata = { title: 'Loans' };
 export const dynamic = 'force-dynamic';
@@ -31,9 +33,10 @@ interface LoanRow {
 export default async function LoansPage({
   searchParams,
 }: {
-  searchParams: Promise<{ emp?: string }>;
+  searchParams: Promise<{ emp?: string; limit?: string }>;
 }): Promise<React.ReactElement> {
   const sp = await searchParams;
+  const loanLimit = readLimit(sp.limit, 300);
   const empId = sp.emp != null && /^\d+$/.test(sp.emp) ? Number(sp.emp) : null;
 
   const supabase = await createClient();
@@ -47,13 +50,13 @@ export default async function LoansPage({
       id, loan_date, amount, notes,
       employee:employee_id ( code, full_name ),
       source:source_ledger_id ( name )
-    `)
+    `, { count: 'exact' })
     .order('loan_date', { ascending: false })
-    .limit(300);
+    .limit(loanLimit);
 
   if (empId != null) query = query.eq('employee_id', empId);
 
-  const { data, error } = await query;
+  const { data, error, count: loanCount } = await query;
   const rows = (data as unknown as LoanRow[]) ?? [];
 
   // Employee dropdown options.
@@ -312,6 +315,7 @@ export default async function LoansPage({
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={typeof loanCount === 'number' ? loanCount : null} limit={loanLimit} basePath="/app/loans" params={sp} noun="loans" />
 
       {/* Per-employee position: disbursed vs repaid vs outstanding. */}
       {empSummary.length > 0 && (

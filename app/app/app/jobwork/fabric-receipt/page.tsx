@@ -21,6 +21,9 @@ import { DeleteReceiptButton } from './[id]/delete-button';
 import { ReorganizeReceiptsButton } from './reorganize-button';
 import { RebuildLedgerButton } from './rebuild-ledger-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Fabric Receipts' };
 export const dynamic = 'force-dynamic';
@@ -95,6 +98,7 @@ interface PageProps {
     party?: string;
     from?: string;
     to?: string;
+    limit?: string;
   }>;
 }
 
@@ -140,25 +144,39 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
     party:party_id ( id, name, code ),
     dc:dc_id!inner ( id, code, production_mode )
   `;
+  const limit = readLimit(sp.limit, 200);
   const buildQuery = (includeSnapshot: boolean) => {
     let q = sb.from('fabric_receipt')
-      .select(includeSnapshot ? baseCols.replace('remarks,', 'remarks, stock_snapshot,') : baseCols)
+      .select(includeSnapshot ? baseCols.replace('remarks,', 'remarks, stock_snapshot,') : baseCols, { count: 'exact' })
       .eq('dc.production_mode', tab.productionMode)
       .order('receipt_date', { ascending: false })
       .order('id', { ascending: false })
-      .limit(200);
+      .limit(limit);
     if (partyId !== null) q = q.eq('party_id', partyId);
     if (fromDate !== null) q = q.gte('receipt_date', fromDate);
     if (toDate   !== null) q = q.lte('receipt_date', toDate);
     return q;
   };
 
-  let { data, error } = await buildQuery(true);
+  let { data, error, count } = await buildQuery(true);
   if (error && /stock_snapshot/i.test(error.message ?? '')) {
     const fallback = await buildQuery(false);
     data  = fallback.data;
     error = fallback.error;
+    count = fallback.count;
   }
+  // KPI totals over EVERY matching receipt, not just the rows listed.
+  const allTotals = await fetchAll<{ total_metres: number | string | null; total_pieces: number | null }>((lo, hi) => {
+    let q = sb.from('fabric_receipt')
+      .select('id, total_metres, total_pieces, dc:dc_id!inner ( production_mode )')
+      .eq('dc.production_mode', tab.productionMode)
+      .order('id')
+      .range(lo, hi);
+    if (partyId !== null) q = q.eq('party_id', partyId);
+    if (fromDate !== null) q = q.gte('receipt_date', fromDate);
+    if (toDate   !== null) q = q.lte('receipt_date', toDate);
+    return q;
+  });
   const rows = (data ?? []) as ReceiptRow[];
 
   // Party filter dropdown. We narrow the list to the party type that
@@ -192,7 +210,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
       });
 
   // KPI totals across the filtered rows.
-  const totals = rows.reduce<{ m: number; p: number }>(
+  const totals = allTotals.rows.reduce<{ m: number; p: number }>(
     (acc, r) => ({
       m: acc.m + Number(r.total_metres ?? 0),
       p: acc.p + (r.total_pieces ?? 0),
@@ -302,8 +320,8 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Receipts shown</div>
-          <div className="num text-xl font-bold">{rows.length}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Receipts</div>
+          <div className="num text-xl font-bold">{typeof count === 'number' ? count : rows.length}</div>
         </div>
         <div className="card p-3">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute">Total metres</div>
@@ -471,6 +489,7 @@ export default async function FabricReceiptListPage({ searchParams }: PageProps)
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={typeof count === 'number' ? count : null} limit={limit} basePath={baseHref} params={sp} noun="receipts" />
     </div>
   );
 }

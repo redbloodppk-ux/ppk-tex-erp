@@ -14,6 +14,9 @@ import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil, FileText } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'General Purchases' };
 export const dynamic = 'force-dynamic';
@@ -38,22 +41,32 @@ function fmtDate(s: string | null): string {
   return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-export default async function GeneralPurchasesListPage() {
+export default async function GeneralPurchasesListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ limit?: string }>;
+}) {
+  const sp = await searchParams;
+  const limit = readLimit(sp.limit, 300);
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const { data } = await sb
+  const { data, count } = await sb
     .from('general_purchase')
-    .select('id, bill_no, bill_date, description, taxable, gst_pct, total, status, party:supplier_party_id ( name, code )')
+    .select('id, bill_no, bill_date, description, taxable, gst_pct, total, status, party:supplier_party_id ( name, code )', { count: 'exact' })
     .eq('status', 'active')
     .order('bill_date', { ascending: false })
     .order('id', { ascending: false })
-    .limit(300);
+    .limit(limit);
+  // Totals over every active bill, not just the rows listed.
+  const allBills = await fetchAll<{ taxable: number; total: number }>((lo, hi) =>
+    sb.from('general_purchase').select('id, taxable, total').eq('status', 'active').order('id').range(lo, hi));
   const rows = (data ?? []) as GeneralPurchaseRow[];
 
-  const taxableTotal = rows.reduce((s, r) => s + Number(r.taxable), 0);
-  const grandTotal   = rows.reduce((s, r) => s + Number(r.total), 0);
+  const taxableTotal = allBills.rows.reduce((s, r) => s + Number(r.taxable), 0);
+  const grandTotal   = allBills.rows.reduce((s, r) => s + Number(r.total), 0);
+  const totalCount: number | null = typeof count === 'number' ? count : null;
 
   return (
     <div>
@@ -71,7 +84,7 @@ export default async function GeneralPurchasesListPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
         <div className="card p-3">
           <div className="text-[10px] uppercase tracking-wide text-ink-mute">Bills</div>
-          <div className="num font-bold text-lg">{rows.length}</div>
+          <div className="num font-bold text-lg">{totalCount ?? rows.length}</div>
         </div>
         <div className="card p-3">
           <div className="text-[10px] uppercase tracking-wide text-ink-mute">Taxable</div>
@@ -171,6 +184,7 @@ export default async function GeneralPurchasesListPage() {
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={totalCount} limit={limit} basePath="/app/general-purchases" params={sp} noun="bills" />
     </div>
   );
 }

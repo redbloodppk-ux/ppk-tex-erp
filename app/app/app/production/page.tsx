@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { ProductionBatchDeleteButton } from '@/app/components/production-batch-delete-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
 
 export const metadata = { title: 'Production' };
 export const dynamic = 'force-dynamic';
@@ -162,10 +164,11 @@ interface VarianceRow {
 export default async function ProductionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string }>;
+  searchParams: Promise<{ mode?: string; limit?: string }>;
 }) {
   const supabase = await createClient();
   const sp = await searchParams;
+  const batchLimit = readLimit(sp.limit, 50);
   const activeMode: 'all' | ProductionMode =
     sp.mode === 'inhouse' || sp.mode === 'jobwork' || sp.mode === 'outsource'
       ? sp.mode
@@ -181,9 +184,9 @@ export default async function ProductionPage({
         loom:loom_id ( loom_code ),
         costing:costing_id ( quality_code, quality_name, fabric_type ),
         party:party_id ( code, name )
-      `)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false })
-      .limit(50),
+      .limit(batchLimit),
     supabase
       .from('v_batch_sizing_variance')
       .select('batch_id, variance_per_m, variance_total, actual_sizing_cost_per_m'),
@@ -622,6 +625,14 @@ export default async function ProductionPage({
           </div>
           </>
         )}
+        <ListLimitBar
+          shown={((batchesRes.data ?? []) as unknown[]).length}
+          total={typeof batchesRes.count === 'number' ? batchesRes.count : null}
+          limit={batchLimit}
+          basePath="/app/production"
+          params={sp}
+          noun="batches"
+        />
       </section>
     </div>
   );

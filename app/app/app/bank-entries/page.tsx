@@ -21,6 +21,9 @@ import { PageHeader } from '@/app/components/page-header';
 import { Plus, ArrowDownCircle, ArrowUpCircle, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const metadata = { title: 'Bank Entries' };
 export const dynamic = 'force-dynamic';
@@ -32,6 +35,7 @@ interface PageProps {
     from?: string;
     to?: string;
     pl?: string;
+    limit?: string;
   }>;
 }
 
@@ -84,18 +88,28 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  let q = sb.from('v_bank_entry')
-    .select('id, entry_no, entry_date, direction, amount, bank_name, other_name, category_code, category_name, pl_treatment, mode, reference, notes, status')
-    .eq('status', 'active')
+  const limit = readLimit(sp.limit, 200);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyFilters = (q: any): any => {
+    let r = q.eq('status', 'active');
+    if (directionFilter) r = r.eq('direction', directionFilter);
+    if (categoryFilter !== null) r = r.eq('category_id', categoryFilter);
+    if (fromDate) r = r.gte('entry_date', fromDate);
+    if (toDate)   r = r.lte('entry_date', toDate);
+    if (plFilter) r = r.eq('pl_treatment', plFilter);
+    return r;
+  };
+  const q = applyFilters(sb.from('v_bank_entry')
+    .select('id, entry_no, entry_date, direction, amount, bank_name, other_name, category_code, category_name, pl_treatment, mode, reference, notes, status', { count: 'exact' }))
     .order('entry_date', { ascending: false })
     .order('id', { ascending: false })
-    .limit(200);
-  if (directionFilter) q = q.eq('direction', directionFilter);
-  if (categoryFilter !== null) q = q.eq('category_id', categoryFilter);
-  if (fromDate) q = q.gte('entry_date', fromDate);
-  if (toDate)   q = q.lte('entry_date', toDate);
-  if (plFilter) q = q.eq('pl_treatment', plFilter);
-  const { data, error } = await q;
+    .limit(limit);
+  const { data, error, count } = await q;
+  // KPI totals over EVERY matching entry, not just the rows listed.
+  const allForTotals = await fetchAll<{ direction: string; amount: number; pl_treatment: string | null }>(
+    (lo, hi) => applyFilters(sb.from('v_bank_entry').select('id, direction, amount, pl_treatment'))
+      .order('id').range(lo, hi),
+  );
   const rows = (data ?? []) as BankEntryRow[];
 
   const { data: cats } = await sb
@@ -106,9 +120,10 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
   const categoryOptions = (cats ?? []) as CategoryOpt[];
 
   // KPI totals
-  const inTotal  = rows.filter((r) => r.direction === 'in').reduce((s, r) => s + Number(r.amount), 0);
-  const outTotal = rows.filter((r) => r.direction === 'out').reduce((s, r) => s + Number(r.amount), 0);
-  const expenseTotal = rows.filter((r) => r.pl_treatment === 'expense').reduce((s, r) => s + Number(r.amount), 0);
+  const totalsRows = allForTotals.rows;
+  const inTotal  = totalsRows.filter((r) => r.direction === 'in').reduce((s, r) => s + Number(r.amount), 0);
+  const outTotal = totalsRows.filter((r) => r.direction === 'out').reduce((s, r) => s + Number(r.amount), 0);
+  const expenseTotal = totalsRows.filter((r) => r.pl_treatment === 'expense').reduce((s, r) => s + Number(r.amount), 0);
 
   return (
     <div>
@@ -169,8 +184,8 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="card p-3">
-          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Rows shown</div>
-          <div className="num text-xl font-bold">{rows.length}</div>
+          <div className="text-[11px] uppercase tracking-wide text-ink-mute">Entries</div>
+          <div className="num text-xl font-bold">{typeof count === 'number' ? count : rows.length}</div>
         </div>
         <div className="card p-3">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute flex items-center gap-1">
@@ -318,6 +333,7 @@ export default async function BankEntriesListPage({ searchParams }: PageProps) {
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={typeof count === 'number' ? count : null} limit={limit} basePath="/app/bank-entries" params={sp} noun="bank entries" />
 
       <p className="text-[11px] text-ink-mute mt-3">
         Categories tagged <strong>Period Expense</strong> reduce profit on the P&amp;L; <strong>Period Income</strong> adds to it; <strong>Balance Sheet</strong> items (cash withdrawal, loan principal, GST payment) move money between accounts only.

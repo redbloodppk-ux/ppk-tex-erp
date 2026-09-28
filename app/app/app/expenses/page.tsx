@@ -16,6 +16,8 @@ import { Plus, Pencil } from 'lucide-react';
 import { formatRupee } from '@/lib/utils';
 import { DeleteExpenseButton } from './delete-expense-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
 
 export const metadata = { title: 'Expenses' };
 export const dynamic = 'force-dynamic';
@@ -35,7 +37,7 @@ interface CategoryRow {
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ category?: string; from?: string; to?: string }>;
+  searchParams?: Promise<{ category?: string; from?: string; to?: string; limit?: string }>;
 }): Promise<React.ReactElement> {
   const supabase = await createClient();
 
@@ -44,6 +46,7 @@ export default async function ExpensesPage({
   const from = sp.from?.trim() ?? '';
   const to = sp.to?.trim() ?? '';
   const hasFilter = category !== '' || from !== '' || to !== '';
+  const limit = readLimit(sp.limit, 200);
 
   // Category list for the filter dropdown (active categories).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,7 +63,7 @@ export default async function ExpensesPage({
     .from('expense_entry')
     .select('id, category, pay_date, amount, notes')
     .order('pay_date', { ascending: false })
-    .limit(200);
+    .limit(limit);
   if (category !== '') query = query.eq('category', category);
   if (from !== '') query = query.gte('pay_date', from);
   if (to !== '') query = query.lte('pay_date', to);
@@ -307,6 +310,7 @@ export default async function ExpensesPage({
           </tbody>
         </table>
       </div>
+      <ListLimitBar shown={rows.length} total={allCount} limit={limit} basePath="/app/expenses" params={sp} noun="expenses" />
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { PageHeader } from '@/app/components/page-header';
 import { DeleteInvoiceButton } from './delete-invoice-button';
 import { WhatsAppShareButton } from '@/app/components/whatsapp-share-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
 
 export const metadata = { title: 'Invoices' };
 
@@ -57,10 +59,11 @@ const DOC_PILL: Record<string, string> = {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<{ type?: string; limit?: string }>;
 }) {
   const sp = await searchParams;
   const activeTab = sp.type ?? 'all';
+  const limit = readLimit(sp.limit, 200);
   const supabase = await createClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,10 +78,10 @@ export default async function InvoicesPage({
       jobwork_party:jobwork_party_id ( name, phone, whatsapp ),
       party_name,
       original_invoice_id
-    `)
+    `, { count: 'exact' })
     .order('invoice_date', { ascending: false })
     .order('id', { ascending: false })
-    .limit(200);
+    .limit(limit);
 
   if (activeTab !== 'all') {
     // activeTab is a URL param (string). Cast to the enum so the typed
@@ -87,7 +90,7 @@ export default async function InvoicesPage({
     q = q.eq('doc_type', activeTab as DocType);
   }
 
-  const { data: invoices, error } = await q;
+  const { data: invoices, error, count: invoiceCount } = await q;
 
   // Agent commission per invoice (for the listed rows) — shown under the party.
   const invoiceIds = ((invoices ?? []) as Array<{ id: number }>).map((r) => r.id);
@@ -424,6 +427,14 @@ export default async function InvoicesPage({
           </table>
         </div>
       </div>
+      <ListLimitBar
+        shown={((invoices ?? []) as unknown[]).length}
+        total={typeof invoiceCount === 'number' ? invoiceCount : null}
+        limit={limit}
+        basePath="/app/invoices"
+        params={sp}
+        noun="documents"
+      />
     </div>
   );
 }

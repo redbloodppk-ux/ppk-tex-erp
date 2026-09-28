@@ -5,6 +5,8 @@ import { PageHeader } from '@/app/components/page-header';
 import { BulkRoutingForm, type BulkJobRow, type WeavingVendor } from './bulk-routing-form';
 import { PavuListEditor, type PavuRow } from './pavu-list-editor';
 import { JobworkBeamsTable, type JobworkBeamRow } from './jobwork-beams-table';
+import { ListLimitBar } from '@/app/components/list-limit-bar';
+import { readLimit } from '@/lib/list-limit';
 
 export const metadata = { title: 'Pavu Master' };
 export const dynamic = 'force-dynamic';
@@ -12,7 +14,7 @@ export const dynamic = 'force-dynamic';
 type Tab = 'inhouse' | 'outsource' | 'jobwork';
 
 interface PageProps {
-  searchParams: Promise<{ tab?: string; bulk?: string }>;
+  searchParams: Promise<{ tab?: string; bulk?: string; limit?: string }>;
 }
 
 export default async function PavuListPage({ searchParams }: PageProps) {
@@ -22,6 +24,11 @@ export default async function PavuListPage({ searchParams }: PageProps) {
   // header button. We use a URL search param so the toggle survives
   // page refreshes and back/forward navigation.
   const bulkOpen = sp.bulk === 'open';
+  // Filter by mode IN the query: the old cap of 300 applied across all
+  // three tabs before filtering, so each tab silently lost its oldest beams
+  // once the mill passed 300 (278 on 2026-09-28).
+  const limit = readLimit(sp.limit, 300);
+  const tabMode = tab === 'inhouse' ? 'in_house' : tab === 'outsource' ? 'outsource' : 'jobwork';
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,7 +55,7 @@ export default async function PavuListPage({ searchParams }: PageProps) {
       ),
       outsource_vendor:outsource_ledger_id ( name ),
       jobwork_vendor:jobwork_ledger_id ( name )
-    `).order('created_at', { ascending: false }).limit(300),
+    `, { count: 'exact' }).eq('production_mode', tabMode).order('created_at', { ascending: false }).limit(limit),
     sb.from('sizing_job').select(`
       id, job_code, set_no,
       pavu_rows:pavu (
@@ -388,6 +395,14 @@ export default async function PavuListPage({ searchParams }: PageProps) {
             )}
 
             <PavuListEditor rows={tabPavus} vendors={vendors} scope={tab} />
+            <ListLimitBar
+              shown={tabPavus.length}
+              total={typeof pavusRes.count === 'number' ? pavusRes.count : null}
+              limit={limit}
+              basePath="/app/pavu"
+              params={sp}
+              noun="beams"
+            />
           </>
         )}
       </section>
