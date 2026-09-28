@@ -15,6 +15,7 @@ import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
+import { todayIST } from '@/lib/utils';
 
 interface ReceiveFabricFormProps {
   owId: number;
@@ -29,7 +30,7 @@ interface ReceiveFabricFormProps {
   deliveredSoFar: number;
 }
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+const today = (): string => todayIST();
 
 export function ReceiveFabricForm({
   owId,

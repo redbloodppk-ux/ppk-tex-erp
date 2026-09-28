@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Agent Commission' };
 export const dynamic = 'force-dynamic';
@@ -78,7 +79,7 @@ function startOfFinYearISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {

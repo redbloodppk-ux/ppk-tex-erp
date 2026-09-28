@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Loader2, RotateCw } from 'lucide-react';
-import { formatDay } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
 
 interface StockRow {
@@ -59,7 +59,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 export default function PavuStockReportPage() {

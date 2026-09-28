@@ -24,7 +24,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
-import { formatMetres, formatRupee } from '@/lib/utils';
+import { formatMetres, formatRupee, todayIST } from '@/lib/utils';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { Layers, Truck, Coins, AlertCircle } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
@@ -96,7 +96,7 @@ function startOfMonthISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtDate(iso: string | null | undefined): string {

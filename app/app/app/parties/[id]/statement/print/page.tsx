@@ -26,6 +26,7 @@ import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
 import { ALL_STREAMS, STREAM_META, streamForBillKind } from '@/lib/party-streams';
 import { tdsOnTaxable } from '@/lib/tds/withholding';
+import { todayIST } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +70,7 @@ function fmtDate(s: string | null | undefined): string {
   return String(d.getDate()).padStart(2, '0') + '-' + months[d.getMonth()] + '-' + d.getFullYear();
 }
 
-function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function todayISO(): string { return todayIST(); }
 function todayDisplay(): string { return fmtDate(todayISO()); }
 
 function daysBetween(iso: string | null): number {

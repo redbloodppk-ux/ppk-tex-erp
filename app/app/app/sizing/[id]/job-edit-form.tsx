@@ -31,6 +31,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 type PavuInsert = Database['public']['Tables']['pavu']['Insert'];
 
@@ -102,7 +103,7 @@ interface Props {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function emptyBeam(mode: ProdMode = 'in_house'): BeamRow {

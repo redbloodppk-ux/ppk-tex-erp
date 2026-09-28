@@ -31,7 +31,7 @@ import {
 import { PageHeader } from '@/app/components/page-header';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { Loader2, Save, CheckCircle2, ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, X, ExternalLink, IndianRupee } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, todayIST } from '@/lib/utils';
 import { ContraTab } from './contra-tab';
 import {
   STREAM_META, streamForBillKind, streamsForDirection, directionForStream,
@@ -168,7 +168,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   opening_payable:    'Opening (Payable)',
 };
 
-function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function todayISO(): string { return todayIST(); }
 
 function fmtINR(n: number | string | null | undefined): string {
   const x = Number(n ?? 0);

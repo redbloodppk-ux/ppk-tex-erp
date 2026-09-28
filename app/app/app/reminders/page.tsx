@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
-import { formatDate } from '@/lib/utils';
+import { formatDate, todayIST } from '@/lib/utils';
 import { Plus, Repeat, CheckCircle2, AlertTriangle, Settings } from 'lucide-react';
 import { MarkDoneButton } from '@/app/components/reminders/mark-done-button';
 import { DeleteReminderButton } from '@/app/components/reminders/delete-reminder-button';
@@ -67,7 +67,7 @@ export default async function RemindersPage({ searchParams }: PageProps): Promis
   const { data, error } = await query;
   const rows = (data as ReminderRow[] | null) ?? [];
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayIST();
   const in7 = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const overdueCount = rows.filter((r) => r.status === 'active' && r.due_date < todayIso).length;

@@ -23,6 +23,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { Users, HandCoins, Wallet, AlertCircle } from 'lucide-react';
 import { recordDateBounds, clampDate, ALL_SOURCES } from '@/lib/reports/record-bounds';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Employee Loan Statement' };
 export const dynamic = 'force-dynamic';
@@ -73,7 +74,7 @@ function startOfFinYearISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {

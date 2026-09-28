@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { todayIST } from '@/lib/utils';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
 import { canEdit, type EditorRole } from '@/lib/attendance/canEdit';
@@ -98,14 +99,8 @@ const HOLIDAY_REASONS: { value: NonWorkingReason; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-// Local calendar date (IST on the mill's devices), not UTC. toISOString()
-// is UTC, so before 05:30 IST it used to return YESTERDAY's date.
-const today = (): string => {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-};
+// India date, not UTC (see todayIST).
+const today = (): string => todayIST();
 
 export default function AttendanceMarkPage() {
   const supabase = createClient();

@@ -23,6 +23,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { Loader2, RefreshCw, FileDown } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES, type RecordBounds } from '@/lib/reports/record-bounds';
+import { todayIST } from '@/lib/utils';
 
 type Basis = 'loom_shifts' | 'metres' | 'weekly';
 type BonusMode = 'pct' | 'per_present';
@@ -84,7 +85,7 @@ const SECTIONS: readonly SectionConfig[] = [
   },
 ];
 
-function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function todayISO(): string { return todayIST(); }
 
 function yearAgoISO(): string {
   const d = new Date();

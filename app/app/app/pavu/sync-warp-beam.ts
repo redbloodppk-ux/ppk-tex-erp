@@ -1,3 +1,4 @@
+import { todayIST } from '@/lib/utils';
 /**
  * Pavu → warp-beam-given sync.
  *
@@ -102,7 +103,7 @@ export async function syncWarpBeamFromPavu(sb: Sb, pavuId: number): Promise<Sync
     jobworkPartyId = jp.id;
   }
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayIST();
   const payload = {
     jobwork_party_id:  jobworkPartyId,
     fabric_quality_id: null,

@@ -14,6 +14,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarDays, CalendarOff } from 'lucide-react';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Daily Attendance' };
 export const dynamic = 'force-dynamic';
@@ -60,7 +61,7 @@ const REASON_LABEL: Record<string, string> = {
 };
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtDate(iso: string): string {

@@ -35,7 +35,7 @@ import {
   GitCompare,
 } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
-import { formatDay } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Sizing Spend' };
 export const dynamic = 'force-dynamic';
@@ -79,7 +79,7 @@ function isoMonthsAgo(months: number): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtRupees(n: number | null | undefined, decimals = 0): string {

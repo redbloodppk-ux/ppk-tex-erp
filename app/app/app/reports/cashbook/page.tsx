@@ -19,7 +19,7 @@ import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
-import { formatRupee } from '@/lib/utils';
+import { formatRupee, todayIST } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Wallet, AlertTriangle } from 'lucide-react';
 
 export const metadata = { title: 'Daily Cash Book' };
@@ -37,7 +37,7 @@ interface BookRow {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function shiftDay(iso: string, days: number): string {

@@ -16,6 +16,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { SearchSelect } from '@/app/components/search-select';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 export interface InitialExpense {
   id: number;
@@ -40,7 +41,7 @@ interface CategoryOption {
 type SourceLedgerOption = PaymentSource;
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 export function ExpenseEntryForm({ initial }: ExpenseEntryFormProps): React.ReactElement {

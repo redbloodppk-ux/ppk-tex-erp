@@ -1,3 +1,4 @@
+import { todayIST } from '@/lib/utils';
 /**
  * Shifts that were never recorded — the single source for all four
  * warnings (bell, weekly wage banner, attendance banner, dashboard).
@@ -74,8 +75,9 @@ export function findUnrecordedShifts(
 
 /** Local YYYY-MM-DD, without the UTC shift `toISOString` would apply. */
 export function todayISO(d: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // India date, not the machine's: the server runs in UTC, where
+  // getDate() is yesterday until 05:30 IST.
+  return todayIST(d);
 }
 
 /**

@@ -24,6 +24,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Plus, Trash2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 // Insert types — the form builds payloads in plain shapes (string-coerced
 // from <input>) and we cast at the .insert() call so the typed client is
@@ -101,7 +102,7 @@ export default function NewSizingJobPage() {
   // Sizing-mill invoice details — mandatory in the UI, captured at
   // job creation so the job itself acts as a sizing bill record.
   const [billNo,   setBillNo]   = useState('');
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [billDate, setBillDate] = useState(() => todayIST());
 
   // Free-text notes only. Status is auto-managed by a DB trigger:
   //   - created     → 'received'
@@ -506,8 +507,8 @@ export default function NewSizingJobPage() {
       // pavu is assigned to a loom. date_sent is stamped to today since
       // the yarn leaves our warehouse the moment the job is created.
       status:           'received',
-      date_sent:        new Date().toISOString().slice(0, 10),
-      date_received:    new Date().toISOString().slice(0, 10),
+      date_sent:        todayIST(),
+      date_received:    todayIST(),
       notes:            notes.trim() || null,
     };
 

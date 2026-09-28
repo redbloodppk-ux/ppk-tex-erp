@@ -24,7 +24,7 @@ import { HsnDatalist } from '@/app/components/hsn-datalist';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Plus, Trash2, FileText, Coins, Briefcase, RotateCcw, ArrowDownLeft } from 'lucide-react';
-import { formatDay } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
 
 type DocType = 'tax_invoice' | 'yarn_sale' | 'general_sale' | 'credit_note' | 'debit_note';
@@ -1485,7 +1485,7 @@ export default function NewInvoicePage() {
         fabric_quality_id: Number(r.production_fabric_quality_id),
         quantity: Number(r.quantity),
         unit: r.uom === 'pcs' ? 'pcs' : 'm',
-        event_date: headerPayload.invoice_date ?? new Date().toISOString().slice(0, 10),
+        event_date: headerPayload.invoice_date ?? todayIST(),
         source_kind: lineId !== null ? 'invoice_line' : 'invoice',
         source_id: lineId !== null ? lineId : inv.id,
         reference_no: inv.invoice_no,
@@ -1609,7 +1609,7 @@ export default function NewInvoicePage() {
           return setError(`Credit note ${inv.invoice_no} saved but money side failed: could not resolve customer to a party record.`);
         }
         const stamp = Date.now().toString().slice(-6);
-        const paymentNo = 'CN-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
+        const paymentNo = 'CN-' + todayIST().replace(/-/g, '') + '-' + stamp;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sb = supabase as any;
         const { data: pmt, error: pErr } = await sb

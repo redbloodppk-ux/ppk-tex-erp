@@ -38,6 +38,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 type ProductionBatchInsert = Database['public']['Tables']['production_batch']['Insert'];
 
@@ -144,7 +145,7 @@ interface ProductionBatchFormProps {
   initial?: InitialBatch;
 }
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+const today = (): string => todayIST();
 
 export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps): React.ReactElement {
   const router = useRouter();

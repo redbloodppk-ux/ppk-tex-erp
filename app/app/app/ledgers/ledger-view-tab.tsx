@@ -50,7 +50,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Search, FileDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, todayIST } from '@/lib/utils';
 import { Combobox, type ComboOption } from '@/app/components/combobox';
 import { CardFilter } from '@/app/components/card-filter';
 import { fetchLedgerView, withRunningBalance, ledgerTotals, type LedgerEntry } from './ledger-view-query';
@@ -100,7 +100,7 @@ export function LedgerViewTab({ ledgers }: Props): React.ReactElement {
   const [typeId,    setTypeId]    = useState<string>('');
   const [ledgerId,  setLedgerId]  = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
-  const [endDate,   setEndDate]   = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [endDate,   setEndDate]   = useState<string>(() => todayIST());
 
   // Result state — populated only after Show is clicked.
   const [entries,  setEntries]  = useState<LedgerEntry[]>([]);

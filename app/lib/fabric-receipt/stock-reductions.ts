@@ -1,3 +1,4 @@
+import { todayIST } from '@/lib/utils';
 /**
  * Fabric Receipt stock reductions.
  *
@@ -663,7 +664,7 @@ export async function applyFabricReceiptStockReductions(
     notes: string | null;
   };
   const ledgerRows: LedgerRow[] = [];
-  const event_date = ctx?.receipt_date ?? new Date().toISOString().slice(0, 10);
+  const event_date = ctx?.receipt_date ?? todayIST();
   const source_id = ctx?.receipt_id ?? null;
   const reference_no = ctx?.receipt_code ?? null;
   // Resolve once: if the caller passed a DC-level jobwork_party_id,

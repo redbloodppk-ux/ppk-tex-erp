@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { Boxes, Package, PackageOpen, Layers, AlertTriangle, Coins, TrendingDown, Factory, Truck, Ruler } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { formatKg, formatMetres, formatRupee, snapZero } from '@/lib/utils';
+import { formatKg, formatMetres, formatRupee, snapZero, todayIST } from '@/lib/utils';
 import { OpeningStockForm, type ExistingOpeningRow, type BobbinEndsOpt } from './opening-stock-form';
 import { InhouseBobbinOpeningStockForm, type InhouseBobbinMasterOpt } from './inhouse-bobbin-form';
 import { InhouseBobbinOpeningForm, type BobbinMasterForOpening } from './inhouse-bobbin-opening-form';
@@ -2682,7 +2682,7 @@ async function loadInhouseOpeningStock(
       pavu_id: number; loaded_metre: number | string | null;
       finished_metre: number | string | null; status_as_of: string | null;
       production_mode: string | null;
-    }>(supabase, 'fn_pavu_stock_report', { p_as_of: new Date().toISOString().slice(0, 10) });
+    }>(supabase, 'fn_pavu_stock_report', { p_as_of: todayIST() });
 
     const remainingByPavu = new Map<number, number>();
     const wovenByPavu     = new Map<number, number>();

@@ -87,6 +87,18 @@ export function formatDate(date: string | Date | null | undefined, fmt: 'short' 
   return formatDay(parts);
 }
 
+/**
+ * Today's date in India as "YYYY-MM-DD", wherever the code runs.
+ * `new Date().toISOString().slice(0, 10)` is the UTC date: on the server
+ * (Vercel runs in UTC) and on any device between 00:00 and 05:30 IST it
+ * returns YESTERDAY. Use this instead. Pass a Date to format that instant.
+ */
+export function todayIST(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**

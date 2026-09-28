@@ -20,11 +20,12 @@ import {
   type ReminderCategory, type ReminderRepeat, type ReminderCategoryRow,
 } from '@/lib/reminders/constants';
 import { SmartSelect } from '@/app/components/smart-select';
+import { todayIST } from '@/lib/utils';
 
 const REPEATS: ReminderRepeat[] = ['none', 'daily', 'weekly', 'biweekly', 'twice_weekly', 'monthly', 'twice_monthly'];
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 export function ReminderForm({ categories }: { categories: ReminderCategoryRow[] }): React.ReactElement {

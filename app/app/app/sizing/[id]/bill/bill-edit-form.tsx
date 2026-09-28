@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, RotateCcw } from 'lucide-react';
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
+import { todayIST } from '@/lib/utils';
 
 export interface BillEditSeed {
   id: number;
@@ -38,7 +39,7 @@ interface Props {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 export function BillEditForm({ seed }: Props): React.ReactElement {

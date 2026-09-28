@@ -13,6 +13,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { BrandLogo } from '@/app/components/brand-logo';
 import { PrintActions } from './print-actions';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Agent Commission' };
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,7 @@ function startOfFinYearISO(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtINR(n: number | null | undefined, decimals = 2): string {

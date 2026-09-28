@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { ArrowLeft, Wrench, X, Loader2, Plus, RotateCw, CheckCircle2, Pencil, Trash2, History } from 'lucide-react';
-import { formatDay } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 import { SmartSelect } from '@/app/components/smart-select';
 import { appConfirm } from '@/lib/app-dialog';
 
@@ -408,7 +408,7 @@ export default function PavuAssignPage() {
       .from('pavu_assign')
       .update({
         status: isFinished ? 'completed' : 'removed',
-        end_date: new Date().toISOString().slice(0, 10),
+        end_date: todayIST(),
         actual_metres: actual,
         metre_variance: nominal > 0 ? actual - nominal : null,
       })
@@ -751,8 +751,8 @@ function AssignModal({
   const [pavuId, setPavuId] = useState('');
   const [costingId, setCostingId] = useState('');
   const [status, setStatus] = useState<'queued' | 'mounted' | 'running'>('mounted');
-  const [mountedDate, setMountedDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [metresStartDate, setMetresStartDate] = useState(() => addOneDay(new Date().toISOString().slice(0, 10)));
+  const [mountedDate, setMountedDate] = useState(() => todayIST());
+  const [metresStartDate, setMetresStartDate] = useState(() => addOneDay(todayIST()));
   const [metresStartTouched, setMetresStartTouched] = useState(false);
   // Actual metres woven off the beam being replaced — pre-filled from shift
   // logs, operator-correctable so shortfall/excess vs nominal is recorded.
@@ -905,7 +905,7 @@ function AssignModal({
       const { error: rmErr } = await paTable
         .update({
           status: oldBeamFinished ? 'completed' : 'removed',
-          end_date: new Date().toISOString().slice(0, 10),
+          end_date: todayIST(),
           actual_metres: actual,
           metre_variance: nominal > 0 ? actual - nominal : null,
         })
@@ -917,7 +917,7 @@ function AssignModal({
       pavu_id:       Number(pavuId),
       loom_id:       loom.id,
       costing_id:    costingId ? Number(costingId) : null,
-      assigned_date: new Date().toISOString().slice(0, 10),
+      assigned_date: todayIST(),
       start_date:    status === 'running' || status === 'mounted' ? mountedDate : null,
       metres_start_date: status === 'running' || status === 'mounted' ? metresStartDate : null,
       status,

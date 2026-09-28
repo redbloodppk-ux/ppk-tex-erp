@@ -27,6 +27,7 @@ import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 
 import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { appConfirm } from '@/lib/app-dialog';
+import { todayIST } from '@/lib/utils';
 
 type YarnKind = 'yarn' | 'porvai';
 type Delivery = 'in_house' | 'sizing';
@@ -120,7 +121,7 @@ function toNumOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function todayISO(): string { return todayIST(); }
 
 function fmtDate(s: string | null): string {
   if (s === null || s === '') return '-';

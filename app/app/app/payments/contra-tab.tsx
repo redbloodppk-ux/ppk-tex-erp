@@ -28,7 +28,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Save, ArrowLeftRight, CheckCircle2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, todayIST } from '@/lib/utils';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
 import { STREAM_META, streamsForDirection, type PartyStream } from '@/lib/party-streams';
 import { loadPartyBills, allocationPayloads, type OpenBill } from '@/lib/party-bills';
@@ -60,7 +60,7 @@ export function ContraTab(): React.ReactElement {
   const [fromStream, setFromStream] = useState<PartyStream | ''>('');
   const [toStream, setToStream] = useState<PartyStream | ''>('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayIST());
   const [notes, setNotes] = useState('');
 
   const [busy, setBusy] = useState(false);

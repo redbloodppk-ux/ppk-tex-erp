@@ -15,6 +15,7 @@
  */
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { todayIST } from '@/lib/utils';
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -51,7 +52,7 @@ function nextDueDate(
   weekdays: number[] | null,
   monthdays: number[] | null,
 ): string {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayIST();
   let d = new Date(`${dueDate}T00:00:00Z`);
 
   function step(): void {

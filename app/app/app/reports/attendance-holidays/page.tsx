@@ -14,6 +14,7 @@ import { ExcelExportButton } from '@/app/components/excel-export-button';
 import type { ExcelColumn } from '@/lib/xlsx';
 import { CalendarOff } from 'lucide-react';
 import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/reports/record-bounds';
+import { todayIST } from '@/lib/utils';
 
 export const metadata = { title: 'Holidays / Non-working Days' };
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ function startOfMonth(): string {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIST();
 }
 
 function fmtDate(iso: string): string {

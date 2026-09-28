@@ -26,6 +26,7 @@ import { AdvanceAllocationBox } from '@/app/components/advance-allocation-box';
 import { applyAdvanceAllocations } from '@/lib/party-advance';
 import { Loader2, Plus, CheckCircle2, Trash2, Pencil, X, Save, RotateCcw } from 'lucide-react';
 import { appConfirm } from '@/lib/app-dialog';
+import { todayIST } from '@/lib/utils';
 
 type RateUnit = 'm' | 'pcs';
 type Delivery = 'in_house' | 'sizing';
@@ -136,7 +137,7 @@ function toNumOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function todayISO(): string { return todayIST(); }
 
 function fmtDate(s: string | null): string {
   if (s === null || s === '') return '-';
@@ -501,7 +502,7 @@ export function FabricPurchaseLog(): React.ReactElement {
         const fabricPurchaseId = inserted.id as number;
         const amount = Number(inserted.total_amount ?? fabricTotal);
         const stamp = Date.now().toString().slice(-6);
-        const paymentNo = 'FAB-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + stamp;
+        const paymentNo = 'FAB-' + todayIST().replace(/-/g, '') + '-' + stamp;
         const { data: pmt, error: pErr } = await sb
           .from('payment')
           .insert({
