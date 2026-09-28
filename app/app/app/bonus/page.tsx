@@ -411,7 +411,7 @@ export default function BonusPage(): React.ReactElement {
                   <label className="label text-xs" htmlFor={`bn-val-${s.basis}`}>
                     Bonus {bonusMode[s.basis] === 'pct' ? '(%)' : '(Rs / present)'}
                   </label>
-                  <input id={`bn-val-${s.basis}`} type="number" min={0} step="0.01"
+                  <input inputMode="decimal" id={`bn-val-${s.basis}`} type="number" min={0} step="0.01"
                     className="input num h-9 text-sm w-32 text-right"
                     placeholder={bonusMode[s.basis] === 'pct' ? 'e.g. 8.33' : 'e.g. 50'}
                     value={bonusValue[s.basis]}
@@ -448,13 +448,13 @@ export default function BonusPage(): React.ReactElement {
                             </td>
                             <td className="px-3 py-2 hidden md:table-cell text-xs text-ink-soft capitalize">{e.role}</td>
                             <td className="px-3 py-2 text-right">
-                              <input type="number" min={0} step="0.5"
+                              <input inputMode="decimal" type="number" min={0} step="0.5"
                                 className="input num h-8 text-xs w-24 text-right inline-block"
                                 value={row.presents}
                                 onChange={(ev) => patchRow(e.id, { presents: ev.target.value })} />
                             </td>
                             <td className="px-3 py-2 text-right">
-                              <input type="number" min={0} step="0.01"
+                              <input inputMode="decimal" type="number" min={0} step="0.01"
                                 className="input num h-8 text-xs w-32 text-right inline-block"
                                 value={row.amount}
                                 onChange={(ev) => patchRow(e.id, { amount: ev.target.value })} />

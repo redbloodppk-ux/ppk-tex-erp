@@ -431,7 +431,7 @@ export function EditInvoiceLines({
                   />
                 </td>
                 <td className="px-2 py-1.5">
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     step="0.01"
                     min="0"
@@ -453,7 +453,7 @@ export function EditInvoiceLines({
                   </datalist>
                 </td>
                 <td className="px-2 py-1.5">
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     step="0.01"
                     min="0"
@@ -463,7 +463,7 @@ export function EditInvoiceLines({
                   />
                 </td>
                 <td className="px-2 py-1.5">
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     step="0.01"
                     min="0"
@@ -473,7 +473,7 @@ export function EditInvoiceLines({
                   />
                 </td>
                 <td className="px-2 py-1.5">
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     step="0.01"
                     className="input num h-8 text-xs w-full text-right"
@@ -483,7 +483,7 @@ export function EditInvoiceLines({
                 </td>
                 {isInterstate ? (
                   <td className="px-2 py-1.5">
-                    <input
+                    <input inputMode="decimal"
                       type="number"
                       step="0.01"
                       className="input num h-8 text-xs w-full text-right"
@@ -494,7 +494,7 @@ export function EditInvoiceLines({
                 ) : (
                   <>
                     <td className="px-2 py-1.5">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         step="0.01"
                         className="input num h-8 text-xs w-full text-right"
@@ -503,7 +503,7 @@ export function EditInvoiceLines({
                       />
                     </td>
                     <td className="px-2 py-1.5">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         step="0.01"
                         className="input num h-8 text-xs w-full text-right"
@@ -514,7 +514,7 @@ export function EditInvoiceLines({
                   </>
                 )}
                 <td className="px-2 py-1.5">
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     step="0.01"
                     className="input num h-8 text-xs w-full text-right font-semibold"

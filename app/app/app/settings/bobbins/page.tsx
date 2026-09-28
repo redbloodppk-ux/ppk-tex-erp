@@ -298,7 +298,7 @@ export default function BobbinMasterPage() {
           </div>
           <div>
             <label className="label text-xs">M/pc</label>
-            <input
+            <input inputMode="decimal"
               type="number"
               min={0}
               step={0.01}
@@ -398,7 +398,7 @@ export default function BobbinMasterPage() {
                 <div className="flex flex-wrap items-end gap-4">
                   <div>
                     <label className="label text-xs">M/pc</label>
-                    <input
+                    <input inputMode="decimal"
                       type="number"
                       min={0}
                       step={0.01}
@@ -467,7 +467,7 @@ export default function BobbinMasterPage() {
                       </span>
                     </td>
                     <td className="py-2 pr-3">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={0}
                         step={0.01}

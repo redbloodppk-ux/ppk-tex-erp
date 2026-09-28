@@ -719,7 +719,7 @@ function RestockForm({ onCancel, onSave, parties, qtyFields, submitLabel }: {
       {qtyFields.map((f) => (
         <div key={f.key} className="min-w-0">
           <label className="label text-[10px]">{f.label}</label>
-          <input type="number" step={f.step ?? 1} className="input num h-8 text-sm w-full"
+          <input inputMode="decimal" type="number" step={f.step ?? 1} className="input num h-8 text-sm w-full"
             value={qty[f.key] ?? ''} onChange={(e) => setQty({ ...qty, [f.key]: e.target.value })} />
         </div>
       ))}
@@ -775,8 +775,8 @@ function SplitBeamsPanel({ initialRows, onCancel, onSave }: {
       {rows.map((row, idx) => (
         <div key={idx} className="flex items-center gap-2">
           <input placeholder="Beam no" className="input w-20 shrink-0 h-8 text-xs" value={row.beamNo} onChange={(e) => updateRow(idx, 'beamNo', e.target.value)} />
-          <input type="number" placeholder="Ends" className="input num h-8 text-xs" value={row.ends} onChange={(e) => updateRow(idx, 'ends', e.target.value)} />
-          <input type="number" step={0.01} placeholder="Metres" className="input num h-8 text-xs" value={row.metres} onChange={(e) => updateRow(idx, 'metres', e.target.value)} />
+          <input inputMode="decimal" type="number" placeholder="Ends" className="input num h-8 text-xs" value={row.ends} onChange={(e) => updateRow(idx, 'ends', e.target.value)} />
+          <input inputMode="decimal" type="number" step={0.01} placeholder="Metres" className="input num h-8 text-xs" value={row.metres} onChange={(e) => updateRow(idx, 'metres', e.target.value)} />
           <button type="button" className="text-err text-xs px-2 disabled:opacity-30" onClick={() => removeRow(idx)} disabled={rows.length <= 1}>×</button>
         </div>
       ))}
@@ -1267,7 +1267,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={1}
                           className="input num h-8 text-xs w-full text-right"
@@ -1276,7 +1276,7 @@ function BobbinTab({ rows, returns, partyById, bobbinSuppliers, allParties, bobb
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}
@@ -2825,7 +2825,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
             </SmartSelect></div>
           <div><label className="label text-xs">Total ends (all beams)</label>
-            <input type="number" className="input num" value={form.total_ends}
+            <input inputMode="decimal" type="number" className="input num" value={form.total_ends}
               onChange={(e) => setForm({ ...form, total_ends: e.target.value })}
               placeholder="auto from quality" />
             {(() => {
@@ -2887,11 +2887,11 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
               {counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}
             </SmartSelect></div>
           <div><label className="label text-xs">Total ends</label>
-            <input type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
+            <input inputMode="decimal" type="number" className="input num" value={form.total_ends} onChange={(e) => setForm({ ...form, total_ends: e.target.value })} /></div>
           <div><label className="label text-xs">No. of beams</label>
-            <input type="number" min={1} className="input num" value={form.beam_count} onChange={(e) => setForm({ ...form, beam_count: e.target.value })} /></div>
+            <input inputMode="decimal" type="number" min={1} className="input num" value={form.beam_count} onChange={(e) => setForm({ ...form, beam_count: e.target.value })} /></div>
           <div><label className="label text-xs">Total metres</label>
-            <input type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
+            <input inputMode="decimal" type="number" step={0.01} className="input num" value={form.total_metres} onChange={(e) => setForm({ ...form, total_metres: e.target.value })} /></div>
           <div><label className="label text-xs">Sizing party</label>
             <SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}>
               <option value="">---</option>
@@ -2955,7 +2955,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
           <div className="flex items-end gap-2 mb-2">
             <div>
               <label className="label text-xs">Beam No starting</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 placeholder="e.g. 101"
                 className="input w-28"
@@ -2965,7 +2965,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
             </div>
             <div>
               <label className="label text-xs">No. of beams</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min={1}
                 className="input w-20"
@@ -2991,7 +2991,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   onKeyDown={handleBeamRowKeyDown}
                   data-field="beamNo"
                 />
-                <input
+                <input inputMode="decimal"
                   type="number"
                   placeholder="Ends"
                   className="input num"
@@ -3000,7 +3000,7 @@ function WarpBeamTab({ rows, parties, qualities, counts, sizingParties, fabricDe
                   onKeyDown={handleBeamRowKeyDown}
                   data-field="ends"
                 />
-                <input
+                <input inputMode="decimal"
                   type="number"
                   step={0.01}
                   placeholder="Metres"
@@ -3548,8 +3548,8 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label><SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Yarn count</label><SmartSelect className="input" value={form.yarn_count_id} onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</SmartSelect></div>
-          <div><label className="label text-xs">Bag count</label><input type="number" className="input num" value={form.bag_count} onChange={(e) => setForm({ ...form, bag_count: e.target.value })} /></div>
-          <div><label className="label text-xs">Total kg</label><input type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
+          <div><label className="label text-xs">Bag count</label><input inputMode="decimal" type="number" className="input num" value={form.bag_count} onChange={(e) => setForm({ ...form, bag_count: e.target.value })} /></div>
+          <div><label className="label text-xs">Total kg</label><input inputMode="decimal" type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
           <div><label className="label text-xs">Supplier party</label><SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Reference / DC no</label><input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div><label className="label text-xs">Notes</label><input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
@@ -3841,9 +3841,9 @@ function WarpYarnTab({
           <div><label className="label text-xs">Fabric quality</label><SmartSelect className="input" value={form.fabric_quality_id} onChange={(e) => setForm({ ...form, fabric_quality_id: e.target.value })}><option value="">---</option>{qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Ends spec</label><SmartSelect className="input" value={form.ends_id} onChange={(e) => setForm({ ...form, ends_id: e.target.value })}><option value="">---</option>{endsOptions.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Warp count</label><SmartSelect className="input" value={form.warp_count_id} onChange={(e) => setForm({ ...form, warp_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</SmartSelect></div>
-          <div><label className="label text-xs">Total kg</label><input type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
-          <div><label className="label text-xs">Sizing rate Rs/kg</label><input type="number" step={0.5} className="input num" value={form.sizing_rate_per_kg} onChange={(e) => setForm({ ...form, sizing_rate_per_kg: e.target.value })} /></div>
-          <div><label className="label text-xs">Total cost</label><input type="number" step={0.01} className="input num" value={form.total_cost} onChange={(e) => setForm({ ...form, total_cost: e.target.value })} /></div>
+          <div><label className="label text-xs">Total kg</label><input inputMode="decimal" type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
+          <div><label className="label text-xs">Sizing rate Rs/kg</label><input inputMode="decimal" type="number" step={0.5} className="input num" value={form.sizing_rate_per_kg} onChange={(e) => setForm({ ...form, sizing_rate_per_kg: e.target.value })} /></div>
+          <div><label className="label text-xs">Total cost</label><input inputMode="decimal" type="number" step={0.01} className="input num" value={form.total_cost} onChange={(e) => setForm({ ...form, total_cost: e.target.value })} /></div>
           <div><label className="label text-xs">Supplier party</label><SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Reference / DC no</label><input className="input" value={form.reference_no} onChange={(e) => setForm({ ...form, reference_no: e.target.value })} /></div>
           <div className="md:col-span-2"><label className="label text-xs">Notes</label><input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>

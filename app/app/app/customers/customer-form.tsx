@@ -292,7 +292,7 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
       <div className="grid grid-cols-3 gap-4">
         <div>
           <label className="label">Credit Limit (Rs)</label>
-          <input
+          <input inputMode="decimal"
             name="credit_limit"
             type="number"
             min={0}
@@ -303,7 +303,7 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
         </div>
         <div>
           <label className="label">Payment Terms (days)</label>
-          <input
+          <input inputMode="decimal"
             name="payment_terms_days"
             type="number"
             min={0}

@@ -280,7 +280,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
         </div>
         <div>
           <label className="label">Amount (₹) *</label>
-          <input type="number" required min={0.01} step={0.01}
+          <input inputMode="decimal" type="number" required min={0.01} step={0.01}
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
             className="input num text-right" placeholder="0.00" />

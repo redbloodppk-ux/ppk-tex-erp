@@ -590,7 +590,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
           </div>
           <div>
             <label className="label">Ends Average Count</label>
-            <input type="number" step="0.01" min={0} value={avgCount} onChange={(e) => setAvgCount(e.target.value)} className="input num" placeholder="e.g. 53.18" />
+            <input inputMode="decimal" type="number" step="0.01" min={0} value={avgCount} onChange={(e) => setAvgCount(e.target.value)} className="input num" placeholder="e.g. 53.18" />
             <p className="text-[11px] text-ink-mute mt-1">Optional.</p>
           </div>
         </div>
@@ -639,11 +639,11 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
         <div className="grid sm:grid-cols-3 gap-4">
           <div>
             <label className="label">Yarn Sent to Sizing (kg) *</label>
-            <input type="number" step="0.001" min={0} required value={yarnSentKg} onChange={(e) => setYarnSentKg(e.target.value)} className="input num" />
+            <input inputMode="decimal" type="number" step="0.001" min={0} required value={yarnSentKg} onChange={(e) => setYarnSentKg(e.target.value)} className="input num" />
           </div>
           <div>
             <label className="label">Yarn Used (kg)</label>
-            <input type="number" step="0.001" min={0} value={yarnUsedKg} onChange={(e) => setYarnUsedKg(e.target.value)} className="input num" />
+            <input inputMode="decimal" type="number" step="0.001" min={0} value={yarnUsedKg} onChange={(e) => setYarnUsedKg(e.target.value)} className="input num" />
             <p className="text-[11px] text-ink-mute mt-1">Drives bill charges.</p>
           </div>
           <div>
@@ -662,7 +662,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
         <div className="grid sm:grid-cols-3 gap-3">
           <div>
             <label className="label">No of ends</label>
-            <input
+            <input inputMode="decimal"
               type="number" min={1} step={1}
               value={noOfEnds}
               onChange={(e) => setNoOfEnds(e.target.value)}
@@ -724,15 +724,15 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
               <div className="grid sm:grid-cols-3 gap-3">
                 <div>
                   <label className="label">First Beam No</label>
-                  <input type="number" min={0} step={1} value={g.firstBeamNo} onChange={(e) => patchGroup(gIdx, { firstBeamNo: e.target.value })} className="input num" placeholder="5715" />
+                  <input inputMode="decimal" type="number" min={0} step={1} value={g.firstBeamNo} onChange={(e) => patchGroup(gIdx, { firstBeamNo: e.target.value })} className="input num" placeholder="5715" />
                 </div>
                 <div>
                   <label className="label">No. of Beams</label>
-                  <input type="number" min={1} step={1} value={g.beamCount} onChange={(e) => patchGroup(gIdx, { beamCount: e.target.value })} className="input num" />
+                  <input inputMode="decimal" type="number" min={1} step={1} value={g.beamCount} onChange={(e) => patchGroup(gIdx, { beamCount: e.target.value })} className="input num" />
                 </div>
                 <div>
                   <label className="label">Ends (applies to this group)</label>
-                  <input type="number" min={0} step={1} value={g.ends} onChange={(e) => patchGroup(gIdx, { ends: e.target.value })} className="input num" placeholder="2400" />
+                  <input inputMode="decimal" type="number" min={0} step={1} value={g.ends} onChange={(e) => patchGroup(gIdx, { ends: e.target.value })} className="input num" placeholder="2400" />
                 </div>
               </div>
             </div>
@@ -755,7 +755,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                     </div>
                     <div>
                       <label className="label">Ends *</label>
-                      <input
+                      <input inputMode="decimal"
                         type="number" min={1}
                         value={b.ends}
                         onChange={(e) => patchBeam(gIdx, bIdx, { ends: e.target.value })}
@@ -765,7 +765,7 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
                     </div>
                     <div>
                       <label className="label">Metres *</label>
-                      <input type="number" step="0.01" min={0.01} value={b.meters} onChange={(e) => patchBeam(gIdx, bIdx, { meters: e.target.value })} className="input num" placeholder="1240" />
+                      <input inputMode="decimal" type="number" step="0.01" min={0.01} value={b.meters} onChange={(e) => patchBeam(gIdx, bIdx, { meters: e.target.value })} className="input num" placeholder="1240" />
                     </div>
                   </div>
                   {defaultMode === 'mixed' && (
@@ -853,11 +853,11 @@ export function JobEditForm({ seed, masters }: Props): React.ReactElement {
         <div className="grid sm:grid-cols-4 gap-4">
           <div>
             <label className="label">Rate (₹/kg)</label>
-            <input type="number" step="0.0001" min={0} value={rate} onChange={(e) => setRate(e.target.value)} className="input num" />
+            <input inputMode="decimal" type="number" step="0.0001" min={0} value={rate} onChange={(e) => setRate(e.target.value)} className="input num" />
           </div>
           <div>
             <label className="label">GST %</label>
-            <input type="number" step="0.01" min={0} max={28} value={gstPct} onChange={(e) => setGstPct(e.target.value)} className="input num" />
+            <input inputMode="decimal" type="number" step="0.01" min={0} max={28} value={gstPct} onChange={(e) => setGstPct(e.target.value)} className="input num" />
           </div>
           <div>
             <label className="label">Charges (₹)</label>

@@ -126,7 +126,7 @@ export function AdvanceAllocationBox({ partyId, billAmount, onAllocationsChange,
               <span className="text-amber-800">
                 {p.paymentDate} — advance {formatRupee(p.unallocated)} available
               </span>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min={0}
                 max={p.unallocated}

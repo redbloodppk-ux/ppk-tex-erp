@@ -876,10 +876,10 @@ export default function ShiftLogPage(): React.ReactElement {
           />
         )}
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 pt-1 sticky bottom-0 z-20 -mx-1 px-1 py-3 bg-paper/95 backdrop-blur border-t border-line/60 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:static md:mx-0 md:px-0 md:py-0 md:pb-0 md:bg-transparent md:backdrop-blur-none md:border-0">
           <button
             type="button"
-            className="btn-primary flex items-center gap-1.5"
+            className="btn-primary flex items-center gap-1.5 min-h-[44px] px-6"
             onClick={() => void handleSave()}
             disabled={saving || loading}
           >
@@ -1092,7 +1092,7 @@ function ShedCard({
                     <>
                       {shed.weavers.map((_, slotIdx) => (
                         <td key={slotIdx} className="py-2 pr-3 text-right">
-                          <input
+                          <input inputMode="decimal"
                             type="number"
                             min={0}
                             step="0.01"

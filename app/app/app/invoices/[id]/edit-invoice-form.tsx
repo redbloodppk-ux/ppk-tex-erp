@@ -435,7 +435,7 @@ export function EditInvoiceForm({
                 </span>
               )}
             </label>
-            <input
+            <input inputMode="decimal"
               type="number"
               min={0}
               step={1}
@@ -510,13 +510,13 @@ export function EditInvoiceForm({
           <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             <div>
               <label className="label">Taxable</label>
-              <input type="number" step="0.01" value={taxable} onChange={(e) => setTaxable(e.target.value)} className="input num" />
+              <input inputMode="decimal" type="number" step="0.01" value={taxable} onChange={(e) => setTaxable(e.target.value)} className="input num" />
             </div>
             {isInterstate ? (
               <>
                 <div className="md:col-span-2">
                   <label className="label">IGST</label>
-                  <input type="number" step="0.01" value={igst} onChange={(e) => setIgst(e.target.value)} className="input num" />
+                  <input inputMode="decimal" type="number" step="0.01" value={igst} onChange={(e) => setIgst(e.target.value)} className="input num" />
                 </div>
                 <div className="hidden md:block" />
               </>
@@ -524,25 +524,25 @@ export function EditInvoiceForm({
               <>
                 <div>
                   <label className="label">CGST</label>
-                  <input type="number" step="0.01" value={cgst} onChange={(e) => setCgst(e.target.value)} className="input num" />
+                  <input inputMode="decimal" type="number" step="0.01" value={cgst} onChange={(e) => setCgst(e.target.value)} className="input num" />
                 </div>
                 <div>
                   <label className="label">SGST</label>
-                  <input type="number" step="0.01" value={sgst} onChange={(e) => setSgst(e.target.value)} className="input num" />
+                  <input inputMode="decimal" type="number" step="0.01" value={sgst} onChange={(e) => setSgst(e.target.value)} className="input num" />
                 </div>
               </>
             )}
             <div>
               <label className="label">Other charges</label>
-              <input type="number" step="0.01" value={extraCharge} onChange={(e) => handleExtraChange(e.target.value)} className="input num" title="Flat charge added after tax (no GST). Automatically added to the total." />
+              <input inputMode="decimal" type="number" step="0.01" value={extraCharge} onChange={(e) => handleExtraChange(e.target.value)} className="input num" title="Flat charge added after tax (no GST). Automatically added to the total." />
             </div>
             <div>
               <label className="label">Round-off</label>
-              <input type="number" step="0.01" value={roundOff} onChange={(e) => setRoundOff(e.target.value)} className="input num" />
+              <input inputMode="decimal" type="number" step="0.01" value={roundOff} onChange={(e) => setRoundOff(e.target.value)} className="input num" />
             </div>
             <div>
               <label className="label">Total <span className="text-rose-600">*</span></label>
-              <input type="number" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className="input num font-semibold" required />
+              <input inputMode="decimal" type="number" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className="input num font-semibold" required />
             </div>
           </div>
         </div>
@@ -584,7 +584,7 @@ export function EditInvoiceForm({
                 <label className="label">
                   {commType === 'percent' ? 'Rate (%)' : commType === 'metre' ? 'Rate (₹/m)' : 'Rate (₹/pc)'}
                 </label>
-                <input
+                <input inputMode="decimal"
                   type="number" min={0} step={0.01}
                   className="input num text-right w-full"
                   value={commRate}

@@ -634,7 +634,7 @@ export default function NewSizingJobPage() {
               </div>
               <div>
                 <label className="label">Ends Average Count</label>
-                <input
+                <input inputMode="decimal"
                   type="number" step="0.01" min={0}
                   value={avgCount} onChange={e => setAvgCount(e.target.value)}
                   className="input num" placeholder="e.g. 53.18"
@@ -698,7 +698,7 @@ export default function NewSizingJobPage() {
             <div className="grid sm:grid-cols-3 gap-4">
               <div>
                 <label className="label">Yarn Sent to Sizing (kg) *</label>
-                <input
+                <input inputMode="decimal"
                   type="number" step="0.001" min={0} required
                   value={yarnSentKg} onChange={e => setYarnSentKg(e.target.value)}
                   className="input num"
@@ -706,7 +706,7 @@ export default function NewSizingJobPage() {
               </div>
               <div>
                 <label className="label">Yarn Used (kg)</label>
-                <input
+                <input inputMode="decimal"
                   type="number" step="0.001" min={0}
                   value={yarnUsedKg} onChange={e => setYarnUsedKg(e.target.value)}
                   className="input num"
@@ -737,7 +737,7 @@ export default function NewSizingJobPage() {
             <div className="grid sm:grid-cols-3 gap-3">
               <div>
                 <label className="label">No of ends</label>
-                <input
+                <input inputMode="decimal"
                   type="number" min={1} step={1}
                   value={noOfEnds}
                   onChange={(e) => setNoOfEnds(e.target.value)}
@@ -804,7 +804,7 @@ export default function NewSizingJobPage() {
                   <div className="grid sm:grid-cols-3 gap-3">
                     <div>
                       <label className="label">First Beam No</label>
-                      <input
+                      <input inputMode="decimal"
                         type="number" min={0} step={1}
                         value={g.firstBeamNo}
                         onChange={(e) => patchGroup(gIdx, { firstBeamNo: e.target.value })}
@@ -814,7 +814,7 @@ export default function NewSizingJobPage() {
                     </div>
                     <div>
                       <label className="label">No. of Beams</label>
-                      <input
+                      <input inputMode="decimal"
                         type="number" min={1} step={1}
                         value={g.beamCount}
                         onChange={(e) => patchGroup(gIdx, { beamCount: e.target.value })}
@@ -823,7 +823,7 @@ export default function NewSizingJobPage() {
                     </div>
                     <div>
                       <label className="label">Ends (applies to this group)</label>
-                      <input
+                      <input inputMode="decimal"
                         type="number" min={0} step={1}
                         value={g.ends}
                         onChange={(e) => patchGroup(gIdx, { ends: e.target.value })}
@@ -853,7 +853,7 @@ export default function NewSizingJobPage() {
                         </div>
                         <div>
                           <label className="label">Ends *</label>
-                          <input
+                          <input inputMode="decimal"
                             type="number" min={1}
                             value={b.ends}
                             onChange={(e) => patchBeam(gIdx, bIdx, { ends: e.target.value })}
@@ -863,7 +863,7 @@ export default function NewSizingJobPage() {
                         </div>
                         <div>
                           <label className="label">Metres *</label>
-                          <input
+                          <input inputMode="decimal"
                             type="number" step="0.01" min={0.01}
                             value={b.meters}
                             onChange={(e) => patchBeam(gIdx, bIdx, { meters: e.target.value })}
@@ -956,12 +956,12 @@ export default function NewSizingJobPage() {
             <div className="grid sm:grid-cols-4 gap-4">
               <div>
                 <label className="label">Rate (₹/kg)</label>
-                <input type="number" step="0.0001" min={0} value={rate}
+                <input inputMode="decimal" type="number" step="0.0001" min={0} value={rate}
                   onChange={e => setRate(e.target.value)} className="input num" />
               </div>
               <div>
                 <label className="label">GST %</label>
-                <input type="number" step="0.01" min={0} max={28} value={gstPct}
+                <input inputMode="decimal" type="number" step="0.01" min={0} max={28} value={gstPct}
                   onChange={e => setGstPct(e.target.value)} className="input num" />
               </div>
               <div>

@@ -167,7 +167,7 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
         <div className="grid sm:grid-cols-4 gap-4">
           <div>
             <label className="label">Rate (₹/kg)</label>
-            <input
+            <input inputMode="decimal"
               type="number" step="0.0001" min={0}
               value={rate}
               onChange={(e) => setRate(e.target.value)}
@@ -176,7 +176,7 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
           </div>
           <div>
             <label className="label">GST %</label>
-            <input
+            <input inputMode="decimal"
               type="number" step="0.01" min={0} max={28}
               value={gstPct}
               onChange={(e) => setGstPct(e.target.value)}
@@ -201,7 +201,7 @@ export function BillEditForm({ seed }: Props): React.ReactElement {
                 </button>
               )}
             </label>
-            <input type="number" step="0.01"
+            <input inputMode="decimal" type="number" step="0.01"
               value={roundOffTouched ? roundOff : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
               onChange={(e) => { setRoundOffTouched(true); setRoundOff(e.target.value); }}
               className="input num" />

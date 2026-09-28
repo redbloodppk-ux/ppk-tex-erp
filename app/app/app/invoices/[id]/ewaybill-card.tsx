@@ -259,7 +259,7 @@ export function EwaybillCard({
               </div>
               <div>
                 <label className="label">Distance (km)</label>
-                <input type="number" min={0} step={1} value={distanceKm}
+                <input inputMode="decimal" type="number" min={0} step={1} value={distanceKm}
                   onChange={(e) => setDistanceKm(e.target.value)}
                   placeholder="0 = auto by PIN" className="input num" />
               </div>

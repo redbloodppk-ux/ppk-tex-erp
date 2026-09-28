@@ -279,7 +279,7 @@ export default function EndsMasterPage() {
           </div>
           <div>
             <label className="label" htmlFor="ne-count">Ends *</label>
-            <input
+            <input inputMode="decimal"
               id="ne-count"
               type="number"
               min={1}
@@ -373,7 +373,7 @@ export default function EndsMasterPage() {
               <div className="flex flex-wrap gap-3">
                 <div>
                   <label className="label text-xs">Ends</label>
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     min={1}
                     step="1"
@@ -433,7 +433,7 @@ export default function EndsMasterPage() {
                   <tr key={r.id} className="border-b border-line/60">
                     <td className="py-2 pr-3 font-medium font-mono text-xs">{r.code}</td>
                     <td className="py-2 pr-3">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={1}
                         step="1"

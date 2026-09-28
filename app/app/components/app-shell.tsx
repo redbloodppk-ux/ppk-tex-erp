@@ -61,7 +61,7 @@ export function AppShell({
   return (
     // overflow-x-hidden on mobile clips the page as it slides aside; reset
     // to visible at md+ so the desktop sticky sidebar keeps working.
-    <div className="min-h-screen bg-[var(--page-bg)] relative overflow-x-hidden md:overflow-x-visible">
+    <div className="min-h-screen bg-[var(--page-bg)] relative overflow-x-clip md:overflow-x-visible">
       <ThemeInit />
       {/* Mobile push-menu lives at the root (NOT inside the page surface)
           so the surface's transform doesn't scale the fixed drawer. */}
@@ -116,7 +116,7 @@ export function AppShell({
         {/* Row: desktop sidebar (left) + page content (right). */}
         <div className="flex flex-1 min-h-0">
           <SidebarDesktop role={role} />
-          <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 overflow-x-hidden min-w-0">
+          <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 overflow-x-clip min-w-0">
             {children}
           </main>
         </div>

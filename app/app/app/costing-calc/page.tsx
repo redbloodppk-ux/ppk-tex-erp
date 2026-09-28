@@ -477,7 +477,7 @@ function L({ children, title }: { children: React.ReactNode; title?: string }) {
 }
 function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void; step?: number }) {
   return (
-    <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
+    <input inputMode="decimal" type="number" value={Number.isFinite(value) ? value : 0} step={step}
       onChange={(e) => set(Number(e.target.value))}
       className="input num text-right h-8 text-sm w-full min-w-0" />
   );
@@ -485,7 +485,7 @@ function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void
 function Pct({ value, set }: { value: number; set: (n: number) => void }) {
   return (
     <div className="relative w-full min-w-0">
-      <input type="number" value={(value * 100).toFixed(2)} step={0.5}
+      <input inputMode="decimal" type="number" value={(value * 100).toFixed(2)} step={0.5}
         onChange={(e) => set(Number(e.target.value) / 100)}
         className="input num text-right h-8 text-sm pr-6" />
       <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-mute">%</span>

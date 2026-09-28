@@ -135,13 +135,13 @@ export function ReceiveFabricForm({
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
           <label className="label">Received m *</label>
-          <input type="number" min="0" step="0.01" required
+          <input inputMode="decimal" type="number" min="0" step="0.01" required
                  value={receivedM} onChange={e => setReceivedM(e.target.value)}
                  className="input num" />
         </div>
         <div>
           <label className="label">Rejected m</label>
-          <input type="number" min="0" step="0.01"
+          <input inputMode="decimal" type="number" min="0" step="0.01"
                  value={rejectedM} onChange={e => setRejectedM(e.target.value)}
                  className="input num" />
         </div>
@@ -157,7 +157,7 @@ export function ReceiveFabricForm({
         </div>
         <div>
           <label className="label">Bobbin pcs returned (cumulative)</label>
-          <input type="number" min="0" step="0.01"
+          <input inputMode="decimal" type="number" min="0" step="0.01"
                  value={bobbinReturnedPcs}
                  onChange={e => setBobbinReturnedPcs(e.target.value)}
                  className="input num" />

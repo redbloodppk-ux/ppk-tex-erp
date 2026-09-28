@@ -209,7 +209,7 @@ function num(s: string): number {
 }
 
 /** Strips anything that isn't a digit or a single decimal point from a
- *  numeric-input keystroke. <input type="number"> still lets some browsers
+ *  numeric-input keystroke. <input inputMode="decimal" type="number"> still lets some browsers
  *  type +, -, e (scientific notation) or other letters into the box even
  *  though they don't form a valid number — which left junk like "58+"
  *  sitting in a piece's metres field instead of being rejected outright. */
@@ -2181,7 +2181,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                                   <span className="text-ink-mute">orig bundle {p.origSno}</span>
                                   <label className="ml-auto flex items-center gap-1 text-ink-mute">
                                     move to
-                                    <input
+                                    <input inputMode="decimal"
                                       type="number"
                                       min={1}
                                       value={p.dcBundle}
@@ -2265,7 +2265,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-line/40 pt-3">
                     <div>
                       <label className="label text-[10px]">Total metres / towels</label>
-                      <input type="number" step={0.01} min={0}
+                      <input inputMode="decimal" type="number" step={0.01} min={0}
                         className="input h-9 text-sm num text-right"
                         placeholder="0.00"
                         value={it.summary_metres}
@@ -2276,7 +2276,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     </div>
                     <div>
                       <label className="label text-[10px]">Total pieces</label>
-                      <input type="number" step={1} min={0}
+                      <input inputMode="decimal" type="number" step={1} min={0}
                         className="input h-9 text-sm num text-right"
                         placeholder="0"
                         value={it.summary_pieces}
@@ -2287,7 +2287,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     </div>
                     <div>
                       <label className="label text-[10px]">Total bundles</label>
-                      <input type="number" step={1} min={0}
+                      <input inputMode="decimal" type="number" step={1} min={0}
                         className="input h-9 text-sm num text-right"
                         placeholder="0"
                         value={it.summary_bundles}
@@ -2303,7 +2303,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                 <div className="flex flex-wrap items-end gap-3 border-t border-line/40 pt-3">
                   <div>
                     <label className="label text-[10px]">No. of bundles</label>
-                    <input type="number" min={0} max={200} step={1}
+                    <input inputMode="decimal" type="number" min={0} max={200} step={1}
                       className="input h-9 text-sm num w-28 text-right"
                       value={countDrafts[draftKey(itemIdx)] ?? String(it.bundles.length)}
                       onChange={(e) => setDraft(draftKey(itemIdx), sanitizeIntegerInput(e.target.value))}
@@ -2333,7 +2333,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                               picker above. Type N to spawn N empty piece rows. */}
                           <div className="flex items-center gap-2 mb-2 pb-2 border-b border-line/60">
                             <label className="text-[10px] uppercase tracking-wide text-ink-mute">No. of pieces</label>
-                            <input
+                            <input inputMode="decimal"
                               type="number" min={1} max={200} step={1}
                               className="input h-7 text-xs num w-16 text-right"
                               value={countDrafts[draftKey(itemIdx, bundleIdx)] ?? String(b.pieces.length)}
@@ -2346,7 +2346,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                             {b.pieces.map((p, pieceIdx) => (
                               <div key={pieceIdx} className="flex items-center gap-1">
                                 <span className="text-[10px] text-ink-mute w-5 text-right">{pieceIdx + 1}.</span>
-                                <input
+                                <input inputMode="decimal"
                                   id={`dc-piece-${itemIdx}-${bundleIdx}-${pieceIdx}`}
                                   type="number" step={0.01} min={0}
                                   placeholder="metres"

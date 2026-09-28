@@ -300,7 +300,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
           </div>
           <div>
             <label className="label text-xs">Bill amount (₹) *</label>
-            <input
+            <input inputMode="decimal"
               type="number"
               min={0}
               step={0.01}
@@ -394,7 +394,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
                   </div>
                   <div>
                     <label className="label text-xs">Bill amount (₹)</label>
-                    <input
+                    <input inputMode="decimal"
                       type="number"
                       min={0}
                       step={0.01}
@@ -543,7 +543,7 @@ export default function PartyOpeningLedgerPage(): React.ReactElement {
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}

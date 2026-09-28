@@ -965,7 +965,7 @@ function AssignModal({
                 <label className="label">
                   Actual metres woven off {currentAssignment.pavu.pavu_code} *
                 </label>
-                <input
+                <input inputMode="decimal"
                   type="number"
                   min="0"
                   step="1"

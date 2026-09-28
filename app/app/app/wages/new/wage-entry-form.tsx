@@ -1407,8 +1407,9 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
 
       {error && <p className="text-sm text-err">{error}</p>}
 
-      <div className="flex items-center gap-2 pt-2">
-        <button type="submit" className="btn-primary" disabled={busy || employees.length === 0}>
+      {/* Sticky on phones so Save is always one thumb away. */}
+      <div className="flex items-center gap-2 pt-2 sticky bottom-0 z-20 -mx-1 px-1 py-3 bg-paper/95 backdrop-blur border-t border-line/60 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:static md:mx-0 md:px-0 md:py-0 md:pb-0 md:bg-transparent md:backdrop-blur-none md:border-0">
+        <button type="submit" className="btn-primary min-h-[44px] px-6" disabled={busy || employees.length === 0}>
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
           {isEdit ? 'Save changes' : 'Save wage entry'}
         </button>

@@ -208,7 +208,7 @@ export default function LoomRateTargetPage() {
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Picks per minute (loom speed)</label>
-            <input
+            <input inputMode="decimal"
               type="number" step="1" min="0"
               value={values.picks_per_min}
               onChange={(e) => setValues(v => ({ ...v, picks_per_min: e.target.value }))}
@@ -221,7 +221,7 @@ export default function LoomRateTargetPage() {
 
           <div>
             <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Shift hours</label>
-            <input
+            <input inputMode="decimal"
               type="number" step="0.5" min="0"
               value={values.shift_hours}
               onChange={(e) => setValues(v => ({ ...v, shift_hours: e.target.value }))}
@@ -234,7 +234,7 @@ export default function LoomRateTargetPage() {
 
           <div>
             <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Sunday shift hours <span className="normal-case font-normal text-ink-mute">(optional)</span></label>
-            <input
+            <input inputMode="decimal"
               type="number" step="0.5" min="0"
               value={values.sunday_shift_hours}
               onChange={(e) => setValues(v => ({ ...v, sunday_shift_hours: e.target.value }))}
@@ -251,7 +251,7 @@ export default function LoomRateTargetPage() {
           <div>
             <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Target efficiency %</label>
             <div className="relative mt-1">
-              <input
+              <input inputMode="decimal"
                 type="number" step="1" min="0" max="100"
                 value={values.efficiency_pct}
                 onChange={(e) => setValues(v => ({ ...v, efficiency_pct: e.target.value }))}
@@ -268,7 +268,7 @@ export default function LoomRateTargetPage() {
             <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Target cost per metre</label>
             <div className="relative mt-1">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-ink-mute pointer-events-none">₹</span>
-              <input
+              <input inputMode="decimal"
                 type="number" step="0.01" min="0"
                 value={values.target_cost_per_m}
                 onChange={(e) => setValues(v => ({ ...v, target_cost_per_m: e.target.value }))}

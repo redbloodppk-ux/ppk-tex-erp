@@ -333,7 +333,7 @@ export default function LoomsPage() {
           </div>
           <div>
             <label className="label" htmlFor="nl-rate">Default rate /m</label>
-            <input
+            <input inputMode="decimal"
               id="nl-rate"
               type="number"
               min={0}
@@ -469,7 +469,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
             </div>
             <div>
               <label className="label text-xs">Default /m</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min={0}
                 step="0.01"
@@ -573,7 +573,7 @@ function LoomTable({ rows, busyId, qualities, onUpdate }: LoomTableProps) {
                 </select>
               </td>
               <td className="py-2 pr-3">
-                <input
+                <input inputMode="decimal"
                   type="number"
                   min={0}
                   step="0.01"

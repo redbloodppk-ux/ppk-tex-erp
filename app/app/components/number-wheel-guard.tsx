@@ -7,7 +7,7 @@
  * Mounted once in the root layout. On every wheel event whose target is
  * a number input, the input is blurred BEFORE the browser applies the
  * spin, so the value never changes and the page scrolls normally.
- * Covers every present and future <input type="number"> in the app —
+ * Covers every present and future <input inputMode="decimal" type="number"> in the app —
  * no per-field wiring needed.
  */
 import { useEffect } from 'react';

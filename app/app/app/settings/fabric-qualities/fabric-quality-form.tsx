@@ -692,7 +692,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
                     <L title="How many bobbins run alongside the warp. One picker appears per bobbin; each consumes 1 m of bobbin yarn per metre of fabric.">
                       Bobbin needed <Info className="inline w-3 h-3 text-ink-mute -mt-0.5" />
                     </L>
-                    <input type="number" value={bobbinNeeded} min={1} max={4} step={1}
+                    <input inputMode="decimal" type="number" value={bobbinNeeded} min={1} max={4} step={1}
                       onChange={(e) => setBobbinNeeded(Number(e.target.value))}
                       className="input num text-right h-8 text-sm w-28" />
                   </Row>
@@ -936,12 +936,12 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           </div>
           <div>
             <label className="label">Crimp %</label>
-            <input type="number" className="input num w-full" step={0.1}
+            <input inputMode="decimal" type="number" className="input num w-full" step={0.1}
               value={crimpPct} onChange={(e) => setCrimpPct(Number(e.target.value))} />
           </div>
           <div>
             <label className="label">GST %</label>
-            <input type="number" className="input num w-full" step={0.5}
+            <input inputMode="decimal" type="number" className="input num w-full" step={0.5}
               value={gstPct} onChange={(e) => setGstPct(Number(e.target.value))} />
           </div>
           <div>
@@ -968,7 +968,7 @@ export function FabricQualityForm(props: FabricQualityFormProps): React.ReactEle
           {productionMode === 'job_work' ? (
             <div>
               <label className="label">Job work cost / m (Rs)</label>
-              <input
+              <input inputMode="decimal"
                 type="number" className="input num w-full" step={0.01} min={0}
                 placeholder="e.g. 12.50"
                 value={pickCostPerM}
@@ -1190,7 +1190,7 @@ function L({ children, title }: { children: React.ReactNode; title?: string }) {
 }
 function Num({ value, set, step = 1 }: { value: number; set: (n: number) => void; step?: number }) {
   return (
-    <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
+    <input inputMode="decimal" type="number" value={Number.isFinite(value) ? value : 0} step={step}
       onChange={(e) => set(Number(e.target.value))}
       className="input num text-right h-8 text-sm w-28" />
   );

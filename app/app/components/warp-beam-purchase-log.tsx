@@ -467,19 +467,19 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
             </div>
             <div>
               <label className="label" htmlFor="wb-metres">Metre *</label>
-              <input id="wb-metres" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="wb-metres" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.metres}
                 onChange={(e) => setForm((f) => ({ ...f, metres: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="wb-rate">Rate / metre (Rs) *</label>
-              <input id="wb-rate" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="wb-rate" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.rate_per_metre}
                 onChange={(e) => setForm((f) => ({ ...f, rate_per_metre: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="wb-gst">GST %</label>
-              <input id="wb-gst" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="wb-gst" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.gst_pct}
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>

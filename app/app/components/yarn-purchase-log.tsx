@@ -534,7 +534,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             </div>
             <div>
               <label className="label" htmlFor="y-due">Due in (days)</label>
-              <input id="y-due" type="number" min="0" step="1" className="input num w-full"
+              <input inputMode="decimal" id="y-due" type="number" min="0" step="1" className="input num w-full"
                 placeholder="e.g. 30"
                 value={form.due_days}
                 onChange={(e) => setForm((f) => ({ ...f, due_days: e.target.value }))} />
@@ -551,19 +551,19 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
 
             <div>
               <label className="label" htmlFor="y-qty">Quantity (kg) *</label>
-              <input id="y-qty" type="number" min={0} step="0.001" className="input num w-full"
+              <input inputMode="decimal" id="y-qty" type="number" min={0} step="0.001" className="input num w-full"
                 value={form.received_kg}
                 onChange={(e) => setForm((f) => ({ ...f, received_kg: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="y-rate">Rate (Rs/kg) *</label>
-              <input id="y-rate" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="y-rate" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.cost_per_kg}
                 onChange={(e) => setForm((f) => ({ ...f, cost_per_kg: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="y-gst">GST %</label>
-              <input id="y-gst" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="y-gst" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.gst_pct}
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>
@@ -585,7 +585,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                   </button>
                 )}
               </label>
-              <input type="number" step="0.01" className="input num w-full"
+              <input inputMode="decimal" type="number" step="0.01" className="input num w-full"
                 value={roundOffTouched ? form.round_off : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
                 onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
             </div>
@@ -607,7 +607,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
             </div>
             <div>
               <label className="label" htmlFor="y-bags">Bag count</label>
-              <input id="y-bags" type="number" min={0} step="1" className="input num w-full"
+              <input inputMode="decimal" id="y-bags" type="number" min={0} step="1" className="input num w-full"
                 value={form.bag_count}
                 onChange={(e) => setForm((f) => ({ ...f, bag_count: e.target.value }))} />
             </div>
@@ -658,7 +658,7 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
                 <label className="label" htmlFor="y-comm-rate">
                   {form.commission_type === 'bag' ? 'Rate (Rs/bag)' : 'Rate (%)'}
                 </label>
-                <input id="y-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
+                <input inputMode="decimal" id="y-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
                   value={form.commission_rate}
                   disabled={form.agent_party_id === ''}
                   onChange={(e) => setForm((f) => ({ ...f, commission_rate: e.target.value }))} />

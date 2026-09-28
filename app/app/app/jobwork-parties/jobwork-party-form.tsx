@@ -234,12 +234,12 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
       <div className="grid grid-cols-3 gap-4">
         <div>
           <label className="label">Credit Limit (Rs)</label>
-          <input name="credit_limit" type="number" min={0} step={1000}
+          <input inputMode="decimal" name="credit_limit" type="number" min={0} step={1000}
             className="input num" defaultValue={values.credit_limit} />
         </div>
         <div>
           <label className="label">Payment Terms (days)</label>
-          <input name="payment_terms_days" type="number" min={0} max={180}
+          <input inputMode="decimal" name="payment_terms_days" type="number" min={0} max={180}
             className="input num" defaultValue={values.payment_terms_days} />
         </div>
         <div>

@@ -768,7 +768,7 @@ export function FabricPurchaseLog(): React.ReactElement {
               <label className="label" htmlFor="fp-qty">
                 Quantity ({form.rate_unit === 'm' ? 'metres' : 'pcs'}) *
               </label>
-              <input id="fp-qty" type="number" min={0} step={form.rate_unit === 'm' ? '0.01' : '1'}
+              <input inputMode="decimal" id="fp-qty" type="number" min={0} step={form.rate_unit === 'm' ? '0.01' : '1'}
                 className="input num w-full"
                 value={form.quantity}
                 onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
@@ -777,13 +777,13 @@ export function FabricPurchaseLog(): React.ReactElement {
               <label className="label" htmlFor="fp-rate">
                 Rate (Rs / {form.rate_unit === 'm' ? 'metre' : 'piece'}) *
               </label>
-              <input id="fp-rate" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="fp-rate" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.rate}
                 onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
             </div>
             <div>
               <label className="label" htmlFor="fp-gst">GST %</label>
-              <input id="fp-gst" type="number" min={0} step="0.01" className="input num w-full"
+              <input inputMode="decimal" id="fp-gst" type="number" min={0} step="0.01" className="input num w-full"
                 value={form.gst_pct}
                 onChange={(e) => setForm((f) => ({ ...f, gst_pct: e.target.value }))} />
             </div>
@@ -806,7 +806,7 @@ export function FabricPurchaseLog(): React.ReactElement {
                   </button>
                 )}
               </label>
-              <input type="number" step="0.01" className="input num w-full"
+              <input inputMode="decimal" type="number" step="0.01" className="input num w-full"
                 value={roundOffTouched ? form.round_off : (billing.autoRoundOff !== 0 ? String(billing.autoRoundOff) : '0.00')}
                 onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
             </div>
@@ -873,7 +873,7 @@ export function FabricPurchaseLog(): React.ReactElement {
                     {form.commission_type === 'percent' ? 'Rate (%)'
                       : form.commission_type === 'metre' ? 'Rate (Rs/metre)' : 'Rate (Rs/pc)'}
                   </label>
-                  <input id="fp-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
+                  <input inputMode="decimal" id="fp-comm-rate" type="number" min={0} step="0.01" className="input num w-full"
                     value={form.commission_rate}
                     disabled={form.agent_party_id === ''}
                     onChange={(e) => setForm((f) => ({ ...f, commission_rate: e.target.value }))} />

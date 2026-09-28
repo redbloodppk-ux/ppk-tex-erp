@@ -1077,7 +1077,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">Total bundles</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min="0"
                 step="1"
@@ -1089,7 +1089,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
             </div>
             <div>
               <label className="label">Total pieces</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min="0"
                 step="1"
@@ -1101,7 +1101,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
             </div>
             <div>
               <label className="label">Total metres *</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min="0"
                 step="0.01"
@@ -1140,7 +1140,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                       <label className="text-[10px] uppercase tracking-wide text-ink-mute">
                         No. of pieces
                       </label>
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={1}
                         max={200}
@@ -1182,7 +1182,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
                         <span className="text-[10px] text-ink-mute w-6 text-right">
                           {pIdx + 1}.
                         </span>
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           step={0.01}
                           min={0}
@@ -1279,7 +1279,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           </div>
           <div>
             <label className="label">Rejected (m)</label>
-            <input
+            <input inputMode="decimal"
               type="number"
               min="0"
               step="0.01"
@@ -1315,7 +1315,7 @@ export function ProductionBatchForm({ mode, initial }: ProductionBatchFormProps)
           {!convertToTowel && (
             <div className="max-w-xs">
               <label className="label">Length per towel (m)</label>
-              <input
+              <input inputMode="decimal"
                 type="number"
                 min="0"
                 step="0.01"

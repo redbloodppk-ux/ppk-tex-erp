@@ -335,7 +335,7 @@ export default function LoomsCalibrationPage() {
               <label className="text-xs font-semibold text-ink-soft uppercase tracking-wide">{f.label}</label>
               <div className="relative mt-1">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-ink-mute pointer-events-none">₹</span>
-                <input
+                <input inputMode="decimal"
                   type="number"
                   step="0.01"
                   min="0"

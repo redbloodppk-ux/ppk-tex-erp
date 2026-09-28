@@ -835,7 +835,7 @@ function NewPaymentTab(): React.ReactElement {
         </div>
         <div>
           <label className="label">Amount (₹) *</label>
-          <input
+          <input inputMode="decimal"
             type="number"
             required
             min="0"
@@ -997,7 +997,7 @@ function NewPaymentTab(): React.ReactElement {
                         <td className="px-3 py-2 text-right num text-ink-soft">{fmtINR(b.amount_paid)}</td>
                         <td className="px-3 py-2 text-right num font-semibold text-rose-700">{fmtINR(b.balance)}</td>
                         <td className="px-3 py-2 text-right">
-                          <input
+                          <input inputMode="decimal"
                             type="number"
                             min="0"
                             step="0.01"

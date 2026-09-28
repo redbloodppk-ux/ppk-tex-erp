@@ -404,7 +404,7 @@ export function OpeningStockForm({
 
           <div>
             <label className="label text-xs">Quantity ({unit}) *</label>
-            <input
+            <input inputMode="decimal"
               type="number"
               step={unit === 'kg' ? 0.001 : 0.01}
               className="input num h-9 text-sm"

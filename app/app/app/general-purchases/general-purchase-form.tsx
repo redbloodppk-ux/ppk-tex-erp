@@ -377,16 +377,16 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
                 <input type="text" value={r.item_name}
                   onChange={(e) => setItem(i, { item_name: e.target.value })}
                   className="input col-span-2 md:col-span-1" placeholder={`item ${i + 1} — e.g. packing box`} />
-                <input type="number" min={0} step={0.001} value={r.qty}
+                <input inputMode="decimal" type="number" min={0} step={0.001} value={r.qty}
                   onChange={(e) => setItem(i, { qty: e.target.value })}
                   className="input num text-right" placeholder="qty" />
                 <input type="text" value={r.unit}
                   onChange={(e) => setItem(i, { unit: e.target.value })}
                   className="input" placeholder="pcs" />
-                <input type="number" min={0} step={0.01} value={r.rate}
+                <input inputMode="decimal" type="number" min={0} step={0.01} value={r.rate}
                   onChange={(e) => setItem(i, { rate: e.target.value })}
                   className="input num text-right" placeholder="rate" />
-                <input type="number" min={0} step={0.01} value={r.gst}
+                <input inputMode="decimal" type="number" min={0} step={0.01} value={r.gst}
                   onChange={(e) => setItem(i, { gst: e.target.value })}
                   className="input num text-right" placeholder="gst %"
                   title="GST % for this item only" />
@@ -418,7 +418,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
               ₹ {itemsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           ) : (
-            <input type="number" required min={0} step={0.01}
+            <input inputMode="decimal" type="number" required min={0} step={0.01}
               value={form.taxable}
               onChange={(e) => setForm({ ...form, taxable: e.target.value })}
               className="input num text-right" placeholder="0.00" />
@@ -436,7 +436,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
           ) : (
             <>
               <label className="label">GST %</label>
-              <input type="number" min={0} step={0.01}
+              <input inputMode="decimal" type="number" min={0} step={0.01}
                 value={form.gst_pct}
                 onChange={(e) => setForm({ ...form, gst_pct: e.target.value })}
                 className="input num text-right" placeholder="0" />
@@ -464,7 +464,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
               </button>
             )}
           </label>
-          <input type="number" step={0.01}
+          <input inputMode="decimal" type="number" step={0.01}
             value={roundOffTouched ? roundOff : (autoRoundOff !== 0 ? String(autoRoundOff) : '0.00')}
             onChange={(e) => { setRoundOffTouched(true); setRoundOff(e.target.value); }}
             className="input num text-right" placeholder="0.00" />

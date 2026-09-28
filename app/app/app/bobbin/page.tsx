@@ -795,7 +795,7 @@ export default function BobbinPurchasePage() {
                         </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={1}
                           className="input num h-8 text-xs w-full text-right"
@@ -804,7 +804,7 @@ export default function BobbinPurchasePage() {
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}
@@ -818,7 +818,7 @@ export default function BobbinPurchasePage() {
                         {totalMetres > 0 ? totalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}
@@ -828,7 +828,7 @@ export default function BobbinPurchasePage() {
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}
@@ -923,7 +923,7 @@ export default function BobbinPurchasePage() {
                     </button>
                   )}
                 </label>
-                <input type="number" step="0.01"
+                <input inputMode="decimal" type="number" step="0.01"
                   className="input num h-8 text-sm w-28 text-right"
                   value={roundOffTouched ? form.round_off : (invoiceBilling.autoRoundOff !== 0 ? String(invoiceBilling.autoRoundOff) : '0.00')}
                   onChange={(e) => { setRoundOffTouched(true); setForm((f) => ({ ...f, round_off: e.target.value })); }} />
@@ -1186,7 +1186,7 @@ export default function BobbinPurchasePage() {
                           </div>
                           <div>
                             <label className="text-[10px] uppercase tracking-wide text-ink-mute block">Returned pcs *</label>
-                            <input type="number" min={1} className="input num h-8 text-xs w-28 text-right"
+                            <input inputMode="decimal" type="number" min={1} className="input num h-8 text-xs w-28 text-right"
                               value={returnForm.quantity_pcs}
                               onChange={(e) => setReturnForm({ ...returnForm, quantity_pcs: e.target.value })} />
                           </div>

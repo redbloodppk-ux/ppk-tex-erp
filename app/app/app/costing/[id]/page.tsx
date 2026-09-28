@@ -992,7 +992,7 @@ function Num({ value, set, step = 1, lock = false }: {
   value: number; set: (n: number) => void; step?: number; lock?: boolean;
 }) {
   return (
-    <input type="number" value={Number.isFinite(value) ? value : 0} step={step}
+    <input inputMode="decimal" type="number" value={Number.isFinite(value) ? value : 0} step={step}
       onChange={(e) => set(Number(e.target.value))} disabled={lock}
       className={
         'input num text-right h-8 text-sm w-full min-w-0 ' +
@@ -1005,7 +1005,7 @@ function Pct({ value, set, lock = false }: {
 }) {
   return (
     <div className="relative w-full min-w-0">
-      <input type="number" value={(value * 100).toFixed(2)} step={0.5}
+      <input inputMode="decimal" type="number" value={(value * 100).toFixed(2)} step={0.5}
         onChange={(e) => set(Number(e.target.value) / 100)} disabled={lock}
         className={
           'input num text-right h-8 text-sm pr-6 ' +

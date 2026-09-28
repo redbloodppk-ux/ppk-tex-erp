@@ -615,7 +615,7 @@ export function FabricReceiptForm({ dc, seeds, reuse, dcOptions, dcConflict }: F
                     {it.seed.ends_count ?? <span className="text-ink-mute">nil</span>}
                   </td>
                   <td className="px-2 py-2">
-                    <input type="number" step="0.01" min="0" value={it.towel_length}
+                    <input inputMode="decimal" type="number" step="0.01" min="0" value={it.towel_length}
                       onChange={(e) => patch(idx, { towel_length: e.target.value })}
                       className="input h-8 text-xs num w-24 text-right" placeholder="m / towel" />
                     {it.seed.towel_length != null && it.seed.towel_length > 0 && (

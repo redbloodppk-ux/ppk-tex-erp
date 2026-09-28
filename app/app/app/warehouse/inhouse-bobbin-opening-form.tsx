@@ -282,7 +282,7 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
                         </SmartSelect>
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={1}
                           className="input num h-8 text-xs w-full text-right"
@@ -291,7 +291,7 @@ export function InhouseBobbinOpeningForm({ bobbins, existing = [] }: Props): Rea
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
+                        <input inputMode="decimal"
                           type="number"
                           min={0}
                           step={0.01}

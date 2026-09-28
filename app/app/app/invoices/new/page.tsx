@@ -1831,7 +1831,7 @@ export default function NewInvoicePage() {
               {docType !== 'credit_note' && (
                 <div>
                   <label className="label">Due in (days)</label>
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     min="0"
                     step="1"
@@ -2208,7 +2208,7 @@ export default function NewInvoicePage() {
                           className="input input-sm w-20 num" placeholder="HSN" />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.quantity} onChange={e => updateRow(r.id, { quantity: e.target.value })}
+                        <input inputMode="decimal" value={r.quantity} onChange={e => updateRow(r.id, { quantity: e.target.value })}
                           className="input input-sm w-20 num text-right" type="number" step="0.01" />
                       </td>
                       <td className="px-2 py-1.5">
@@ -2220,16 +2220,16 @@ export default function NewInvoicePage() {
                         </select>
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.rate} onChange={e => updateRow(r.id, { rate: e.target.value })}
+                        <input inputMode="decimal" value={r.rate} onChange={e => updateRow(r.id, { rate: e.target.value })}
                           className="input input-sm w-24 num text-right" type="number" step="0.01" />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.discount_pct}
+                        <input inputMode="decimal" value={r.discount_pct}
                           onChange={e => updateRow(r.id, { discount_pct: e.target.value })}
                           className="input input-sm w-16 num text-right" type="number" step="0.01" />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input value={r.gst_rate_pct}
+                        <input inputMode="decimal" value={r.gst_rate_pct}
                           onChange={e => updateRow(r.id, { gst_rate_pct: e.target.value })}
                           className="input input-sm w-16 num text-right" type="number" step="0.01" />
                       </td>
@@ -2316,7 +2316,7 @@ export default function NewInvoicePage() {
                   <label className="label">
                     {commType === 'percent' ? 'Rate (%)' : commType === 'metre' ? 'Rate (₹/m)' : 'Rate (₹/pc)'}
                   </label>
-                  <input
+                  <input inputMode="decimal"
                     type="number" min={0} step={0.01}
                     className="input num w-full text-right"
                     value={commRate}

@@ -130,7 +130,7 @@ export function ChallanEditForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="label" htmlFor="ch-amount">Challan amount (Rs) *</label>
-          <input id="ch-amount" type="number" step="0.01" min="0" className="input num"
+          <input inputMode="decimal" id="ch-amount" type="number" step="0.01" min="0" className="input num"
             value={amount} onChange={(e) => setAmount(e.target.value)} />
           {/* The portal only takes whole rupees, so a difference under a
               rupee is not worth reporting — it cannot be paid either way. */}
@@ -149,7 +149,7 @@ export function ChallanEditForm({
         </div>
         <div>
           <label className="label" htmlFor="ch-interest">Interest paid (Rs)</label>
-          <input id="ch-interest" type="number" step="0.01" min="0" className="input num"
+          <input inputMode="decimal" id="ch-interest" type="number" step="0.01" min="0" className="input num"
             value={interest} onChange={(e) => setInterest(e.target.value)} />
         </div>
         <div>

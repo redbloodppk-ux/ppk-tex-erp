@@ -381,7 +381,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
             Payment Terms (days)
             <span className="text-[10px] text-ink-mute font-normal ml-2">(optional)</span>
           </label>
-          <input
+          <input inputMode="decimal"
             type="number"
             min={0}
             step={1}
@@ -463,7 +463,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
                   </div>
                   <div className="col-span-6 md:col-span-2">
                     <label className="label text-[10px]">{qtyLabel} *</label>
-                    <input
+                    <input inputMode="decimal"
                       type="number"
                       step={0.01}
                       min={0}
@@ -475,7 +475,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
                   </div>
                   <div className="col-span-6 md:col-span-2">
                     <label className="label text-[10px]">{rateLabel} *</label>
-                    <input
+                    <input inputMode="decimal"
                       type="number"
                       step={0.01}
                       min={0}

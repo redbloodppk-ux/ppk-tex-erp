@@ -171,7 +171,7 @@ export default function BobbinEndsMasterPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="label" htmlFor="be-count">Ends *</label>
-            <input
+            <input inputMode="decimal"
               id="be-count"
               type="number"
               min={1}
@@ -237,7 +237,7 @@ export default function BobbinEndsMasterPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <label className="label text-xs">Ends</label>
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     min={1}
                     step="1"
@@ -298,7 +298,7 @@ export default function BobbinEndsMasterPage() {
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b border-line/60">
                     <td className="py-2 pr-3">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={1}
                         step="1"

@@ -1416,10 +1416,10 @@ export default function AttendanceMarkPage() {
               </table>
             </div>
 
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-3 pt-1 sticky bottom-0 z-20 -mx-1 px-1 py-3 bg-paper/95 backdrop-blur border-t border-line/60 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:static md:mx-0 md:px-0 md:py-0 md:pb-0 md:bg-transparent md:backdrop-blur-none md:border-0">
               <button
                 type="button"
-                className="btn-primary flex items-center gap-1.5 min-h-[44px]"
+                className="btn-primary flex items-center gap-1.5 min-h-[44px] px-6"
                 onClick={handleSaveAttendance}
                 disabled={saving || loading || saveBlocked}
               >

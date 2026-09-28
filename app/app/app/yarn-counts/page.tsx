@@ -289,7 +289,7 @@ export default function YarnCountsPage() {
           </div>
           <div>
             <label className="label" htmlFor="nc-ne">Ne {neu.yarn_type === 'cotton' && '*'}</label>
-            <input
+            <input inputMode="decimal"
               id="nc-ne"
               type="number"
               min={0}
@@ -303,7 +303,7 @@ export default function YarnCountsPage() {
           </div>
           <div>
             <label className="label" htmlFor="nc-denier">Denier {neu.yarn_type === 'polyester' && '*'}</label>
-            <input
+            <input inputMode="decimal"
               id="nc-denier"
               type="number"
               min={0}
@@ -434,7 +434,7 @@ export default function YarnCountsPage() {
                 </div>
                 <div>
                   <label className="label">Ne</label>
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     min={0}
                     step="0.01"
@@ -446,7 +446,7 @@ export default function YarnCountsPage() {
                 </div>
                 <div>
                   <label className="label">Denier</label>
-                  <input
+                  <input inputMode="decimal"
                     type="number"
                     min={0}
                     step="0.01"
@@ -542,7 +542,7 @@ export default function YarnCountsPage() {
                       </select>
                     </td>
                     <td className="py-2 pr-3">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={0}
                         step="0.01"
@@ -557,7 +557,7 @@ export default function YarnCountsPage() {
                       />
                     </td>
                     <td className="py-2 pr-3">
-                      <input
+                      <input inputMode="decimal"
                         type="number"
                         min={0}
                         step="0.01"

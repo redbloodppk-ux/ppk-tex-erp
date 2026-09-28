@@ -786,7 +786,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           </div>
           <div>
             <label className="label">GST %</label>
-            <input
+            <input inputMode="decimal"
               type="number"
               step="0.01"
               min="0"
@@ -1033,7 +1033,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
         </div>
         <div>
           <label className="label">Other charges (optional)</label>
-          <input
+          <input inputMode="decimal"
             type="number"
             min={0}
             step="0.01"
