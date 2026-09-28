@@ -20,9 +20,10 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 type YarnType = 'cotton' | 'polyester' | 'blend';
-type RecordStatus = 'active' | 'inactive' | 'archived';
+type RecordStatus = 'active' | 'discontinued' | 'archived';
 
 interface CountRow {
   id: number;
@@ -477,16 +478,7 @@ export default function YarnCountsPage() {
                   />
                   <span className="text-xs text-ink-soft">Slub</span>
                 </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={c.status === 'active'}
-                    onChange={(e) => updateRow(c.id, { status: e.target.checked ? 'active' : 'inactive' })}
-                  />
-                  <span className="text-xs text-ink-soft">
-                    {c.status === 'active' ? 'Active' : 'Inactive'}
-                  </span>
-                </label>
+                <ToggleSwitch checked={c.status === 'active'} onChange={(next) => updateRow(c.id, { status: next ? 'active' : 'discontinued' })} />
               </div>
             </div>
           ))}
@@ -596,20 +588,7 @@ export default function YarnCountsPage() {
                       />
                     </td>
                     <td className="py-2 pr-3">
-                      <label className="inline-flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={c.status === 'active'}
-                          onChange={(e) =>
-                            updateRow(c.id, {
-                              status: e.target.checked ? 'active' : 'inactive',
-                            })
-                          }
-                        />
-                        <span className="text-xs text-ink-soft">
-                          {c.status === 'active' ? 'Yes' : 'No'}
-                        </span>
-                      </label>
+                      <ToggleSwitch checked={c.status === 'active'} onChange={(next) => updateRow(c.id, { status: next ? 'active' : 'discontinued' })} />
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex items-center gap-2">

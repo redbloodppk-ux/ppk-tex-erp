@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 interface BobbinEndsRow {
   id: number;
@@ -275,14 +276,7 @@ export default function BobbinEndsMasterPage() {
                   onChange={(e) => updateRow(r.id, { notes: e.target.value === '' ? null : e.target.value })}
                 />
               </div>
-              <label className="inline-flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={r.active}
-                  onChange={(e) => updateRow(r.id, { active: e.target.checked })}
-                />
-                <span className="text-xs text-ink-soft">{r.active ? 'Active' : 'Inactive'}</span>
-              </label>
+              <ToggleSwitch checked={r.active} onChange={(next) => updateRow(r.id, { active: next })} />
             </div>
           ))}
         </CardFilter>
@@ -323,16 +317,7 @@ export default function BobbinEndsMasterPage() {
                       />
                     </td>
                     <td className="py-2 pr-3">
-                      <label className="inline-flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={r.active}
-                          onChange={(e) => updateRow(r.id, { active: e.target.checked })}
-                        />
-                        <span className="text-xs text-ink-soft">
-                          {r.active ? 'Yes' : 'No'}
-                        </span>
-                      </label>
+                      <ToggleSwitch checked={r.active} onChange={(next) => updateRow(r.id, { active: next })} />
                     </td>
                     <td className="py-2 pr-3">
                       <input

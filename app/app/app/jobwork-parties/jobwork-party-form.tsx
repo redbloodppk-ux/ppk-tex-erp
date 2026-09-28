@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Trash2, Archive } from 'lucide-react';
+import { StatusSwitchField } from '@/app/components/status-switch-field';
 
 export interface JobworkPartyFormValues {
   name: string;
@@ -242,11 +243,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
         </div>
         <div>
           <label className="label">Status</label>
-          <select name="status" className="input" defaultValue={values.status}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
-          </select>
+          <StatusSwitchField defaultValue={values.status} />
         </div>
       </div>
 

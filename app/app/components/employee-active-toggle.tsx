@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 interface EmployeeActiveToggleProps {
   id: number;
@@ -44,32 +45,12 @@ export function EmployeeActiveToggle({ id, name, initialActive }: EmployeeActive
   }
 
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={active}
-      aria-label={`${name}: ${active ? 'active' : 'inactive'}`}
-      title={err ?? (active ? 'Active — tap to make inactive' : 'Inactive — tap to make active')}
-      onClick={toggle}
-      disabled={busy}
-      className="inline-flex items-center gap-2 select-none disabled:opacity-60"
-    >
-      <span
-        className={
-          'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ' +
-          (active ? 'bg-emerald-500' : 'bg-slate-300')
-        }
-      >
-        <span
-          className={
-            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ' +
-            (active ? 'translate-x-[18px]' : 'translate-x-0.5')
-          }
-        />
-      </span>
-      <span className={'text-xs font-semibold ' + (err ? 'text-rose-600' : active ? 'text-emerald-700' : 'text-amber-700')}>
-        {err ? 'Error' : active ? 'Active' : 'Inactive'}
-      </span>
-    </button>
+    <ToggleSwitch
+      checked={active}
+      onChange={() => void toggle()}
+      busy={busy}
+      error={!!err}
+      title={err ?? `${name}: ${active ? 'active' : 'inactive'}`}
+    />
   );
 }

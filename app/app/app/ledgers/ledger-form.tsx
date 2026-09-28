@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 export interface LedgerOption { id: number; code: string; name: string; }
 
@@ -440,11 +441,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
             onChange={(e) => patch({ notes: e.target.value })} />
         </div>
         <div className="flex items-end">
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={form.active}
-              onChange={(e) => patch({ active: e.target.checked })} />
-            <span className="text-sm">Active</span>
-          </label>
+          <ToggleSwitch size="md" checked={form.active} onChange={(next) => patch({ active: next })} />
         </div>
         {/* Migration 289 made "can I spend from this?" a fact of its own,
             because neither the type nor the group could answer it: owner

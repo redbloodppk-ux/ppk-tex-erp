@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { Loader2, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 interface NameRow {
   id: number;
@@ -177,11 +178,7 @@ export function SimpleNameMaster({
                         onChange={(e) => updateRow(r.id, { name: e.target.value })} />
                     </td>
                     <td className="py-2 pr-3 pt-4">
-                      <label className="inline-flex items-center gap-1.5">
-                        <input type="checkbox" checked={r.active}
-                          onChange={(e) => updateRow(r.id, { active: e.target.checked })} />
-                        <span className="text-xs text-ink-soft">{r.active ? 'Yes' : 'No'}</span>
-                      </label>
+                      <ToggleSwitch checked={r.active} onChange={(next) => updateRow(r.id, { active: next })} />
                     </td>
                     <td className="py-2 pr-3">
                       <textarea className="input w-full min-h-[4.5rem] leading-snug resize-y"

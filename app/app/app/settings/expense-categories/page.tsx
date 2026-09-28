@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { CardFilter } from '@/app/components/card-filter';
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 interface ExpenseCategory {
   id: number;
@@ -173,17 +174,7 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
               }}
             />
             <div className="flex items-center justify-between gap-4 mt-3 pt-2 border-t border-line/40">
-              <label className="inline-flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={r.is_active}
-                  onChange={(e) => void toggleActive(r.id, e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <span className="text-xs text-ink-soft">
-                  {r.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </label>
+              <ToggleSwitch checked={r.is_active} onChange={(next) => void toggleActive(r.id, next)} />
               <button
                 type="button"
                 onClick={() => void hardDelete(r.id, r.name)}
@@ -233,17 +224,7 @@ export default function ExpenseCategoriesPage(): React.ReactElement {
                   />
                 </td>
                 <td className="px-4 py-2">
-                  <label className="inline-flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={r.is_active}
-                      onChange={(e) => void toggleActive(r.id, e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <span className="text-xs text-ink-soft">
-                      {r.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </label>
+                  <ToggleSwitch checked={r.is_active} onChange={(next) => void toggleActive(r.id, next)} />
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Plus, Phone, MapPin, Pencil, CheckCircle2 } from 'lucide-react';
 import { DeletePartyButton } from './delete-party-button';
 import { CardFilter } from '@/app/components/card-filter';
+import { RecordActiveToggle } from '@/app/components/record-active-toggle';
 
 export const metadata = { title: 'Parties' };
 export const dynamic = 'force-dynamic';
@@ -186,9 +187,7 @@ export default async function PartiesPage({
                   </span>
                   <div className="font-mono text-xs text-ink-soft mt-0.5">{p.code}</div>
                 </div>
-                {p.status !== 'active' && (
-                  <span className="pill bg-slate-100 text-slate-500 shrink-0">{p.status}</span>
-                )}
+                <span className="shrink-0"><RecordActiveToggle key={`${p.id}-${p.status}`} table="party" id={p.id} column="status" initialOn={p.status === 'active'} onValue="active" offValue="archived" /></span>
               </div>
 
               <div className="text-xs text-ink-soft mt-2">
@@ -242,6 +241,7 @@ export default async function PartiesPage({
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>
               <th className="text-right px-4 py-3">Credit</th>
               <th className="text-right px-4 py-3">Terms</th>
+              <th className="text-left px-4 py-3">Status</th>
               <th className="text-right px-4 py-3"></th>
             </tr>
           </thead>
@@ -264,9 +264,6 @@ export default async function PartiesPage({
                     >
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="GSTIN verified" />
                     </span>
-                  )}
-                  {p.status !== 'active' && (
-                    <span className="ml-2 pill bg-slate-100 text-slate-500">{p.status}</span>
                   )}
                   <span className="ml-2 inline-flex align-text-bottom">
                     <TdsBadge pct={p.tds_pct} pan={p.pan} />
@@ -305,6 +302,7 @@ export default async function PartiesPage({
                 </td>
                 <td className="px-4 py-3 text-right num">{formatRupee(p.credit_limit, { compact: true })}</td>
                 <td className="px-4 py-3 text-right num text-ink-soft">{p.payment_terms_days ?? 0}d</td>
+                <td className="px-4 py-3 whitespace-nowrap"><RecordActiveToggle key={`${p.id}-${p.status}`} table="party" id={p.id} column="status" initialOn={p.status === 'active'} onValue="active" offValue="archived" /></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <div className="inline-flex items-center gap-1">
                     <Link
@@ -320,7 +318,7 @@ export default async function PartiesPage({
               </tr>
             )) : (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No parties yet. <Link href="/app/parties/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>

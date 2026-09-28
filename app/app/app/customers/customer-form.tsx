@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { GstinLookup, type GstinData } from '@/app/components/gstin-lookup';
 import { Loader2, Trash2, Archive } from 'lucide-react';
+import { StatusSwitchField } from '@/app/components/status-switch-field';
 
 export interface CustomerFormValues {
   name: string;
@@ -312,11 +313,7 @@ export function CustomerForm({ customerId, initial, code }: CustomerFormProps) {
         </div>
         <div>
           <label className="label">Status</label>
-          <select name="status" className="input" defaultValue={values.status}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
-          </select>
+          <StatusSwitchField defaultValue={values.status} />
         </div>
       </div>
 

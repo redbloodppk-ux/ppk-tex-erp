@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2 } from 'lucide-react';
+import { ToggleSwitch } from '@/app/components/toggle-switch';
 
 interface FabricActiveToggleProps {
   id: number;
@@ -35,16 +35,12 @@ export function FabricActiveToggle({ id, initialActive }: FabricActiveToggleProp
   }
 
   return (
-    <label className="inline-flex items-center gap-1.5 cursor-pointer select-none" title={err ?? 'Toggle active'}>
-      <input type="checkbox" checked={active} onChange={toggle} disabled={busy}
-        className="w-4 h-4 accent-emerald-600" />
-      {busy ? (
-        <Loader2 className="w-3 h-3 animate-spin text-ink-mute" />
-      ) : (
-        <span className={'text-xs font-medium ' + (active ? 'text-emerald-700' : 'text-ink-mute')}>
-          {active ? 'Active' : 'Inactive'}
-        </span>
-      )}
-    </label>
+    <ToggleSwitch
+      checked={active}
+      onChange={() => void toggle()}
+      busy={busy}
+      error={!!err}
+      title={err ?? undefined}
+    />
   );
 }

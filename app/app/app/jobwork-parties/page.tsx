@@ -5,6 +5,7 @@ import { formatRupee } from '@/lib/utils';
 import Link from 'next/link';
 import { Plus, Phone, MapPin } from 'lucide-react';
 import { CardFilter } from '@/app/components/card-filter';
+import { RecordActiveToggle } from '@/app/components/record-active-toggle';
 
 export const metadata = { title: 'Jobwork Parties' };
 export const dynamic = 'force-dynamic';
@@ -74,9 +75,7 @@ export default async function JobworkPartiesPage({
                 </Link>
                 <div className="font-mono text-xs text-ink-soft mt-0.5">{c.code}</div>
               </div>
-              {c.status !== 'active' && (
-                <span className="pill bg-slate-100 text-slate-500 shrink-0">{c.status}</span>
-              )}
+              <span className="shrink-0"><RecordActiveToggle key={`${c.id}-${c.status}`} table="jobwork_party" id={c.id} column="status" initialOn={c.status === 'active'} onValue="active" offValue="archived" /></span>
             </div>
 
             {c.gstin && (
@@ -118,6 +117,7 @@ export default async function JobworkPartiesPage({
               <th className="text-left px-4 py-3 hidden lg:table-cell">Contact</th>
               <th className="text-right px-4 py-3">Credit Limit</th>
               <th className="text-right px-4 py-3">Terms</th>
+              <th className="text-left px-4 py-3">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -128,9 +128,6 @@ export default async function JobworkPartiesPage({
                   <Link href={`/app/jobwork-parties/${c.id}`} className="font-semibold text-ink hover:text-indigo">
                     {c.name}
                   </Link>
-                  {c.status !== 'active' && (
-                    <span className="ml-2 pill bg-slate-100 text-slate-500">{c.status}</span>
-                  )}
                   <div className="md:hidden text-xs text-ink-mute font-mono mt-0.5">{c.gstin ?? '-'}</div>
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell font-mono text-xs">{c.gstin ?? '-'}</td>
@@ -140,10 +137,11 @@ export default async function JobworkPartiesPage({
                 </td>
                 <td className="px-4 py-3 text-right num">{formatRupee(c.credit_limit, { compact: true })}</td>
                 <td className="px-4 py-3 text-right num text-ink-soft">{c.payment_terms_days ?? 0}d</td>
+                <td className="px-4 py-3 whitespace-nowrap"><RecordActiveToggle key={`${c.id}-${c.status}`} table="jobwork_party" id={c.id} column="status" initialOn={c.status === 'active'} onValue="active" offValue="archived" /></td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
                   No jobwork parties yet. <Link href="/app/jobwork-parties/new" className="text-indigo font-semibold">Add the first one &rarr;</Link>
                 </td>
               </tr>

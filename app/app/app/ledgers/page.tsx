@@ -6,6 +6,7 @@ import { Plus, Pencil, CheckCircle2 } from 'lucide-react';
 import { LedgerDeleteButton } from './delete-button';
 import { LedgerViewTab } from './ledger-view-tab';
 import { CardFilter } from '@/app/components/card-filter';
+import { RecordActiveToggle } from '@/app/components/record-active-toggle';
 
 export const metadata = { title: 'Ledgers' };
 export const dynamic = 'force-dynamic';
@@ -290,9 +291,7 @@ export default async function LedgersPage({
                     )}
                     <div className="font-mono text-xs text-ink-soft mt-0.5">{r.code}</div>
                   </div>
-                  {r.active
-                    ? <span className="pill bg-emerald-50 text-emerald-700 shrink-0">active</span>
-                    : <span className="pill bg-slate-100 text-slate-500 shrink-0">inactive</span>}
+                  <span className="shrink-0"><RecordActiveToggle key={`${r.id}-${r.active}`} table="ledger" id={r.id} column="active" initialOn={!!r.active} confirmOff={`Make ledger "${r.name}" inactive?\n\nIt will stop appearing in Paid from / Received in pickers.`} /></span>
                 </div>
 
                 <div className="text-xs text-ink-soft mt-2">
@@ -369,9 +368,7 @@ export default async function LedgersPage({
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-ink-soft">{r.area ?? '-'}</td>
                     <td className="px-4 py-3 text-center">
-                      {r.active
-                        ? <span className="pill bg-emerald-50 text-emerald-700">active</span>
-                        : <span className="pill bg-slate-100 text-slate-500">inactive</span>}
+                      <RecordActiveToggle key={`${r.id}-${r.active}`} table="ledger" id={r.id} column="active" initialOn={!!r.active} confirmOff={`Make ledger "${r.name}" inactive?\n\nIt will stop appearing in Paid from / Received in pickers.`} />
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-2">
