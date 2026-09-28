@@ -25,7 +25,7 @@ import {
   loadUnrecordedShifts, describeShift, todayISO,
 } from '@/lib/attendance/unrecorded-shifts';
 import { loadTdsMonths, daysUntil } from '@/lib/tds/liability-data';
-import { todayIST } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 
 export type NotificationKind =
   | 'costing_approval' | 'bill_due' | 'reminder' | 'attendance_gap'
@@ -373,7 +373,7 @@ async function fetchQualityMismatch(sb: any): Promise<NotificationItem[]> {
     }>).map((r) => ({
       id: `quality_mismatch:${r.shift_log_id}`,
       kind: 'quality_mismatch' as const,
-      title: `${r.loom_code} on ${r.log_date}: logged ${r.logged_quality ?? '?'}, beam is ${r.beam_quality ?? '?'}`,
+      title: `${r.loom_code} on ${formatDay(r.log_date)}: logged ${r.logged_quality ?? '?'}, beam is ${r.beam_quality ?? '?'}`,
       body: 'Folding pay, costing and stock by quality use the logged quality. Check the entry or the beam change date.',
       link: `/app/production/shift-log?date=${r.log_date}&shift=${r.shift}`,
       occurred_at: `${r.log_date}T00:00:00Z`,

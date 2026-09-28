@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { Plus, Pencil } from 'lucide-react';
-import { formatRupee, formatDay } from '@/lib/utils';
+import { formatRupee, formatDay, todayIST } from '@/lib/utils';
 import { DeleteWageButton } from './delete-wage-button';
 import { WageFilters } from './wage-filters';
 import { CardFilter } from '@/app/components/card-filter';
@@ -34,11 +34,11 @@ function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-    timeZone: 'Asia/Kolkata',
-  }).format(d).replace(',', '');
+  // Same day format as the rest of the app (26-Sep-2026), plus IST time.
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata',
+  }).format(d);
+  return `${formatDay(todayIST(d))} ${time}`;
 }
 
 type Kind = 'same_day' | 'advance' | 'settlement' | 'adjustment' | 'extra_work';
