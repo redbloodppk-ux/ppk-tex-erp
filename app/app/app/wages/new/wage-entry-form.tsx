@@ -1008,7 +1008,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
               </table>
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <p className="text-[10px] text-ink-mute">
-                  Pieces = metres woven ÷ length per piece. Pay on the folding book; cloth woven but not
+                  Pieces = metres woven ÷ 2 (folder count). Pay on the folding book; cloth woven but not
                   yet folded carries to next week.
                 </p>
                 <button
