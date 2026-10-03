@@ -331,6 +331,16 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     folding_unit: string | null; folding_rate: number | null; amount: number | null;
   }> | null>(null);
   const [foldErr, setFoldErr] = useState<string | null>(null);
+  // Folding week runs SUNDAY to SATURDAY (PPK, 2026-10-03: "always
+  // calculate from Sunday to Saturday shift log, e.g. 27/9 - 3/10"), i.e.
+  // one day before the Mon-Sun wage period on both ends.
+  const shiftDay = (iso: string, days: number): string => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  const foldFrom = periodStart ? shiftDay(periodStart, -1) : '';
+  const foldTo = periodEnd ? shiftDay(periodEnd, -1) : '';
   useEffect(() => {
     if (!isFolder || kind !== 'settlement' || !periodStart || !periodEnd) {
       setFoldRows(null);
@@ -340,7 +350,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error: rpcErr } = await (supabase as any)
-        .rpc('fn_folding_estimate', { p_from: periodStart, p_to: periodEnd });
+        .rpc('fn_folding_estimate', { p_from: foldFrom, p_to: foldTo });
       if (cancelled) return;
       if (rpcErr) { setFoldErr(rpcErr.message); setFoldRows([]); return; }
       setFoldErr(null);
@@ -355,7 +365,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       })));
     })();
     return () => { cancelled = true; };
-  }, [supabase, isFolder, kind, periodStart, periodEnd]);
+  }, [supabase, isFolder, kind, periodStart, periodEnd, foldFrom, foldTo]);
   const foldTotal = (foldRows ?? []).reduce((a, r) => a + (r.amount ?? 0), 0);
   // Salaried / non-attendance employees skip the attendance + shed lookup
   // entirely — they don't have daily marks to read from.
@@ -962,7 +972,7 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 text-xs space-y-1.5">
           <div className="flex items-center gap-1.5 font-semibold text-ink-soft">
             <Info className="w-3.5 h-3.5" />
-            Folding estimate from the shift log, {fmtShortDate(periodStart)} – {fmtShortDate(periodEnd)}
+            Folding estimate from the shift log, Sun {fmtShortDate(foldFrom)} – Sat {fmtShortDate(foldTo)}
           </div>
           {foldErr ? (
             <div className="text-rose-700">{foldErr}</div>
