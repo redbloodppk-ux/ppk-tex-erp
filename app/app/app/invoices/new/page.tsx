@@ -1252,13 +1252,12 @@ export default function NewInvoicePage() {
       return setError('Vehicle number is required.');
     }
 
-    // Date-order guard: invoice numbers are handed out sequentially at
-    // save (one running series per doc_type, reset each financial year).
-    // A new invoice's date must therefore be on/after the latest already-
-    // issued invoice in the same series, or the number sequence would run
-    // out of chronological order. ISO date strings (YYYY-MM-DD) compare
-    // correctly with a plain string comparison.
-    {
+    // Date-order guard (early, friendly message). The database enforces the
+    // same rule per NUMBER SERIES for every insert and edit (migration 312).
+    // Here we can only see doc_type, and general_sale splits into two
+    // series (rental RN/ vs general), so it is left to the database to avoid
+    // blocking a valid general-sale date against a rental invoice.
+    if (docType !== 'general_sale') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: lastInv } = await (supabase as any)
         .from('invoice')
