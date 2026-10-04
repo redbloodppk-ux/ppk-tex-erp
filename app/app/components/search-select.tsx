@@ -17,6 +17,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
+import { focusNextField } from '@/app/components/enter-nav';
 
 export interface SearchSelectOption {
   value: string;
@@ -190,7 +191,12 @@ export function SearchSelect({
     el?.scrollIntoView({ block: 'nearest' });
   }, [highlight, open]);
 
+  // True once the operator has arrowed through the list since it opened,
+  // so Enter picks that row even without typing.
+  const arrowedRef = useRef<boolean>(false);
+
   function openList(): void {
+    arrowedRef.current = false;
     setOpen(true);
     setQuery('');
     setHighlight(0);
@@ -212,20 +218,29 @@ export function SearchSelect({
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      arrowedRef.current = true;
       if (!open) { openList(); return; }
       setHighlight((h) => Math.min(h + 1, filtered.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      arrowedRef.current = true;
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === 'Enter') {
       // Never let Enter bubble up and submit the form from here.
+      // Enter = pick the highlighted option, then go to the next field
+      // (same as Enter everywhere else in the app). The global EnterNav is
+      // switched off on this input (data-disable-enter-nav) so it cannot
+      // jump away before the pick happens.
       e.preventDefault();
-      if (open && filtered.length > 0) {
+      const self = inputRef.current;
+      if (open && filtered.length > 0 && (query.trim() !== '' || arrowedRef.current)) {
         const opt = filtered[highlight] ?? filtered[0];
         if (opt) pick(opt);
-      } else if (!open) {
-        openList();
+      } else {
+        setOpen(false);
+        setQuery('');
       }
+      if (self) setTimeout(() => { focusNextField(self); }, 0);
     } else if (e.key === 'Escape') {
       setOpen(false);
       setQuery('');
@@ -256,6 +271,7 @@ export function SearchSelect({
           setHighlight(0);
         }}
         onKeyDown={handleKeyDown}
+        data-disable-enter-nav="true"
       />
       <div className="absolute inset-y-0 right-2 flex items-center gap-1">
         {selected !== null && (

@@ -56,6 +56,29 @@ function isVisible(el: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * Move focus from `from` to the next visible field in the same form (or
+ * page), selecting its text. Exported so widgets that handle Enter
+ * themselves (SearchSelect picks the highlighted option first) can still
+ * continue to the next field. Returns false when there is no next field.
+ */
+export function focusNextField(from: HTMLElement): boolean {
+  const root: HTMLElement = (from.closest('form') ?? document.body) as HTMLElement;
+  const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter((el) => isVisible(el) && el.tabIndex !== -1);
+  const idx = focusables.indexOf(from);
+  const next = idx >= 0 ? focusables[idx + 1] : undefined;
+  if (!next) return false;
+  next.focus();
+  if (next.tagName === 'INPUT') {
+    const ni = next as HTMLInputElement;
+    if (TEXTY_INPUT_TYPES.has(ni.type)) {
+      try { ni.select(); } catch { /* ignore */ }
+    }
+  }
+  return true;
+}
+
 export function EnterNav(): null {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {

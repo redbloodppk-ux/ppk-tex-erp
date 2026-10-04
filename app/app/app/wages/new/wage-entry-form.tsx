@@ -384,6 +384,21 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
     }
   }, [isMetreBasis, isWeekly, kind]);
 
+  // Loom-shift weavers are paid the same day (PPK, 2026-10-04: "for loom
+  // based wages weavers default kind is same day"). Applied only when the
+  // employee is picked on a NEW entry, so the operator can still switch to
+  // Advance / Settlement afterwards and an existing entry is never changed.
+  const isLoomShiftWeaver = isWeaver && selected?.wage_alloc_basis === 'loom_shifts';
+  const lastEmpRef = useRef<string>(initial ? String(initial.employee_id ?? '') : '');
+  useEffect(() => {
+    if (initial) return;
+    if (employeeId === lastEmpRef.current) return;
+    lastEmpRef.current = employeeId;
+    if (isLoomShiftWeaver) setKind('same_day');
+    else if (kind === 'same_day') setKind('settlement');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId, isLoomShiftWeaver]);
+
   // For weekly-basis employees on a settlement entry, prefill the amount from
   // employee.weekly_salary. Same auto-fill semantics as the metres branch:
   // never clobber a value the operator typed.
