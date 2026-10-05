@@ -206,10 +206,12 @@ function compactDcCodes(codes: string[]): string {
   const loose: string[] = [];
   for (const c of codes) {
     const m = /^(.*\/)(\d+)$/.exec(c.trim());
-    if (!m) { loose.push(c); continue; }
-    const list = bySeries.get(m[1]) ?? [];
-    list.push(m[2]);
-    bySeries.set(m[1], list);
+    const prefix = m?.[1];
+    const num = m?.[2];
+    if (prefix === undefined || num === undefined) { loose.push(c); continue; }
+    const list = bySeries.get(prefix) ?? [];
+    list.push(num);
+    bySeries.set(prefix, list);
   }
   const parts: string[] = [];
   for (const [prefix, nums] of bySeries) {
@@ -219,7 +221,7 @@ function compactDcCodes(codes: string[]): string {
       let j = i;
       while (j + 1 < sorted.length && Number(sorted[j + 1]) === Number(sorted[j]) + 1) j++;
       if (j - i >= 2) out.push(`${sorted[i]}–${sorted[j]}`);
-      else for (let k = i; k <= j; k++) out.push(sorted[k]);
+      else for (let k = i; k <= j; k++) out.push(sorted[k] ?? '');
       i = j + 1;
     }
     parts.push(`${prefix} ${out.join(', ')}`);
