@@ -195,6 +195,38 @@ function uomLabel(uom: string | null | undefined): string {
 // Page
 // ────────────────────────────────────────────────────────────────────────
 
+/**
+ * "JDC/26-27/0052, JDC/26-27/0055, JDC/26-27/0058, JDC/26-27/0059" ->
+ * "JDC/26-27/ 0052, 0055, 0058, 0059": the shared series prefix once, then
+ * the running numbers; 3+ consecutive numbers become a range (0058–0061).
+ * Keeps a 10-DC invoice to one or two printed lines.
+ */
+function compactDcCodes(codes: string[]): string {
+  const bySeries = new Map<string, string[]>();
+  const loose: string[] = [];
+  for (const c of codes) {
+    const m = /^(.*\/)(\d+)$/.exec(c.trim());
+    if (!m) { loose.push(c); continue; }
+    const list = bySeries.get(m[1]) ?? [];
+    list.push(m[2]);
+    bySeries.set(m[1], list);
+  }
+  const parts: string[] = [];
+  for (const [prefix, nums] of bySeries) {
+    const sorted = Array.from(new Set(nums)).sort((a, b) => Number(a) - Number(b));
+    const out: string[] = [];
+    for (let i = 0; i < sorted.length; ) {
+      let j = i;
+      while (j + 1 < sorted.length && Number(sorted[j + 1]) === Number(sorted[j]) + 1) j++;
+      if (j - i >= 2) out.push(`${sorted[i]}–${sorted[j]}`);
+      else for (let k = i; k <= j; k++) out.push(sorted[k]);
+      i = j + 1;
+    }
+    parts.push(`${prefix} ${out.join(', ')}`);
+  }
+  return [...parts, ...loose].join('; ');
+}
+
 export default async function InvoicePrintPage({
   params,
   searchParams,
@@ -497,7 +529,10 @@ export default async function InvoicePrintPage({
         .inv-billship .ps { font-size: 13px; font-weight: 600; color: #333; margin-top: 5px; padding-top: 4px; border-top: 1px dashed #aaa; }
         .inv-tag { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
         .inv-lab { font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
-        .refstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: #f7f7f9; padding: 10px 11px; border-radius: 4px; margin-top: 13px; }
+        .refstrip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; background: #f7f7f9; padding: 10px 11px; border-radius: 4px; margin-top: 13px; }
+        .refstrip .dcline { grid-column: 1 / -1; display: flex; gap: 8px; align-items: baseline; border-top: 0.5px dashed #ccc; padding-top: 6px; }
+        .refstrip .dcline .lbl { white-space: nowrap; }
+        .refstrip .dcline .val { word-break: break-word; }
         .refstrip .lbl { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
         .refstrip .val { font-size: 14px; font-weight: 700; color: #000; }
         table.items { width: 100%; border-collapse: collapse; margin-top: 15px; }
@@ -705,7 +740,12 @@ export default async function InvoicePrintPage({
             <div><div className="lbl">Status</div><div className="val" style={{ textTransform: 'capitalize' }}>{inv.status.replace('_', ' ')}</div></div>
             <div><div className="lbl">Rev. chg</div><div className="val">No</div></div>
             <div><div className="lbl">Ship mode</div><div className="val">Road</div></div>
-            <div><div className="lbl">DC No</div><div className="val">{linkedDcs.length > 0 ? linkedDcs.map((d) => d.code).join(', ') : '-'}</div></div>
+            {/* DC numbers get their own full-width line, written compactly,
+                instead of one code per line in a narrow column. */}
+            <div className="dcline">
+              <span className="lbl">DC No{linkedDcs.length > 1 ? ` (${linkedDcs.length})` : ''}</span>
+              <span className="val">{linkedDcs.length > 0 ? compactDcCodes(linkedDcs.map((d) => d.code)) : '-'}</span>
+            </div>
           </div>
         )}
 
