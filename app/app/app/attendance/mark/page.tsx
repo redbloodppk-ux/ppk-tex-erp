@@ -27,14 +27,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { todayIST } from '@/lib/utils';
+import { formatDay, todayIST } from '@/lib/utils';
 import { PageHeader } from '@/app/components/page-header';
 import { HolidayModal } from '@/app/components/attendance/holiday-modal';
 import { canEdit, type EditorRole } from '@/lib/attendance/canEdit';
 import { enqueue as enqueueOffline, queueCount } from '@/lib/attendance/offlineQueue';
 import { Loader2, Save, CheckCircle2, CalendarOff, Undo2, Lock, WifiOff } from 'lucide-react';
 import type { Database } from '@/lib/database.types';
-import { appConfirm } from '@/lib/app-dialog';
+import { appAlert, appConfirm } from '@/lib/app-dialog';
 
 type AttendanceStatus = Database['public']['Enums']['attendance_status'];
 type ShiftCode = Database['public']['Enums']['shift_code'];
@@ -898,6 +898,31 @@ export default function AttendanceMarkPage() {
       }
 
       setSavedMsg(`Saved attendance for ${rows.length} employees.`);
+
+      // Never let the summary turn a successful save into the 'offline'
+      // path below - it only reads what is already on screen.
+      try {
+        // Confirmation box: which weaver is on which shed this shift, so a
+        // wrong shed pick is caught right after saving (PPK, 2026-10-06).
+        const STATUS_NOTE: Partial<Record<AttendanceStatus, string>> = {
+          half_day: ' (half day)', late: ' (late)', early_leave: ' (early leave)',
+        };
+        const shedLines = SHEDS.map((s) => {
+          const names = employees
+            .filter((emp) => emp.role.toLowerCase() === 'weaver')
+            .filter((emp) => WORKED_STATUSES.has(statusByEmp[emp.id] ?? 'present'))
+            .filter((emp) => (shedsByEmp[emp.id] ?? []).includes(s) || shedByEmp[emp.id] === s)
+            .map((emp) => `${emp.full_name}${STATUS_NOTE[statusByEmp[emp.id] ?? 'present'] ?? ''}`);
+          const ran = shedRunByShed[s];
+          if (names.length > 0) return `Shed ${s}: ${names.join(', ')}`;
+          return ran === false ? `Shed ${s}: closed` : `Shed ${s}: no weaver`;
+        });
+        await appAlert(
+          shedLines.join('\n') +
+          `\n\n${rows.length} employees saved.`,
+          { title: `${shift === 'morning' ? 'Morning' : 'Night'} shift saved - ${formatDay(markDate)}` },
+        );
+      } catch { /* summary is optional */ }
     } catch {
       // Network-level failure (fetch threw). Treat as offline.
       stashOffline('network error');
