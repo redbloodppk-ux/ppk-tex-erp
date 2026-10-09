@@ -9,16 +9,23 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { PageHeader } from '@/app/components/page-header';
 import { SmartSelect } from '@/app/components/smart-select';
 import { appAlert, appConfirm } from '@/lib/app-dialog';
 import { formatDay, todayIST } from '@/lib/utils';
 import { measureYarnAt, deleteYarnTransfer, type YarnLoc } from '@/lib/yarn-transfer';
-import { ArrowRight, Loader2, Trash2 } from 'lucide-react';
+import { ArrowRight, Loader2, Printer, Trash2 } from 'lucide-react';
 
 interface Count { id: number; code: string; display_name: string | null }
 interface Party { id: number; name: string; kind: string | null }
+interface PurchaseLot {
+  id: number; lot_code: string; invoice_no: string | null; received_date: string;
+  received_kg: number; bag_count: number; yarn_count_id: number; delivery_destination: string;
+  supplier: { name: string } | null;
+}
 interface Transfer {
   id: number; transfer_code: string | null; transfer_date: string; yarn_count_id: number;
   kg: number; bag_count: number; from_loc: YarnLoc; to_loc: YarnLoc;
@@ -36,7 +43,11 @@ const kgFmt = (v: number): string => `${v.toLocaleString('en-IN', { maximumFract
 
 export default function YarnTransferPage(): React.ReactElement {
   const sb = useMemo(() => createClient() as any, []);
+  const router = useRouter();
   const [counts, setCounts] = useState<Count[]>([]);
+  const [lots, setLots] = useState<PurchaseLot[]>([]);
+  const [lotId, setLotId] = useState('');
+  const [vehicle, setVehicle] = useState('');
   const [parties, setParties] = useState<Party[]>([]);
   const [rows, setRows] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,11 +64,16 @@ export default function YarnTransferPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [c, p, t] = await Promise.all([
+    const [c, p, t, l] = await Promise.all([
       sb.from('yarn_count').select('id, code, display_name').order('code'),
       sb.from('jobwork_party').select('id, name, kind').eq('status', 'active').order('name'),
       sb.from('yarn_transfer').select('*').order('transfer_date', { ascending: false }).order('id', { ascending: false }).limit(200),
+      sb.from('yarn_lot')
+        .select('id, lot_code, invoice_no, received_date, received_kg, bag_count, yarn_count_id, delivery_destination, supplier:supplier_party_id ( name )')
+        .is('transfer_id', null).eq('yarn_kind', 'yarn')
+        .order('received_date', { ascending: false }).order('id', { ascending: false }).limit(300),
     ]);
+    setLots((l.data ?? []) as PurchaseLot[]);
     setCounts((c.data ?? []) as Count[]);
     setParties((p.data ?? []) as Party[]);
     setRows((t.data ?? []) as Transfer[]);
@@ -74,6 +90,17 @@ export default function YarnTransferPage(): React.ReactElement {
     measureYarnAt(sb, f.loc, Number(countId), f.party).then((v) => { if (alive) setAvail(v); });
     return () => { alive = false; };
   }, [sb, from, countId, rows]);
+
+  // Purchase lot printed on the transport copy (purchase date + invoice
+  // no). Default: the latest purchase of this count at the source place.
+  const lotsForCount = useMemo(() => lots.filter((l) => String(l.yarn_count_id) === countId), [lots, countId]);
+  useEffect(() => {
+    const f = parseLoc(from);
+    const pick = lotsForCount.find((l) => f && f.loc !== 'outsource' && l.delivery_destination === f.loc) ?? lotsForCount[0];
+    setLotId(pick ? String(pick.id) : '');
+  }, [lotsForCount, from]);
+  const chosenLot = lotsForCount.find((l) => String(l.id) === lotId) ?? null;
+  const kgPerBag = chosenLot && chosenLot.bag_count > 0 ? Number(chosenLot.received_kg) / chosenLot.bag_count : null;
 
   const countById = useMemo(() => new Map(counts.map((c) => [c.id, c])), [counts]);
   const partyById = useMemo(() => new Map(parties.map((p) => [p.id, p])), [parties]);
@@ -114,14 +141,12 @@ export default function YarnTransferPage(): React.ReactElement {
     });
     setBusy(false);
     if (err) { setError(err.message); return; }
-    const { data: saved } = await sb.from('yarn_transfer').select('transfer_code, cost_per_kg').eq('id', newId).maybeSingle();
-    await appAlert(
-      `${kgFmt(q)} of ${countById.get(Number(countId))?.code ?? ''} moved\nfrom ${placeName(f.loc, f.party)}\nto ${placeName(t.loc, t.party)}` +
-      (saved?.cost_per_kg ? `\n\nCost carried: ₹${Number(saved.cost_per_kg).toFixed(2)}/kg` : ''),
-      { title: `Transfer ${saved?.transfer_code ?? ''} saved` },
-    );
-    setKg(''); setBags(''); setNotes('');
-    void load();
+    await sb.from('yarn_transfer')
+      .update({ vehicle_no: vehicle.trim().toUpperCase() || null, purchase_lot_id: lotId ? Number(lotId) : null })
+      .eq('id', newId);
+    setKg(''); setBags(''); setNotes(''); setVehicle('');
+    // Straight to the transport copy — Print / Download PDF live there.
+    router.push(`/app/yarn-transfer/${newId}/print`);
   }
 
   async function onDelete(r: Transfer): Promise<void> {
@@ -182,6 +207,26 @@ export default function YarnTransferPage(): React.ReactElement {
           <div>
             <label className="label">Bags</label>
             <input inputMode="numeric" type="number" min="0" step="1" value={bags} onChange={(e) => setBags(e.target.value)} className="input num" />
+            {kgPerBag != null && Number(kg) > 0 && (
+              <div className="text-xs mt-1 text-ink-mute">≈ {(Number(kg) / kgPerBag).toFixed(1)} bags at {kgPerBag.toFixed(1)} kg/bag</div>
+            )}
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Purchase bill (shown on transport copy)</label>
+            <SmartSelect value={lotId} onChange={(e) => setLotId(e.target.value)} className="input w-full">
+              <option value="">— none —</option>
+              {lotsForCount.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.invoice_no ? `Inv ${l.invoice_no}` : l.lot_code} · {formatDay(l.received_date)} · {l.supplier?.name ?? ''}
+                </option>
+              ))}
+            </SmartSelect>
+          </div>
+          <div>
+            <label className="label">Vehicle no</label>
+            <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="input w-full uppercase" placeholder="e.g. TN 33 AB 1234" />
           </div>
         </div>
         <div>
@@ -191,7 +236,7 @@ export default function YarnTransferPage(): React.ReactElement {
         {error && <div className="text-sm text-rose-600">{error}</div>}
         <div className="flex justify-end">
           <button type="submit" disabled={busy} className="btn-primary inline-flex items-center gap-2">
-            {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save transfer
+            {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save &amp; print transport copy
           </button>
         </div>
       </form>
@@ -222,7 +267,10 @@ export default function YarnTransferPage(): React.ReactElement {
                   <td className="p-2">{placeName(r.from_loc, r.from_party_id)} → {placeName(r.to_loc, r.to_party_id)}</td>
                   <td className="p-2 text-right num">{r.cost_per_kg != null ? Number(r.cost_per_kg).toFixed(2) : ''}</td>
                   <td className="p-2 text-ink-mute">{r.notes}</td>
-                  <td className="p-2 text-right">
+                  <td className="p-2 text-right whitespace-nowrap">
+                    <Link href={`/app/yarn-transfer/${r.id}/print`} className="inline-block mr-3 text-indigo hover:text-indigo/80" title="Transport copy — print / PDF">
+                      <Printer className="w-4 h-4" />
+                    </Link>
                     <button type="button" onClick={() => void onDelete(r)} className="text-rose-600 hover:text-rose-700" title="Delete transfer">
                       <Trash2 className="w-4 h-4" />
                     </button>

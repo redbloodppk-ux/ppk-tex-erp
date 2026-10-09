@@ -34,6 +34,7 @@ import type { Browser } from 'puppeteer-core';
 const ALLOWED_PATHS: RegExp[] = [
   /^\/app\/invoices\/\d+\/print$/,
   /^\/app\/delivery-challan\/\d+\/print$/,
+  /^\/app\/yarn-transfer\/\d+\/print$/,
   /^\/app\/parties\/\d+\/statement\/print$/,
   /^\/app\/ledgers\/print$/,
   /^\/app\/reports\/agent-commission\/print$/,

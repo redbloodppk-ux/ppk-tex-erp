@@ -148,3 +148,6 @@ END $$;
 -- the ledger row, the created lot / bag and the transfer row.
 
 GRANT EXECUTE ON FUNCTION public.fn_yarn_transfer_create(date, bigint, numeric, integer, text, text, bigint, bigint, text) TO authenticated;
+
+-- Transport copy (print) details, filled by the app after create.
+ALTER TABLE public.yarn_transfer ADD COLUMN IF NOT EXISTS vehicle_no text, ADD COLUMN IF NOT EXISTS purchase_lot_id bigint;
