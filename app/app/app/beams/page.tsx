@@ -17,21 +17,23 @@ import { PageHeader } from '@/app/components/page-header';
 import { SmartSelect } from '@/app/components/smart-select';
 import { appAlert, appConfirm } from '@/lib/app-dialog';
 import { formatDay, todayIST } from '@/lib/utils';
-import { loadBeamPosition, BEAM_KIND_LABEL, type BeamKind, type BeamMove, type BeamPosition } from '@/lib/beams';
+import { loadBeamPosition, physicalCountRows, BEAM_KIND_LABEL, type BeamKind, type BeamMove, type BeamPosition, type Mill } from '@/lib/beams';
 import { Loader2, Printer, Trash2 } from 'lucide-react';
 
-interface Party { id: number; name: string }
 
 export default function BeamsPage(): React.ReactElement {
   const sb = useMemo(() => createClient() as any, []);
   const router = useRouter();
   const [pos, setPos] = useState<BeamPosition | null>(null);
   const [moves, setMoves] = useState<BeamMove[]>([]);
-  const [mills, setMills] = useState<Party[]>([]);
+  const [mills, setMills] = useState<Mill[]>([]);
 
-  // opening form
-  const [opTotal, setOpTotal] = useState('');
-  const [opAtSizing, setOpAtSizing] = useState('');
+  // physical count form (opening, and later count checks)
+  const [countOpen, setCountOpen] = useState(false);
+  const [cGodown, setCGodown] = useState('');
+  const [cLoom, setCLoom] = useState('');
+  const [cStock, setCStock] = useState('');
+  const [cMill, setCMill] = useState<Record<number, string>>({});
   // movement form
   const [date, setDate] = useState(todayIST());
   const [kind, setKind] = useState<Exclude<BeamKind, 'opening'>>('sent_to_sizing');
@@ -43,33 +45,38 @@ export default function BeamsPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [{ pos: p, moves: m }, jobs] = await Promise.all([
-      loadBeamPosition(sb),
-      sb.from('sizing_job').select('date_sent, party:party_id ( id, name )').not('party_id', 'is', null).order('date_sent', { ascending: false }),
-    ]);
-    setPos(p); setMoves(m);
-    const seen = new Map<number, Party>();
-    for (const j of (jobs.data ?? []) as any[]) if (j.party && !seen.has(j.party.id)) seen.set(j.party.id, j.party);
-    const list = Array.from(seen.values());
-    setMills(list);
-    setMillId((cur) => cur || (list[0] ? String(list[0].id) : ''));
+    const { pos: p, moves: m, mills: list } = await loadBeamPosition(sb);
+    setPos(p); setMoves(m); setMills(list);
   }, [sb]);
   useEffect(() => { void load(); }, [load]);
 
   const millName = (id: number | null): string => mills.find((m) => m.id === id)?.name ?? '';
   const needsMill = kind === 'sent_to_sizing' || kind === 'returned_from_sizing';
 
-  async function saveOpening(e: FormEvent): Promise<void> {
+  function openCount(): void {
+    if (!pos) return;
+    setCGodown(pos.hasOpening ? String(pos.godown) : '');
+    setCLoom(String(pos.onLoom)); setCStock(String(pos.inStock));
+    const mc: Record<number, string> = {};
+    for (const r of pos.byMill) mc[r.mill.id] = String(r.count);
+    setCMill(mc);
+    setCountOpen(true);
+  }
+  const intOf = (v: string): number => Math.max(0, Math.round(Number(v || 0)));
+  const countTotal = intOf(cGodown) + intOf(cLoom) + intOf(cStock) + Object.values(cMill).reduce((a, v) => a + intOf(v), 0);
+
+  async function saveCount(e: FormEvent): Promise<void> {
     e.preventDefault(); setError(null);
-    const t = Math.round(Number(opTotal)); const s = Math.round(Number(opAtSizing || 0));
-    if (!(t > 0)) { setError('Enter how many beams you own in total.'); return; }
+    if (!pos) return;
+    if (countTotal <= 0) { setError('Enter the beam counts.'); return; }
+    const byMill = new Map<number, number>();
+    for (const [k, v] of Object.entries(cMill)) if (intOf(v) > 0 || pos.byMill.some((r) => r.mill.id === Number(k))) byMill.set(Number(k), intOf(v));
+    const rows = physicalCountRows(pos, { godown: intOf(cGodown), onLoom: intOf(cLoom), inStock: intOf(cStock), byMill }, todayIST());
     setBusy(true);
-    const { error: err } = await sb.from('beam_movement').insert({
-      move_date: todayIST(), kind: 'opening', qty: t, at_sizing_qty: s,
-      party_id: millId ? Number(millId) : null, notes: 'Opening beam count',
-    });
+    const { error: err } = await sb.from('beam_movement').insert(rows);
     setBusy(false);
     if (err) { setError(err.message); return; }
+    setCountOpen(false);
     void load();
   }
 
@@ -124,40 +131,67 @@ export default function BeamsPage(): React.ReactElement {
 
       {!pos ? (
         <div className="card p-4 text-sm text-ink-mute">Loading…</div>
-      ) : !pos.hasOpening ? (
-        <form onSubmit={saveOpening} className="card p-4 space-y-3 mb-6 max-w-2xl">
-          <h2 className="font-semibold">Start beam tracking — count your beams once</h2>
+      ) : (!pos.hasOpening || countOpen) ? (
+        <form onSubmit={saveCount} className="card p-4 space-y-3 mb-6 max-w-3xl">
+          <h2 className="font-semibold">{pos.hasOpening ? 'Physical count check' : 'Start beam tracking — count your beams once'}</h2>
           <p className="text-sm text-ink-soft">
-            From the paavu records the app already knows <b>{pos.inStock}</b> beams are sized paavu in stock and <b>{pos.onLoom}</b> are on looms.
-            Enter the rest below; from now on every paavu received from sizing, mounted or finished updates the count by itself.
+            Count the beams where they really are. The app&apos;s paavu records show <b>{pos.appOnLoom}</b> on looms and <b>{pos.appInStock}</b> sized paavu in stock;
+            any difference you enter is remembered, so the screen matches the floor. After this, sizing, loom and paavu entries keep the count up to date.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Total beams you own *</label>
-              <input type="number" min="1" step="1" required value={opTotal} onChange={(e) => setOpTotal(e.target.value)} className="input num" />
-            </div>
-            <div>
-              <label className="label">Empty beams at sizing mill now</label>
-              <input type="number" min="0" step="1" value={opAtSizing} onChange={(e) => setOpAtSizing(e.target.value)} className="input num" />
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div><label className="label">Empty beams in godown</label><input type="number" min="0" step="1" value={cGodown} onChange={(e) => setCGodown(e.target.value)} className="input num" /></div>
+            <div><label className="label">Looms with beam loaded</label><input type="number" min="0" step="1" value={cLoom} onChange={(e) => setCLoom(e.target.value)} className="input num" /></div>
+            <div><label className="label">Sized paavu in stock</label><input type="number" min="0" step="1" value={cStock} onChange={(e) => setCStock(e.target.value)} className="input num" /></div>
+          </div>
+          <div>
+            <div className="label mb-1">Empty beams at each sizing mill</div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {mills.map((m) => (
+                <div key={m.id}>
+                  <label className="text-xs text-ink-soft">{m.name}</label>
+                  <input type="number" min="0" step="1" value={cMill[m.id] ?? ''} onChange={(e) => setCMill((cur) => ({ ...cur, [m.id]: e.target.value }))} className="input num" />
+                </div>
+              ))}
             </div>
           </div>
-          {Number(opTotal) > 0 && (
-            <div className="text-sm">
-              Empty in godown will be: <b className="num">{Math.round(Number(opTotal)) - Math.round(Number(opAtSizing || 0)) - pos.inStock - pos.onLoom}</b>
-            </div>
-          )}
+          <div className="text-sm">Total beams: <b className="num">{countTotal}</b>{pos.hasOpening ? <> (app had {pos.total})</> : null}</div>
           {error && <div className="text-sm text-rose-600">{error}</div>}
-          <button type="submit" disabled={busy} className="btn-primary">Save opening count</button>
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy} className="btn-primary">{pos.hasOpening ? 'Save count' : 'Save opening count'}</button>
+            {pos.hasOpening && <button type="button" onClick={() => setCountOpen(false)} className="btn-ghost">Cancel</button>}
+          </div>
         </form>
       ) : (
         <>
           <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
             {card('Total beams', pos.total, 'owned by PPK TEX')}
             {card('Empty in godown', pos.godown, 'ready to send for sizing', pos.godown < 0 ? 'ring-1 ring-rose-300' : '')}
-            {card('At sizing mill', pos.atSizing, `sent ${pos.sent} · came back as paavu ${pos.receivedSized}`, pos.atSizing < 0 ? 'ring-1 ring-rose-300' : '')}
+            {card('At sizing mills', pos.atSizing, pos.byMill.map((r) => `${r.mill.name.split(' ').slice(0, 2).join(' ')}: ${r.count}`).join(' · ') || 'none', pos.atSizing < 0 ? 'ring-1 ring-rose-300' : '')}
             {card('Sized paavu in stock', pos.inStock, 'waiting for a loom')}
             {card('On looms', pos.onLoom, 'paavu mounted')}
           </section>
+          {pos.byMill.length > 0 && (
+            <div className="card overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-xs uppercase text-ink-mute border-b">
+                  <th className="p-2">Sizing mill</th><th className="p-2 text-right">Empty beams there</th><th className="p-2 text-right">Sent since opening</th><th className="p-2 text-right">Back as paavu</th>
+                </tr></thead>
+                <tbody>
+                  {pos.byMill.map((r) => (
+                    <tr key={r.mill.id} className="border-b last:border-0">
+                      <td className="p-2">{r.mill.name}</td>
+                      <td className={`p-2 text-right num font-semibold ${r.count < 0 ? 'text-rose-600' : ''}`}>{r.count}</td>
+                      <td className="p-2 text-right num">{r.sent}</td>
+                      <td className="p-2 text-right num">{r.received}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mb-4 flex justify-end">
+            <button type="button" onClick={openCount} className="btn-ghost text-sm">Physical count check…</button>
+          </div>
           {(pos.godown < 0 || pos.atSizing < 0) && (
             <div className="card p-3 mb-4 text-sm text-rose-700 bg-rose-50">
               A count has gone below zero — an entry is missing or the opening count was off. Check the list below or add a correction (New beams added / Beams scrapped).
@@ -236,9 +270,13 @@ export default function BeamsPage(): React.ReactElement {
                   <tr key={m.id} className="border-b last:border-0">
                     <td className="p-2 whitespace-nowrap">{formatDay(m.move_date)}</td>
                     <td className="p-2 whitespace-nowrap">{m.code}</td>
-                    <td className="p-2">{BEAM_KIND_LABEL[m.kind]}</td>
+                    <td className="p-2">{m.is_recount ? 'Physical count correction' : BEAM_KIND_LABEL[m.kind]}</td>
                     <td className="p-2 text-right num">
-                      {m.kind === 'opening' ? `${m.qty} (at sizing ${m.at_sizing_qty})` : (m.kind === 'removed' ? `−${m.qty}` : m.qty)}
+                      {m.kind === 'opening'
+                        ? (m.qty > 0 ? `${m.qty} total` : '') + (m.at_sizing_qty ? ` · ${m.at_sizing_qty} at mill` : '')
+                        : m.is_recount
+                          ? [m.qty ? `${m.kind === 'removed' ? '−' : '+'}${m.qty} total` : '', m.sizing_adjust ? `${m.sizing_adjust > 0 ? '+' : ''}${m.sizing_adjust} at mill` : ''].filter(Boolean).join(' · ') || '0'
+                          : (m.kind === 'removed' ? `−${m.qty}` : m.qty)}
                     </td>
                     <td className="p-2">{millName(m.party_id)}</td>
                     <td className="p-2">{m.vehicle_no}</td>

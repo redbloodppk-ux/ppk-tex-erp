@@ -38,3 +38,15 @@ BEGIN
 END $$;
 CREATE TRIGGER trg_beam_movement_code BEFORE INSERT ON public.beam_movement
   FOR EACH ROW EXECUTE FUNCTION public.tg_beam_movement_code();
+
+-- Physical count support. Many looms already carried paavus that were
+-- never entered in the app, so the paavu-based counts run short. A
+-- physical count stores the gap as offsets (summed over all rows):
+--   loom_offset / stock_offset : real minus app count at that moment
+--   sizing_adjust              : correction to one mill's empty count
+--   is_recount                 : row came from a physical count check
+ALTER TABLE public.beam_movement
+  ADD COLUMN IF NOT EXISTS loom_offset integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS stock_offset integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sizing_adjust integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_recount boolean NOT NULL DEFAULT false;
