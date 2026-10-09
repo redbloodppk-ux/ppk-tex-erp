@@ -11,7 +11,7 @@ import {
   FileBarChart, Bell, Settings, BookCheck, UserCog, Landmark,
   Factory, Disc3, Layers, Warehouse, Gauge, Calendar,
   ChevronRight, FileText, Info, PanelLeftClose, PanelLeftOpen, HandCoins, AlarmClock,
-  NotebookPen, ArrowLeftRight,
+  NotebookPen, ArrowLeftRight, Cylinder,
 } from 'lucide-react';
 import { BrandLogo } from './brand-logo';
 
@@ -89,6 +89,7 @@ const NAV: NavItem[] = [
   // said "Pavu (Sized Beams)" while the screen said "Pavu Master", so the
   // menu and the page it opened disagreed about what the thing was called.
   { href: '/app/pavu',          label: 'Pavu Master',        icon: Layers,          group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
+  { href: '/app/beams',         label: 'Beams',              icon: Cylinder,        group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production',    label: 'Production',         icon: Factory,         group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/production/shift-log', label: 'Shift Log',   icon: Gauge,           group: 'production', roles: ['owner','mill_manager','floor_operator','auditor'] },
   { href: '/app/jobwork/fabric-receipt', label: 'Fabric Receipt', icon: PackageCheck, group: 'production', roles: ['owner','mill_manager','accounts','auditor'] },
