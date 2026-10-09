@@ -151,3 +151,6 @@ GRANT EXECUTE ON FUNCTION public.fn_yarn_transfer_create(date, bigint, numeric, 
 
 -- Transport copy (print) details, filled by the app after create.
 ALTER TABLE public.yarn_transfer ADD COLUMN IF NOT EXISTS vehicle_no text, ADD COLUMN IF NOT EXISTS purchase_lot_id bigint;
+
+-- E-way bill details (TN intra-state: needed above Rs 1,00,000 value).
+ALTER TABLE public.yarn_transfer ADD COLUMN IF NOT EXISTS eway_bill_no text, ADD COLUMN IF NOT EXISTS eway_bill_date date;

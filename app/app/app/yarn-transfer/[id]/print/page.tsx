@@ -14,6 +14,7 @@ import { BrandLogo } from '@/app/components/brand-logo';
 import { loadCompany } from '@/lib/load-company';
 import { formatDay } from '@/lib/utils';
 import { TransferPrintActions } from './print-actions';
+import { EWAY_BILL_LIMIT } from '@/lib/yarn-transfer';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +86,15 @@ export default async function YarnTransferPrintPage({ params }: { params: Promis
 
   return (
     <>
-      <TransferPrintActions id={id} filename={filename} />
+      <TransferPrintActions
+        id={id}
+        filename={filename}
+        vehicleNo={t.vehicle_no ?? ''}
+        ewayNo={t.eway_bill_no ?? ''}
+        ewayDate={t.eway_bill_date ?? ''}
+        bags={Number(t.bag_count ?? 0)}
+        ewayNeeded={value != null && value > EWAY_BILL_LIMIT}
+      />
       <style>{`
         @page { size: A4; margin: 10mm; }
         @media print {
@@ -103,7 +112,7 @@ export default async function YarnTransferPrintPage({ params }: { params: Promis
         .yt-head .doctype { text-align: right; font-size: 18px; font-weight: 800; letter-spacing: 1px; }
         .yt-head .doctype small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
         .yt-banner { margin: 10px 0; border: 2px solid #000; text-align: center; padding: 7px; font-size: 16px; font-weight: 900; letter-spacing: 1px; }
-        .yt-meta { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
+        .yt-meta { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid #000; }
         .yt-meta > div { padding: 5px 9px; border-right: 1px solid #000; }
         .yt-meta > div:last-child { border-right: none; }
         .lbl { font-size: 10px; font-weight: 700; color: #333; letter-spacing: .5px; text-transform: uppercase; }
@@ -143,6 +152,7 @@ export default async function YarnTransferPrintPage({ params }: { params: Promis
           <div><div className="lbl">Note No</div><div className="val">{code}</div></div>
           <div><div className="lbl">Moving date</div><div className="val">{formatDay(t.transfer_date)}</div></div>
           <div><div className="lbl">Vehicle no</div><div className="val">{t.vehicle_no || '—'}</div></div>
+          <div><div className="lbl">E-way bill no</div><div className="val">{t.eway_bill_no || (value != null && value > EWAY_BILL_LIMIT ? '—' : 'Not required')}</div>{t.eway_bill_date ? <div style={{ fontSize: 11 }}>Dt: {formatDay(t.eway_bill_date)}</div> : null}</div>
           <div><div className="lbl">Purpose</div><div className="val">Job work (weaving)</div></div>
         </div>
         <div className="yt-places">

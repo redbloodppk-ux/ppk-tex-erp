@@ -16,14 +16,14 @@ import { PageHeader } from '@/app/components/page-header';
 import { SmartSelect } from '@/app/components/smart-select';
 import { appAlert, appConfirm } from '@/lib/app-dialog';
 import { formatDay, todayIST } from '@/lib/utils';
-import { measureYarnAt, deleteYarnTransfer, type YarnLoc } from '@/lib/yarn-transfer';
+import { measureYarnAt, deleteYarnTransfer, EWAY_BILL_LIMIT, type YarnLoc } from '@/lib/yarn-transfer';
 import { ArrowRight, Loader2, Printer, Trash2 } from 'lucide-react';
 
 interface Count { id: number; code: string; display_name: string | null }
 interface Party { id: number; name: string; kind: string | null }
 interface PurchaseLot {
   id: number; lot_code: string; invoice_no: string | null; received_date: string;
-  received_kg: number; bag_count: number; yarn_count_id: number; delivery_destination: string;
+  received_kg: number; bag_count: number; yarn_count_id: number; delivery_destination: string; cost_per_kg: number;
   supplier: { name: string } | null;
 }
 interface Transfer {
@@ -48,6 +48,8 @@ export default function YarnTransferPage(): React.ReactElement {
   const [lots, setLots] = useState<PurchaseLot[]>([]);
   const [lotId, setLotId] = useState('');
   const [vehicle, setVehicle] = useState('');
+  const [ewayNo, setEwayNo] = useState('');
+  const [ewayDate, setEwayDate] = useState('');
   const [parties, setParties] = useState<Party[]>([]);
   const [rows, setRows] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +71,7 @@ export default function YarnTransferPage(): React.ReactElement {
       sb.from('jobwork_party').select('id, name, kind').eq('status', 'active').order('name'),
       sb.from('yarn_transfer').select('*').order('transfer_date', { ascending: false }).order('id', { ascending: false }).limit(200),
       sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, received_kg, bag_count, yarn_count_id, delivery_destination, supplier:supplier_party_id ( name )')
+        .select('id, lot_code, invoice_no, received_date, received_kg, bag_count, yarn_count_id, delivery_destination, cost_per_kg, supplier:supplier_party_id ( name )')
         .is('transfer_id', null).eq('yarn_kind', 'yarn')
         .order('received_date', { ascending: false }).order('id', { ascending: false }).limit(300),
     ]);
@@ -100,6 +102,11 @@ export default function YarnTransferPage(): React.ReactElement {
     setLotId(pick ? String(pick.id) : '');
   }, [lotsForCount, from]);
   const chosenLot = lotsForCount.find((l) => String(l.id) === lotId) ?? null;
+  // Value for the e-way bill check: kg x the purchase rate (the chosen
+  // bill, else the latest purchase of this count).
+  const rateGuess = chosenLot ? Number(chosenLot.cost_per_kg) : (lotsForCount[0] ? Number(lotsForCount[0].cost_per_kg) : 0);
+  const valueGuess = Number(kg) > 0 && rateGuess > 0 ? Number(kg) * rateGuess : 0;
+  const needsEway = valueGuess > EWAY_BILL_LIMIT;
   const kgPerBag = chosenLot && chosenLot.bag_count > 0 ? Number(chosenLot.received_kg) / chosenLot.bag_count : null;
 
   const countById = useMemo(() => new Map(counts.map((c) => [c.id, c])), [counts]);
@@ -134,6 +141,13 @@ export default function YarnTransferPage(): React.ReactElement {
       );
       if (!ok) return;
     }
+    if (needsEway && !ewayNo.trim()) {
+      const ok = await appConfirm(
+        `Value is about ₹${Math.round(valueGuess).toLocaleString('en-IN')} — above ₹${EWAY_BILL_LIMIT.toLocaleString('en-IN')}, so an e-way bill is needed for this movement.\n\nNo e-way bill number entered. Save now and add it later on the transport copy?`,
+        { title: 'E-way bill needed' },
+      );
+      if (!ok) return;
+    }
     setBusy(true);
     const { data: newId, error: err } = await sb.rpc('fn_yarn_transfer_create', {
       p_date: date, p_count: Number(countId), p_kg: q, p_bags: Number(bags || 0),
@@ -142,9 +156,14 @@ export default function YarnTransferPage(): React.ReactElement {
     setBusy(false);
     if (err) { setError(err.message); return; }
     await sb.from('yarn_transfer')
-      .update({ vehicle_no: vehicle.trim().toUpperCase() || null, purchase_lot_id: lotId ? Number(lotId) : null })
+      .update({
+        vehicle_no: vehicle.trim().toUpperCase() || null,
+        purchase_lot_id: lotId ? Number(lotId) : null,
+        eway_bill_no: ewayNo.trim() || null,
+        eway_bill_date: ewayNo.trim() ? (ewayDate || date) : null,
+      })
       .eq('id', newId);
-    setKg(''); setBags(''); setNotes(''); setVehicle('');
+    setKg(''); setBags(''); setNotes(''); setVehicle(''); setEwayNo(''); setEwayDate('');
     // Straight to the transport copy — Print / Download PDF live there.
     router.push(`/app/yarn-transfer/${newId}/print`);
   }
@@ -227,6 +246,24 @@ export default function YarnTransferPage(): React.ReactElement {
           <div>
             <label className="label">Vehicle no</label>
             <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} className="input w-full uppercase" placeholder="e.g. TN 33 AB 1234" />
+          </div>
+        </div>
+        {valueGuess > 0 && (
+          <div className={`text-xs rounded-md px-3 py-2 ${needsEway ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'text-ink-mute'}`}>
+            Goods value ≈ ₹{Math.round(valueGuess).toLocaleString('en-IN')} ({kg} kg × ₹{rateGuess.toFixed(2)}).{' '}
+            {needsEway
+              ? <b>Above ₹{EWAY_BILL_LIMIT.toLocaleString('en-IN')} — generate an e-way bill and enter its number below.</b>
+              : <>Below ₹{EWAY_BILL_LIMIT.toLocaleString('en-IN')} — e-way bill not needed (transport copy only).</>}
+          </div>
+        )}
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">E-way bill no{needsEway ? ' *' : ''}</label>
+            <input value={ewayNo} onChange={(e) => setEwayNo(e.target.value)} inputMode="numeric" className="input w-full num" placeholder={needsEway ? '12-digit e-way bill number' : 'Not needed below ₹1 lakh'} />
+          </div>
+          <div>
+            <label className="label">E-way bill date</label>
+            <input type="date" value={ewayDate || (ewayNo ? date : '')} onChange={(e) => setEwayDate(e.target.value)} className="input" />
           </div>
         </div>
         <div>

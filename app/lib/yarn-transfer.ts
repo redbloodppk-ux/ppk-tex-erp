@@ -104,3 +104,8 @@ export async function deleteYarnTransfer(sb: Sb, id: number): Promise<string | n
   const { error: e2 } = await sb.from('yarn_transfer').delete().eq('id', id);
   return e2 ? e2.message : null;
 }
+
+/** Tamil Nadu intra-state e-way bill limit (consignment value, ₹).
+ *  Above this a movement of goods — job work included — needs an
+ *  e-way bill. Change here if the state revises the limit. */
+export const EWAY_BILL_LIMIT = 100000;
