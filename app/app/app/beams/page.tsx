@@ -240,7 +240,7 @@ export default function BeamsPage(): React.ReactElement {
               </div>
             </div>
             <p className="text-xs text-ink-mute">
-              Paavus received from sizing are counted automatically when you enter them in the sizing job — do not enter those here.
+              Paavus received from sizing are counted automatically when you enter them (sizing job, or Job Work → warp beam given with the sizing mill) — do not enter those here.
               Use “returned from sizing” only for beams that come back <b>empty</b>.
             </p>
             {error && <div className="text-sm text-rose-600">{error}</div>}

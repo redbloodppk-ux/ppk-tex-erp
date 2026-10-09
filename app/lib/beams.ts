@@ -7,8 +7,9 @@
  *   at each mill   = opening/adjust + sent - returned empty
  *                    - paavus received from that mill's sizing jobs
  *                      (entered after the opening count)
- *   paavu in stock = in-house paavus in stock + stock offset
- *   on looms       = in-house paavus on loom  + loom offset
+ *   paavu in stock = paavus in stock (in-house AND job-work paavus —
+ *                    both are wound on our beams) + stock offset
+ *   on looms       = paavus on loom (same)               + loom offset
  *   empty in godown= total - the rest
  *
  * The offsets come from physical counts: they cover looms / paavus the
@@ -53,8 +54,8 @@ export interface BeamPosition {
 export async function loadBeamPosition(sb: Sb): Promise<{ pos: BeamPosition; moves: BeamMove[]; mills: Mill[] }> {
   const [mRes, stockRes, loomRes, millRes, jobMillRes] = await Promise.all([
     sb.from('beam_movement').select('*').order('move_date', { ascending: false }).order('id', { ascending: false }),
-    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('production_mode', 'in_house').eq('status', 'in_stock'),
-    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('production_mode', 'in_house').eq('status', 'on_loom'),
+    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'in_stock'),
+    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'on_loom'),
     sb.from('party').select('id, name').ilike('name', '%sizing%').order('name'),
     sb.from('sizing_job').select('party:party_id ( id, name )').not('party_id', 'is', null),
   ]);
@@ -70,11 +71,19 @@ export async function loadBeamPosition(sb: Sb): Promise<{ pos: BeamPosition; mov
   // Paavus received from sizing after the opening count, per mill.
   const receivedByMill = new Map<number, number>();
   if (opening) {
+    // In-house paavus name their mill through the sizing job; job-work
+    // paavus through the warp-beam-given row (supplier = sizing mill).
     const { data } = await sb.from('pavu').select('id, sizing_job:sizing_job_id ( party_id )')
-      .not('sizing_job_id', 'is', null).neq('production_mode', 'jobwork')
       .gt('created_at', opening.created_at);
-    for (const p of (data ?? []) as any[]) {
-      const mid = Number(p.sizing_job?.party_id ?? 0);
+    const rows = (data ?? []) as any[];
+    const noJob = rows.filter((p) => !p.sizing_job).map((p) => p.id);
+    const jwMill = new Map<number, number>();
+    if (noJob.length > 0) {
+      const { data: jw } = await sb.from('jobwork_warp_beam').select('pavu_id, supplier_party_id').in('pavu_id', noJob);
+      for (const r of (jw ?? []) as any[]) if (r.supplier_party_id) jwMill.set(r.pavu_id, r.supplier_party_id);
+    }
+    for (const p of rows) {
+      const mid = Number(p.sizing_job?.party_id ?? jwMill.get(p.id) ?? 0);
       receivedByMill.set(mid, (receivedByMill.get(mid) ?? 0) + 1);
     }
   }
