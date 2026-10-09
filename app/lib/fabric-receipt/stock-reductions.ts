@@ -213,16 +213,24 @@ async function reduceWeftBag(
   sb: Sb,
   yarn_count_ids: number[],
   kg: number,
+  preferPartyId: number | null = null,
 ): Promise<{ applied: number; forced: number; perBag: Array<{ bag_id: number | null; cut: number; party_id: number | null; count_id: number | null }> }> {
   if (kg <= 0 || yarn_count_ids.length === 0) return { applied: 0, forced: 0, perBag: [] };
 
-  const { data: bags } = await sb
+  const { data: bagRows } = await sb
     .from('jobwork_weft_bag')
     .select('id, total_kg, jobwork_party_id, yarn_count_id')
     .in('yarn_count_id', yarn_count_ids)
     .gt('total_kg', 0)
     .order('given_date', { ascending: true })
     .order('id', { ascending: true });
+  // The weaver who delivered this fabric uses up THEIR weft first
+  // (e.g. yarn transferred to that outsource weaver); other parties'
+  // bags are only touched if theirs run out.
+  const bags = preferPartyId == null
+    ? bagRows
+    : [...(bagRows ?? [])].sort((a: { jobwork_party_id: number | null }, b: { jobwork_party_id: number | null }) =>
+        Number(b.jobwork_party_id === preferPartyId) - Number(a.jobwork_party_id === preferPartyId));
 
   let remaining = kg;
   let applied = 0;
@@ -741,7 +749,7 @@ export async function applyFabricReceiptStockReductions(
           });
         }
       } else {
-      const r = await reduceWeftBag(sb, weftCountIds, it.weft_consumed_kg);
+      const r = await reduceWeftBag(sb, weftCountIds, it.weft_consumed_kg, ctxJwPartyId);
       result.applied.weft_kg += r.applied;
       for (const b of r.perBag) {
         if (b.cut <= 0) continue;
@@ -793,7 +801,7 @@ export async function applyFabricReceiptStockReductions(
           });
         }
       } else {
-      const r = await reduceWeftBag(sb, porvaiCountIds, it.porvai_consumed_kg);
+      const r = await reduceWeftBag(sb, porvaiCountIds, it.porvai_consumed_kg, ctxJwPartyId);
       result.applied.porvai_kg += r.applied;
       for (const b of r.perBag) {
         if (b.cut <= 0) continue;

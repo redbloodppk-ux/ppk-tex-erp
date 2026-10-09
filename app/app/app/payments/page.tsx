@@ -1336,7 +1336,8 @@ function StatusTab(): React.ReactElement {
       bobQ = bobQ.limit(LIMIT);
 
       let yarnQ = sb.from('yarn_lot')
-        .select('id, lot_code, invoice_no, received_date, total_amount, supplier_party_id');
+        .select('id, lot_code, invoice_no, received_date, total_amount, supplier_party_id')
+        .is('transfer_id', null);
       if (hasParty) yarnQ = yarnQ.eq('supplier_party_id', pid!);
       yarnQ = yarnQ.limit(LIMIT);
 

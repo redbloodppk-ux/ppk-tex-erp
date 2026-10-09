@@ -2482,9 +2482,10 @@ async function loadInhouseOpeningStock(
       id: number; lot_code: string | null; yarn_count_id: number | null;
       received_date: string | null; received_kg: number | string | null;
       delivery_destination: string | null; yarn_kind: string | null;
+      transfer_id?: number | null; notes?: string | null;
     }>(
       supabase.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination, yarn_kind')
+        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination, yarn_kind, transfer_id, notes')
         .eq('delivery_destination', 'in_house')
         .eq('yarn_kind', wantedKind),
     );
@@ -2497,7 +2498,7 @@ async function loadInhouseOpeningStock(
         direction: 'in',
         quantity: Number(l.received_kg ?? 0),
         reference: l.lot_code ?? `Lot #${l.id}`,
-        notes: 'Yarn purchase (delivery=in_house)',
+        notes: l.transfer_id != null ? (l.notes ?? 'Yarn transfer in') : 'Yarn purchase (delivery=in_house)',
       });
     }
 
@@ -2954,11 +2955,11 @@ async function loadSizingWarehouse(
   const lots = await safeSelect<{
     id: number; lot_code: string; yarn_count_id: number | null;
     received_date: string | null; received_kg: number | string | null;
-    delivery_destination: string | null;
+    delivery_destination: string | null; transfer_id?: number | null; notes?: string | null;
   }>(
     (() => {
       let q = supabase.from('yarn_lot')
-        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination')
+        .select('id, lot_code, yarn_count_id, received_date, received_kg, delivery_destination, transfer_id, notes')
         .eq('delivery_destination', 'sizing');
       if (countFilter !== null) q = q.eq('yarn_count_id', countFilter);
       return q;
@@ -3032,7 +3033,34 @@ async function loadSizingWarehouse(
       direction: 'in',
       quantity: Number(l.received_kg ?? 0),
       reference: l.lot_code ?? `Lot #${l.id}`,
-      notes: 'Yarn purchase (delivery=sizing)',
+      notes: l.transfer_id != null ? (l.notes ?? 'Yarn transfer in') : 'Yarn purchase (delivery=sizing)',
+    });
+  }
+  // Yarn transfers OUT of the sizing warehouse (migration 313) — to the
+  // in-house warehouse or to a weaver.
+  const transfersOut = await safeSelect<{
+    id: number; transfer_code: string | null; transfer_date: string | null;
+    yarn_count_id: number | null; kg: number | string | null;
+    to_loc: string | null; notes: string | null;
+  }>(
+    (() => {
+      let q = supabase.from('yarn_transfer')
+        .select('id, transfer_code, transfer_date, yarn_count_id, kg, to_loc, notes')
+        .eq('from_loc', 'sizing');
+      if (countFilter !== null) q = q.eq('yarn_count_id', countFilter);
+      return q;
+    })(),
+  );
+  for (const t of transfersOut) {
+    const qty = Number(t.kg ?? 0);
+    if (qty <= 0) continue;
+    events.push({
+      event_date: t.transfer_date ?? '',
+      column_id: ensureCol(t.yarn_count_id),
+      direction: 'out',
+      quantity: qty,
+      reference: t.transfer_code ?? `Transfer #${t.id}`,
+      notes: t.to_loc === 'in_house' ? 'Transfer to in-house warehouse' : 'Transfer to weaver',
     });
   }
   for (const j of jobs) {

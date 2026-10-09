@@ -186,6 +186,9 @@ export function YarnPurchaseLog({ yarnKind, title, subtitle }: YarnPurchaseLogPr
       sb.from('yarn_lot')
         .select('id, lot_code, yarn_count_id, supplier_party_id, received_date, due_date, received_kg, cost_per_kg, gst_pct, round_off, total_amount, invoice_no, notes, delivery_destination, bag_count')
         .eq('yarn_kind', yarnKind)
+        // Yarn transfers (migration 313) create a lot at the destination
+        // but are not purchases — keep them off the purchase log.
+        .is('transfer_id', null)
         .order('received_date', { ascending: false })
         .order('id', { ascending: false }),
       // Yarn counts are tagged with default_yarn_kind ('yarn' | 'porvai')
