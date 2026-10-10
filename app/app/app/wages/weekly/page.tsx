@@ -89,6 +89,9 @@ interface PerEmployee {
   reallocated_out: number;
   /** Count of shed-slots this winder covered for an absent winder. */
   covered_for_others: number;
+  /** Folder only: per-quality folding estimate from the shift log
+   *  (Sun-Sat, pieces = metres / 2, rate from the quality master). */
+  fold_lines: Array<{ code: string; qty: number; unit: string; rate: number; amount: number }>;
   /** Sum of wage_entry rows with kind='settlement' whose period == this week. */
   settlement: number;
   advances: number;
@@ -505,6 +508,30 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   }));
   const winderAlloc = await loadWinderAllocation(supabase, weekStart, weekEnd, winderInfos);
 
+  // --- Folder: paid per piece folded (migration 309/311). Book figure =
+  //     the folding estimate for the Sun-Sat shift-log week that ends the
+  //     day before this Mon-Sun wage week ends (same window the wage form
+  //     uses). He has no weekly_salary, so without this his row read ₹0.
+  const hasFolder = employees.some((e) => (e.role ?? '').toLowerCase() === 'folder');
+  let foldLines: PerEmployee['fold_lines'] = [];
+  if (hasFolder) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: fRows } = await (supabase as any).rpc('fn_folding_estimate', {
+      p_from: addDaysISO(weekStart, -1), p_to: addDaysISO(weekEnd, -1),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    foldLines = ((fRows ?? []) as any[])
+      .filter((r) => Number(r.amount ?? 0) > 0)
+      .map((r) => ({
+        code: String(r.code ?? ''),
+        qty: Number(r.folding_unit === 'm' ? r.metres : (r.pieces ?? 0)),
+        unit: r.folding_unit === 'm' ? 'm' : 'pcs',
+        rate: Number(r.folding_rate ?? 0),
+        amount: Number(r.amount ?? 0),
+      }));
+  }
+  const foldTotal = Math.round(foldLines.reduce((a, l) => a + l.amount, 0) * 100) / 100;
+
   const perEmployee: PerEmployee[] = employees.map((e) => {
     const full = Number(e.weekly_salary ?? 0);
     const role = (e.role ?? '').toLowerCase();
@@ -517,6 +544,11 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
     let reallocatedOut = 0;
     let coveredForOthers = 0;
     let book = full;
+    let fullOut = full;
+    if (role === 'folder' && full === 0) {
+      book = foldTotal;
+      fullOut = foldTotal;
+    }
     if (role === 'fitter') {
       absentDays = absentDaysByEmp.get(e.id) ?? 0;
       deduction = (full / 7) * absentDays;
@@ -546,7 +578,8 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       code: e.code,
       full_name: e.full_name,
       role: e.role,
-      full_salary: full,
+      full_salary: fullOut,
+      fold_lines: role === 'folder' ? foldLines : [],
       absent_days: absentDays, // fitters only; 0 for every other role
       absent_deduction: deduction,
       covered_sheds: coveredShedsArr,
@@ -801,6 +834,17 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                           </div>
                         )}
                       </span>
+                    ) : p.fold_lines.length > 0 ? (
+                      <span>
+                        <span className="text-ink-mute">Folding Sun {addDaysISO(weekStart, -1).slice(8, 10)}/{addDaysISO(weekStart, -1).slice(5, 7)} – Sat {addDaysISO(weekEnd, -1).slice(8, 10)}/{addDaysISO(weekEnd, -1).slice(5, 7)} (shift log ÷ 2):</span>
+                        {p.fold_lines.map((l) => (
+                          <div key={l.code} className="num">
+                            {l.code}: {l.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })} {l.unit} × ₹{l.rate} = {formatRupee(l.amount)}
+                          </div>
+                        ))}
+                      </span>
+                    ) : (role === 'folder') ? (
+                      <span className="text-ink-mute">No shift-log entries this folding week</span>
                     ) : (
                       <span className="text-ink-mute">—</span>
                     )}

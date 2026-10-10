@@ -381,8 +381,21 @@ export async function buildWeeklyWageData(weekStartIso: string): Promise<WeeklyD
   }));
   const winderAlloc = await loadWinderAllocation(supabase, weekStart, weekEnd, winderInfos);
 
+  // Folder: book = folding estimate (Sun-Sat shift log, same as the wage
+  // form and the weekly screen) when no weekly_salary is set.
+  let foldTotal = 0;
+  if (weeklyEmps.some((e) => (e.role ?? '').toLowerCase() === 'folder')) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: fRows } = await (supabase as any).rpc('fn_folding_estimate', {
+      p_from: addDaysISO(weekStart, -1), p_to: addDaysISO(weekEnd, -1),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    foldTotal = Math.round(((fRows ?? []) as any[]).reduce((a, r) => a + Number(r.amount ?? 0), 0) * 100) / 100;
+  }
+
   const perEmployee: PerEmployee[] = weeklyEmps.map((e) => {
-    const full = Number(e.weekly_salary ?? 0);
+    const full0 = Number(e.weekly_salary ?? 0);
+    const full = (e.role ?? '').toLowerCase() === 'folder' && full0 === 0 ? foldTotal : full0;
     const role = (e.role ?? '').toLowerCase();
     let absent = 0;
     let deduction = 0;
