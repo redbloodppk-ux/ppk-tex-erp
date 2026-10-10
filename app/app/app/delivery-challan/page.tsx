@@ -110,13 +110,25 @@ export default async function DeliveryChallanListPage({
   // quality" option in the filter bar (e.g. "COLOR OE") stands in for
   // several underlying fabric_quality rows, joined as a comma-separated
   // list in the URL (?quality=10,11). Split + validate each piece.
-  const qualityIds: number[] | null = sp.quality != null && /^\d+(,\d+)*$/.test(sp.quality)
+  let qualityIds: number[] | null = sp.quality != null && /^\d+(,\d+)*$/.test(sp.quality)
     ? Array.from(new Set(sp.quality.split(',').map(Number)))
     : null;
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
+
+  // Widen a merged quality to EVERY member, retired codes included, so an
+  // older link or remembered filter (e.g. ?quality=7,8 saved before the
+  // fix) still returns all of 20'S DHOTIES, not just the active codes.
+  if (qualityIds !== null) {
+    const { data: picked } = await sb.from('fabric_quality').select('merged_name').in('id', qualityIds).eq('is_merged', true);
+    const names = Array.from(new Set(((picked ?? []) as Array<{ merged_name: string | null }>).map((r) => r.merged_name).filter((n): n is string => !!n)));
+    if (names.length > 0) {
+      const { data: members } = await sb.from('fabric_quality').select('id').eq('is_merged', true).in('merged_name', names);
+      qualityIds = Array.from(new Set([...qualityIds, ...((members ?? []) as Array<{ id: number }>).map((r) => Number(r.id))]));
+    }
+  }
 
   // Fabric-quality filter isn't a column on delivery_challan itself — it
   // lives on delivery_challan_item. Resolve it to a set of dc ids first so
@@ -158,7 +170,11 @@ export default async function DeliveryChallanListPage({
   // Outsource Weaving -> Outsource Weaver) — same rule the New DC form uses.
   const [{ data: partyOpts }, { data: qualityOpts }, { data: partyTypeRows }] = await Promise.all([
     sb.from('party').select('id, code, name, party_type_ids').eq('status', 'active').order('name'),
-    sb.from('fabric_quality').select('id, code, name, is_merged, merged_name, production_mode').eq('active', true).order('code'),
+    // ALL qualities, inactive included: this is a filter over past DCs.
+    // With active-only, a merged quality (e.g. 20'S DHOTIES) only carried
+    // its still-active members, so DCs made on the retired codes (2246,
+    // 2190, 2196) silently dropped out of the list and the totals.
+    sb.from('fabric_quality').select('id, code, name, is_merged, merged_name, production_mode').order('code'),
     sb.from('party_type_master').select('id, name').in('name', ['Customer', 'Jobwork Party', 'Outsource Weaver']),
   ]);
   const partyTypes = (partyTypeRows ?? []) as Array<{ id: number; name: string }>;

@@ -108,6 +108,15 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
     return [...groups, ...singles].sort((a, b) => a.label.localeCompare(b.label));
   }, [scopedQualities]);
 
+  // A saved / older link may carry only part of a merged group's ids
+  // (e.g. "7,8"); show it as that merged option so the box isn't blank.
+  const qualityValue = useMemo(() => {
+    if (quality === '' || qualityOptions.some((o) => o.value === quality)) return quality;
+    const want = quality.split(',');
+    const hit = qualityOptions.find((o) => want.every((id) => o.value.split(',').includes(id)));
+    return hit ? hit.value : quality;
+  }, [quality, qualityOptions]);
+
   function setParam(key: string, value: string): void {
     const next = new URLSearchParams(params.toString());
     if (value === '') next.delete(key);
@@ -135,7 +144,7 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
         <label className="text-[11px] uppercase tracking-wide text-ink-mute">Fabric quality</label>
         <SearchSelect
           options={qualityOptions}
-          value={quality}
+          value={qualityValue}
           onChange={(v) => setParam('quality', v)}
           placeholder="All qualities — type to search…"
           className="min-w-[200px]"
