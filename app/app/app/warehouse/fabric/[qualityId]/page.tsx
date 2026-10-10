@@ -60,6 +60,10 @@ interface LedgerRow {
   invoice_no: string | null;
   party_name: string;
   metres: number;
+  /** Pieces for this event, from the towel/dhoti length IN FORCE AT THE
+   *  TIME (receipt's own length_per_pc) — null for metre-only qualities.
+   *  Never recomputed from today's master length. */
+  pcs: number | null;
   invoice_total: number;
   invoice_paid: number;
   invoice_balance: number;
@@ -160,9 +164,8 @@ async function loadQuality(
   };
 }
 
-function fmtPcs(metres: number, mpp: number | null): string {
-  if (mpp == null || mpp <= 0) return '';
-  const pcs = metres / mpp;
+function fmtPcs(pcs: number | null): string {
+  if (pcs == null) return '';
   return pcs.toLocaleString('en-IN', { maximumFractionDigits: 1 }) + ' pcs';
 }
 
@@ -170,12 +173,13 @@ async function loadLedger(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   qualityId: number,
+  mpp: number | null,
 ): Promise<LedgerRow[]> {
   // ── IN side ──
   const { data: inRowsRaw } = await supabase
     .from('fabric_receipt_item')
     .select(`
-      id, fabric_quality_id, received_metres,
+      id, fabric_quality_id, received_metres, length_per_pc,
       receipt:receipt_id (
         id, code, receipt_date, party_id,
         dc:dc_id ( id, code, production_mode ),
@@ -199,11 +203,30 @@ async function loadLedger(
 
   type InRaw = {
     id: number; fabric_quality_id: number | null; received_metres: number | string | null;
+    length_per_pc: number | string | null;
     receipt: {
       id: number; code: string | null; receipt_date: string | null; party_id: number | null;
       dc: { id: number; code: string | null; production_mode: string | null } | null;
       party: { id: number; name: string | null } | null;
     } | null;
+  };
+
+  // Length per piece in force on each receipt date (receipt's own
+  // snapshot, else today's master value). DCs use the latest receipt
+  // length on/before their date, so a length change (e.g. 1.65 -> 1.60)
+  // only affects events from the change onwards.
+  const lenOf = (r: InRaw): number | null => {
+    const l = Number(r.length_per_pc ?? 0);
+    return l > 0 ? l : mpp;
+  };
+  const lenTimeline = ((inRowsRaw ?? []) as InRaw[])
+    .map((r) => ({ date: r.receipt?.receipt_date ?? '', len: lenOf(r) }))
+    .filter((x) => x.date !== '' && x.len != null)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const lenOn = (date: string): number | null => {
+    let found: number | null = null;
+    for (const x of lenTimeline) { if (x.date <= date) found = x.len; else break; }
+    return found ?? mpp;
   };
 
   const inRows: LedgerRow[] = ((inRowsRaw ?? []) as InRaw[]).map((r): LedgerRow => ({
@@ -219,6 +242,7 @@ async function loadLedger(
     invoice_no: null,
     party_name: r.receipt?.party?.name ?? '—',
     metres: Number(r.received_metres ?? 0),
+    pcs: (() => { const l = lenOf(r); return l ? Number(r.received_metres ?? 0) / l : null; })(),
     invoice_total: 0,
     invoice_paid: 0,
     invoice_balance: 0,
@@ -243,6 +267,14 @@ async function loadLedger(
     const total = Number(inv?.total ?? 0);
     const paid  = Number(inv?.amount_paid ?? 0);
     const balance = Number(inv?.balance ?? Math.max(0, total - paid));
+    // A piece-counted quality's DC line holds PIECES in its metres column
+    // (a decimal value is a real metre delivery — same rule as the DC
+    // form). Convert to metres with the length in force on the DC date.
+    const raw = Number(r.metres ?? 0);
+    const isPcsLine = mpp != null && Number.isInteger(raw);
+    const len = lenOn(r.dc?.dc_date ?? '');
+    const outMetres = isPcsLine && len ? raw * len : raw;
+    const outPcs = mpp == null ? null : isPcsLine ? raw : (len ? raw / len : null);
     return {
       id: `out:${r.id}`,
       direction: 'out',
@@ -255,7 +287,8 @@ async function loadLedger(
       invoice_id: inv?.id ?? null,
       invoice_no: inv?.invoice_no ?? null,
       party_name: r.dc?.bill_to_name ?? '—',
-      metres: Number(r.metres ?? 0),
+      metres: outMetres,
+      pcs: outPcs,
       invoice_total: total,
       invoice_paid: paid,
       invoice_balance: balance,
@@ -332,7 +365,7 @@ export default async function FabricStockLedgerPage({
   const quality = await loadQuality(supabase, qualityId);
   if (!quality) notFound();
 
-  const rows = await loadLedger(supabase, qualityId);
+  const rows = await loadLedger(supabase, qualityId, quality.meter_per_pc);
 
   // Apply the filter.
   const filteredAsc = rows.filter((r) => {
@@ -347,12 +380,18 @@ export default async function FabricStockLedgerPage({
   // on-hand at each event, even when a filter is applied. Then we
   // attach the balance to filtered rows by id.
   const runningById = new Map<string, number>();
+  const runningPcsById = new Map<string, number>();
   let running = 0;
+  let runningPcs = 0;
   for (const r of rows) {
     running += r.direction === 'in' ? r.metres : -r.metres;
+    runningPcs += (r.direction === 'in' ? 1 : -1) * (r.pcs ?? 0);
     runningById.set(r.id, running);
+    runningPcsById.set(r.id, runningPcs);
   }
   const closingBalance = running;
+  const showPcs = quality.meter_per_pc != null;
+  const closingPcs = showPcs ? runningPcs : null;
 
   // Display newest first.
   const filteredForDisplay = [...filteredAsc].reverse();
@@ -361,6 +400,8 @@ export default async function FabricStockLedgerPage({
   // gets the real bird's-eye totals.
   const totalIn   = rows.filter((r) => r.direction === 'in').reduce((s, r) => s + r.metres, 0);
   const totalOut  = rows.filter((r) => r.direction === 'out').reduce((s, r) => s + r.metres, 0);
+  const totalInPcs  = showPcs ? rows.filter((r) => r.direction === 'in').reduce((s, r) => s + (r.pcs ?? 0), 0) : null;
+  const totalOutPcs = showPcs ? rows.filter((r) => r.direction === 'out').reduce((s, r) => s + (r.pcs ?? 0), 0) : null;
   const lastMoveDate = rows.length > 0 ? rows[rows.length - 1]!.event_date : '';
 
   // Excel-friendly CSV link (data URL) — opens in Excel directly.
@@ -412,21 +453,21 @@ export default async function FabricStockLedgerPage({
         <Kpi
           label="Total Received"
           value={formatMetres(totalIn, 1)}
-          sub={fmtPcs(totalIn, quality.meter_per_pc) || undefined}
+          sub={fmtPcs(totalInPcs) || undefined}
           icon={TrendingUp}
           tone="ok"
         />
         <Kpi
           label="Total Sold / Out"
           value={formatMetres(totalOut, 1)}
-          sub={fmtPcs(totalOut, quality.meter_per_pc) || undefined}
+          sub={fmtPcs(totalOutPcs) || undefined}
           icon={TrendingDown}
           tone="warn"
         />
         <Kpi
           label="On-hand Balance"
           value={formatMetres(closingBalance, 1)}
-          sub={fmtPcs(closingBalance, quality.meter_per_pc) || undefined}
+          sub={fmtPcs(closingPcs) || undefined}
           icon={Layers}
           tone={closingBalance > 0 ? 'ok' : 'mute'}
         />
@@ -537,7 +578,7 @@ export default async function FabricStockLedgerPage({
                       </span>
                       {quality.meter_per_pc && (
                         <div className={'text-[10px] font-normal ' + (r.direction === 'in' ? 'text-emerald-700' : 'text-rose-600')}>
-                          {r.direction === 'in' ? '+' : '−'}{fmtPcs(r.metres, quality.meter_per_pc)}
+                          {r.direction === 'in' ? '+' : '−'}{fmtPcs(r.pcs)}
                         </div>
                       )}
                     </td>
@@ -547,7 +588,7 @@ export default async function FabricStockLedgerPage({
                     <td className="px-3 py-2 text-right num font-semibold">
                       {formatMetres(bal, 1)}
                       {quality.meter_per_pc && (
-                        <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(bal, quality.meter_per_pc)}</div>
+                        <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(showPcs ? (runningPcsById.get(r.id) ?? 0) : null)}</div>
                       )}
                     </td>
                   </tr>
@@ -563,14 +604,14 @@ export default async function FabricStockLedgerPage({
                   IN {formatMetres(totalIn, 1)} · OUT {formatMetres(totalOut, 1)}
                   {quality.meter_per_pc && (
                     <div className="text-[10px] font-normal text-ink-mute">
-                      IN {fmtPcs(totalIn, quality.meter_per_pc)} · OUT {fmtPcs(totalOut, quality.meter_per_pc)}
+                      IN {fmtPcs(totalInPcs)} · OUT {fmtPcs(totalOutPcs)}
                     </div>
                   )}
                 </td>
                 <td className="px-3 py-3 text-right num font-bold">
                   {formatMetres(closingBalance, 1)}
                   {quality.meter_per_pc && (
-                    <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(closingBalance, quality.meter_per_pc)}</div>
+                    <div className="text-[10px] font-normal text-ink-mute">{fmtPcs(closingPcs)}</div>
                   )}
                 </td>
               </tr>
