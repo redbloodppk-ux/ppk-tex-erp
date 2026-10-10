@@ -7,7 +7,7 @@
  * (page.tsx) reads, and preserves whatever ?mode= is already in the URL
  * since it only ever adds/removes its own keys.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { SearchSelect, type SearchSelectOption } from '@/app/components/search-select';
@@ -115,6 +115,22 @@ export function DcFilters({ parties, qualities, partyTypeIds }: DcFiltersProps):
     const want = quality.split(',');
     const hit = qualityOptions.find((o) => want.every((id) => o.value.split(',').includes(id)));
     return hit ? hit.value : quality;
+  }, [quality, qualityOptions]);
+
+  // A quality filter remembered from another tab (e.g. 20'S DHOTIES picked
+  // on Job Work) does not exist in this tab's list, so the box showed
+  // "All qualities" while the hidden filter still hid every DC. Drop any
+  // quality the current tab cannot show.
+  useEffect(() => {
+    if (quality === '') return;
+    const want = quality.split(',');
+    const visible = qualityOptions.some((o) => o.value.split(',').some((id) => want.includes(id)));
+    if (!visible) {
+      const next = new URLSearchParams(params.toString());
+      next.delete('quality');
+      router.replace(`/app/delivery-challan?${next.toString()}`, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quality, qualityOptions]);
 
   function setParam(key: string, value: string): void {
