@@ -249,6 +249,44 @@ async function loadLedger(
     status: 'in_stock',
   }));
 
+  // ── IN side (2): in-house PRODUCTION BATCHES. Fabric woven on our looms
+  // and recorded as a production batch (not via a fabric receipt) lands
+  // in stock_ledger (bucket production_fabric, direction in). Without it
+  // a DC fed from a batch (e.g. DC/26-27/0053, 10-Jul-2026, 1,314 towels
+  // from batches of 4 and 9 Jul) showed as stock going negative.
+  const { data: batchRaw } = await supabase
+    .from('stock_ledger')
+    .select('id, quantity, unit, event_date, reference_no, source_id')
+    .eq('bucket', 'production_fabric')
+    .eq('direction', 'in')
+    .eq('source_kind', 'production_batch')
+    .eq('fabric_quality_id', qualityId);
+  for (const r of (batchRaw ?? []) as Array<{ id: number; quantity: number | string | null; unit: string | null; event_date: string | null; reference_no: string | null; source_id: number | null }>) {
+    const q = Number(r.quantity ?? 0);
+    if (q <= 0) continue;
+    const isPcs = (r.unit ?? '').toLowerCase() === 'pcs';
+    const len = lenOn(r.event_date ?? '');
+    inRows.push({
+      id: `pb:${r.id}`,
+      direction: 'in',
+      event_date: r.event_date ?? '',
+      source_kind: 'inhouse',
+      dc_id: null,
+      dc_code: null,
+      receipt_id: null,
+      receipt_code: r.reference_no ?? (r.source_id != null ? `Batch #${r.source_id}` : 'Production batch'),
+      invoice_id: null,
+      invoice_no: null,
+      party_name: 'Production batch (own looms)',
+      metres: isPcs ? (len ? q * len : q) : q,
+      pcs: isPcs ? q : (mpp != null && len ? q / len : null),
+      invoice_total: 0,
+      invoice_paid: 0,
+      invoice_balance: 0,
+      status: 'in_stock',
+    });
+  }
+
   type OutRaw = {
     id: number; fabric_quality_id: number | null; metres: number | string | null;
     dc: {
@@ -557,6 +595,8 @@ export default async function FabricStockLedgerPage({
                         >
                           {r.receipt_code ?? '—'}
                         </Link>
+                      ) : r.receipt_code ? (
+                        <span className="text-ink-soft">{r.receipt_code}</span>
                       ) : (
                         <span className="text-ink-mute">—</span>
                       )}
