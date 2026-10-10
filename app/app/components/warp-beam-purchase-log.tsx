@@ -53,6 +53,8 @@ interface QualityOption {
   merged_name: string | null;
   ends_id: number | null;
   warp_count_id: number | null;
+  /** false = retired: still labels old rows, hidden from the picker. */
+  active: boolean;
 }
 
 interface FormState {
@@ -137,8 +139,9 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
       // Only IN-HOUSE fabric qualities; their costing snapshot supplies
       // the warp ends + count which auto-fill when a quality is picked.
       sb.from('fabric_quality')
-        .select('id, code, name, is_merged, merged_name, calc_snapshot')
-        .eq('active', true)
+        // Retired qualities too, so older purchases still show their
+        // quality name; the picker below lists active ones only.
+        .select('id, code, name, is_merged, merged_name, calc_snapshot, active')
         .eq('production_mode', 'inhouse')
         .order('name'),
       sb.from('ends_master')
@@ -172,6 +175,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
           name: q.name as string,
           is_merged: q.is_merged === true,
           merged_name: (q.merged_name ?? null) as string | null,
+          active: q.active !== false,
           ends_id:       Number.isFinite(endsId)  && endsId  > 0 ? endsId  : null,
           warp_count_id: Number.isFinite(countId) && countId > 0 ? countId : null,
         };
@@ -193,6 +197,7 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     const out: { value: string; label: string }[] = [];
     const seenMerged = new Set<string>();
     for (const q of qualities) {
+      if (!q.active) continue;
       const mn = q.is_merged && q.merged_name !== null && q.merged_name.trim() !== ''
         ? q.merged_name.trim() : null;
       if (mn !== null) {
@@ -213,7 +218,8 @@ export function WarpBeamPurchaseLog(): React.ReactElement {
     const q = qualities.find((x) => x.id === id);
     const mn = q !== undefined && q.is_merged ? (q.merged_name ?? '').trim() : '';
     if (q === undefined || mn === '') return id;
-    const rep = qualities.find((x) => x.is_merged && (x.merged_name ?? '').trim() === mn);
+    const rep = qualities.find((x) => x.active && x.is_merged && (x.merged_name ?? '').trim() === mn)
+      ?? qualities.find((x) => x.is_merged && (x.merged_name ?? '').trim() === mn);
     return rep !== undefined ? rep.id : id;
   }
 

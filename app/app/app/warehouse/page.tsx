@@ -123,12 +123,22 @@ type SP = {
   // `quality` (numeric id, used by jobwork tabs) to avoid cross-tab
   // contamination of a stale param.
   pfq?: string;
+  /** Resolved by the page, not from the URL: the picked quality plus
+   *  every member of its merged group (retired codes included). */
+  qids?: number[];
 };
+
+/** Ids a ?quality= filter should match — the whole merged group, so
+ *  retired codes (e.g. 20'S DHOTIES 2246 / 2190 / 2196) are not lost. */
+function qualityIdsFor(sp: SP): number[] {
+  if (sp.qids && sp.qids.length > 0) return sp.qids;
+  return sp.quality && /^\d+$/.test(sp.quality) ? [Number(sp.quality)] : [];
+}
 
 /** Build URL with one param replaced — used by tab links and filter form. */
 function withParam(sp: SP, key: keyof SP, value?: string) {
   const next = new URLSearchParams();
-  Object.entries(sp).forEach(([k, v]) => { if (v && k !== key) next.set(k, v); });
+  Object.entries(sp).forEach(([k, v]) => { if (typeof v === 'string' && v && k !== key) next.set(k, v); });
   if (value) next.set(key, value);
   const qs = next.toString();
   return qs ? `/app/warehouse?${qs}` : '/app/warehouse';
@@ -208,7 +218,10 @@ export default async function WarehousePage({
     // list entirely.
     (supabase as any).from('jobwork_party').select('id, code, name, kind').eq('status', 'active').eq('kind', partyKind).order('name'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from('fabric_quality').select('id, code, name').eq('active', true).order('name'),
+    // ALL qualities, retired ones included: the pivots below label and
+    // merge HISTORICAL rows, and a quality switched off later must still
+    // fold into its merged group. New-entry forms get the active list.
+    (supabase as any).from('fabric_quality').select('id, code, name, active, is_merged, merged_name').order('name'),
     // Bobbin master filtered to production_mode='inhouse' — drives the
     // "Bobbin" dropdown on the in-house bobbin opening stock form so the
     // operator only picks from bobbins in the in-house stream.
@@ -278,6 +291,16 @@ export default async function WarehousePage({
   // remains.
   // Jobwork / Outsource Fabric (m) tab now renders the same per-event pivot
   // ledger the In-house Production Fabric tab uses (see loadJobworkFabricPivot).
+  // Widen ?quality= to its merged group (see qualityIdsFor).
+  if (sp.quality && /^\d+$/.test(sp.quality)) {
+    const all = (fabricQualities ?? []) as Array<{ id: number; is_merged: boolean | null; merged_name: string | null }>;
+    const picked = all.find((q) => q.id === Number(sp.quality));
+    const mn = picked?.is_merged ? (picked.merged_name ?? '').trim() : '';
+    sp.qids = mn
+      ? all.filter((q) => q.is_merged && (q.merged_name ?? '').trim() === mn).map((q) => q.id)
+      : [Number(sp.quality)];
+  }
+  const activeFabricQualities = ((fabricQualities ?? []) as Array<{ active?: boolean | null }>).filter((q) => q.active !== false);
   const fabricPivot    = (mode !== 'inhouse' && tab === 'fabric')        ? await loadJobworkFabricPivot(supabase, sp, mode) : null;
   const warpBeamRows   = isJobworkLike && tab === 'warp_beam'           ? await loadJobworkWarpBeam(supabase, sp, jobworkParties ?? [], fabricQualities ?? [], counts ?? []) : null;
   const weftYarnRows   = isJobworkLike && tab === 'weft_yarn'           ? await loadJobworkYarn(supabase, sp, jobworkParties ?? [], counts ?? [], 'weft') : null;
@@ -526,7 +549,10 @@ export default async function WarehousePage({
             name="quality"
             label="Fabric Quality"
             value={sp.quality}
-            options={(fabricQualities ?? []).map((q: { id: number; code: string; name: string }) => ({ value: String(q.id), label: `${q.code} - ${q.name}` }))}
+            options={(fabricQualities ?? []).map((q: { id: number; code: string; name: string; active?: boolean | null; merged_name?: string | null }) => ({
+              value: String(q.id),
+              label: `${q.code} - ${q.name}${q.merged_name ? ` (${q.merged_name})` : ''}${q.active === false ? ' — inactive' : ''}`,
+            }))}
           />
         )}
 
@@ -552,19 +578,19 @@ export default async function WarehousePage({
       {/* ── Tab body ───────────────────────────────────────────────────── */}
       {mode === 'inhouse' && tab === 'warp_metre'  && (
         <>
-          <OpeningStockForm bucket="warp_beam"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
+          <OpeningStockForm bucket="warp_beam"   qualities={activeFabricQualities as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inWarpRows!} emptyMessage="No in-house warp metre stock yet. Use Add opening stock to enter your starting balance per warp ends count." />
         </>
       )}
       {mode === 'inhouse' && tab === 'weft_yarn'   && (
         <>
-          <OpeningStockForm bucket="weft_yarn"   qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
+          <OpeningStockForm bucket="weft_yarn"   qualities={activeFabricQualities as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inWeftRows!} emptyMessage="No in-house weft yarn stock yet. Use Add opening stock to enter your starting balance per yarn count." />
         </>
       )}
       {mode === 'inhouse' && tab === 'porvai_yarn' && (
         <>
-          <OpeningStockForm bucket="porvai_yarn" qualities={(fabricQualities ?? []) as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
+          <OpeningStockForm bucket="porvai_yarn" qualities={activeFabricQualities as any} counts={(counts ?? []) as any} bobbinMasters={(bobbinMasters ?? []) as any} existing={existingOpening} />
           <PivotView data={inPorvaiRows!} emptyMessage="No in-house porvai yarn stock yet. Use Add opening stock to enter your starting balance." />
         </>
       )}
@@ -589,7 +615,7 @@ export default async function WarehousePage({
           <OpeningStockForm
             mode="sizing"
             bucket="weft_yarn"
-            qualities={(fabricQualities ?? []) as any}
+            qualities={activeFabricQualities as any}
             counts={(counts ?? []) as any}
             bobbinMasters={(bobbinMasters ?? []) as any}
             existing={existingOpening}
@@ -708,7 +734,7 @@ function applyInhouseColumnFilter(data: PivotData, sp: SP): PivotData {
   const haveQualityCols = data.columns.some((c) => c.id.startsWith('fq:'));
   const haveCountCols   = data.columns.some((c) => c.id.startsWith('yc:'));
   const keep = new Set<string>();
-  if (sp.quality && haveQualityCols) keep.add(`fq:${sp.quality}`);
+  if (sp.quality && haveQualityCols) for (const id of qualityIdsFor(sp)) keep.add(`fq:${id}`);
   if (sp.count   && haveCountCols)   keep.add(`yc:${sp.count}`);
   if (keep.size === 0) return data;
   return {
@@ -1383,12 +1409,12 @@ async function loadJobworkFabricPivot(supabase: any, sp: SP, mode: Mode): Promis
   }
 
   // Fabric Quality filter — keep only the chosen quality's column + events.
-  const qualityFilter = sp.quality && /^\d+$/.test(sp.quality) ? `fq:${sp.quality}` : null;
+  const qualityFilter = sp.quality && /^\d+$/.test(sp.quality) ? new Set(qualityIdsFor(sp).map((id) => `fq:${id}`)) : null;
   let columns = Array.from(cols.values()).sort((a, b) => a.label.localeCompare(b.label));
   let evs = events;
   if (qualityFilter) {
-    columns = columns.filter((c) => c.id === qualityFilter);
-    evs = events.filter((e) => e.column_id === qualityFilter);
+    columns = columns.filter((c) => qualityFilter.has(c.id));
+    evs = events.filter((e) => qualityFilter.has(e.column_id));
   }
 
   return { unit: 'm', columns, events: evs };
@@ -1440,6 +1466,7 @@ interface FabricLineageRow {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRow[]> {
   const qualityFilter = sp.quality && /^\d+$/.test(sp.quality) ? Number(sp.quality) : null;
+  const filterQIds = qualityIdsFor(sp);
 
   // ── IN side: fabric_receipt_item × fabric_receipt × delivery_challan ──
   let inQ = supabase.from('fabric_receipt_item').select(`
@@ -1450,7 +1477,7 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
       party:party_id ( id, name )
     )
   `);
-  if (qualityFilter !== null) inQ = inQ.eq('fabric_quality_id', qualityFilter);
+  if (qualityFilter !== null) inQ = inQ.in('fabric_quality_id', filterQIds);
   const { data: inRowsRaw } = await inQ;
 
   // ── OUT side: delivery_challan_item × delivery_challan × invoice ──
@@ -1469,7 +1496,7 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
       invoice:invoice_id ( id, invoice_no, total, amount_paid, balance, status )
     )
   `).in('dc.production_mode', ['inhouse', 'outsource', 'jobwork']);
-  if (qualityFilter !== null) outQ = outQ.eq('fabric_quality_id', qualityFilter);
+  if (qualityFilter !== null) outQ = outQ.in('fabric_quality_id', filterQIds);
   const { data: outRowsRaw } = await outQ;
 
   // ── IN side 2: fabric PURCHASES (resale stock bought in) ──
@@ -1477,7 +1504,7 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
     id, code, received_date, received_metres, fabric_quality_id,
     supplier:supplier_party_id ( name )
   `).eq('status', 'active').eq('delivery_destination', 'in_house');
-  if (qualityFilter !== null) purQ = purQ.eq('fabric_quality_id', qualityFilter);
+  if (qualityFilter !== null) purQ = purQ.in('fabric_quality_id', filterQIds);
   const { data: purRowsRaw } = await purQ;
 
   // ── OUT side 2: Fabric Sale invoice lines sold "Direct from Stock"
@@ -1618,7 +1645,7 @@ async function loadFabricLineage(supabase: any, sp: SP): Promise<FabricLineageRo
   // Fabric Sale "Direct from Stock" lines → OUT events.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saleRows: FabricLineageRow[] = (((saleRowsRaw ?? []) as any[])
-    .filter((r) => qualityFilter === null || Number(r.purchase?.fabric_quality_id) === qualityFilter)
+    .filter((r) => qualityFilter === null || filterQIds.includes(Number(r.purchase?.fabric_quality_id)))
     .map((r): FabricLineageRow => {
       const qid = r.purchase?.fabric_quality_id != null ? Number(r.purchase.fabric_quality_id) : null;
       const q = qid != null ? qualityById.get(qid) : null;
@@ -2379,11 +2406,20 @@ async function loadInhouseOpeningStock(
       calc_snapshot: Record<string, unknown> | null;
     }>(
       supabase.from('fabric_quality')
-        .select('id, code, name, is_merged, merged_name, calc_snapshot')
-        .eq('active', true)
+        .select('id, code, name, is_merged, merged_name, calc_snapshot, active')
         .eq('production_mode', 'inhouse'),
     );
+    // Active qualities name a spec first; a retired quality only names a
+    // spec nobody active uses (so old warp stock still gets a label).
+    fqRows.sort((a, b) => Number((b as any).active !== false) - Number((a as any).active !== false));
     for (const q of fqRows) {
+      if ((q as any).active === false) {
+        const snap0 = q.calc_snapshot ?? {};
+        const e0 = Number(snap0['totalEnds']); const c0 = Number(snap0['warpCountId']);
+        const k0 = `${e0}|${Number.isFinite(c0) && c0 > 0 ? c0 : ''}`;
+        if (Number.isFinite(c0) && c0 > 0 && !snapWarpCountByQuality.has(q.id)) snapWarpCountByQuality.set(q.id, c0);
+        if (qualityNameBySpec.has(k0)) continue;
+      }
       const snap = q.calc_snapshot ?? {};
       const ends = Number(snap['totalEnds']);
       const countId = Number(snap['warpCountId']);
@@ -3131,7 +3167,7 @@ async function loadJobworkWarpBeam(
         .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, original_metres, given_date, reference_no, beam_count')
         .in('jobwork_party_id', partyIdSet);
       if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
-      if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+      if (sp.quality) q = q.in('fabric_quality_id', qualityIdsFor(sp));
       if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
       return q;
     })(),
@@ -3145,7 +3181,7 @@ async function loadJobworkWarpBeam(
           .select('id, jobwork_party_id, fabric_quality_id, warp_count_id, total_metres, given_date, reference_no, beam_count')
           .in('jobwork_party_id', partyIdSet);
         if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
-        if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+        if (sp.quality) q = q.in('fabric_quality_id', qualityIdsFor(sp));
         if (sp.count)   q = q.eq('warp_count_id',     Number(sp.count));
         return q;
       })(),
@@ -3164,7 +3200,7 @@ async function loadJobworkWarpBeam(
         .eq('bucket', 'warp_beam')
         .in('jobwork_party_id', partyIdSet);
       if (sp.party)   q = q.eq('jobwork_party_id',  Number(sp.party));
-      if (sp.quality) q = q.eq('fabric_quality_id', Number(sp.quality));
+      if (sp.quality) q = q.in('fabric_quality_id', qualityIdsFor(sp));
       return q;
     })(),
   );
