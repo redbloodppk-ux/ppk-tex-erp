@@ -76,6 +76,7 @@ const NAV: NavItem[] = [
   { href: '/app/yarn-stock',         label: 'In-house Stock',     icon: Boxes,           group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/warehouse',          label: 'Warehouse',          icon: Warehouse,       group: 'inventory',  roles: ['owner','mill_manager','accounts','auditor'] },
   { href: '/app/yarn-transfer',      label: 'Yarn Transfer',      icon: ArrowLeftRight,  group: 'inventory',  roles: ['owner','mill_manager'] },
+  { href: '/app/bobbin-transfer',    label: 'Bobbin Transfer',    icon: ArrowLeftRight,  group: 'inventory',  roles: ['owner','mill_manager'] },
   // Job Work + Outsource Weaving are about buying weaving services
   // from external parties (with their own stock-in / stock-out
   // tracking), so they belong with inventory & purchases rather than

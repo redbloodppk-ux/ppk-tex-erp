@@ -37,6 +37,7 @@ const ALLOWED_PATHS: RegExp[] = [
   /^\/app\/yarn-transfer\/\d+\/print$/,
   /^\/app\/beams\/\d+\/print$/,
   /^\/app\/pavu-transfer\/\d+\/print$/,
+  /^\/app\/bobbin-transfer\/\d+\/print$/,
   /^\/app\/parties\/\d+\/statement\/print$/,
   /^\/app\/ledgers\/print$/,
   /^\/app\/reports\/agent-commission\/print$/,
