@@ -846,10 +846,22 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                           `Folding Sun ${addDaysISO(weekStart, -1)} to Sat ${addDaysISO(weekEnd, -1)} (shift log ÷ 2)`,
                           ...p.fold_lines.map((l) => `${l.code}: ${fmt(l.qty)} ${l.unit} × ₹${l.rate} = ₹${l.amount.toFixed(2)}`),
                         ].join('\n');
+                        // Hover (desktop) shows the tooltip; a click / tap
+                        // (mobile has no hover) opens the working in place.
                         return (
-                          <span title={tip} className="cursor-help underline decoration-dotted decoration-ink-mute underline-offset-2 whitespace-nowrap">
-                            Folded {[pcs > 0 ? `${fmt(pcs)} pcs` : '', mtr > 0 ? `${fmt(mtr)} m` : ''].filter(Boolean).join(' + ')}
-                          </span>
+                          <details className="group">
+                            <summary title={tip} className="list-none cursor-pointer underline decoration-dotted decoration-ink-mute underline-offset-2 whitespace-nowrap [&::-webkit-details-marker]:hidden">
+                              Folded {[pcs > 0 ? `${fmt(pcs)} pcs` : '', mtr > 0 ? `${fmt(mtr)} m` : ''].filter(Boolean).join(' + ')}
+                            </summary>
+                            <div className="mt-1 rounded-md border border-line/60 bg-paper p-2 text-[11px] leading-snug shadow-sm space-y-0.5">
+                              <div className="text-ink-mute">Sun {addDaysISO(weekStart, -1).slice(8, 10)}/{addDaysISO(weekStart, -1).slice(5, 7)} – Sat {addDaysISO(weekEnd, -1).slice(8, 10)}/{addDaysISO(weekEnd, -1).slice(5, 7)} · shift log ÷ 2</div>
+                              {p.fold_lines.map((l) => (
+                                <div key={l.code} className="num whitespace-nowrap">
+                                  {l.code}: {fmt(l.qty)} {l.unit} × ₹{l.rate} = {formatRupee(l.amount)}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
                         );
                       })()
                     ) : (role === 'folder') ? (
