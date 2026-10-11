@@ -169,6 +169,7 @@ export default function BeamsPage(): React.ReactElement {
             {card('At sizing mills', pos.atSizing, pos.byMill.map((r) => `${r.mill.name.split(' ').slice(0, 2).join(' ')}: ${r.count}`).join(' · ') || 'none', pos.atSizing < 0 ? 'ring-1 ring-rose-300' : '')}
             {card('Sized paavu in stock', pos.inStock, 'waiting for a loom')}
             {card('On looms', pos.onLoom, 'paavu mounted')}
+            {pos.atOutsource > 0 && card('At outsource weavers', pos.atOutsource, 'paavu given out')}
           </section>
           {pos.byMill.length > 0 && (
             <div className="card overflow-x-auto mb-4">

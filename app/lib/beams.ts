@@ -45,6 +45,8 @@ export interface BeamPosition {
   byMill: Array<{ mill: Mill; count: number; sent: number; received: number }>;
   inStock: number;
   onLoom: number;
+  /** Paavu beams at outsource weavers. */
+  atOutsource: number;
   godown: number;
   /** Raw counts from paavu records (before offsets). */
   appInStock: number;
@@ -52,12 +54,15 @@ export interface BeamPosition {
 }
 
 export async function loadBeamPosition(sb: Sb): Promise<{ pos: BeamPosition; moves: BeamMove[]; mills: Mill[] }> {
-  const [mRes, stockRes, loomRes, millRes, jobMillRes] = await Promise.all([
+  const [mRes, stockRes, loomRes, millRes, jobMillRes, outRes] = await Promise.all([
     sb.from('beam_movement').select('*').order('move_date', { ascending: false }).order('id', { ascending: false }),
-    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'in_stock'),
-    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'on_loom'),
+    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'in_stock').neq('production_mode', 'outsource'),
+    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('status', 'on_loom').neq('production_mode', 'outsource'),
     sb.from('party').select('id, name').ilike('name', '%sizing%').order('name'),
     sb.from('sizing_job').select('party:party_id ( id, name )').not('party_id', 'is', null),
+    // Paavu handed to an outsource weaver (Paavu Transfer / routing):
+    // the beam is at his place until it comes back.
+    sb.from('pavu').select('id', { count: 'exact', head: true }).eq('production_mode', 'outsource').in('status', ['assigned', 'in_stock', 'on_loom']),
   ]);
   const moves = (mRes.data ?? []) as BeamMove[];
 
@@ -122,12 +127,13 @@ export async function loadBeamPosition(sb: Sb): Promise<{ pos: BeamPosition; mov
   const appOnLoom = loomRes.count ?? 0;
   const inStock = appInStock + stockOff;
   const onLoom = appOnLoom + loomOff;
+  const atOutsource = outRes.count ?? 0;
   return {
     moves,
     mills: Array.from(millMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
     pos: {
-      hasOpening: !!opening, total, atSizing, byMill, inStock, onLoom,
-      godown: total - atSizing - inStock - onLoom, appInStock, appOnLoom,
+      hasOpening: !!opening, total, atSizing, byMill, inStock, onLoom, atOutsource,
+      godown: total - atSizing - inStock - onLoom - atOutsource, appInStock, appOnLoom,
     },
   };
 }
@@ -140,7 +146,7 @@ export function physicalCountRows(
   date: string,
 ): Array<Record<string, unknown>> {
   const millTotal = Array.from(real.byMill.values()).reduce((s, n) => s + n, 0);
-  const newTotal = real.godown + real.onLoom + real.inStock + millTotal;
+  const newTotal = real.godown + real.onLoom + real.inStock + millTotal + pos.atOutsource;
   const rows: Array<Record<string, unknown>> = [];
   const mills = Array.from(real.byMill.entries());
   if (!pos.hasOpening) {
