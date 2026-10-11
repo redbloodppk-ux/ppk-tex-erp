@@ -835,14 +835,23 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
                         )}
                       </span>
                     ) : p.fold_lines.length > 0 ? (
-                      <span>
-                        <span className="text-ink-mute">Folding Sun {addDaysISO(weekStart, -1).slice(8, 10)}/{addDaysISO(weekStart, -1).slice(5, 7)} – Sat {addDaysISO(weekEnd, -1).slice(8, 10)}/{addDaysISO(weekEnd, -1).slice(5, 7)} (shift log ÷ 2):</span>
-                        {p.fold_lines.map((l) => (
-                          <div key={l.code} className="num">
-                            {l.code}: {l.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })} {l.unit} × ₹{l.rate} = {formatRupee(l.amount)}
-                          </div>
-                        ))}
-                      </span>
+                      (() => {
+                        // One short line; the per-quality working sits in
+                        // the hover tooltip (PPK, 2026-10-11: "just show
+                        // simplified, detail only on mouse over").
+                        const pcs = p.fold_lines.filter((l) => l.unit === 'pcs').reduce((a, l) => a + l.qty, 0);
+                        const mtr = p.fold_lines.filter((l) => l.unit === 'm').reduce((a, l) => a + l.qty, 0);
+                        const fmt = (n: number): string => n.toLocaleString('en-IN', { maximumFractionDigits: 1 });
+                        const tip = [
+                          `Folding Sun ${addDaysISO(weekStart, -1)} to Sat ${addDaysISO(weekEnd, -1)} (shift log ÷ 2)`,
+                          ...p.fold_lines.map((l) => `${l.code}: ${fmt(l.qty)} ${l.unit} × ₹${l.rate} = ₹${l.amount.toFixed(2)}`),
+                        ].join('\n');
+                        return (
+                          <span title={tip} className="cursor-help underline decoration-dotted decoration-ink-mute underline-offset-2 whitespace-nowrap">
+                            Folded {[pcs > 0 ? `${fmt(pcs)} pcs` : '', mtr > 0 ? `${fmt(mtr)} m` : ''].filter(Boolean).join(' + ')}
+                          </span>
+                        );
+                      })()
                     ) : (role === 'folder') ? (
                       <span className="text-ink-mute">No shift-log entries this folding week</span>
                     ) : (
