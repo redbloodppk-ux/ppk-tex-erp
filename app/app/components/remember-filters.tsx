@@ -35,9 +35,13 @@ function Inner({ path, keys }: Props): null {
 
   useEffect(() => {
     if (pathname !== path) return;
+    // One value per key: a duplicated key (?category=A&category=A) used to
+    // be saved and restored for ever, and pages reading it as a string
+    // crashed on the array.
     const picked = new URLSearchParams();
     for (const k of keys) {
-      for (const v of params.getAll(k)) if (v !== '') picked.append(k, v);
+      const v = params.getAll(k).find((x) => x !== '');
+      if (v !== undefined) picked.set(k, v);
     }
     const current = picked.toString();
 
@@ -49,7 +53,7 @@ function Inner({ path, keys }: Props): null {
         if (saved !== '') {
           // Keep any non-filter params (e.g. ?limit) the URL already had.
           const merged = new URLSearchParams(params.toString());
-          for (const [k, v] of new URLSearchParams(saved)) merged.append(k, v);
+          for (const [k, v] of new URLSearchParams(saved)) merged.set(k, v);
           router.replace(`${path}?${merged.toString()}`, { scroll: false });
         }
         return;

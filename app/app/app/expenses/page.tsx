@@ -43,7 +43,12 @@ export default async function ExpensesPage({
 }): Promise<React.ReactElement> {
   const supabase = await createClient();
 
-  const sp = (await searchParams) ?? {};
+  const raw = ((await searchParams) ?? {}) as Record<string, string | string[] | undefined>;
+  // A repeated param (?category=A&category=B) arrives as an ARRAY, and
+  // calling .trim() on it crashed the whole page (12-Oct-2026). Take the
+  // first value of every param.
+  const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
+  const sp = { category: one(raw.category), from: one(raw.from), to: one(raw.to), limit: one(raw.limit) };
   const category = sp.category?.trim() ?? '';
   const from = sp.from?.trim() ?? '';
   const to = sp.to?.trim() ?? '';
