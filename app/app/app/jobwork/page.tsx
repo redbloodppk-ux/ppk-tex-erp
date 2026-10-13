@@ -223,6 +223,10 @@ async function fetchNextBatchNo(sb: any): Promise<number> {
 interface WeftBagRow {
   id: number; jobwork_party_id: number;
   yarn_count_id: number | null; given_date: string;
+  /** Yarn colour (migration 319). The COUNT is the yarn spec (e.g. 60s
+   *  combed); the colour can change lot to lot for the same fabric
+   *  quality (society sarees), so it lives here, not in the count. */
+  colour?: string | null;
   bag_count: number | null; total_kg: number | null;
   reference_no: string | null; notes: string | null;
   supplier_party_id: number | null;
@@ -335,7 +339,7 @@ export default function JobworkPage(): React.ReactElement {
       sb.from('jobwork_bobbin_issue').select(`id, jobwork_party_id, bobbin_id, issue_date, pieces_issued, original_pieces, metre_per_pc, supplier_party_id, reference_no, notes,
               bobbin:bobbin_id ( id, code, ends_per_bobbin, bobbin_metre, is_lurex )`).eq('status', 'active').order('issue_date', { ascending: false, nullsFirst: false }),
       sb.from('jobwork_warp_beam').select('id, jobwork_party_id, fabric_quality_id, warp_count_id, given_date, total_ends, tape_length_m, beam_count, total_metres, original_metres, reference_no, notes, supplier_party_id, pavu_id, pavu_ids, sizing_job_id, sizing_set_no, batch_no').eq('status', 'active').order('given_date', { ascending: false }),
-      sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
+      sb.from('jobwork_weft_bag').select('id, jobwork_party_id, yarn_count_id, colour, given_date, bag_count, total_kg, original_kg, reference_no, notes, supplier_party_id').eq('status', 'active').order('given_date', { ascending: false }),
       // Bobbin returns - empty pieces sent back to the supplier after
       // weaving consumed the yarn. We aggregate these per bobbin in
       // BobbinTab to show "Returned" counts.
@@ -3404,7 +3408,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
 }) {
   const supabase = createClient();
   const [form, setForm] = useState({
-    given_date: todayISO(), jobwork_party_id: '', yarn_count_id: '',
+    given_date: todayISO(), jobwork_party_id: '', yarn_count_id: '', colour: '',
     bag_count: '', total_kg: '', reference_no: '', notes: '', supplier_party_id: '',
   });
   const [busy, setBusy] = useState(false);
@@ -3419,7 +3423,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
   void allPartyById;
 
   function resetForm(): void {
-    setForm({ given_date: todayISO(), jobwork_party_id: '', yarn_count_id: '', bag_count: '', total_kg: '', reference_no: '', notes: '', supplier_party_id: '' });
+    setForm({ given_date: todayISO(), jobwork_party_id: '', yarn_count_id: '', colour: '', bag_count: '', total_kg: '', reference_no: '', notes: '', supplier_party_id: '' });
     setEditingId(null);
   }
 
@@ -3432,6 +3436,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
       given_date: r.given_date,
       jobwork_party_id: String(r.jobwork_party_id),
       yarn_count_id: r.yarn_count_id != null ? String(r.yarn_count_id) : '',
+      colour: r.colour ?? '',
       bag_count: r.bag_count != null ? String(r.bag_count) : '',
       total_kg: kg != null ? String(kg) : '',
       reference_no: r.reference_no ?? '',
@@ -3459,6 +3464,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
       const { error } = await sb.from('jobwork_weft_bag').update({
         jobwork_party_id: Number(form.jobwork_party_id),
         yarn_count_id: form.yarn_count_id === '' ? null : Number(form.yarn_count_id),
+        colour: form.colour.trim().toUpperCase() || null,
         given_date: form.given_date,
         bag_count: form.bag_count === '' ? null : Number(form.bag_count),
         total_kg: editedKg,
@@ -3478,6 +3484,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
     const payload = {
       jobwork_party_id: Number(form.jobwork_party_id),
       yarn_count_id: form.yarn_count_id === '' ? null : Number(form.yarn_count_id),
+      colour: form.colour.trim().toUpperCase() || null,
       given_date: form.given_date,
       bag_count: form.bag_count === '' ? null : Number(form.bag_count),
       total_kg: form.total_kg === '' ? null : Number(form.total_kg),
@@ -3506,6 +3513,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
     const payload = {
       jobwork_party_id: parent.jobwork_party_id,
       yarn_count_id: parent.yarn_count_id,
+      colour: parent.colour ?? null,
       given_date: data.given_date,
       bag_count: data.qty.bag_count === '' ? null : Number(data.qty.bag_count),
       total_kg: data.qty.total_kg === '' ? null : Number(data.qty.total_kg),
@@ -3548,6 +3556,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
           <div><label className="label text-xs">Date *</label><input type="date" className="input" value={form.given_date} onChange={(e) => setForm({ ...form, given_date: e.target.value })} /></div>
           <div><label className="label text-xs">{partyLabel} *</label><SmartSelect className="input" value={form.jobwork_party_id} onChange={(e) => setForm({ ...form, jobwork_party_id: e.target.value })}><option value="">--- pick ---</option>{parties.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}</SmartSelect></div>
           <div><label className="label text-xs">Yarn count</label><SmartSelect className="input" value={form.yarn_count_id} onChange={(e) => setForm({ ...form, yarn_count_id: e.target.value })}><option value="">---</option>{counts.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.display_name}</option>)}</SmartSelect></div>
+          <div><label className="label text-xs">Colour</label><input className="input uppercase" placeholder="e.g. G.YELLOW" value={form.colour} onChange={(e) => setForm({ ...form, colour: e.target.value })} /></div>
           <div><label className="label text-xs">Bag count</label><input inputMode="decimal" type="number" className="input num" value={form.bag_count} onChange={(e) => setForm({ ...form, bag_count: e.target.value })} /></div>
           <div><label className="label text-xs">Total kg</label><input inputMode="decimal" type="number" step={0.001} className="input num" value={form.total_kg} onChange={(e) => setForm({ ...form, total_kg: e.target.value })} /></div>
           <div><label className="label text-xs">Supplier party</label><SmartSelect className="input" value={form.supplier_party_id} onChange={(e) => setForm({ ...form, supplier_party_id: e.target.value })}><option value="">---</option>{allParties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SmartSelect></div>
@@ -3585,7 +3594,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
                 </span>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                <div><div className="text-ink-mute">Yarn count</div><div>{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}</div></div>
+                <div><div className="text-ink-mute">Yarn count</div><div>{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}{r.colour ? <span className="ml-1 pill bg-amber-50 text-amber-800 text-[10px]">{r.colour}</span> : null}</div></div>
                 <div><div className="text-ink-mute">Bags</div><div className="num">{r.bag_count ?? '-'}</div></div>
                 <div><div className="text-ink-mute">Total kg</div><div className="num font-semibold">{(r.original_kg ?? r.total_kg) ?? '-'}</div></div>
                 <div className="col-span-3"><div className="text-ink-mute">DC #</div><div className="font-mono">{r.reference_no ?? '-'}</div></div>
@@ -3624,7 +3633,7 @@ function WeftBagTab({ rows, parties, counts, allParties, partyById, countById, a
                   <tr className={`border-t border-line/40 ${editingId === r.id ? 'bg-indigo-50/50' : ''}`}>
                     <td className="px-3 py-2 text-ink-soft">{fmtDate(r.given_date)}</td>
                     <td className="px-3 py-2">{partyById.get(r.jobwork_party_id)?.name ?? '-'}</td>
-                    <td className="px-3 py-2">{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}</td>
+                    <td className="px-3 py-2">{r.yarn_count_id ? countById.get(r.yarn_count_id)?.display_name ?? '-' : '-'}{r.colour ? <span className="ml-1 pill bg-amber-50 text-amber-800 text-[10px]">{r.colour}</span> : null}</td>
                     <td className="px-3 py-2 text-right num">{r.bag_count ?? '-'}</td>
                     <td className="px-3 py-2 text-right num font-semibold">{(r.original_kg ?? r.total_kg) ?? '-'}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.reference_no ?? '-'}</td>

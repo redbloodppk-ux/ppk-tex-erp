@@ -3431,11 +3431,12 @@ async function loadJobworkYarn(
     id: number; jobwork_party_id: number | null; yarn_count_id: number | null;
     total_kg: number | string | null; original_kg?: number | string | null;
     given_date: string | null; reference_no: string | null; bag_count: number | null;
+    colour?: string | null;
   }>(
     (() => {
       let q = supabase
         .from('jobwork_weft_bag')
-        .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count')
+        .select('id, jobwork_party_id, yarn_count_id, total_kg, original_kg, given_date, reference_no, bag_count, colour')
         .in('jobwork_party_id', partyIdSet);
       if (sp.party) q = q.eq('jobwork_party_id', Number(sp.party));
       if (sp.count) q = q.eq('yarn_count_id',    Number(sp.count));
@@ -3505,7 +3506,7 @@ async function loadJobworkYarn(
       direction: 'in',
       quantity: Number(b.original_kg ?? b.total_kg ?? 0),
       reference: `${b.reference_no ?? 'Bag #' + b.id} · ${p?.name ?? ''}`,
-      notes: b.bag_count ? `${b.bag_count} bag(s)` : '',
+      notes: [b.colour ? `Colour ${b.colour}` : '', b.bag_count ? `${b.bag_count} bag(s)` : ''].filter(Boolean).join(' · '),
     });
   }
   for (const o of outRows) {
