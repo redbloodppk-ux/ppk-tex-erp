@@ -154,3 +154,9 @@ ALTER TABLE public.yarn_transfer ADD COLUMN IF NOT EXISTS vehicle_no text, ADD C
 
 -- E-way bill details (TN intra-state: needed above Rs 1,00,000 value).
 ALTER TABLE public.yarn_transfer ADD COLUMN IF NOT EXISTS eway_bill_no text, ADD COLUMN IF NOT EXISTS eway_bill_date date;
+
+-- yarn_lot.total_amount is a GENERATED column, so a transfer lot still
+-- carries kg x rate. Keep it out of every money view: purchase register
+-- and P&L skip lots with a transfer_id (applied 2026-10-13 by rewriting
+-- the existing definitions with "AND transfer_id IS NULL" on the yarn
+-- source; the dashboard / payments queries filter it in the app).

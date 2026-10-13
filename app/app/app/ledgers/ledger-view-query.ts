@@ -138,7 +138,7 @@ export async function fetchLedgerView(
   let paymentsQ = sb
     .from('payment')
     .select(`
-      id, payment_no, payment_date, direction, amount, reference, notes,
+      id, payment_no, payment_date, direction, amount, other_charges, reference, notes,
       party_id, mode_ledger_id, mode, stream,
       party:party_id ( id, code, name ),
       mode_ledger:mode_ledger_id ( id, name )
@@ -333,7 +333,13 @@ export async function fetchLedgerView(
   }
 
   for (const p of payments) {
-    const amt = Number(p.amount);
+    // On the PARTY side, the other-charges part of a receipt is income, not
+    // a payment against their account; the bank / cash side keeps the full
+    // amount actually received.
+    const oc = Number((p as { other_charges?: number | string | null }).other_charges ?? 0);
+    const isModeSide0 = Number(p.mode_ledger_id) === numericId;
+    const amt = isModeSide0 ? Number(p.amount) : Number(p.amount) - oc;
+    if (amt <= 0.005 && !isModeSide0) continue;
     // A payment touches this ledger from one of two sides, and the
     // inflow/outflow sense flips depending on which one (mirrors the
     // bank_entry bank-side vs. contra-side projection below):

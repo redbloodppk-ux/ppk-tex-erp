@@ -172,7 +172,9 @@ function mergeUnallocatedAdvances(
   for (const p of payments) {
     if (p.party_id == null) continue;
     const allocated = allocatedByPayment.get(p.id) ?? 0;
-    const unallocated = Math.round((Number(p.amount ?? 0) - allocated) * 100) / 100;
+    // other_charges = income received with the payment (e.g. a tenant's
+    // other charges) — not an advance, so it must not hide their dues.
+    const unallocated = Math.round((Number(p.amount ?? 0) - allocated - Number((p as { other_charges?: number | string | null }).other_charges ?? 0)) * 100) / 100;
     if (unallocated < 0.005) continue; // fully allocated — nothing to net
     const list = byParty.get(p.party_id) ?? [];
     list.push({ payment_id: p.id, payment_no: p.payment_no, payment_date: p.payment_date, unallocated });
@@ -430,6 +432,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     (supabase as any).from('yarn_lot')
       .select('id, lot_code, invoice_no, received_date, total_amount, amount_paid, supplier_party_id, gst_pct')
       .gt('total_amount', 0)
+      // Yarn TRANSFER lots (migration 313) are not bills — their generated
+      // total showed as an "(unknown party)" payable of Rs 1,02,600.
+      .is('transfer_id', null)
       .order('received_date', { ascending: true }),
     // Supplier-mode fabric resale rows only — customer-adjustment
     // rows are settled via synthetic payments at entry.
@@ -478,7 +483,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     // customer's outstanding total below (mergeUnallocatedAdvances).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('payment')
-      .select('id, payment_no, payment_date, amount, party_id')
+      .select('id, payment_no, payment_date, amount, other_charges, party_id')
       .eq('direction', 'in'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('payment_allocation').select('payment_id, amount'),

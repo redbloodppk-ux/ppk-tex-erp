@@ -72,7 +72,7 @@ export async function getPartyAdvance(
 ): Promise<PartyAdvanceResult> {
   const { data: paymentsData, error: payErr } = await supabase
     .from('payment')
-    .select('id, payment_no, payment_date, amount, party_id')
+    .select('id, payment_no, payment_date, amount, other_charges, party_id')
     .eq('party_id', partyId)
     .eq('direction', direction);
 
@@ -105,7 +105,9 @@ export async function getPartyAdvance(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of paymentsData as any[]) {
     const allocated = allocatedByPayment.get(p.id) ?? money(0);
-    const unallocatedDecimal = round2(sub(p.amount, allocated));
+    // other_charges (migration 318) = part of a receipt that is income
+    // (tenant's other charges), not an advance against future bills.
+    const unallocatedDecimal = round2(sub(sub(p.amount, allocated), Number(p.other_charges ?? 0)));
     const unallocated = unallocatedDecimal.toNumber();
     if (unallocated < 0.005) continue; // fully allocated (or over-adjusted) — nothing to offer
     payments.push({

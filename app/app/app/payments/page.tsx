@@ -307,6 +307,9 @@ function NewPaymentTab(): React.ReactElement {
    *  adjustments) on the party ledger as an advance, instead of being
    *  forced to allocate the receipt in full. */
   const [keepOnAccount, setKeepOnAccount] = useState<boolean>(false);
+  // Part of a RECEIPT that is other income (e.g. a tenant's other charges),
+  // not a payment against bills and not an advance (migration 318).
+  const [otherCharges, setOtherCharges] = useState<string>('');
 
   /** Composite key for the merged invoice + opening_ledger bill list. */
   function billKey(b: UnpaidBill): string { return `${b.kind}-${b.id}`; }
@@ -470,9 +473,9 @@ function NewPaymentTab(): React.ReactElement {
     setAmount(v);
     // Operator is now driving the amount by hand; stop auto-summing ticks.
     setAmountAuto(false);
-    const amt = Number(v);
+    const amt = Number(v) - (direction === 'in' ? Number(otherCharges || 0) : 0);
     if (checkedBills.size > 0 && Number.isFinite(amt)) {
-      setAlloc(distribute(amt, checkedBills));
+      setAlloc(distribute(Math.max(0, amt), checkedBills));
     }
   }
 
@@ -492,10 +495,10 @@ function NewPaymentTab(): React.ReactElement {
   }, [streamBills, checkedBills, alloc]);
 
   const unallocated = useMemo<number>(() => {
-    const amt = Number(amount);
+    const amt = Number(amount) - (direction === 'in' ? Number(otherCharges || 0) : 0);
     if (!Number.isFinite(amt)) return 0;
     return Math.round((amt - allocatedTotal) * 100) / 100;
-  }, [amount, allocatedTotal]);
+  }, [amount, allocatedTotal, otherCharges, direction]);
 
   /** True when the picked party's type demands bill-to-bill adjustment
    *  (or an explicit advance confirmation) before saving. */
@@ -515,8 +518,12 @@ function NewPaymentTab(): React.ReactElement {
     setSavedMsg(null);
 
     if (!partyId) { setError('Pick a party.'); return; }
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) { setError('Amount must be greater than zero.'); return; }
+    const grossAmt = Number(amount);
+    if (!Number.isFinite(grossAmt) || grossAmt <= 0) { setError('Amount must be greater than zero.'); return; }
+    const other = direction === 'in' ? Math.round(Number(otherCharges || 0) * 100) / 100 : 0;
+    if (!Number.isFinite(other) || other < 0 || other > grossAmt + 0.005) { setError('Other charges must be between 0 and the amount received.'); return; }
+    // Bills / advance only ever see the part that is NOT other charges.
+    const amt = Math.round((grossAmt - other) * 100) / 100;
     if (!date) { setError('Pick a payment date.'); return; }
     if (!modeLedgerId) {
       setError('Pick a Bank / Cash ledger. Add one from the Ledgers page if the dropdown is empty.');
@@ -573,7 +580,7 @@ function NewPaymentTab(): React.ReactElement {
                           + fabricAllocs.length + agentAllocs.length + warpBeamAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
-    if (billAdjustRequired && totalAllocCount === 0 && !advanceOk) {
+    if (billAdjustRequired && totalAllocCount === 0 && !advanceOk && amt > 0.005) {
       setError(streamBills.length > 0
         ? 'Tick the bill(s) this payment settles — or tick "Advance payment" to post it to the party ledger without adjusting a bill.'
         : 'This party has no unpaid bills. Tick "Advance payment" to confirm posting this amount to the party ledger.');
@@ -619,7 +626,8 @@ function NewPaymentTab(): React.ReactElement {
       direction,
       party_id:       Number(partyId),
       payment_date:   date,
-      amount:         amt,
+      amount:         grossAmt,
+      other_charges:  other,
       // The legacy `mode` text column is auto-derived from the picked
       // ledger's type by a DB trigger (migration 104), so we don't
       // need to send it here.
@@ -754,7 +762,7 @@ function NewPaymentTab(): React.ReactElement {
     );
     // Reset only the volatile fields; keep the direction + party so the
     // operator can log several payments to the same party in a row.
-    setAmount(''); setReference(''); setNotes('');
+    setAmount(''); setReference(''); setNotes(''); setOtherCharges('');
     await loadBills();
   }
 
@@ -851,6 +859,23 @@ function NewPaymentTab(): React.ReactElement {
             </p>
           )}
         </div>
+
+        {direction === 'in' && (
+          <div>
+            <label className="label">Other charges in this amount (₹)</label>
+            <input inputMode="decimal" type="number" min="0" step="0.01" className="input num"
+              value={otherCharges}
+              onChange={(e) => {
+                setOtherCharges(e.target.value);
+                const net = Number(amount) - Number(e.target.value || 0);
+                if (checkedBills.size > 0 && Number.isFinite(net)) setAlloc(distribute(Math.max(0, net), checkedBills));
+              }}
+              placeholder="0" />
+            <p className="text-[11px] text-ink-mute mt-1">
+              Part of the money that is NOT against a bill and NOT an advance — e.g. a tenant&apos;s other charges. It is booked as income, so it does not hide their unpaid bills.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="label">Mode (Bank / Cash ledger) *</label>
