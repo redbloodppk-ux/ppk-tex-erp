@@ -98,6 +98,9 @@ export interface DcItem {
    * Manually-entered items leave this null.
    */
   production_batch_id?: number | null;
+  /** Society DCs: which member's goods this line is (optional). */
+  member_name?: string;
+  member_no?: string;
 }
 
 /**
@@ -182,6 +185,8 @@ function emptyItem(sno: number): DcItem {
     summary_pieces: '',
     summary_bundles: '',
     production_batch_id: null,
+    member_name: '',
+    member_no: '',
   };
 }
 
@@ -432,6 +437,15 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   //   inhouse   → Customer
   //   jobwork   → Jobwork Party
   //   outsource → Outsource Weaver
+  // Society (co-operative) DCs carry a member name / number per line.
+  // Shown when the picked party looks like a society, or when any line
+  // already has member data (so editing never hides saved values).
+  const isSocietyDc = useMemo(() => {
+    const p = allParties.find((x) => String(x.id) === String(form.party_id));
+    if (p && /society|co-?\s*operative/i.test(p.name)) return true;
+    return form.items.some((it) => (it.member_name ?? '') !== '' || (it.member_no ?? '') !== '');
+  }, [allParties, form.party_id, form.items]);
+
   const filteredParties = useMemo<PartyOpt[]>(() => {
     if (form.production_mode === 'jobwork') {
       return jobworkTypeId === null
@@ -1541,6 +1555,8 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         bundles: t.bundles || null,
         bundles_detail,
         production_batch_id: it.production_batch_id ?? null,
+        member_name: (it.member_name ?? '').trim() || null,
+        member_no: (it.member_no ?? '').trim() || null,
       };
     });
     // Track which inserted item.id belongs to which production_batch_id
@@ -2258,6 +2274,24 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     </button>
                   </div>
                 </div>
+
+                {isSocietyDc && (
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="hidden md:block md:col-span-1" />
+                    <div className="col-span-8 md:col-span-6">
+                      <label className="label text-[10px]">Member name</label>
+                      <input className="input h-9 text-sm" value={it.member_name ?? ''}
+                        placeholder="Society member name"
+                        onChange={(e) => setItem(itemIdx, { member_name: e.target.value })} />
+                    </div>
+                    <div className="col-span-4 md:col-span-3">
+                      <label className="label text-[10px]">Member no.</label>
+                      <input className="input h-9 text-sm num" value={it.member_no ?? ''}
+                        placeholder="e.g. 123"
+                        onChange={(e) => setItem(itemIdx, { member_no: e.target.value })} />
+                    </div>
+                  </div>
+                )}
 
                 {/* Summary mode: just three flat input fields per item.
                     Detailed mode (default) shows the bundle grid below. */}

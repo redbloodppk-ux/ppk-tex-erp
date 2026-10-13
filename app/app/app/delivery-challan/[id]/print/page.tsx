@@ -83,6 +83,8 @@ interface DcItemRow {
   pieces: number | null;
   bundles: number | null;
   bundles_detail: BundleJson[] | null;
+  member_name: string | null;
+  member_no: string | null;
 }
 
 interface FabricQualityMeta {
@@ -171,7 +173,7 @@ export default async function DcPrintPage({
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, member_name, member_no')
       .eq('dc_id', numericId)
       .order('sno'),
   ]);
@@ -226,6 +228,10 @@ export default async function DcPrintPage({
 
   const groupOrder: string[] = [];
   const groupMap = new Map<string, QualityGroup>();
+  // Society DCs: one line per member. Collected per item (not per quality
+  // group) so each member's own quantity shows on the print.
+  interface MemberRow { sno: number; name: string; no: string; quality: string; qty: number; pieces: number; bundles: number; isTowel: boolean }
+  const memberRows: MemberRow[] = [];
 
   for (const item of itemRows) {
     const fq = item.fabric_quality_id != null ? (qualityById.get(item.fabric_quality_id) ?? null) : null;
@@ -261,6 +267,16 @@ export default async function DcPrintPage({
     }
 
     const isTowel = isTowelQuality && !hasDecimalValue;
+
+    if ((item.member_name ?? '').trim() !== '' || (item.member_no ?? '').trim() !== '') {
+      memberRows.push({
+        sno: item.sno,
+        name: (item.member_name ?? '').trim(),
+        no: (item.member_no ?? '').trim(),
+        quality: fq ? (fq.name || fq.code) : (item.description || '-'),
+        qty: itemMetres, pieces: itemPieces, bundles: itemBundles, isTowel,
+      });
+    }
 
     let g = groupMap.get(key);
     if (!g) {
@@ -407,6 +423,9 @@ export default async function DcPrintPage({
            footer only ever appears on the last page; every other page gets
            a slim address footer. The @page rule injects the "Page N of M"
            counter at the bottom of every sheet. */
+        table.members { width: 100%; border-collapse: collapse; font-size: 11px; }
+        table.members th, table.members td { border: 0.5px solid #000; padding: 3px 6px; }
+        table.members th { background: #f0f0f0; font-weight: 800; font-size: 10px; text-align: center; }
         @page {
           size: A4;
           margin: 7mm 8mm 8mm 8mm;
@@ -704,6 +723,38 @@ export default async function DcPrintPage({
 
               {isLastPage ? (
                 <>
+                  {memberRows.length > 0 && (
+                    <div className="dc-item">
+                      <div className="qline"><div>MEMBER DETAILS</div></div>
+                      <table className="members">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 36 }}>S.NO</th>
+                            <th style={{ textAlign: 'left' }}>MEMBER NAME</th>
+                            <th style={{ width: 90 }}>MEMBER NO</th>
+                            <th style={{ textAlign: 'left' }}>QUALITY</th>
+                            <th style={{ width: 90 }}>METRES / PCS</th>
+                            <th style={{ width: 60 }}>PIECES</th>
+                            <th style={{ width: 60 }}>BUNDLES</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {memberRows.map((m, i) => (
+                            <tr key={i}>
+                              <td style={{ textAlign: 'center' }}>{i + 1}</td>
+                              <td style={{ textAlign: 'left', fontWeight: 700 }}>{m.name || '-'}</td>
+                              <td style={{ textAlign: 'center', fontWeight: 700 }}>{m.no || '-'}</td>
+                              <td style={{ textAlign: 'left' }}>{m.quality}</td>
+                              <td style={{ textAlign: 'right' }}>{m.isTowel ? Math.round(m.qty) : fmtMetres(m.qty)}</td>
+                              <td style={{ textAlign: 'right' }}>{m.pieces || '-'}</td>
+                              <td style={{ textAlign: 'right' }}>{m.bundles || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                   {/* ───── Summary: one block PER QUALITY (spec + that quality's own
                         totals). Qualities are never summed into a single mixed total.
                         A single-quality DC naturally shows exactly one block. ───── */}
