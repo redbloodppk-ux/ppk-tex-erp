@@ -193,7 +193,7 @@ export function toCdnrCsv(cdnr: CdnrGroup[]): string | null {
           '',
           nt.nt_num,
           csvDate(nt.nt_dt),
-          'Credit Note',
+          nt.ntty, // Offline Tool expects 'C' / 'D', not 'Credit Note'
           nt.pos,
           nt.rchrg,
           'Regular B2B',
@@ -231,7 +231,7 @@ export function toCdnurCsv(cdnur: CdnurNote[]): string | null {
         n.typ,
         n.nt_num,
         csvDate(n.nt_dt),
-        'Credit Note',
+        n.ntty, // Offline Tool expects 'C' / 'D', not 'Credit Note'
         n.pos,
         r2(n.val),
         '',

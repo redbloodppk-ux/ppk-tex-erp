@@ -154,7 +154,7 @@ describe('toCdnrCsv', () => {
     expect(toCdnrCsv(cdnr)).toBe(
       [
         'GSTIN/UIN of Recipient,Receiver Name,Note Number,Note Date,Note Type,Place Of Supply,Reverse Charge,Note Supply Type,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,Credit Note,33,N,Regular B2B,590,,18,500,0',
+        '33AAAAA0000A1Z5,,CN-1,08-Jul-2026,C,33,N,Regular B2B,590,,18,500,0',
       ].join('\r\n'),
     );
   });
@@ -208,7 +208,7 @@ describe('toCdnurCsv', () => {
     expect(toCdnurCsv(cdnur)).toBe(
       [
         'UR Type,Note Number,Note Date,Note Type,Place Of Supply,Note Value,Applicable % of Tax Rate,Rate,Taxable Value,Cess Amount',
-        'B2CL,CN-3,10-Jul-2026,Credit Note,33,590,,18,500,0',
+        'B2CL,CN-3,10-Jul-2026,C,33,590,,18,500,0',
       ].join('\r\n'),
     );
   });
