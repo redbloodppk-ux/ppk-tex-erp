@@ -101,6 +101,10 @@ export interface DcItem {
   /** Society DCs: which member's goods this line is (optional). */
   member_name?: string;
   member_no?: string;
+  /** Towel lines: metres per towel for THIS line (old 1.65 stock vs new
+   *  1.60 stock). Pre-filled from the quality master; carried to the
+   *  fabric receipt and the fabric stock ledger. */
+  length_per_pc?: string;
 }
 
 /**
@@ -187,6 +191,7 @@ function emptyItem(sno: number): DcItem {
     production_batch_id: null,
     member_name: '',
     member_no: '',
+    length_per_pc: '',
   };
 }
 
@@ -972,6 +977,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       fabric_quality_id: fqIdStr,
       description: fq?.name ?? '',
       hsn: fq?.hsn ?? '',
+      length_per_pc: fq?.fabric_type === 'towel' && fq.meter_per_pc ? String(fq.meter_per_pc) : '',
     });
   }
 
@@ -1557,6 +1563,7 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         production_batch_id: it.production_batch_id ?? null,
         member_name: (it.member_name ?? '').trim() || null,
         member_no: (it.member_no ?? '').trim() || null,
+        length_per_pc: num(it.length_per_pc ?? '') > 0 ? num(it.length_per_pc ?? '') : null,
       };
     });
     // Track which inserted item.id belongs to which production_batch_id
@@ -2274,6 +2281,31 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
                     </button>
                   </div>
                 </div>
+
+                {it.fabric_quality_id !== '' && towelQualityIds.has(Number(it.fabric_quality_id)) && (() => {
+                  const q = qualities.find((x) => String(x.id) === it.fabric_quality_id);
+                  const master = q?.meter_per_pc ?? null;
+                  const cur = num(it.length_per_pc ?? '');
+                  const differs = master != null && cur > 0 && Math.abs(cur - master) > 0.0001;
+                  return (
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="hidden md:block md:col-span-1" />
+                      <div className="col-span-6 md:col-span-3">
+                        <label className="label text-[10px]">Towel length (m / pc)</label>
+                        <input inputMode="decimal" type="number" step={0.01} min={0}
+                          className={`input h-9 text-sm num text-right ${differs ? 'border-amber-500 bg-amber-50' : ''}`}
+                          placeholder={master != null ? String(master) : '1.60'}
+                          value={it.length_per_pc ?? ''}
+                          onChange={(e) => setItem(itemIdx, { length_per_pc: sanitizeNumericInput(e.target.value) })} />
+                      </div>
+                      <div className="col-span-6 md:col-span-8 text-[11px] text-ink-mute pb-2">
+                        {differs
+                          ? <span className="text-amber-700 font-semibold">Old stock length — current master is {master} m</span>
+                          : <>Change only for old stock woven at a different length{master != null ? ` (current: ${master} m)` : ''}.</>}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {isSocietyDc && (
                   <div className="grid grid-cols-12 gap-2">

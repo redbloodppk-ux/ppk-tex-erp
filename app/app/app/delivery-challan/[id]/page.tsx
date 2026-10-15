@@ -61,6 +61,7 @@ interface DcItemRow {
   production_batch_id: number | null;
   member_name: string | null;
   member_no: string | null;
+  length_per_pc: number | string | null;
 }
 
 /**
@@ -112,7 +113,7 @@ export default async function EditDcPage({
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, production_batch_id, member_name, member_no')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, production_batch_id, member_name, member_no, length_per_pc')
       .eq('dc_id', numericId)
       .order('sno'),
   ]);
@@ -140,6 +141,7 @@ export default async function EditDcPage({
         production_batch_id: r.production_batch_id,
         member_name: r.member_name ?? '',
         member_no: r.member_no ?? '',
+        length_per_pc: r.length_per_pc == null ? '' : String(Number(r.length_per_pc)),
       }))
     : EMPTY_DC.items;
 

@@ -62,7 +62,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       .in('production_mode', ['inhouse', 'jobwork', 'outsource'])
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, length_per_pc')
       .eq('dc_id', dcId)
       .order('sno'),
   ]);
@@ -129,6 +129,7 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
     id: number; sno: number; fabric_quality_id: number | null;
     description: string | null; hsn: string | null;
     metres: number | string | null; pieces: number | null; bundles: number | null;
+    length_per_pc: number | string | null;
   }>;
 
   // Load fabric_quality master rows for every quality on the DC.
@@ -609,9 +610,13 @@ export default async function NewFabricReceiptPage({ searchParams }: PageProps) 
       porvai_kg_per_m: fq ? Number(fq.porvai_kg_per_m ?? 0) : 0,
       bobbin_pcs_per_m: fq ? Number(fq.bobbin_pcs_per_m ?? 0) : 0,
       bobbin_ends: it.fabric_quality_id != null ? bobbinEndsByQId.get(it.fabric_quality_id) ?? null : null,
-      towel_length: fq && fq.meter_per_pc != null && fq.meter_per_pc !== ''
-        ? Number(fq.meter_per_pc)
-        : null,
+      // The DC line's own towel length wins (old 1.65 stock vs new 1.60
+      // stock); else today's master value.
+      towel_length: Number(it.length_per_pc ?? 0) > 0
+        ? Number(it.length_per_pc)
+        : fq && fq.meter_per_pc != null && fq.meter_per_pc !== ''
+          ? Number(fq.meter_per_pc)
+          : null,
       dc_metres: Number(it.metres ?? 0),
       dc_pieces: it.pieces ?? 0,
       dc_bundles: it.bundles ?? 0,

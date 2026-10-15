@@ -85,6 +85,7 @@ interface DcItemRow {
   bundles_detail: BundleJson[] | null;
   member_name: string | null;
   member_no: string | null;
+  length_per_pc: number | string | null;
 }
 
 interface FabricQualityMeta {
@@ -173,7 +174,7 @@ export default async function DcPrintPage({
       .eq('id', numericId)
       .maybeSingle(),
     sb.from('delivery_challan_item')
-      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, member_name, member_no')
+      .select('id, sno, fabric_quality_id, description, hsn, metres, pieces, bundles, bundles_detail, member_name, member_no, length_per_pc')
       .eq('dc_id', numericId)
       .order('sno'),
   ]);
@@ -238,7 +239,10 @@ export default async function DcPrintPage({
     // Same fabric_quality_id → same group. Items with no quality id never
     // merge (each keyed by its own row id) so distinct free-text lines stay
     // separate.
-    const key = item.fabric_quality_id != null ? `q:${item.fabric_quality_id}` : `i:${item.id}`;
+    // Old (e.g. 1.65 m) and new (1.60 m) towel stock of the same quality
+    // stay in separate groups so each shows its own length.
+    const lineLen = Number(item.length_per_pc ?? 0);
+    const key = item.fabric_quality_id != null ? `q:${item.fabric_quality_id}:${lineLen}` : `i:${item.id}`;
     const isTowelQuality = fq?.fabric_type === 'towel';
 
     const bundles = Array.isArray(item.bundles_detail) ? item.bundles_detail : [];
@@ -283,7 +287,8 @@ export default async function DcPrintPage({
       g = {
         key,
         fq,
-        qualityLabel: fq ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}` : (item.description || '-'),
+        qualityLabel: (fq ? `${fq.code}${fq.name ? ' \u2014 ' + fq.name : ''}` : (item.description || '-'))
+          + (isTowelQuality && lineLen > 0 ? ` @ ${lineLen.toFixed(2)} M / PC` : ''),
         hsn: item.hsn ?? fq?.hsn ?? null,
         isTowel: true,
         bundles: [],

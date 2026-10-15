@@ -192,7 +192,7 @@ async function loadLedger(
   const { data: outRowsRaw } = await supabase
     .from('delivery_challan_item')
     .select(`
-      id, fabric_quality_id, metres,
+      id, fabric_quality_id, metres, length_per_pc,
       dc:dc_id!inner (
         id, code, dc_date, status, production_mode, invoice_id, bill_to_name,
         invoice:invoice_id ( id, invoice_no, total, amount_paid, balance, status )
@@ -299,6 +299,7 @@ async function loadLedger(
 
   type OutRaw = {
     id: number; fabric_quality_id: number | null; metres: number | string | null;
+    length_per_pc: number | string | null;
     dc: {
       id: number; code: string | null; dc_date: string | null; status: string | null;
       production_mode: string | null; invoice_id: number | null; bill_to_name: string | null;
@@ -320,7 +321,12 @@ async function loadLedger(
     // form). Convert to metres with the length in force on the DC date.
     const raw = Number(r.metres ?? 0);
     const isPcsLine = mpp != null && Number.isInteger(raw);
-    const len = (r.dc?.id != null ? lenByDc.get(r.dc.id) : undefined) ?? lenOn(r.dc?.dc_date ?? '');
+    // DC line's own towel length first, then its fabric receipt, then the
+    // length in force on the DC date.
+    const lineLen = Number(r.length_per_pc ?? 0);
+    const len = (lineLen > 0 ? lineLen : undefined)
+      ?? (r.dc?.id != null ? lenByDc.get(r.dc.id) : undefined)
+      ?? lenOn(r.dc?.dc_date ?? '');
     const outMetres = isPcsLine && len ? raw * len : raw;
     const outPcs = mpp == null ? null : isPcsLine ? raw : (len ? raw / len : null);
     return {
