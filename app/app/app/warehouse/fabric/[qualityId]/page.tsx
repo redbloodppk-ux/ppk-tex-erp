@@ -229,6 +229,16 @@ async function loadLedger(
     return found ?? mpp;
   };
 
+  // A DC that has its own fabric receipt uses THAT receipt's towel length
+  // (old 1.65 stock and new 1.60 stock can go out on the same day on
+  // separate DCs - each converts with its own length).
+  const lenByDc = new Map<number, number>();
+  for (const r of (inRowsRaw ?? []) as InRaw[]) {
+    const dcId = r.receipt?.dc?.id;
+    const l = Number(r.length_per_pc ?? 0);
+    if (dcId != null && l > 0) lenByDc.set(dcId, l);
+  }
+
   const inRows: LedgerRow[] = ((inRowsRaw ?? []) as InRaw[]).map((r): LedgerRow => ({
     id: `in:${r.id}`,
     direction: 'in',
@@ -310,7 +320,7 @@ async function loadLedger(
     // form). Convert to metres with the length in force on the DC date.
     const raw = Number(r.metres ?? 0);
     const isPcsLine = mpp != null && Number.isInteger(raw);
-    const len = lenOn(r.dc?.dc_date ?? '');
+    const len = (r.dc?.id != null ? lenByDc.get(r.dc.id) : undefined) ?? lenOn(r.dc?.dc_date ?? '');
     const outMetres = isPcsLine && len ? raw * len : raw;
     const outPcs = mpp == null ? null : isPcsLine ? raw : (len ? raw / len : null);
     return {
