@@ -29,6 +29,8 @@ interface EwaybillCardProps {
   ewaybillDate: string | null;
   ewaybillValidTill: string | null;
   ewaybillNotes: string | null;
+  /** HH:MM[:SS] — goes into the e-way bill QR on the invoice print. */
+  ewaybillTime?: string | null;
 }
 
 const EWB_PORTAL = 'https://ewaybillgst.gov.in';
@@ -61,6 +63,7 @@ export function EwaybillCard({
   ewaybillDate,
   ewaybillValidTill,
   ewaybillNotes,
+  ewaybillTime = null,
 }: EwaybillCardProps): React.ReactElement {
   const router = useRouter();
   const supabase = createClient();
@@ -71,6 +74,11 @@ export function EwaybillCard({
   const [ebDate, setEbDate] = useState<string>(ewaybillDate ?? todayISO());
   const [ebTill, setEbTill] = useState<string>(ewaybillValidTill ?? addDaysISO(todayISO(), 1));
   const [ebNotes, setEbNotes] = useState<string>(ewaybillNotes ?? '');
+  const [ebTime, setEbTime] = useState<string>(() => {
+    if (ewaybillTime) return ewaybillTime.slice(0, 5);
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +98,10 @@ export function EwaybillCard({
     setError(null);
     setApiMsg(null);
     if (vehicleNo.trim() === '') { setError('Enter the vehicle number for the e-way bill.'); return; }
+    if (/^\d{12}$/.test(vehicleNo.replace(/\s/g, ''))) {
+      setError('That is a 12-digit e-way bill NUMBER, not a vehicle number (e.g. TN33BA9650). If you already generated the EWB on the portal, enter it in "EWB number" below and Save.');
+      return;
+    }
     setApiBusy(true);
     try {
       const res = await fetch('/app/api/ewaybill/generate', {
@@ -122,6 +134,7 @@ export function EwaybillCard({
     ewaybill_date: string | null;
     ewaybill_valid_till: string | null;
     ewaybill_notes: string | null;
+    ewaybill_time: string | null;
   }): Promise<void> {
     setError(null);
     setBusy(true);
@@ -142,6 +155,7 @@ export function EwaybillCard({
       ewaybill_date: ebDate || null,
       ewaybill_valid_till: ebTill || null,
       ewaybill_notes: ebNotes || null,
+      ewaybill_time: ebTime || null,
     });
   }
 
@@ -153,6 +167,7 @@ export function EwaybillCard({
       ewaybill_date: null,
       ewaybill_valid_till: null,
       ewaybill_notes: null,
+      ewaybill_time: null,
     });
   }
 
@@ -182,7 +197,7 @@ export function EwaybillCard({
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-mute">Generated on</div>
-            <div className="num font-bold">{fmtDate(ewaybillDate)}</div>
+            <div className="num font-bold">{fmtDate(ewaybillDate)}{ewaybillTime ? ` · ${ewaybillTime.slice(0, 5)}` : ''}</div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-mute">Valid till</div>
@@ -296,7 +311,7 @@ export function EwaybillCard({
                 </a>
               </li>
               <li>Generate a new e-waybill for invoice <b>{invoiceNo}</b>.</li>
-              <li>Copy the 12-digit EWB number and validity, then paste below + Save.</li>
+              <li>Copy the 12-digit EWB number, its generated date &amp; time and validity, then enter below + Save. The invoice print then carries the e-way bill QR code.</li>
             </ol>
           </div>
 
@@ -314,13 +329,22 @@ export function EwaybillCard({
               />
             </div>
             <div>
-              <label className="label">Generated on</label>
-              <input
-                type="date"
-                value={ebDate}
-                onChange={(e) => setEbDate(e.target.value)}
-                className="input"
-              />
+              <label className="label">Generated on (date &amp; time)</label>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={ebDate}
+                  onChange={(e) => setEbDate(e.target.value)}
+                  className="input flex-1"
+                />
+                <input
+                  type="time"
+                  value={ebTime}
+                  onChange={(e) => setEbTime(e.target.value)}
+                  className="input w-32"
+                  title="Time printed on the e-way bill (used in the invoice QR)"
+                />
+              </div>
             </div>
             <div>
               <label className="label">Valid till</label>

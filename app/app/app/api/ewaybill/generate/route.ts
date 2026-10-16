@@ -159,6 +159,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     .update({
       ewaybill_no: result.ewbNo,
       ewaybill_date: result.ewbDate ?? String(inv.invoice_date),
+      ewaybill_time: result.ewbTime ?? null,
       ewaybill_valid_till: result.validUpto ?? null,
       ewaybill_notes: `Generated via GSP API · vehicle ${vehicleNo}${distance !== '0' ? ` · ${distance} km` : ''}`,
     })

@@ -107,7 +107,7 @@ export default async function InvoiceDetailPage({
         taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, extra_charge, is_interstate,
         party_name, party_gstin, party_state, place_of_supply,
         ship_to_party_id, ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
-        ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_notes,
+        ewaybill_no, ewaybill_date, ewaybill_time, ewaybill_valid_till, ewaybill_notes,
         customer:customer_id ( id, name, gstin, state, billing_address, phone, whatsapp ),
         vendor:ledger_id     ( id, name, phone ),
         jobwork_party:jobwork_party_id ( id, name, gstin, state, billing_address, phone, whatsapp )
@@ -294,6 +294,7 @@ export default async function InvoiceDetailPage({
           ewaybillNo={inv.ewaybill_no ?? null}
           ewaybillDate={inv.ewaybill_date ?? null}
           ewaybillValidTill={inv.ewaybill_valid_till ?? null}
+          ewaybillTime={(inv as { ewaybill_time?: string | null }).ewaybill_time ?? null}
           ewaybillNotes={inv.ewaybill_notes ?? null}
         />
       )}

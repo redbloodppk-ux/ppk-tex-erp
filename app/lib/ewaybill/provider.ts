@@ -76,6 +76,7 @@ export interface EwbResult {
   ok: boolean;
   ewbNo?: string;
   ewbDate?: string;       // YYYY-MM-DD
+  ewbTime?: string;       // HH:MM:SS (24h)
   validUpto?: string;     // YYYY-MM-DD
   raw?: unknown;
   error?: string;
@@ -132,6 +133,18 @@ function nicDateToISO(v: unknown): string | undefined {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+/** "16/10/2026 09:13:00 AM" -> "09:13:00" (24h). */
+function nicTime24(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i.exec(v);
+  if (!m) return undefined;
+  let h = Number(m[1]);
+  const ap = (m[4] ?? '').toUpperCase();
+  if (ap === 'PM' && h < 12) h += 12;
+  if (ap === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${m[2]}:${m[3] ?? '00'}`;
+}
+
 /** Generate an e-way bill through the configured GSP. */
 export async function generateEwaybill(payload: EwbPayload): Promise<EwbResult> {
   const { config, missing } = loadEwbConfig();
@@ -182,6 +195,7 @@ export async function generateEwaybill(payload: EwbPayload): Promise<EwbResult> 
       ok: true,
       ewbNo: String(ewbNoRaw),
       ewbDate: nicDateToISO(data['ewayBillDate']),
+      ewbTime: nicTime24(data['ewayBillDate']),
       validUpto: nicDateToISO(data['validUpto']),
       raw: genJson,
     };

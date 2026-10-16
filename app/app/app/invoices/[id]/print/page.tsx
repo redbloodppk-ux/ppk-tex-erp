@@ -24,6 +24,7 @@ import { BrandLogo } from '@/app/components/brand-logo';
 import { InvoicePrintActions } from './print-actions';
 import { loadCompany } from '@/lib/load-company';
 import { rupeesInWords } from '@/lib/rupees-in-words';
+import { ewbQrText, ewbQrSvg } from '@/lib/ewaybill/qr';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +104,7 @@ interface InvoiceRow {
   ewaybill_no: string | null;
   ewaybill_date: string | null;
   ewaybill_valid_till: string | null;
+  ewaybill_time: string | null;
   vehicle_no: string | null;
   original_invoice_id: number | null;
   supplier_bill_no: string | null;
@@ -261,7 +263,7 @@ export default async function InvoicePrintPage({
         ship_to_name, ship_to_address, ship_to_gstin, ship_to_state,
         subtotal, gst_amount, total, taxable_value, cgst_amount, sgst_amount, igst_amount, round_off, extra_charge,
         is_interstate, party_name, party_gstin, party_state, place_of_supply,
-        ewaybill_no, ewaybill_date, ewaybill_valid_till, vehicle_no,
+        ewaybill_no, ewaybill_date, ewaybill_valid_till, ewaybill_time, vehicle_no,
         original_invoice_id, supplier_bill_no, supplier_bill_date,
         customer:customer_id ( id, name, gstin, state, billing_address ),
         vendor:ledger_id ( id, name ),
@@ -282,6 +284,12 @@ export default async function InvoicePrintPage({
 
   const COMPANY = await companyP;
   const inv = hdrRes.data as InvoiceRow | null;
+
+  // E-way bill QR (same content as the NIC portal's QR) — printed in the
+  // header so the transporter / checking officer can scan the invoice.
+  const ewbQr = inv?.ewaybill_no && inv.ewaybill_no.replace(/\D/g, '').length >= 12
+    ? await ewbQrSvg(ewbQrText(inv.ewaybill_no, COMPANY.gstin, inv.ewaybill_date, inv.ewaybill_time))
+    : null;
 
   // For a credit note: pull every bill its synthetic payment is
   // allocated against, so the printed "Issued against" line can
@@ -469,6 +477,16 @@ export default async function InvoicePrintPage({
              declaration/signature — comfortably clears one page. */
           .inv-sheet { zoom: 0.85 !important; }
           .inv-sheet.inv-compact { zoom: 0.84 !important; }
+          /* Room for the e-way bill QR in the header: tighten the
+             vertical gaps so the copy still fits on ONE sheet. */
+          .inv-sheet .inv-orig { margin-bottom: 5px !important; }
+          .inv-sheet .inv-secbar { margin-top: 6px !important; }
+          .inv-sheet .refstrip { margin-top: 8px !important; padding: 7px 10px !important; }
+          .inv-sheet table.items { margin-top: 10px !important; }
+          .inv-sheet table.items th, .inv-sheet table.items td { padding-top: 6px !important; padding-bottom: 6px !important; }
+          .inv-sheet .totals-grid { margin-top: 10px !important; }
+          .inv-sheet .totals-right td { padding: 3px 0 !important; }
+          .inv-sheet .words { margin-top: 8px !important; padding: 7px 10px !important; }
         }
         body { background: #f3f4f6; }
         .inv-sheet {
@@ -511,6 +529,10 @@ export default async function InvoicePrintPage({
            operator can't miss that this isn't a regular tax invoice. */
         .inv-doc-label-cn { color: #9f1239; border-color: #9f1239; background: #fff1f2; }
         .inv-doc-label-dn { color: #92400e; border-color: #92400e; background: #fffbeb; }
+        .ewb-qr { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+        .ewb-qr-img { width: 84px; height: 84px; }
+        .ewb-qr-img svg { width: 100%; height: 100%; display: block; }
+        .ewb-qr-cap { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: #000; margin-top: 2px; line-height: 1; }
         .inv-orig  { text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 4px; color: #333; margin-top: 3px; margin-bottom: 9px; }
         .inv-meta  { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #000; }
         .inv-meta > div { padding: 8px 10px; border-right: 1px solid #000; font-size: 14px; font-weight: 600; }
@@ -637,6 +659,12 @@ export default async function InvoicePrintPage({
               : inv.doc_type === 'debit_note' ? 'DEBIT NOTE'
               : 'TAX INVOICE'}
           </div>
+          {ewbQr && (
+            <div className="ewb-qr">
+              <div className="ewb-qr-img" dangerouslySetInnerHTML={{ __html: ewbQr }} />
+              <div className="ewb-qr-cap">e-Way Bill</div>
+            </div>
+          )}
         </div>
 
         <div className="inv-orig">{copyLabel} COPY</div>
