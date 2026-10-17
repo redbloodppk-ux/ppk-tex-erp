@@ -104,6 +104,10 @@ interface LoomRow {
   metres: string[];
   /** Free-form +/- correction. Empty string = 0. */
   adjustment: string;
+  /** Quality counted in a non-metre unit (society saree: 137 cm = 1
+   *  "metre"). Metres typed here are in that unit; the DB stores real
+   *  metres (trigger) and keeps the typed value for this form. */
+  count_unit_cm?: number | null;
 }
 
 /**
@@ -182,6 +186,7 @@ function emptyShed(shedNo: number, looms: Loom[]): ShedState {
       idle_since: l.idle_since,
       metres: Array.from({ length: DEFAULT_WEAVER_SLOTS }, () => ''),
       adjustment: '',
+      count_unit_cm: null,
     })),
   };
 }
@@ -314,9 +319,11 @@ export default function ShiftLogPage(): React.ReactElement {
     setError(null);
     setSavedMsg(null);
 
-    const { data: parents, error: parentErr } = await supabase
+    // adjustment_counted (migration 323) lags the generated types.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: parents, error: parentErr } = await (supabase as any)
       .from('production_shift_log')
-      .select('id, loom_id, adjustment_metres, fabric_quality_id, fabric_quality:fabric_quality_id (name)')
+      .select('id, loom_id, adjustment_metres, adjustment_counted, fabric_quality_id, fabric_quality:fabric_quality_id (name)')
       .eq('log_date', logDate)
       .eq('shift', shift)
       // One (date, shift) holds at most one row per loom, so this cannot
@@ -330,18 +337,21 @@ export default function ShiftLogPage(): React.ReactElement {
       return;
     }
 
-    const parentIds = (parents ?? []).map((p) => p.id);
+    const parentIds = ((parents ?? []) as Array<{ id: number }>).map((p) => p.id);
     let kids: Array<{
       shift_log_id: number;
       employee_id: number;
       position: number;
       metres_woven: number;
+      counted_metres: number | null;
     }> = [];
 
     if (parentIds.length > 0) {
-      const { data: kidData, error: kidErr } = await supabase
+      // counted_metres (migration 323) lags the generated types.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: kidData, error: kidErr } = await (supabase as any)
         .from('production_shift_log_weaver')
-        .select('shift_log_id, employee_id, position, metres_woven')
+        .select('shift_log_id, employee_id, position, metres_woven, counted_metres')
         .in('shift_log_id', parentIds)
         .order('position')
         // Bounded by looms x weavers in one shift — see the note above.
@@ -373,6 +383,21 @@ export default function ShiftLogPage(): React.ReactElement {
       }
     }
 
+    // Qualities counted in a non-metre unit (e.g. society saree 137 cm).
+    const unitByQualityName = new Map<string, number>();
+    {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: unitRows } = await (supabase as any)
+        .from('fabric_quality')
+        .select('name, count_unit_cm')
+        .not('count_unit_cm', 'is', null)
+        .limit(500);
+      for (const u of ((unitRows ?? []) as Array<{ name: string; count_unit_cm: number | string | null }>)) {
+        const cm = Number(u.count_unit_cm ?? 0);
+        if (cm > 0 && cm !== 100) unitByQualityName.set(u.name, cm);
+      }
+    }
+
     const loomByParent = new Map<number, number>();
     const adjByLoom = new Map<number, number>();
     // Quality frozen on THIS date's log, per loom. Displayed in place of
@@ -382,7 +407,9 @@ export default function ShiftLogPage(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of ((parents ?? []) as any[])) {
       loomByParent.set(p.id, p.loom_id);
-      adjByLoom.set(p.loom_id, Number(p.adjustment_metres ?? 0));
+      // Counted-unit qualities: show what was typed (137 cm units), not
+      // the real metres the DB stored.
+      adjByLoom.set(p.loom_id, Number(p.adjustment_counted ?? p.adjustment_metres ?? 0));
       loggedQualityByLoom.set(p.loom_id, p.fabric_quality?.name ?? null);
     }
 
@@ -392,7 +419,7 @@ export default function ShiftLogPage(): React.ReactElement {
       const loomId = loomByParent.get(k.shift_log_id);
       if (loomId == null) continue;
       const lm = perLoom.get(loomId) ?? new Map();
-      lm.set(k.position, { employee_id: k.employee_id, metres: Number(k.metres_woven ?? 0) });
+      lm.set(k.position, { employee_id: k.employee_id, metres: Number(k.counted_metres ?? k.metres_woven ?? 0) });
       perLoom.set(loomId, lm);
     }
 
@@ -453,6 +480,9 @@ export default function ShiftLogPage(): React.ReactElement {
           idle_since: l.idle_since,
           metres,
           adjustment: adj !== 0 ? String(adj) : '',
+          count_unit_cm: unitByQualityName.get(
+            (loggedQualityByLoom.get(l.id) ?? mountedQualityByLoom.get(l.id) ?? l.quality_name) ?? '',
+          ) ?? null,
         };
       });
 
@@ -683,12 +713,16 @@ export default function ShiftLogPage(): React.ReactElement {
       }
     }
 
+    // adjustment_counted travels with the payload so an upsert that hits
+    // an existing row also refreshes it (the DB trigger converts counted
+    // units -> real metres and clears it for normal qualities).
     const upsertPayload: ShiftLogInsert[] = parentsToSave.map((p) => ({
       log_date: p.log_date,
       shift: p.shift,
       loom_id: p.loom_id,
       adjustment_metres: p.adjustment_metres,
-    }));
+      adjustment_counted: p.adjustment_metres,
+    } as ShiftLogInsert));
 
     const { data: upserted, error: upErr } = await supabase
       .from('production_shift_log')
@@ -1037,6 +1071,12 @@ function ShedCard({
             <div className="text-xs text-ink-mute">
               {r.logged_quality_name ?? r.mounted_quality_name ?? r.quality_name ?? r.loom_type}
             </div>
+            {r.count_unit_cm != null && (
+              <div className="text-[10px] font-semibold text-amber-700"
+                title={`Type folding metres here (1 = ${r.count_unit_cm} cm). Saved as real metres for production and warp; wages per folding metre stay the same.`}>
+                Folding m · 1 = {r.count_unit_cm} cm
+              </div>
+            )}
             {/* The log says one quality, the beam on the loom that day says
                 another. Two things cause it and both are worth catching
                 here rather than months later in a stock report:
