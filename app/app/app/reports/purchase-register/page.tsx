@@ -32,6 +32,7 @@ import { recordDateBounds, clampDate, SOURCES as DATE_SOURCES } from '@/lib/repo
 import { SmartSelect } from '@/app/components/smart-select';
 import { RememberFilters } from '@/app/components/remember-filters';
 import { todayIST } from '@/lib/utils';
+import { MonthQuickPick } from '@/app/components/month-quick-pick';
 
 export const metadata = { title: 'Purchase Register (GSTR 2B)' };
 export const dynamic = 'force-dynamic';
@@ -365,6 +366,10 @@ export default async function PurchaseRegisterReport({
         className="card p-3 mb-4 flex flex-wrap gap-3 items-end text-sm"
         action=""
       >
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-mute">Month</span>
+          <MonthQuickPick from={from} to={to} today={todayIST()} minDate={bounds?.min ?? null} className="input min-w-[140px]" />
+        </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-ink-mute">From</span>
           <input
