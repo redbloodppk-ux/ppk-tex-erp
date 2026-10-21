@@ -1,0 +1,16 @@
+-- TEMPLATE for any NEW table in "public" (Supabase change, 30 Oct 2026):
+-- new tables no longer get Data API grants automatically. Without these
+-- GRANTs the app (supabase-js) gets "permission denied" on the new table.
+-- Existing tables keep their grants and are not affected.
+--
+-- CREATE TABLE public.my_table ( ... );
+-- ALTER TABLE public.my_table ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY my_table_auth_all ON public.my_table
+--   FOR ALL TO authenticated USING (true) WITH CHECK (true);
+--
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON public.my_table TO authenticated;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON public.my_table TO service_role;
+-- -- identity / serial id column:
+-- GRANT USAGE, SELECT ON SEQUENCE public.my_table_id_seq TO authenticated, service_role;
+--
+-- No anon grant: the ERP is login-only.
