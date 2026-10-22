@@ -261,15 +261,20 @@ export default async function DeliveryChallanListPage({
   // its piece count stored in total_metres, not real metres — same
   // qtyUnit test the rows use below — so those are kept out of the metres
   // total and rolled into the pieces total instead.
+  // Cancelled DCs are listed but never counted. Piece-counted DCs are
+  // totalled per unit (dhotis / towels) — never added into metres or
+  // into each other.
   let summaryTotalMetres = 0;
-  let summaryTotalPieces = 0;
-  for (const r of rows) {
+  const summaryByUnit = new Map<string, number>();
+  const liveRows = rows.filter((r) => r.status !== 'cancelled');
+  for (const r of liveRows) {
     const pUnit = pieceUnitByDc.get(r.id);
     const isPieceRow = pUnit && Number.isInteger(Number(r.total_metres ?? 0));
-    if (isPieceRow) summaryTotalPieces += Number(r.total_metres ?? 0);
+    if (isPieceRow) summaryByUnit.set(pUnit, (summaryByUnit.get(pUnit) ?? 0) + Number(r.total_metres ?? 0));
     else summaryTotalMetres += Number(r.total_metres ?? 0);
   }
-  const summaryTotalBundles = rows.reduce((s, r) => s + Number(r.total_bundles ?? 0), 0);
+  const summaryTotalBundles = liveRows.reduce((s, r) => s + Number(r.total_bundles ?? 0), 0);
+  const cancelledCount = rows.length - liveRows.length;
 
   // Preserve the mode filter + any active date/party/quality filters in
   // links built off this page (tab strip, sort headers).
@@ -358,15 +363,26 @@ export default async function DeliveryChallanListPage({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="card p-3">
           <div className="text-xs text-ink-mute">DCs</div>
-          <div className="text-lg font-semibold mt-1">{rows.length.toLocaleString('en-IN')}</div>
+          <div className="text-lg font-semibold mt-1">{liveRows.length.toLocaleString('en-IN')}</div>
+          {cancelledCount > 0 && (
+            <div className="text-[11px] text-ink-mute">+ {cancelledCount} cancelled (not counted)</div>
+          )}
         </div>
         <div className="card p-3">
           <div className="text-xs text-ink-mute">Total metres</div>
           <div className="text-lg font-semibold mt-1 num">{summaryTotalMetres.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
         </div>
         <div className="card p-3">
-          <div className="text-xs text-ink-mute">Total pieces</div>
-          <div className="text-lg font-semibold mt-1 num">{summaryTotalPieces.toLocaleString('en-IN')}</div>
+          <div className="text-xs text-ink-mute">Dhotis / towels</div>
+          {summaryByUnit.size === 0 ? (
+            <div className="text-lg font-semibold mt-1 num">0</div>
+          ) : (
+            Array.from(summaryByUnit.entries()).map(([u, n]) => (
+              <div key={u} className="text-lg font-semibold mt-1 num leading-tight">
+                {n.toLocaleString('en-IN')} <span className="text-sm font-medium text-ink-mute">{u}</span>
+              </div>
+            ))
+          )}
         </div>
         <div className="card p-3">
           <div className="text-xs text-ink-mute">Total bundles</div>
