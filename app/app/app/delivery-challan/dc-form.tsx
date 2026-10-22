@@ -21,7 +21,7 @@
  *
  * Header-level snapshots are sums across all items.
  */
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Plus, Trash2, Save, X } from 'lucide-react';
@@ -290,6 +290,13 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
   // 50 so the suggestion list stays short.
   const [vehicleSuggestions, setVehicleSuggestions] = useState<string[]>([]);
   const [busy,  setBusy]  = useState<boolean>(false);
+  // Duplicate-DC guard (JDC/26-27/0069 + 0070 were the same DC saved twice,
+  // 11 s apart). savingRef blocks a second Save while one is running —
+  // React state alone can lag a fast double click / Enter. createdIdRef
+  // remembers a DC this form already inserted, so a retry after a later
+  // step failed UPDATES it instead of inserting a second copy.
+  const savingRef = useRef<boolean>(false);
+  const createdIdRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Preview of the next DC code the BEFORE INSERT trigger will mint
   // — peeked from doc_sequence so the operator knows the number ahead
@@ -1395,6 +1402,16 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
 
   // ---- Save ----
   async function handleSave(): Promise<void> {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      await handleSaveInner();
+    } finally {
+      savingRef.current = false;
+    }
+  }
+
+  async function handleSaveInner(): Promise<void> {
     setError(null);
     if (form.party_id === '') { setError('Pick a party.'); return; }
     if (!form.ship_to_same && form.ship_to_party_id === '') {
@@ -1463,7 +1480,8 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
     // in form.code; on create we pull it back from the insert (the
     // BEFORE INSERT trigger fills it).
     let dcCode: string = (form.code ?? '').trim();
-    if (isEdit && form.id != null) {
+    const editId: number | null = (isEdit && form.id != null) ? form.id : createdIdRef.current;
+    if (editId != null) {
       // On edit only, allow overriding the auto-generated DC code so the
       // user can correct a typo or re-align to a different series. On
       // create we always let fn_autogen_code assign it.
@@ -1471,9 +1489,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
         ...headerPayload,
         code: (form.code ?? '').trim() || null,
       };
-      const { error: err } = await sb.from('delivery_challan').update(editPayload).eq('id', form.id);
+      const { error: err } = await sb.from('delivery_challan').update(editPayload).eq('id', editId);
       if (err) { setBusy(false); setError(err.message); return; }
-      dcId = form.id;
+      dcId = editId;
       // Drop and re-create items so the bundles_detail / batch link
       // stay in lock-step with the form state.
       // Also clear any prior production_fabric outflows tied to the
@@ -1537,6 +1555,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       if (err || !data?.id) { setBusy(false); setError(err?.message ?? 'Insert failed'); return; }
       dcId = data.id as number;
       dcCode = (data.code as string | null) ?? dcCode;
+      // From here on this form owns this DC: any retry edits it.
+      createdIdRef.current = dcId;
+      setForm((f) => ({ ...f, code: dcCode || f.code }));
     }
 
     const itemsPayload = form.items.map((it) => {
@@ -1697,7 +1718,9 @@ export function DeliveryChallanForm({ initial }: DcFormProps): React.ReactElemen
       }
     }
 
-    setBusy(false);
+    // Keep the Save button disabled until the page actually navigates away —
+    // re-enabling it here let a second click during the slow navigation
+    // create a duplicate DC.
     router.push('/app/delivery-challan');
     router.refresh();
   }
