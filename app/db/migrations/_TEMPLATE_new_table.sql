@@ -14,3 +14,8 @@
 -- GRANT USAGE, SELECT ON SEQUENCE public.my_table_id_seq TO authenticated, service_role;
 --
 -- No anon grant: the ERP is login-only.
+--
+-- Document/header tables (one row per saved form) also get the double-save
+-- guard (migration 326):
+-- CREATE TRIGGER trg_zz_dup_guard BEFORE INSERT ON public.my_table
+--   FOR EACH ROW EXECUTE FUNCTION public.fn_dup_guard();

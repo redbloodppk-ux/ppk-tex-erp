@@ -280,7 +280,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
       const { error: linesErr } = await sb.from('sales_order_line').insert(buildLines(soId));
       if (linesErr) { setBusy(false); setError(linesErr.message); return; }
 
-      setBusy(false);
+      // Save button stays disabled until the page navigates (no double save).
       router.push('/app/orders');
       router.refresh();
       return;
@@ -334,7 +334,7 @@ export function SalesOrderForm({ mode = 'create', soId, initial }: SalesOrderFor
       return;
     }
 
-    setBusy(false);
+    // Save button stays disabled until the page navigates (no double save).
     router.push('/app/orders');
     router.refresh();
   }

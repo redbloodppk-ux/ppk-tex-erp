@@ -262,7 +262,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
         const { error: insErr } = await sb.from('general_purchase_item').insert(itemRows(initial.id));
         if (insErr) { setBusy(false); setError(insErr.message); return; }
       }
-      setBusy(false);
+      // Save button stays disabled until the page navigates (no double save).
       setOkMsg('Saved.');
       router.push('/app/general-purchases');
       router.refresh();
@@ -273,7 +273,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
         const { error: insErr } = await sb.from('general_purchase_item').insert(itemRows(created.id));
         if (insErr) { setBusy(false); setError(`Bill saved, but items failed: ${insErr.message}`); return; }
       }
-      setBusy(false);
+      // Save button stays disabled until the page navigates (no double save).
       router.push('/app/general-purchases');
       router.refresh();
     }
@@ -286,8 +286,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('general_purchase').update({ status: 'cancelled' }).eq('id', initial.id);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/general-purchases');
     router.refresh();
   }
@@ -299,8 +298,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('general_purchase').delete().eq('id', initial.id);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/general-purchases');
     router.refresh();
   }

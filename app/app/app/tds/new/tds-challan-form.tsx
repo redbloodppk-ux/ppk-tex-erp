@@ -157,8 +157,7 @@ export function TdsChallanForm({
         created_by: user?.id ?? null,
       })),
     );
-    setBusy(false);
-    if (insErr) { setError(insErr.message); return; }
+    if (insErr) { setBusy(false); setError(insErr.message); return; }
     router.push('/app/tds');
     router.refresh();
   }

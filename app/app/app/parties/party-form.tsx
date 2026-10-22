@@ -354,7 +354,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
       if (inserted?.id != null) {
         await syncLedgerType(inserted.id);
       }
-      setBusy(false);
+      // Save button stays disabled until the page navigates (no double save).
       router.push('/app/parties');
       router.refresh();
     }
@@ -367,8 +367,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('party').update({ status: 'archived' }).eq('id', partyId);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/parties');
     router.refresh();
   }
@@ -380,8 +379,7 @@ export function PartyForm({ partyId, initial, code }: PartyFormProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('party').delete().eq('id', partyId);
-    setBusy(false);
-    if (err) { setError(err.message + ' - try Archive instead.'); return; }
+    if (err) { setBusy(false); setError(err.message + ' - try Archive instead.'); return; }
     router.push('/app/parties');
     router.refresh();
   }

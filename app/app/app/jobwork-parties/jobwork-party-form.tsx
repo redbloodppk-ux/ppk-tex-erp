@@ -129,8 +129,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
     const sb = supabase as any;
     if (isEdit) {
       const { error: err } = await sb.from('jobwork_party').update(payload).eq('id', partyId);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (err) { setBusy(false); setError(err.message); return; }
       // Auto-close on save: redirect back to the list, matching the
       // same flow as Create (and the Parties / Ledger / Customer forms).
       router.push(kind === 'outsource' ? '/app/outsource' : '/app/jobwork-parties');
@@ -141,8 +140,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
       // doc_sequence row (jobwork_party vs outsource_party).
       const insertPayload = { ...payload, kind };
       const { error: err } = await sb.from('jobwork_party').insert(insertPayload);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (err) { setBusy(false); setError(err.message); return; }
       router.push(kind === 'outsource' ? '/app/outsource' : '/app/jobwork-parties');
       router.refresh();
     }
@@ -155,8 +153,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('jobwork_party').update({ status: 'archived' }).eq('id', partyId);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/jobwork-parties');
     router.refresh();
   }
@@ -168,8 +165,7 @@ export function JobworkPartyForm({ partyId, initial, code, kind = 'jobwork' }: J
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('jobwork_party').delete().eq('id', partyId);
-    setBusy(false);
-    if (err) { setError(err.message + ' - try Archive instead.'); return; }
+    if (err) { setBusy(false); setError(err.message + ' - try Archive instead.'); return; }
     router.push('/app/jobwork-parties');
     router.refresh();
   }

@@ -205,14 +205,13 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
 
     if (isEdit && initial?.id != null) {
       const { error: err } = await sb.from('bank_entry').update(payload).eq('id', initial.id);
+      if (err) { setBusy(false); setError(err.message); return; }
       setBusy(false);
-      if (err) { setError(err.message); return; }
       setOkMsg('Saved.');
       router.refresh();
     } else {
       const { error: err } = await sb.from('bank_entry').insert(payload);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (err) { setBusy(false); setError(err.message); return; }
       router.push('/app/bank-entries');
       router.refresh();
     }
@@ -225,8 +224,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
     const { error: err } = await sb.from('bank_entry').update({ status: 'cancelled' }).eq('id', initial.id);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/bank-entries');
     router.refresh();
   }
@@ -241,8 +239,7 @@ export function BankEntryForm({ initial, categories, bankLedgers, allLedgers, is
     // the row and steps the number counter back. If a newer entry got
     // created meanwhile, it errors and we tell the operator to soft-cancel.
     const { error: err } = await sb.rpc('fn_bank_entry_hard_delete', { p_id: initial.id });
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/bank-entries');
     router.refresh();
   }

@@ -237,8 +237,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     if (isEdit) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any).from('ledger').update(payload).eq('id', ledgerId);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (err) { setBusy(false); setError(err.message); return; }
       // Auto-close on save: redirect back to the ledgers list, matching
       // the same flow as Create.
       router.push('/app/ledgers');
@@ -246,8 +245,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any).from('ledger').insert(payload);
-      setBusy(false);
-      if (err) { setError(err.message); return; }
+      if (err) { setBusy(false); setError(err.message); return; }
       router.push('/app/ledgers');
       router.refresh();
     }
@@ -260,8 +258,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('ledger').update({ active: false }).eq('id', ledgerId);
-    setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err) { setBusy(false); setError(err.message); return; }
     router.push('/app/ledgers'); router.refresh();
   }
 
@@ -272,8 +269,7 @@ export function LedgerForm({ ledgerId, code, initial, types, groups }: LedgerFor
     setBusy(true); setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: err } = await (supabase as any).from('ledger').delete().eq('id', ledgerId);
-    setBusy(false);
-    if (err) { setError(err.message + ' - try Archive instead.'); return; }
+    if (err) { setBusy(false); setError(err.message + ' - try Archive instead.'); return; }
     router.push('/app/ledgers'); router.refresh();
   }
 

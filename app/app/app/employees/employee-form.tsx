@@ -118,8 +118,7 @@ export function EmployeeForm({ initial, employeeId }: Props) {
       ? await sb.from('employee').update(payload as never).eq('id', employeeId as never)
       : await sb.from('employee').insert(payload as never);
 
-    setBusy(false);
-    if (dbError) { setError(dbError.message); return; }
+    if (dbError) { setBusy(false); setError(dbError.message); return; }
     router.push('/app/employees');
     router.refresh();
   }

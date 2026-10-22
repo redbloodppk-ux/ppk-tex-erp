@@ -740,7 +740,7 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       }
     }
 
-    setBusy(false);
+    // Save button stays disabled until the page navigates (no double save).
     router.push(`/app/invoices?type=${docType}`);
     router.refresh();
   }
