@@ -127,12 +127,12 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
     }
 
     // Step 2: Weaver entries for those shift logs.
-    type WeaverEntry = { shift_log_id: number; employee_id: number; metres_woven: number | string | null };
+    type WeaverEntry = { shift_log_id: number; employee_id: number; metres_woven: number | string | null; counted_metres?: number | string | null };
     const weaverRes = await fetchAll<WeaverEntry>((lo, hi) => (supabase as unknown as {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       from: (t: string) => any;
     }).from('production_shift_log_weaver')
-      .select('id, shift_log_id, employee_id, metres_woven')
+      .select('id, shift_log_id, employee_id, metres_woven, counted_metres')
       .in('shift_log_id', shiftLogIds)
       .order('id', { ascending: true })
       .range(lo, hi));
@@ -185,13 +185,16 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: qualityRaw } = distinctQualityIds.length ? await (supabase as any)
       .from('fabric_quality')
-      .select('id, code, name')
+      .select('id, code, name, count_unit_cm')
       .in('id', distinctQualityIds)
       : { data: [] };
-    type QualityRow = { id: number; code: string; name: string };
+    type QualityRow = { id: number; code: string; name: string; count_unit_cm: number | string | null };
     const qualityById = new Map<number, { code: string; name: string }>();
     for (const q of (qualityRaw ?? []) as QualityRow[]) {
-      qualityById.set(q.id, { code: q.code, name: q.name });
+      const cm = Number(q.count_unit_cm ?? 0);
+      // Counted-unit qualities (saree 137 cm) say so in the legend / header.
+      const name = cm > 0 && cm !== 100 ? `${q.name} (folding m, 1 = ${cm} cm)` : q.name;
+      qualityById.set(q.id, { code: q.code, name });
     }
 
     // Step 5: Aggregate metres per (employee, quality). When a shed filter
@@ -205,7 +208,10 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
       const fq = (qualityId != null ? qualityById.get(qualityId) : undefined)
         ?? { code: 'NO_QUALITY', name: 'No Quality Assigned' };
       const key = `${w.employee_id}|${fq.code}`;
-      const m = Number(w.metres_woven ?? 0);
+      // Weaver production is shown as the weaver counted it: society
+      // sarees in folding metres (137 cm), as typed on the shift log —
+      // metres_woven holds the converted real metres.
+      const m = Number(w.counted_metres ?? w.metres_woven ?? 0);
       if (m <= 0) continue;
       // Use the real name when we have it; fall back to the employee code
       // or the bare id so production is never silently dropped from the
@@ -405,6 +411,9 @@ export default async function WeaverProductionReport({ searchParams }: PageProps
                   {qualities.map(q => (
                     <th key={q.code} className="text-right px-3 py-3 whitespace-nowrap" title={q.name}>
                       {q.code === 'NO_QUALITY' ? 'No Quality' : q.code}
+                      {q.name.includes('folding m') && (
+                        <div className="text-[9px] normal-case tracking-normal text-amber-700">folding m</div>
+                      )}
                     </th>
                   ))}
                   <th className="text-right px-4 py-3 font-bold">Total (m)</th>
