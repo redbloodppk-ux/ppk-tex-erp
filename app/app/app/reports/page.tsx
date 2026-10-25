@@ -97,6 +97,13 @@ const REPORTS: ReportLink[] = [
     ready: true, group: 'production',
   },
   {
+    href: '/app/reports/weaver-wages',
+    title: 'Weaver Wages by Quality',
+    description:
+      'Wage earned by each weaver on each quality — metres, rate and amount — for a week, month or financial year. Filter by shed and weaver; Excel export.',
+    ready: true, group: 'production',
+  },
+  {
     href: '/app/reports/loom-efficiency',
     title: 'Loom Efficiency & Cost',
     description:
