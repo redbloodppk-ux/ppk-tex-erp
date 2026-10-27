@@ -882,7 +882,18 @@ function AssignModal({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true); setErr(null);
+    setErr(null);
+    // Every field is mandatory (PPK, 27-Oct-2026) — check before touching
+    // the loom's current beam so nothing is half-saved.
+    if (!pavuId) { setErr('Pick the pavu (beam) to mount.'); return; }
+    if (!costingId) { setErr('Pick the quality being woven.'); return; }
+    if (!status) { setErr('Pick the initial status.'); return; }
+    if (status === 'mounted' || status === 'running') {
+      if (!mountedDate) { setErr('Enter the mounted date.'); return; }
+      if (!metresStartDate) { setErr('Enter the "count metres from" date.'); return; }
+      if (metresStartDate < mountedDate) { setErr('"Count metres from" cannot be before the mounted date.'); return; }
+    }
+    setBusy(true);
 
     // Free up the loom first if something else is on it, recording the
     // actual metres woven and the shortfall/excess vs nominal beam metres.
@@ -1150,9 +1161,9 @@ function AssignModal({
           )}
 
           <div>
-            <label className="label">Quality being woven</label>
+            <label className="label">Quality being woven *</label>
             <SmartSelect value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
-              <option value="">— Not set —</option>
+              <option value="">— Pick quality —</option>
               {qualities.map(q => (
                 <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
               ))}
@@ -1160,7 +1171,7 @@ function AssignModal({
           </div>
 
           <div>
-            <label className="label">Initial status</label>
+            <label className="label">Initial status *</label>
             <select value={status} onChange={e => setStatus(e.target.value as any)} className="input">
               <option value="queued">Queued (planned)</option>
               <option value="mounted">Mounted</option>
@@ -1170,24 +1181,26 @@ function AssignModal({
 
           {(status === 'mounted' || status === 'running') && (
             <div>
-              <label className="label">Mounted date</label>
+              <label className="label">Mounted date *</label>
               <input
                 type="date"
                 value={mountedDate}
                 onChange={e => onMountedDateChange(e.target.value)}
                 className="input"
+                required
               />
             </div>
           )}
 
           {(status === 'mounted' || status === 'running') && (
             <div>
-              <label className="label">Count metres from</label>
+              <label className="label">Count metres from *</label>
               <input
                 type="date"
                 value={metresStartDate}
                 onChange={e => { setMetresStartDate(e.target.value); setMetresStartTouched(true); }}
                 className="input"
+                required
               />
               <p className="text-xs text-ink-mute mt-1">
                 Defaults to mounted date + 1 day. Change this if shift logs for this beam actually started on a different date.
@@ -1239,7 +1252,12 @@ function EditAssignmentModal({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true); setErr(null);
+    setErr(null);
+    if (!costingId) { setErr('Pick the quality being woven.'); return; }
+    if (!mountedDate) { setErr('Enter the mounted date.'); return; }
+    if (!metresStartDate) { setErr('Enter the "count metres from" date.'); return; }
+    if (metresStartDate < mountedDate) { setErr('"Count metres from" cannot be before the mounted date.'); return; }
+    setBusy(true);
     const { error } = await supabase
       .from('pavu_assign')
       .update({
@@ -1272,9 +1290,9 @@ function EditAssignmentModal({
         <form onSubmit={onSubmit} className="flex flex-1 min-h-0 flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 space-y-4">
           <div>
-            <label className="label">Quality being woven</label>
+            <label className="label">Quality being woven *</label>
             <SmartSelect value={costingId} onChange={e => setCostingId(e.target.value)} className="input">
-              <option value="">— Not set —</option>
+              <option value="">— Pick quality —</option>
               {qualities.map(q => (
                 <option key={q.id} value={q.id}>{q.quality_code} — {q.quality_name}</option>
               ))}
@@ -1282,7 +1300,7 @@ function EditAssignmentModal({
           </div>
 
           <div>
-            <label className="label">Mounted date</label>
+            <label className="label">Mounted date *</label>
             <input
               type="date"
               value={mountedDate}
@@ -1292,7 +1310,7 @@ function EditAssignmentModal({
           </div>
 
           <div>
-            <label className="label">Count metres from</label>
+            <label className="label">Count metres from *</label>
             <input
               type="date"
               value={metresStartDate}
