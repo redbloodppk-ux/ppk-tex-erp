@@ -1932,6 +1932,13 @@ interface PivotData {
    * that is known, it wins.
    */
   closingByColumn?: Record<string, number>;
+  /**
+   * Warp-beam view only: cloth already woven on our looms (shift log) since
+   * the last DC of that quality - folded stock waiting in the warehouse.
+   * Its warp is used but not yet taken off (that happens on the fabric
+   * receipt), so it explains part of the closing balance.
+   */
+  foldedByColumn?: Record<string, { metres: number; lastDcCode: string | null; lastDcDate: string | null }>;
 }
 
 /** Pivot-style ledger. Rows = events (date), columns = ends / yarn count /
@@ -2022,8 +2029,33 @@ function PivotView({ data, emptyMessage }: { data: PivotData; emptyMessage: stri
     displayRows.push({ event: sorted[i]!, balanceAfter: balanceAfterEvent[i] ?? 0 });
   }
 
+  const foldedCols = data.columns.filter((c) => (data.foldedByColumn?.[c.id]?.metres ?? 0) > 0.05);
+
   return (
     <>
+      {foldedCols.length > 0 && (
+        <div className="card p-3 mb-4 border-l-4 border-l-amber-400">
+          <div className="text-xs font-semibold text-ink mb-1">Woven, not yet delivered (folded stock)</div>
+          <div className="text-[11px] text-ink-mute mb-2">
+            Cloth woven on our looms since the last DC of each quality (shift log metres). Its warp is used but is only taken off the
+            closing balance when the fabric receipt is made — so <b>warp still really left = closing − folded stock</b>.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {foldedCols.map((c) => {
+              const f = data.foldedByColumn![c.id]!;
+              const after = closingOf(c.id) - f.metres;
+              return (
+                <div key={c.id} className="rounded-lg border border-line bg-white px-3 py-2 text-xs">
+                  <div className="font-semibold">{c.label}{c.sublabel && c.sublabel !== 'merged group' ? <span className="font-normal text-ink-mute"> · {c.sublabel}</span> : null}</div>
+                  <div className="num text-amber-700 font-bold">{fmtUnit(f.metres, data.unit)} folded</div>
+                  <div className="text-[10px] text-ink-mute">since {f.lastDcCode ?? 'last DC'}{f.lastDcDate ? ` (${f.lastDcDate})` : ''}</div>
+                  <div className="text-[10px] text-ink-soft num">Warp left after it: {fmtUnit(after, data.unit)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="grid sm:grid-cols-4 gap-3 mb-4">
         <Kpi label="Closing balance" value={fmtUnit(grandClosing, data.unit)} icon={Coins} negative={grandClosing < 0} />
         <Kpi label="Total inflow"    value={fmtUnit(grandIn, data.unit)}      icon={Layers} />
@@ -3256,7 +3288,60 @@ async function loadJobworkWarpBeam(
   }
   void counts;
   const columns = Array.from(colMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  return { unit: 'm', columns, events };
+
+  // ── Folded stock: woven since the last DC, per column ──
+  const foldedByColumn: NonNullable<PivotData['foldedByColumn']> = {};
+  try {
+    const qidsByCol = new Map<string, number[]>();
+    for (const [qid] of fqMergeById) {
+      const id = colInfo(qid).id;
+      if (!colMap.has(id)) continue;
+      qidsByCol.set(id, [...(qidsByCol.get(id) ?? []), qid]);
+    }
+    const allQ = Array.from(qidsByCol.values()).flat();
+    if (allQ.length > 0) {
+      const dcRows = await safeSelect<{ fabric_quality_id: number | null; dc: { code: string | null; dc_date: string | null; status: string | null } | null }>(
+        supabase.from('delivery_challan_item')
+          .select('fabric_quality_id, dc:dc_id!inner ( code, dc_date, status )')
+          .in('fabric_quality_id', allQ)
+          .neq('dc.status', 'cancelled')
+          .limit(5000),
+      );
+      const lastDc = new Map<string, { date: string; code: string | null }>();
+      for (const d of dcRows) {
+        if (d.fabric_quality_id == null || !d.dc?.dc_date || d.dc.status === 'cancelled') continue;
+        const id = colInfo(d.fabric_quality_id).id;
+        const cur = lastDc.get(id);
+        if (!cur || d.dc.dc_date > cur.date) lastDc.set(id, { date: d.dc.dc_date, code: d.dc.code });
+      }
+      const dates = Array.from(lastDc.values()).map((x) => x.date).sort();
+      if (dates.length > 0) {
+        const logs = await safeSelect<{ log_date: string; fabric_quality_id: number | null; adjustment_metres: number | string | null; production_shift_log_weaver: Array<{ metres_woven: number | string | null }> | null }>(
+          supabase.from('production_shift_log')
+            .select('log_date, fabric_quality_id, adjustment_metres, production_shift_log_weaver ( metres_woven )')
+            .in('fabric_quality_id', allQ)
+            .gte('log_date', dates[0])
+            .limit(5000),
+        );
+        for (const l of logs) {
+          if (l.fabric_quality_id == null) continue;
+          const id = colInfo(l.fabric_quality_id).id;
+          const dc = lastDc.get(id);
+          // A DC is made in the morning from cloth woven up to the day
+          // before, so the shift on the DC date itself is still in stock.
+          if (!dc || l.log_date < dc.date) continue;
+          const m = (l.production_shift_log_weaver ?? []).reduce((s2, w) => s2 + Number(w.metres_woven ?? 0), 0)
+            + Number(l.adjustment_metres ?? 0);
+          const cur = foldedByColumn[id] ?? { metres: 0, lastDcCode: dc.code, lastDcDate: dc.date };
+          cur.metres += m;
+          foldedByColumn[id] = cur;
+        }
+      }
+    }
+  } catch {
+    // Folded-stock hint is best-effort; never break the warehouse view.
+  }
+  return { unit: 'm', columns, events, foldedByColumn };
 }
 
 // ─── Bobbin pivot (jobwork) ─────────────────────────────────────────────────
