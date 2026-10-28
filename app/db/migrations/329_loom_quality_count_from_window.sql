@@ -1,0 +1,12 @@
+-- 329: Loom quality on a date follows the "count metres from" window.
+-- fn_loom_quality_id_on_date: a beam's window = COALESCE(metres_start_date,
+-- start_date) up to the next beam's window start (else its end_date);
+-- falls back to the old mounted-date window when nothing matches (first
+-- beam on a loom). fn_loom_quality_on_date (shift-log labels) now takes its
+-- quality name from fn_loom_quality_id_on_date.
+-- Why: L-25 got saree beam PV-26-27-00332 mounted 25-Oct, counted from
+-- 28-Oct; Congress was woven 25-27 Oct but those days resolved to Society
+-- Saree (wrong quality + 137 cm conversion). Data: pavu_assign 228
+-- (PV-26-27-00258, Congress on L-25) end_date 25-Oct -> 27-Oct.
+-- Function bodies: see live pg_get_functiondef.
+UPDATE pavu_assign SET end_date = '2026-10-27' WHERE id = 228 AND end_date = '2026-10-25';
