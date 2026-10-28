@@ -54,6 +54,7 @@ export async function loadTdsMonths(
       ref: b.bill_no ?? '',
       deductedOn: b.bill_date,
       amount,
+      taxable: Number(b.charges_amount ?? 0),
       partyName: b.bill_party?.name ?? '',
     });
   }

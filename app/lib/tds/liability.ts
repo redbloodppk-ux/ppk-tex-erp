@@ -52,6 +52,8 @@ export interface TdsSource {
   deductedOn: string;
   /** Rupees withheld. */
   amount: number;
+  /** Taxable value of the bill (before GST) the TDS was computed on. */
+  taxable?: number;
   /** Who it was withheld from, for the drill-down. */
   partyName: string;
 }
@@ -73,6 +75,8 @@ export interface TdsMonth {
   dueDate: string;
   /** Total withheld in the month. */
   tds: number;
+  /** Taxable value (before GST) of the month's bills the TDS was computed on. */
+  taxable: number;
   /** Already remitted for this month. */
   paid: number;
   /** Still owed, before interest. */
@@ -220,6 +224,7 @@ export function buildTdsMonths(
   const out: TdsMonth[] = [];
   for (const [month, rows] of byMonth) {
     const tds = round2(rows.reduce((t, r) => t + r.amount, 0));
+    const taxable = round2(rows.reduce((t, r) => t + Number(r.taxable ?? 0), 0));
     const paid = round2(paidByMonth.get(month) ?? 0);
     const rawOutstanding = round2(Math.max(0, tds - paid));
     // Under a rupee cannot be paid, so it is not owed. See
@@ -238,6 +243,7 @@ export function buildTdsMonths(
       label: labelFor(month),
       dueDate,
       tds,
+      taxable,
       paid,
       outstanding,
       interestMonths,

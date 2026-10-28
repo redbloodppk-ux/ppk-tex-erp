@@ -155,6 +155,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
               <th className="text-left  px-4 py-3">Month deducted</th>
               <th className="text-left  px-4 py-3">Due by</th>
               <th className="text-left  px-4 py-3">Status</th>
+              <th className="text-right px-4 py-3">Taxable amount</th>
               <th className="text-right px-4 py-3">TDS</th>
               <th className="text-right px-4 py-3">Interest</th>
               <th className="text-right px-4 py-3">Payable</th>
@@ -184,6 +185,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-right num text-ink-soft">{formatRupee(m.taxable)}</td>
                   <td className="px-4 py-3 text-right num">{formatRupee(m.outstanding)}</td>
                   <td className="px-4 py-3 text-right num text-rose-700">
                     {m.interest > 0 ? formatRupee(m.interest) : <span className="text-ink-mute">—</span>}
@@ -198,7 +200,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
               );
             }) : (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-ink-soft">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-ink-soft">
                   Nothing owed. Every month of withheld tax has been remitted.
                 </td>
               </tr>
@@ -210,6 +212,7 @@ export default async function TdsPage(): Promise<React.ReactElement> {
                 <td className="px-4 py-3">Total</td>
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3" />
+                <td className="px-4 py-3 text-right num">{formatRupee(open.reduce((t, m) => t + m.taxable, 0))}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(totals.outstanding)}</td>
                 <td className="px-4 py-3 text-right num text-rose-700">{formatRupee(totals.interest)}</td>
                 <td className="px-4 py-3 text-right num">{formatRupee(totals.payable)}</td>

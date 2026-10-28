@@ -122,15 +122,16 @@ function buildPdf(
 
       const R = { align: 'right' as const };
       const cols: Col[] = [
-        { header: 'Month deducted', width: 100 },
-        { header: 'TDS withheld', width: 90, ...R },
-        { header: 'Due by', width: 80 },
-        { header: 'Challan no.', width: 130 },
-        { header: 'Paid on', width: 80 },
-        { header: 'TDS paid', width: 85, ...R },
-        { header: 'Interest paid', width: 85, ...R },
-        { header: 'Still owed', width: 85, ...R },
-        { header: 'Status', width: 80 },
+        { header: 'Month deducted', width: 82 },
+        { header: 'Taxable amount', width: 92, ...R },
+        { header: 'TDS withheld', width: 80, ...R },
+        { header: 'Due by', width: 68 },
+        { header: 'Challan no.', width: 122 },
+        { header: 'Paid on', width: 68 },
+        { header: 'TDS paid', width: 76, ...R },
+        { header: 'Interest paid', width: 72, ...R },
+        { header: 'Still owed', width: 70, ...R },
+        { header: 'Status', width: 48 },
       ];
 
       const byMonth = new Map<string, Challan[]>();
@@ -138,14 +139,15 @@ function buildPdf(
         byMonth.set(c.period_month, [...(byMonth.get(c.period_month) ?? []), c]);
       }
 
-      let tW = 0, tPaid = 0, tInt = 0, tOwed = 0;
+      let tW = 0, tTax = 0, tPaid = 0, tInt = 0, tOwed = 0;
       const rows: Array<Array<string | number>> = months.map((m) => {
         const cs = byMonth.get(m.month) ?? [];
         const paid = cs.reduce((t, c) => t + Number(c.amount ?? 0), 0);
         const intr = cs.reduce((t, c) => t + Number(c.interest_amount ?? 0), 0);
-        tW += m.tds; tPaid += paid; tInt += intr; tOwed += m.outstanding;
+        tW += m.tds; tTax += m.taxable; tPaid += paid; tInt += intr; tOwed += m.outstanding;
         return [
           m.label,
+          m.taxable > 0 ? rs(m.taxable) : '-',
           rs(m.tds),
           d(m.dueDate),
           cs.map((c) => c.challan_no ?? '-').join(', ') || '-',
@@ -158,7 +160,7 @@ function buildPdf(
           m.outstanding > 0 ? (m.overdue ? 'OVERDUE' : 'Due') : 'Settled',
         ];
       });
-      rows.push(['TOTAL', rs(tW), '', '', '', rs(tPaid), rs(tInt), tOwed > 0 ? rs(tOwed) : '-', '']);
+      rows.push(['TOTAL', rs(tTax), rs(tW), '', '', '', rs(tPaid), rs(tInt), tOwed > 0 ? rs(tOwed) : '-', '']);
 
       y = drawTable(doc, left, y, cols, rows, true);
 
