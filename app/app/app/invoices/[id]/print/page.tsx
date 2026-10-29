@@ -28,6 +28,21 @@ import { ewbQrText, ewbQrSvg } from '@/lib/ewaybill/qr';
 
 export const dynamic = 'force-dynamic';
 
+/** Address saved one part per line ("1 PUSHPA BLEACHING PROCESS\nC S
+ *  SUBRAMANIYA NAGAR\nErode\n638004") printed as one flowing line that
+ *  wraps to 2-3 lines by width: parts joined with ", ", the PIN code as
+ *  " - 638004". */
+function oneLineAddress(a: string | null | undefined): string {
+  const parts = String(a ?? '').split(/\r?\n|,(?=\s)/).map((x) => x.trim().replace(/,$/, '')).filter(Boolean);
+  let out = '';
+  for (const p of parts) {
+    if (out === '') out = p;
+    else if (/^\d{6}$/.test(p)) out += ' - ' + p;
+    else out += ', ' + p;
+  }
+  return out;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -392,7 +407,7 @@ export default async function InvoicePrintPage({
            hidden so the live preview stays clean. */
         @page {
           size: A4;
-          margin: 28mm 14mm 26mm 14mm;
+          margin: 10mm 12mm 14mm 12mm;
           @bottom-center {
             content: "Page " counter(page) " of " counter(pages);
             font-family: 'Calibri', 'Helvetica Neue', Arial, sans-serif;
@@ -418,8 +433,13 @@ export default async function InvoicePrintPage({
           .inv-sheet { box-shadow: none !important; border: none !important; padding: 0 !important; min-height: 0 !important; margin: 0 !important; width: auto !important; display: flex !important; flex-direction: column !important; }
           /* Fresh A4 page between ORIGINAL and DUPLICATE copies. */
           .inv-sheet + .inv-sheet { page-break-before: always; }
+          /* Fixed header/footer were painted UNDER the white invoice sheet
+             (and over its last lines) in the downloaded PDF, so the
+             address footer was unreadable (PPK, 29-Oct-2026). Each copy
+             is one page now, so the in-flow address footer (.addr-foot)
+             is printed instead and these stay hidden. */
           .inv-print-header {
-            display: flex !important;
+            display: none !important;
             position: fixed;
             top: 0; left: 14mm; right: 14mm;
             height: 20mm;
@@ -437,7 +457,7 @@ export default async function InvoicePrintPage({
           .inv-print-header .ph-meta  { text-align: right; font-size: 13px; font-weight: 700; line-height: 1.35; color: #222; }
           .inv-print-header .ph-meta b { color: #000; font-weight: 800; }
           .inv-print-footer {
-            display: block !important;
+            display: none !important;
             position: fixed;
             bottom: 0; left: 14mm; right: 14mm;
             padding: 3mm 0 2mm 0;
@@ -457,7 +477,7 @@ export default async function InvoicePrintPage({
           table.items tfoot { display: table-footer-group; }
           /* The on-page address footer is redundant with the fixed
              footer — hide it during print so it doesn't double-print. */
-          .addr-foot { display: none !important; }
+          .addr-foot { display: block !important; margin-top: 12px !important; padding-top: 8px !important; border-top: 1px solid #000 !important; color: #111 !important; font-size: 13px !important; font-weight: 700 !important; }
           /* Single-page copies: on screen we push the declaration +
              signature to the very bottom (margin-top:auto) for visual
              balance, but in print that auto-gap shoved the block past
@@ -549,7 +569,7 @@ export default async function InvoicePrintPage({
         .inv-billship .tag { font-size: 13px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; }
         .inv-billship .gst { font-size: 14px; font-weight: 600; color: #111; }
         .inv-billship .party { font-size: 16px; font-weight: 800; color: #000; margin-top: 3px; }
-        .inv-billship .addr { font-size: 14px; font-weight: 600; color: #222; white-space: pre-line; line-height: 1.55; margin-top: 3px; }
+        .inv-billship .addr { font-size: 14px; font-weight: 600; color: #222; white-space: normal; line-height: 1.5; margin-top: 3px; }
         .inv-billship .ps { font-size: 13px; font-weight: 600; color: #333; margin-top: 5px; padding-top: 4px; border-top: 1px dashed #aaa; }
         .inv-tag { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 999px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
         .inv-lab { font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
@@ -704,7 +724,7 @@ export default async function InvoicePrintPage({
             <div className="party">{partyName || '-'}</div>
             {/* whiteSpace: pre-line lets multi-line addresses (with \n
                 or ', ') wrap properly instead of being truncated. */}
-            <div className="addr" style={{ whiteSpace: 'pre-line' }}>{partyAddress || ''}</div>
+            <div className="addr">{oneLineAddress(partyAddress)}</div>
             <div className="ps">
               PLACE OF SUPPLY : {inv.place_of_supply || partyState || '-'} &nbsp;&middot;&nbsp; {isInterstate ? 'INTERSTATE (IGST)' : 'INTRASTATE (CGST + SGST)'}
             </div>
@@ -715,7 +735,7 @@ export default async function InvoicePrintPage({
             <div className="tag">SHIP TO</div>
             <div className="gst">GSTIN : {(inv.ship_to_name ? inv.ship_to_gstin : partyGstin) || '-'}</div>
             <div className="party">{inv.ship_to_name || partyName || '-'}</div>
-            <div className="addr" style={{ whiteSpace: 'pre-line' }}>{inv.ship_to_name ? (inv.ship_to_address ?? '') : (partyAddress || '')}</div>
+            <div className="addr">{oneLineAddress(inv.ship_to_name ? (inv.ship_to_address ?? '') : (partyAddress || ''))}</div>
             <div className="ps">
               PLACE OF SUPPLY : {(inv.ship_to_name ? inv.ship_to_state : null) || inv.place_of_supply || partyState || '-'}
             </div>
@@ -882,7 +902,7 @@ export default async function InvoicePrintPage({
         <div className="addr-foot">
           <div style={{ fontWeight: 600 }}>{COMPANY.address}</div>
           <div>
-            MOB: {COMPANY.phones.join(' \u00b7 MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
+            GSTIN: {COMPANY.gstin} &nbsp;&middot;&nbsp; MOB: {COMPANY.phones.join(' \u00b7 MOB: ')} &nbsp;&middot;&nbsp; E-mail: {COMPANY.email}
           </div>
         </div>
       </div>
