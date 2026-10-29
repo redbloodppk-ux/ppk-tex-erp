@@ -17,6 +17,7 @@ import { CardFilter } from '@/app/components/card-filter';
 import { ListLimitBar } from '@/app/components/list-limit-bar';
 import { readLimit } from '@/lib/list-limit';
 import { fetchAll } from '@/lib/supabase/fetch-all';
+import { DeleteGeneralPurchaseButton } from './delete-general-purchase-button';
 
 export const metadata = { title: 'General Purchases' };
 export const dynamic = 'force-dynamic';
@@ -132,6 +133,7 @@ export default async function GeneralPurchasesListPage({
               <Link href={`/app/general-purchases/${r.id}`} className="inline-flex items-center gap-1 text-xs text-indigo-700 font-semibold" title="Edit bill">
                 <Pencil className="w-3.5 h-3.5" /> Edit
               </Link>
+              <DeleteGeneralPurchaseButton id={r.id} billNo={String(r.bill_no ?? '')} label />
             </div>
           </div>
         )) : (
@@ -175,9 +177,12 @@ export default async function GeneralPurchasesListPage({
                 <td className="px-3 py-2 text-right num">{Number(r.gst_pct)}%</td>
                 <td className="px-3 py-2 text-right num font-semibold">{formatRupee(Number(r.total))}</td>
                 <td className="px-3 py-2 text-right">
-                  <Link href={`/app/general-purchases/${r.id}`} className="btn-ghost text-xs inline-flex items-center gap-1">
-                    <Pencil className="w-3.5 h-3.5" /> Edit
-                  </Link>
+                  <div className="inline-flex items-center gap-1">
+                    <Link href={`/app/general-purchases/${r.id}`} className="btn-ghost text-xs inline-flex items-center gap-1">
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </Link>
+                    <DeleteGeneralPurchaseButton id={r.id} billNo={String(r.bill_no ?? '')} />
+                  </div>
                 </td>
               </tr>
             ))}
