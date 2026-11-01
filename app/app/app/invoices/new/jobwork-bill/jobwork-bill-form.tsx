@@ -555,8 +555,13 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
       return next;
     });
   }
+  // Only DCs with a fabric receipt (or from a production batch) can be
+  // billed — "pick all" must not tick the greyed-out ones.
+  function billableDcIds(): number[] {
+    return dcs.filter((d) => d.fabric_receipt_id !== null || batchSourcedDcIds.has(d.id)).map((d) => d.id);
+  }
   function pickAll(): void {
-    setPickedDcIds(new Set(dcs.map((d) => d.id)));
+    setPickedDcIds(new Set(billableDcIds()));
   }
   function clearAll(): void {
     setPickedDcIds(new Set());
@@ -832,7 +837,24 @@ export function JobworkBillForm({ parties }: JobworkBillFormProps): React.ReactE
           <table className="w-full text-sm">
             <thead className="bg-cloud/30 text-[11px] uppercase tracking-wide text-ink-soft">
               <tr>
-                <th className="px-3 py-2 w-10" />
+                <th className="px-3 py-2 w-10">
+                  {(() => {
+                    const ids = billableDcIds();
+                    const n = ids.filter((id) => pickedDcIds.has(id)).length;
+                    const all = ids.length > 0 && n === ids.length;
+                    return (
+                      <input
+                        type="checkbox"
+                        checked={all}
+                        disabled={ids.length === 0}
+                        ref={(el) => { if (el) el.indeterminate = n > 0 && !all; }}
+                        onChange={() => { if (all) clearAll(); else pickAll(); }}
+                        title={all ? 'Unselect all' : 'Select all receipted DCs'}
+                        aria-label="Select all DCs"
+                      />
+                    );
+                  })()}
+                </th>
                 <th className="text-left px-3 py-2">DC No</th>
                 <th className="text-left px-3 py-2">Date</th>
                 <th className="text-left px-3 py-2">Receipt</th>
