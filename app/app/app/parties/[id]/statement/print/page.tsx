@@ -379,7 +379,7 @@ export default async function PartyStatementPrintPage({
   // it belongs to, so guessing would silently move money between
   // accounts. They get their own section.
   const BANK_TYPES = new Set(['bank_in', 'bank_out']);
-  const sections: Array<{
+  const allSections: Array<{
     key: string; label: string; blurb: string;
     bills: Bill[]; billed: number; paid: number; balance: number;
   }> = [];
@@ -389,7 +389,7 @@ export default async function PartyStatementPrintPage({
       (b) => !BANK_TYPES.has(b.doc_type) && streamForBillKind(b.doc_type) === s,
     );
     if (rows.length === 0) continue;
-    sections.push({
+    allSections.push({
       key: s,
       label: STREAM_META[s].label,
       blurb: STREAM_META[s].blurb,
@@ -402,7 +402,7 @@ export default async function PartyStatementPrintPage({
 
   const bankRows = bills.filter((b) => BANK_TYPES.has(b.doc_type));
   if (bankRows.length > 0) {
-    sections.push({
+    allSections.push({
       key: 'bank',
       label: 'Direct Bank Movements',
       blurb: 'Bank transactions posted straight against this party, not tied to a specific account.',
@@ -412,6 +412,17 @@ export default async function PartyStatementPrintPage({
       balance: bankRows.reduce((t, b) => t + b.balance, 0),
     });
   }
+
+  // The outstanding statement goes TO the party, asking them to pay: show
+  // only the accounts where they owe us (job work / sales). Accounts where
+  // WE owe them (supplier purchases) are left out — PPK, 01-Nov-2026: "only
+  // show outstanding statement not add supplier". A party we only buy
+  // from still gets its supplier account, so the page is never empty.
+  const dirOf = (k: string): string | undefined =>
+    k === 'bank' ? undefined : STREAM_META[k as keyof typeof STREAM_META]?.direction;
+  const hasReceivable = allSections.some((x) => dirOf(x.key) === 'in');
+  const sections = hasReceivable ? allSections.filter((x) => dirOf(x.key) !== 'out') : allSections;
+  const shownBills = sections.flatMap((x) => x.bills);
 
   /** More than one account in play — worth showing the summary block. */
   const multiAccount = sections.length > 1;
@@ -429,7 +440,8 @@ export default async function PartyStatementPrintPage({
 
   /** Headline figure: the signed net once several accounts are in play,
    *  otherwise the single account's outstanding. */
-  const headline = multiAccount ? netSigned : totalOutstanding;
+  const headline = multiAccount ? netSigned : shownBills.reduce((t, b) => t + b.balance, 0);
+  void totalOutstanding;
 
   const companyAddress = [cp.address_line1, cp.address_line2, [cp.city, cp.state, cp.pincode].filter(Boolean).join(' ')]
     .filter(Boolean).join('\n');
@@ -481,7 +493,7 @@ export default async function PartyStatementPrintPage({
               </div>
             )}
             <div className="text-[10px] text-ink-mute mt-0.5">
-              Across {bills.length} bill{bills.length === 1 ? '' : 's'}
+              Across {shownBills.length} bill{shownBills.length === 1 ? '' : 's'}
               {multiAccount ? ` in ${sections.length} accounts` : ''}
             </div>
           </div>
@@ -526,7 +538,7 @@ export default async function PartyStatementPrintPage({
         )}
 
         {/* Bills — one table per account */}
-        {bills.length === 0 ? (
+        {shownBills.length === 0 ? (
           <div className="p-8 text-center text-ink-soft border border-line/60 rounded-md">
             No outstanding bills against this party — fully settled.
           </div>
@@ -616,7 +628,7 @@ export default async function PartyStatementPrintPage({
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          .statement-page { padding: 12mm !important; }
+          .statement-page { padding: 12mm !important; min-height: 0 !important; }
           @page { size: A4; margin: 8mm; }
         }
       `}</style>
