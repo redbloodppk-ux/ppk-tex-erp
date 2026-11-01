@@ -327,16 +327,21 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
   // production_shift_log + production_shift_log_weaver in this week:
   //
   //   earnings(emp) = SUM over (date, shift, loom) the weaver worked
-  //                    of metres_woven × loom.default_rate_per_m
+  //                    of metres_woven × shift_log.rate_per_m
   //
-  // Loom rate falls back to 0 if the loom has no default_rate_per_m set.
+  // The rate FROZEN on each shift log (what that loom paid for the quality
+  // woven that day), falling back to the loom's current default only when
+  // the log has none. Using the loom's live rate repriced shifts woven on a
+  // different quality: Viji 25-31 Oct showed Rs 4,459 here vs Rs 4,553.21
+  // on Weaver Wages by Quality (L-56 saree paid at the old Congress rate,
+  // L-47 Congress at the new saree rate). Same rule as lib/wages/weekly-data.
   // ------------------------------------------------------------------
   const wagesEarnedByEmp = new Map<number, number>();
   if (metreEmps.length > 0) {
     const metreEmpIds = metreEmps.map((e) => e.id);
-    const parents = await fetchAll<{ id: number; loom_id: number }>((lo, hi) => supabase
+    const parents = await fetchAll<{ id: number; loom_id: number; rate_per_m: number | string | null }>((lo, hi) => supabase
       .from('production_shift_log')
-      .select('id, loom_id')
+      .select('id, loom_id, rate_per_m')
       .gte('log_date', weekStart)
       .lte('log_date', weekEnd)
       .order('id', { ascending: true })
@@ -346,6 +351,11 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       const parentIds = parentRows.map((p) => p.id);
       const loomByParent = new Map<number, number>();
       for (const p of parentRows) loomByParent.set(p.id, p.loom_id);
+      const rateByParent = new Map<number, number>();
+      for (const p of parentRows) {
+        const rr = Number(p.rate_per_m ?? 0);
+        if (rr > 0) rateByParent.set(p.id, rr);
+      }
       const loomIds = Array.from(new Set(parentRows.map((p) => p.loom_id)));
 
       const kidRes = await fetchAll<{
@@ -376,7 +386,7 @@ export default async function WeeklyWagesPage({ searchParams }: PageProps): Prom
       for (const k of kids) {
         const loomId = loomByParent.get(k.shift_log_id);
         if (loomId == null) continue;
-        const rate = rateByLoom.get(loomId) ?? 0;
+        const rate = rateByParent.get(k.shift_log_id) ?? rateByLoom.get(loomId) ?? 0;
         const m = Number(k.metres_woven ?? 0);
         if (m <= 0 || rate <= 0) continue;
         wagesEarnedByEmp.set(
