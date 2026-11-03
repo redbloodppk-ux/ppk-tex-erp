@@ -35,6 +35,7 @@ interface EmployeeRow {
   role: string;
   wage_alloc_basis: Basis | string | null;
   weekly_salary: number | string | null;
+  status?: string | null;
 }
 
 /** Editable per-employee figures. Auto-filled from attendance / wages
@@ -193,12 +194,14 @@ export default function BonusPage(): React.ReactElement {
     const sb = supabase as any;
 
     type AttRow = { employee_id: number; status: string; day_weight: number | string | null };
-    type WageRow = { employee_id: number; amount: number | string | null };
+    type WageRow = { employee_id: number; amount: number | string | null; loan_deduction: number | string | null };
 
     const [empRes, attAll, wageAll, cpRes] = await Promise.all([
       sb.from('employee')
-        .select('id, code, full_name, role, wage_alloc_basis, weekly_salary')
-        .eq('status', 'active')
+        // All employees, not only active ones: someone who worked in the
+        // period and has since left (ANAND, ACTING 1) is still owed a
+        // bonus for it. Filtered below to active OR worked/paid in range.
+        .select('id, code, full_name, role, wage_alloc_basis, weekly_salary, status')
         .order('full_name'),
       // Ordered by id so the pages line up and no row is read twice or
       // skipped between them.
@@ -209,7 +212,7 @@ export default function BonusPage(): React.ReactElement {
         .order('id', { ascending: true })
         .range(lo, hi)),
       fetchAllRows<WageRow>((lo, hi) => sb.from('wage_entry')
-        .select('id, employee_id, amount, pay_date')
+        .select('id, employee_id, amount, loan_deduction, pay_date')
         .gte('pay_date', from)
         .lte('pay_date', to)
         .order('id', { ascending: true })
@@ -223,7 +226,7 @@ export default function BonusPage(): React.ReactElement {
     if (attAll.error) { setError(attAll.error);         setLoading(false); return; }
     if (wageAll.error){ setError(wageAll.error);        setLoading(false); return; }
 
-    const emps = (empRes.data ?? []) as EmployeeRow[];
+    const allEmps = (empRes.data ?? []) as EmployeeRow[];
 
     const presentsByEmp = new Map<number, number>();
     for (const a of attAll.rows) {
@@ -235,9 +238,15 @@ export default function BonusPage(): React.ReactElement {
 
     const wagesByEmp = new Map<number, number>();
     for (const w of wageAll.rows) {
-      wagesByEmp.set(w.employee_id, (wagesByEmp.get(w.employee_id) ?? 0) + Number(w.amount ?? 0));
+      // Wages EARNED = cash paid + any loan instalment held back from it.
+      // Using cash only under-counted anyone repaying a loan (VIJI: Rs 5,500
+      // of loan deductions dropped out of her bonus base).
+      wagesByEmp.set(w.employee_id, (wagesByEmp.get(w.employee_id) ?? 0)
+        + Number(w.amount ?? 0) + Number(w.loan_deduction ?? 0));
     }
 
+    const emps = allEmps.filter((e) => e.status === 'active'
+      || (presentsByEmp.get(e.id) ?? 0) > 0 || (wagesByEmp.get(e.id) ?? 0) > 0);
     const next: Record<number, RowState> = {};
     for (const e of emps) {
       const presents = Math.round((presentsByEmp.get(e.id) ?? 0) * 100) / 100;
@@ -445,6 +454,9 @@ export default function BonusPage(): React.ReactElement {
                             <td className="px-3 py-2">
                               <span className="font-semibold">{e.full_name}</span>
                               <span className="ml-2 font-mono text-[10px] text-ink-mute">{e.code}</span>
+                              {e.status && e.status !== 'active' && (
+                                <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">{e.status}</span>
+                              )}
                             </td>
                             <td className="px-3 py-2 hidden md:table-cell text-xs text-ink-soft capitalize">{e.role}</td>
                             <td className="px-3 py-2 text-right">
