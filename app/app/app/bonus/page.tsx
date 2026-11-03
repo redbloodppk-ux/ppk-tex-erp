@@ -81,8 +81,8 @@ const SECTIONS: readonly SectionConfig[] = [
   {
     basis: 'weekly',
     title: '3. Weekly Employees',
-    amountLabel: '4-week salary (Rs)',
-    amountHint: 'Auto = weekly salary × 4 from the employee master',
+    amountLabel: 'Avg monthly wages (Rs)',
+    amountHint: 'Auto = (weekly salary ÷ 7 × present days) ÷ months in the From–To range',
   },
 ];
 
@@ -245,13 +245,26 @@ export default function BonusPage(): React.ReactElement {
         + Number(w.amount ?? 0) + Number(w.loan_deduction ?? 0));
     }
 
+    // Months in the From–To range (average month = 30.4375 days), for the
+    // weekly section's average monthly wage.
+    const rangeDays = Math.max(1, Math.round(
+      (new Date(to + 'T00:00:00').getTime() - new Date(from + 'T00:00:00').getTime()) / 86_400_000) + 1);
+    const rangeMonths = rangeDays / 30.4375;
+
     const emps = allEmps.filter((e) => e.status === 'active'
       || (presentsByEmp.get(e.id) ?? 0) > 0 || (wagesByEmp.get(e.id) ?? 0) > 0);
     const next: Record<number, RowState> = {};
     for (const e of emps) {
       const presents = Math.round((presentsByEmp.get(e.id) ?? 0) * 100) / 100;
+      // Winder / fitter (weekly basis): average MONTHLY wages for the days
+      // actually present — PPK, 03-Nov-2026. Daily rate = weekly salary ÷ 7
+      // (same rate the weekly wage deduction uses). No weekly salary on the
+      // master (e.g. piece-rate folder) -> wages paid in range ÷ months.
+      const weekly = Number(e.weekly_salary ?? 0);
       const amount = e.wage_alloc_basis === 'weekly'
-        ? Number(e.weekly_salary ?? 0) * 4
+        ? Math.round(((weekly > 0
+            ? (weekly / 7) * presents
+            : (wagesByEmp.get(e.id) ?? 0)) / rangeMonths) * 100) / 100
         : Math.round((wagesByEmp.get(e.id) ?? 0) * 100) / 100;
       next[e.id] = {
         presents: presents > 0 ? String(presents) : '0',
