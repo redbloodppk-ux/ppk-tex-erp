@@ -104,6 +104,13 @@ const REPORTS: ReportLink[] = [
     ready: true, group: 'production',
   },
   {
+    href: '/app/reports/employee-weekly-wages',
+    title: 'Employee Weekly Wages',
+    description:
+      'Week-by-week wages of each employee — earned, same-day, advance, settlement, loan held, cash given and extra work — with totals and average per week / month. Excel export.',
+    ready: true, group: 'production',
+  },
+  {
     href: '/app/reports/loom-efficiency',
     title: 'Loom Efficiency & Cost',
     description:

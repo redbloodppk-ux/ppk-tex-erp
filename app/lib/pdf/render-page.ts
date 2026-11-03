@@ -41,6 +41,7 @@ const ALLOWED_PATHS: RegExp[] = [
   /^\/app\/parties\/\d+\/statement\/print$/,
   /^\/app\/ledgers\/print$/,
   /^\/app\/reports\/agent-commission\/print$/,
+  /^\/app\/reports\/employee-weekly-wages\/print$/,
 ];
 
 /** True when `path` is one of our print pages. Query string is checked
