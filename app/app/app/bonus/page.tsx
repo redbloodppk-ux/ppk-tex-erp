@@ -347,12 +347,17 @@ export default function BonusPage(): React.ReactElement {
       if (pending.settings?.bonusValue) setBonusValue(pending.settings.bonusValue);
       setSaveTitle(pending.title);
       setOpenRunId(pending.id);
-    } else {
-      for (const e of emps) nextIncluded[e.id] = true;
     }
     setEmployees(emps);
     setRows(next);
-    setIncluded(nextIncluded);
+    // Refresh keeps the ticks already chosen; only a reopened saved bonus
+    // replaces them. New employees start ticked.
+    if (pending) setIncluded(nextIncluded);
+    else setIncluded((prev) => {
+      const n: Record<number, boolean> = {};
+      for (const e of emps) n[e.id] = prev[e.id] !== false;
+      return n;
+    });
     setOpenings(allOpenings);
     setOpeningInRange(openMap);
     setSavedRuns((runRes?.data ?? []) as BonusRun[]);
