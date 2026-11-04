@@ -365,7 +365,16 @@ export default async function InvoicePrintPage({
   }
   if (!inv) notFound();
 
-  const lines = (lineRes.data ?? []) as InvoiceLine[];
+  const allLines = (lineRes.data ?? []) as InvoiceLine[];
+  // Rental bills (RN/ series): the GST-exempt maintenance line is NOT
+  // printed — the tenant's bill shows the rent only (PPK, 2026-11-04:
+  // "avoid maintenance exempted in print and show actual rental only").
+  // The invoice itself is unchanged in the books; only the print hides it.
+  const isRental = String(inv.invoice_no ?? '').startsWith('RN/');
+  const lines = isRental ? allLines.filter((l) => num(l.gst_rate_pct) > 0) : allLines;
+  const hiddenLines = isRental ? allLines.filter((l) => num(l.gst_rate_pct) <= 0) : [];
+  const hiddenTaxable = hiddenLines.reduce((t, l) => t + num(l.taxable_amount), 0);
+  const hiddenTotal = hiddenLines.reduce((t, l) => t + num(l.total_amount), 0);
   const linkedDcs = (dcRes.data ?? []) as LinkedDc[];
 
   const style = DOC_STYLES[inv.doc_type] ?? DOC_STYLES.tax_invoice;
@@ -383,7 +392,14 @@ export default async function InvoicePrintPage({
   const partyAddress = inv.jobwork_party?.billing_address ?? inv.customer?.billing_address ?? '';
 
   const isInterstate = inv.is_interstate;
-  const grand = num(inv.total);
+  const printedTaxable = num(inv.taxable_value) - hiddenTaxable;
+  // Grand total of the PRINTED lines, rounded to the rupee like the bill.
+  const grand = hiddenLines.length > 0
+    ? Math.round(num(inv.total) - num(inv.round_off) - hiddenTotal)
+    : num(inv.total);
+  const printedRoundOff = hiddenLines.length > 0
+    ? Math.round((grand - (num(inv.total) - num(inv.round_off) - hiddenTotal)) * 100) / 100
+    : num(inv.round_off);
 
   // GST rate to print beside the CGST / SGST / IGST rows. When every line
   // shares one rate we show the exact split (e.g. 5% → CGST 2.5% / SGST 2.5%);
@@ -828,8 +844,8 @@ export default async function InvoicePrintPage({
           <tfoot>
             <tr>
               <td colSpan={4}>Totals</td>
-              <td className="num">{fmtMoney(inv.taxable_value)}</td>
-              <td className="num">{fmtMoney(inv.total)}</td>
+              <td className="num">{fmtMoney(printedTaxable)}</td>
+              <td className="num">{fmtMoney(hiddenLines.length > 0 ? grand : inv.total)}</td>
             </tr>
           </tfoot>
         </table>
@@ -852,7 +868,7 @@ export default async function InvoicePrintPage({
           <div className="totals-right">
             <table>
               <tbody>
-                <tr><td>Subtotal</td><td className="v">{fmtMoney(inv.taxable_value)}</td></tr>
+                <tr><td>Subtotal</td><td className="v">{fmtMoney(printedTaxable)}</td></tr>
                 {isInterstate ? (
                   <tr><td>IGST @ {fmtPct(igstPct)}%</td><td className="v">{fmtMoney(inv.igst_amount)}</td></tr>
                 ) : (
@@ -868,8 +884,8 @@ export default async function InvoicePrintPage({
                 {num(inv.extra_charge) !== 0 && (
                   <tr><td>Other charges</td><td className="v">{fmtMoney(inv.extra_charge)}</td></tr>
                 )}
-                {num(inv.round_off) !== 0 && (
-                  <tr><td>Round off</td><td className="v">{fmtMoney(inv.round_off)}</td></tr>
+                {printedRoundOff !== 0 && (
+                  <tr><td>Round off</td><td className="v">{fmtMoney(printedRoundOff)}</td></tr>
                 )}
                 <tr className="grand">
                   <td>{style.totalLabel}</td>
