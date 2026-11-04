@@ -677,6 +677,25 @@ function buildDocIssue(invoices: Gstr1Invoice[], notes: Gstr1Invoice[]): DocDet[
 /* ────────────────────────────── assemble ─────────────────────────────── */
 
 /**
+ * Rental bills (RN/ series) are filed with the RENT only. The GST-exempt
+ * maintenance line on them is left out of the return — its value is taken
+ * off the invoice value too (PPK, 2026-11-04: "for gst filing 9440 is
+ * correct avoid showing maintainance"). Same rule as the invoice print.
+ */
+function lineValue(l: Gstr1Line): number {
+  return num(l.taxable_amount) + num(l.cgst_amount) + num(l.sgst_amount) + num(l.igst_amount);
+}
+
+function withoutRentalExempt(inv: Gstr1Invoice): Gstr1Invoice {
+  if (!String(inv.invoice_no ?? '').startsWith('RN/')) return inv;
+  const kept = inv.lines.filter((l) => num(l.gst_rate_pct) > 0);
+  if (kept.length === inv.lines.length || kept.length === 0) return inv;
+  const dropped = inv.lines.filter((l) => num(l.gst_rate_pct) <= 0);
+  const droppedValue = dropped.reduce((t, l) => t + lineValue(l), 0);
+  return { ...inv, lines: kept, total: Math.round(num(inv.total) - droppedValue) };
+}
+
+/**
  * Build the full GSTR-1 return object for one tax period.
  *
  * @param company  supplier GSTIN + home state code
@@ -688,6 +707,7 @@ export function buildGstr1(
   rows: Gstr1Invoice[],
   fp: string,
 ): Gstr1Return {
+  rows = rows.map(withoutRentalExempt);
   const invoices = rows.filter((r) => INVOICE_DOC_TYPES.has(r.doc_type) && !isGstFreeJobwork(r));
   const notes = rows.filter((r) => r.doc_type === 'credit_note');
 
