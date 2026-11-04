@@ -380,8 +380,15 @@ export default function BonusPage(): React.ReactElement {
       // Bonus reads attendance for presents and wage entries for amounts,
       // so the window is the union of both — a wage entry could predate
       // the first marked shift.
-      const b = await recordDateBounds(supabase, SOURCES.wages);
-      if (cancelled || !b) return; // empty books: leave the pickers open
+      const b0 = await recordDateBounds(supabase, SOURCES.wages);
+      if (cancelled || !b0) return; // empty books: leave the pickers open
+      // Wages before the app reach back before the books: let From go there.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: ow } = await (supabase as any).from('employee_opening_wages')
+        .select('period_from').order('period_from', { ascending: true }).limit(1);
+      const owMin = (ow?.[0]?.period_from as string | undefined) ?? null;
+      const b: RecordBounds = owMin && owMin < b0.min ? { ...b0, min: owMin } : b0;
+      if (cancelled) return;
       setBounds(b);
       setFrom((f) => clampDate(f, b));
       setTo((t) => clampDate(t, b));
