@@ -494,9 +494,13 @@ export default function BonusPage(): React.ReactElement {
 
   async function addOpening(): Promise<void> {
     setMsg(null);
-    const amt = Number(owAmount);
-    if (!owEmp || !owFrom || !owTo || !Number.isFinite(amt) || amt <= 0) {
-      setMsg('Wages before the app: choose the employee, both dates and the amount.');
+    // Wages OR presents (or both): loom-shift staff are paid bonus per
+    // present, so presents alone is a valid entry (SURESH A: 153 days).
+    const amt = owAmount === '' ? 0 : Number(owAmount);
+    const pres = owPresents === '' ? 0 : Number(owPresents);
+    if (!owEmp || !owFrom || !owTo || !Number.isFinite(amt) || amt < 0 || !Number.isFinite(pres) || pres < 0
+        || (amt <= 0 && pres <= 0)) {
+      setMsg('Wages before the app: choose the employee and both dates, and enter the wages or the presents (or both).');
       return;
     }
     if (owTo < owFrom) { setMsg('Wages before the app: To date is before From date.'); return; }
@@ -504,7 +508,7 @@ export default function BonusPage(): React.ReactElement {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: e } = await (supabase as any).from('employee_opening_wages').insert({
       employee_id: Number(owEmp), period_from: owFrom, period_to: owTo, amount: amt,
-      presents: owPresents === '' ? null : Number(owPresents), notes: owNotes || null,
+      presents: owPresents === '' ? null : pres, notes: owNotes || null,
     });
     setOwBusy(false);
     if (e) { setMsg(`Could not save: ${e.message}`); return; }
