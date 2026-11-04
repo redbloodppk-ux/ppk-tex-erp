@@ -398,12 +398,15 @@ export async function fetchLedgerView(
 
   // Funding side: this cash/bank ledger PAID these wages/expenses, so each
   // shows as a Credit (outflow) — money leaving the account. (migration 218)
-  // For wages, the cash that actually leaves is (amount − loan_deduction):
-  // any loan repayment is withheld from the wage, so it never leaves this
-  // account. (migration 219)
+  // The FULL wage amount leaves the drawer. A loan instalment is handed
+  // back by the worker but does not go into the cash drawer (PPK,
+  // 2026-11-04: drawer Rs 76,700 = full-amount cash book, not the Rs 90,226
+  // it read when instalments were netted off). Same rule as
+  // fn_cash_movements (migration 333), so the Ledger View and the
+  // dashboard Cash in Hand agree.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const w of ((wagesSrcRes.data ?? []) as any[])) {
-    const cashPaid = Number(w.amount ?? 0) - Number(w.loan_deduction ?? 0);
+    const cashPaid = Number(w.amount ?? 0);
     if (cashPaid <= 0) continue;
     all.push({
       key:          `wage-src-${w.id}`,
