@@ -34,7 +34,9 @@ export interface MonthOption {
   dueDate: string;
   interestMonths: number;
   financialYear: string;
+  /** e.g. "Tax year 2026-27" (new Act) or "Assessment year 2026-27". */
   assessmentYear: string;
+  section: string;
 }
 
 /** Pre-login e-Pay Tax on the Income Tax portal. */
@@ -205,7 +207,7 @@ export function TdsChallanForm({
             <dd className="num font-semibold">{tan ?? 'Not set'}</dd>
           </div>
           <div>
-            <dt className="text-ink-mute">Assessment year</dt>
+            <dt className="text-ink-mute">Year</dt>
             <dd className="num font-semibold">
               {picked.length === 0 ? '—' : years.join(' + ')}
             </dd>
@@ -225,13 +227,13 @@ export function TdsChallanForm({
             <dd>200 &mdash; TDS payable by taxpayer</dd>
           </div>
           <div>
-            <dt className="text-ink-mute">Nature of payment</dt>
-            <dd>94C &mdash; contractors</dd>
+            <dt className="text-ink-mute">Section / nature of payment</dt>
+            <dd>{picked.length === 0 ? '—' : Array.from(new Set(picked.map((m) => m.section))).join(' + ')}</dd>
           </div>
         </dl>
         {mixedYears && (
           <p className="mt-2 text-xs font-semibold text-amber-800">
-            These months fall in different assessment years. The portal takes one
+            These months fall in different tax years. The portal takes one
             year per challan, so pay them as separate challans.
           </p>
         )}

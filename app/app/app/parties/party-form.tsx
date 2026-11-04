@@ -85,8 +85,8 @@ function panFromGstin(gstin: string): string {
  *  Section shown because the rate alone does not say why. */
 const TDS_RATE_OPTIONS: { value: string; label: string }[] = [
   { value: '',   label: 'No TDS' },
-  { value: '1',  label: '1% — 194C, individual / HUF contractor' },
-  { value: '2',  label: '2% — 194C, company / firm contractor' },
+  { value: '1',  label: '1% — contractor, individual / HUF (393(1), old 194C)' },
+  { value: '2',  label: '2% — contractor, company / firm (393(1), old 194C)' },
   { value: '5',  label: '5% — 194H, commission or brokerage' },
   { value: '10', label: '10% — 194J, professional or technical' },
   { value: '20', label: '20% — 206AA, no PAN on record' },

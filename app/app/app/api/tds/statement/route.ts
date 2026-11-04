@@ -18,7 +18,7 @@ import { NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
 import { createClient } from '@/lib/supabase/server';
 import { loadTdsMonths, todayISO } from '@/lib/tds/liability-data';
-import { financialYearOf, assessmentYearOf, type TdsMonth } from '@/lib/tds/liability';
+import { financialYearOf, portalYearOf, type TdsMonth } from '@/lib/tds/liability';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 
 export const runtime = 'nodejs';
@@ -115,7 +115,7 @@ function buildPdf(
         .text('TDS Statement', left, doc.page.margins.top);
       doc.font('Helvetica').fontSize(10).fillColor('#475569')
         .text(`${company.name}  ·  TAN ${company.tan ?? 'not set'}  ·  Financial year ${fy}`
-          + `  ·  Assessment year ${months[0] ? assessmentYearOf(months[0].month) : '-'}`);
+          + (months[0] ? `  ·  ${portalYearOf(months[0].month).label} ${portalYearOf(months[0].month).value}` : ''));
       doc.fontSize(8).fillColor('#64748b')
         .text('Tax withheld on supplier bills, month by month, with the challan that paid it.');
       let y = doc.y + 12;

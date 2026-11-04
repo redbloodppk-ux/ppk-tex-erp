@@ -183,6 +183,29 @@ export function assessmentYearOf(month: string): string {
   return `${fyStart + 1}-${String((fyStart + 2) % 100).padStart(2, '0')}`;
 }
 
+/**
+ * The year the e-Pay portal asks for on a TDS challan.
+ *
+ * From 1 April 2026 the Income-tax Act 2025 applies: the portal asks for the
+ * TAX YEAR, which is the financial year itself (deductions in Oct 2026 ->
+ * "Tax Year 2026-27", as on PPK's challan 05155 of 04-Nov-2026). Deductions
+ * before April 2026 still belong to the old Act and its ASSESSMENT YEAR.
+ */
+export function portalYearOf(month: string): { label: 'Tax year' | 'Assessment year'; value: string } {
+  return month >= '2026-04'
+    ? { label: 'Tax year', value: financialYearOf(month) }
+    : { label: 'Assessment year', value: assessmentYearOf(month) };
+}
+
+/** Section / nature of payment the portal asks for, by the month deducted.
+ *  Contractor work by a firm/company (sizing mills): new Act 393(1),
+ *  Table Sl. No. 6(i).D(b), code 1024; old Act 194C (nature 94C). */
+export function contractorSectionOf(month: string): string {
+  return month >= '2026-04'
+    ? '393(1) [Table Sl. No. 6(i).D(b)] — code 1024 — contractor, firm / company'
+    : '94C — contractors (old section 194C)';
+}
+
 export function labelFor(month: string): string {
   const [y, m] = month.split('-').map(Number);
   return `${MONTHS[(m ?? 1) - 1] ?? month} ${y ?? ''}`;

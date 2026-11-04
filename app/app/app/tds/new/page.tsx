@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
 import { loadTdsMonths, todayISO } from '@/lib/tds/liability-data';
-import { assessmentYearOf, financialYearOf } from '@/lib/tds/liability';
+import { financialYearOf, portalYearOf, contractorSectionOf } from '@/lib/tds/liability';
 import { fetchPaymentSources, type SupabaseLike } from '@/lib/ledgers/payment-sources';
 import { TdsChallanForm, type MonthOption, type LedgerOption } from './tds-challan-form';
 
@@ -30,7 +30,8 @@ export default async function NewTdsChallanPage({ searchParams }: PageProps): Pr
       // The portal asks for these; getting the year wrong parks the money
       // against the wrong one and is tedious to unpick.
       financialYear: financialYearOf(m.month),
-      assessmentYear: assessmentYearOf(m.month),
+      assessmentYear: `${portalYearOf(m.month).label} ${portalYearOf(m.month).value}`,
+      section: contractorSectionOf(m.month),
     }));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
