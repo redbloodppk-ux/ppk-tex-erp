@@ -5,14 +5,16 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Trash2 } from 'lucide-react';
-import { deleteEmployeeLoan } from './actions';
+import { deleteEmployeeLoan, deleteLoanRepayment } from './actions';
 
 interface DeleteLoanButtonProps {
   id: number;
   label?: string;
+  /** 'repayment' deletes a direct loan repayment instead of a loan. */
+  kind?: 'loan' | 'repayment';
 }
 
-export function DeleteLoanButton({ id, label }: DeleteLoanButtonProps): React.ReactElement {
+export function DeleteLoanButton({ id, label, kind = 'loan' }: DeleteLoanButtonProps): React.ReactElement {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
@@ -20,11 +22,11 @@ export function DeleteLoanButton({ id, label }: DeleteLoanButtonProps): React.Re
   function handleClick(): void {
     setErr(null);
     const ok = window.confirm(
-      `Delete this loan${label ? ` (${label})` : ''}? This cannot be undone.`,
+      `Delete this ${kind === 'repayment' ? 'repayment' : 'loan'}${label ? ` (${label})` : ''}? This cannot be undone.`,
     );
     if (!ok) return;
     startTransition(async () => {
-      const res = await deleteEmployeeLoan(id);
+      const res = kind === 'repayment' ? await deleteLoanRepayment(id) : await deleteEmployeeLoan(id);
       if (!res.ok) {
         setErr(res.error);
         return;

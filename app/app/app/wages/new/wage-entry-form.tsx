@@ -246,12 +246,19 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
         .from('wage_entry')
         .select('id, loan_deduction')
         .eq('employee_id', Number(employeeId));
+      // Direct repayments made outside wages (migration 336).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: direct } = await (supabase as any)
+        .from('employee_loan_repayment')
+        .select('amount')
+        .eq('employee_id', Number(employeeId));
       if (cancelled) return;
       const disbursed = ((loans ?? []) as Array<{ amount: number }>)
         .reduce((acc, r) => acc + Number(r.amount || 0), 0);
       const repaid = ((deds ?? []) as Array<{ id: number; loan_deduction: number | null }>)
         .filter((r) => !(isEdit && initial && r.id === initial.id))
-        .reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
+        .reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0)
+        + ((direct ?? []) as Array<{ amount: number }>).reduce((acc, r) => acc + Number(r.amount || 0), 0);
       setOutstandingLoan(disbursed - repaid);
     }
     void loadOutstanding();

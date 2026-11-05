@@ -20,3 +20,13 @@ export async function deleteEmployeeLoan(id: number): Promise<{ ok: true } | { o
   revalidatePath('/app/loans');
   return { ok: true };
 }
+
+/** Delete a direct loan repayment (migration 336). */
+export async function deleteLoanRepayment(id: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from('employee_loan_repayment').delete().eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath('/app/loans');
+  return { ok: true };
+}

@@ -224,9 +224,9 @@ export function LoanForm({ employees, initial }: LoanFormProps): React.ReactElem
       </div>
 
       <p className="text-[11px] text-ink-mute">
-        Repayments are not entered here. On the New Wage Entry form, use the
-        <strong> Loan repayment</strong> field to deduct from a wage — that reduces
-        this worker&apos;s outstanding loan.
+        Repayments are not entered here. Keep an instalment back on the Wage Entry
+        form (<strong>Loan repayment</strong> field), or, if the worker pays back in
+        cash, use <strong>Receive Repayment</strong> on the Loans page.
       </p>
 
       {error && <p className="text-sm text-err">{error}</p>}

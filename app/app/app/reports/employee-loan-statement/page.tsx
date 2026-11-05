@@ -149,6 +149,18 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
     .gt('loan_deduction', 0)
     .order('pay_date', { ascending: true });
 
+  // Direct repayments (migration 336) — the worker paid the loan back in
+  // cash / bank, outside the wages.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const directRes = await (supabase as any)
+    .from('employee_loan_repayment')
+    .select('id, repay_date, amount, notes, employee_id, employee:employee_id ( code, full_name )')
+    .order('repay_date', { ascending: true });
+  const directRows = ((directRes.data ?? []) as Array<{
+    id: number; repay_date: string; amount: number | null; notes: string | null;
+    employee_id: number; employee: { code: string | null; full_name: string | null } | null;
+  }>);
+
   const error = loansRes.error ?? dedRes.error;
   const loans = (loansRes.data as unknown as LoanRow[]) ?? [];
   const deductions = (dedRes.data as unknown as DeductionRow[]) ?? [];
@@ -166,8 +178,15 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
       kind: 'repay' as const,
       date: d.pay_date,
       amount: Number(d.loan_deduction ?? 0),
-      notes: null,
+      notes: 'Withheld from wages' as string | null,
       employee_id: d.employee_id,
+    })),
+    ...directRows.map((r) => ({
+      kind: 'repay' as const,
+      date: r.repay_date,
+      amount: Number(r.amount ?? 0),
+      notes: `Paid back directly${r.notes ? ` — ${r.notes}` : ''}` as string | null,
+      employee_id: r.employee_id,
     })),
   ];
 
@@ -175,6 +194,9 @@ export default async function EmployeeLoanStatement({ searchParams }: PageProps)
   const nameById = new Map<number, { code: string | null; full_name: string | null }>();
   for (const l of loans) {
     if (l.employee && !nameById.has(l.employee_id)) nameById.set(l.employee_id, l.employee);
+  }
+  for (const r of directRows) {
+    if (r.employee && !nameById.has(r.employee_id)) nameById.set(r.employee_id, r.employee);
   }
   for (const d of deductions) {
     if (d.employee && !nameById.has(d.employee_id)) nameById.set(d.employee_id, d.employee);

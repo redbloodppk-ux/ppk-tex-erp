@@ -7,11 +7,16 @@
  * outstanding for an employee = SUM(employee_loan.amount) -
  * SUM(wage_entry.loan_deduction). Owner/accounts write; mill_manager/auditor
  * read.
+ *
+ * Migration 336 adds DIRECT repayments (employee_loan_repayment): the worker
+ * pays back in cash / bank outside the wages. Outstanding now also
+ * subtracts those, and they are listed with the wage deductions.
  */
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/app/components/page-header';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, Pencil, HandCoins } from 'lucide-react';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 import { formatRupee, formatDay } from '@/lib/utils';
 import { DeleteLoanButton } from './delete-loan-button';
 import { CardFilter } from '@/app/components/card-filter';
@@ -77,12 +82,33 @@ export default async function LoansPage({
   const loanAgg = (allLoans ?? []) as Array<{ employee_id: number; amount: number; loan_date: string }>;
   const totalDisbursedAll = loanAgg.reduce((acc, r) => acc + Number(r.amount || 0), 0);
 
+  // Only rows that actually withheld a loan instalment, paged (wage_entry
+  // is a large table — an un-ranged read stops at 1000 rows silently).
+  const dedRes = await fetchAll<{ id: number; employee_id: number; loan_deduction: number | null; pay_date: string }>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (lo, hi) => (supabase as any).from('wage_entry')
+      .select('id, employee_id, loan_deduction, pay_date')
+      .gt('loan_deduction', 0)
+      .order('id', { ascending: true })
+      .range(lo, hi));
+  const dedAgg = dedRes.rows;
+
+  // Direct repayments — paid back in cash / bank outside wages (migration 336).
+  interface DirectRow {
+    id: number; employee_id: number; repay_date: string; amount: number; notes: string | null;
+    employee: { code: string; full_name: string } | null;
+    dest: { name: string } | null;
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: allDeductions } = await (supabase as any)
-    .from('wage_entry')
-    .select('id, employee_id, loan_deduction, pay_date');
-  const dedAgg = (allDeductions ?? []) as Array<{ id: number; employee_id: number; loan_deduction: number | null; pay_date: string }>;
-  const totalRepaidAll = dedAgg.reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0);
+  const { data: directData } = await (supabase as any)
+    .from('employee_loan_repayment')
+    .select('id, employee_id, repay_date, amount, notes, employee:employee_id ( code, full_name ), dest:dest_ledger_id ( name )')
+    .order('repay_date', { ascending: true })
+    .limit(5000);
+  const directAgg = ((directData ?? []) as unknown as DirectRow[]);
+
+  const totalRepaidAll = dedAgg.reduce((acc, r) => acc + Number(r.loan_deduction || 0), 0)
+    + directAgg.reduce((acc, r) => acc + Number(r.amount || 0), 0);
 
   const totalOutstanding = totalDisbursedAll - totalRepaidAll;
   const shownTotal = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -103,6 +129,11 @@ export default async function LoansPage({
     if (!s) continue; // repayment without a loan row — ignore in this table
     s.repaid += ded;
   }
+  for (const r of directAgg) {
+    const s = perEmp.get(r.employee_id);
+    if (!s) continue;
+    s.repaid += Number(r.amount || 0);
+  }
   const empSummary = Array.from(perEmp.entries())
     .filter(([id]) => empId == null || id === empId)
     .map(([id, s]) => ({
@@ -122,22 +153,23 @@ export default async function LoansPage({
     ? empSummary.reduce((acc, s) => acc + s.outstanding, 0)
     : null;
 
-  // Running "outstanding after this repayment" per wage entry, shown as a
-  // column in the Repayments table. Walk all deductions oldest-first:
-  // outstanding after a repayment = loans disbursed up to that date
-  // − repayments made up to and including that entry.
-  const outstandingAfterByWageId = new Map<number, number>();
+  // Running "outstanding after this repayment", for wage deductions AND
+  // direct repayments together, oldest first: loans disbursed up to that
+  // date − every repayment up to and including this one.
+  const outstandingAfter = new Map<string, number>(); // key: 'w-<id>' | 'd-<id>'
   const cumRepaidByEmp = new Map<number, number>();
-  const dedSorted = dedAgg
-    .filter((r) => Number(r.loan_deduction || 0) > 0)
-    .sort((a, b) => (a.pay_date < b.pay_date ? -1 : a.pay_date > b.pay_date ? 1 : a.id - b.id));
-  for (const r of dedSorted) {
-    const repaidSoFar = (cumRepaidByEmp.get(r.employee_id) ?? 0) + Number(r.loan_deduction || 0);
-    cumRepaidByEmp.set(r.employee_id, repaidSoFar);
+  const repayEvents = [
+    ...dedAgg.filter((r) => Number(r.loan_deduction || 0) > 0)
+      .map((r) => ({ key: `w-${r.id}`, emp: r.employee_id, date: r.pay_date, amt: Number(r.loan_deduction || 0), id: r.id })),
+    ...directAgg.map((r) => ({ key: `d-${r.id}`, emp: r.employee_id, date: r.repay_date, amt: Number(r.amount || 0), id: r.id })),
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
+  for (const r of repayEvents) {
+    const repaidSoFar = (cumRepaidByEmp.get(r.emp) ?? 0) + r.amt;
+    cumRepaidByEmp.set(r.emp, repaidSoFar);
     const disbursedUpTo = loanAgg
-      .filter((l) => l.employee_id === r.employee_id && l.loan_date <= r.pay_date)
+      .filter((l) => l.employee_id === r.emp && l.loan_date <= r.date)
       .reduce((acc, l) => acc + Number(l.amount || 0), 0);
-    outstandingAfterByWageId.set(r.id, disbursedUpTo - repaidSoFar);
+    outstandingAfter.set(r.key, disbursedUpTo - repaidSoFar);
   }
 
   // Repayment history — wage entries that withheld a loan deduction.
@@ -156,17 +188,33 @@ export default async function LoansPage({
     .limit(200);
   if (empId != null) repayQuery = repayQuery.eq('employee_id', empId);
   const { data: repayData } = await repayQuery;
-  const repayments = ((repayData ?? []) as unknown as RepaymentRow[]);
+  const wageRepayments = ((repayData ?? []) as unknown as RepaymentRow[]);
+  // One list: wage deductions + direct repayments, newest first.
+  const repayments = [
+    ...wageRepayments.map((r) => ({
+      key: `w-${r.id}`, id: r.id, kind: 'wage' as const, date: r.pay_date, amount: Number(r.loan_deduction),
+      employee: r.employee, how: 'Withheld from wages', notes: null as string | null,
+    })),
+    ...directAgg.filter((r) => empId == null || r.employee_id === empId).map((r) => ({
+      key: `d-${r.id}`, id: r.id, kind: 'direct' as const, date: r.repay_date, amount: Number(r.amount),
+      employee: r.employee, how: `Paid directly${r.dest?.name ? ` · into ${r.dest.name}` : ''}`, notes: r.notes,
+    })),
+  ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)).slice(0, 300);
 
   return (
     <div>
       <PageHeader
         title="Loans"
-        subtitle="Cash advances given to workers. Each row is one disbursement and records a Credit (outflow) on the Cash/Bank account it came from. Repayments happen on the New Wage Entry form via the Loan repayment field."
+        subtitle="Cash advances given to workers. Each row is one disbursement and records a Credit (outflow) on the Cash/Bank account it came from. Repayments: kept back from wages on the Wage Entry form, or paid back directly with Receive Repayment."
         actions={
-          <Link href="/app/loans/new" className="btn-primary">
-            <Plus className="w-4 h-4" /> Issue Loan
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/app/loans/new" className="btn-primary">
+              <Plus className="w-4 h-4" /> Issue Loan
+            </Link>
+            <Link href={`/app/loans/repay${empId != null ? `?emp=${empId}` : ''}`} className="btn-secondary">
+              <HandCoins className="w-4 h-4" /> Receive Repayment
+            </Link>
+          </div>
         }
       />
 
@@ -352,41 +400,51 @@ export default async function LoansPage({
 
       {/* Repayment history — loan deductions withheld on wage entries. */}
       <div className="card overflow-x-auto mt-4">
-        <div className="px-4 pt-3 pb-1 text-sm font-semibold text-ink">Repayments (withheld on wages)</div>
+        <div className="px-4 pt-3 pb-1 text-sm font-semibold text-ink">Repayments (withheld on wages or paid directly)</div>
         <table className="w-full text-sm min-w-[480px]">
           <thead className="bg-cloud/60 text-[11px] uppercase tracking-wide text-ink-soft">
             <tr>
               <th className="text-left px-4 py-2">Date</th>
               <th className="text-left px-4 py-2">Employee</th>
+              <th className="text-left px-4 py-2">How</th>
               <th className="text-right px-4 py-2">Repaid</th>
               <th className="text-right px-4 py-2">Outstanding after</th>
-              <th className="text-right px-4 py-2">Wage entry</th>
+              <th className="text-right px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
             {repayments.length ? repayments.map((r) => (
-              <tr key={r.id} className="border-t border-line/40 hover:bg-haze/60">
-                <td className="px-4 py-2 num text-xs">{formatDay(r.pay_date)}</td>
+              <tr key={r.key} className="border-t border-line/40 hover:bg-haze/60">
+                <td className="px-4 py-2 num text-xs">{formatDay(r.date)}</td>
                 <td className="px-4 py-2">
                   <div className="font-medium">{r.employee?.full_name ?? '—'}</div>
                   <div className="text-[11px] text-ink-mute font-mono">{r.employee?.code ?? ''}</div>
                 </td>
-                <td className="px-4 py-2 text-right num font-semibold text-emerald-700">
-                  {formatRupee(Number(r.loan_deduction))}
+                <td className="px-4 py-2 text-xs text-ink-soft">
+                  {r.how}
+                  {r.notes && <div className="text-[11px] text-ink-mute">{r.notes}</div>}
                 </td>
-                <td className={`px-4 py-2 text-right num font-semibold ${(outstandingAfterByWageId.get(r.id) ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                  {formatRupee(outstandingAfterByWageId.get(r.id) ?? 0)}
+                <td className="px-4 py-2 text-right num font-semibold text-emerald-700">
+                  {formatRupee(r.amount)}
+                </td>
+                <td className={`px-4 py-2 text-right num font-semibold ${(outstandingAfter.get(r.key) ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  {formatRupee(outstandingAfter.get(r.key) ?? 0)}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Link href={`/app/wages/${r.id}`} className="text-xs text-indigo font-semibold">
-                    View →
-                  </Link>
+                  {r.kind === 'wage' ? (
+                    <Link href={`/app/wages/${r.id}`} className="text-xs text-indigo font-semibold">
+                      View →
+                    </Link>
+                  ) : (
+                    <DeleteLoanButton id={r.id} kind="repayment"
+                      label={`${r.employee?.full_name ?? ''} ${formatRupee(r.amount)}`.trim()} />
+                  )}
                 </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-ink-soft">
-                  No repayments yet. Repayments are recorded on the New Wage Entry form via the Loan repayment field.
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-ink-soft">
+                  No repayments yet. Keep an instalment back on the Wage Entry form, or use Receive Repayment.
                 </td>
               </tr>
             )}

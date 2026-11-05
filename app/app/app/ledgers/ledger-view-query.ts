@@ -186,6 +186,14 @@ export async function fetchLedgerView(
   if (startDate) loanSrcQ = loanSrcQ.gte('loan_date', startDate);
   if (endDate)   loanSrcQ = loanSrcQ.lte('loan_date', endDate);
 
+  // Loans paid back DIRECTLY into this cash/bank ledger (migration 336) —
+  // money coming IN, so a Debit (inflow).
+  let loanRepayQ = sb.from('employee_loan_repayment')
+    .select('id, repay_date, amount, notes, employee:employee_id ( full_name )')
+    .eq('dest_ledger_id', numericId);
+  if (startDate) loanRepayQ = loanRepayQ.gte('repay_date', startDate);
+  if (endDate)   loanRepayQ = loanRepayQ.lte('repay_date', endDate);
+
   let expensesSrcQ = sb.from('expense_entry')
     .select('id, pay_date, amount, category, notes')
     .eq('source_ledger_id', numericId);
@@ -303,7 +311,7 @@ export async function fetchLedgerView(
     .eq('id', numericId)
     .maybeSingle();
 
-  const [wagesRes, expensesRes, wagesSrcRes, expensesSrcRes, loanSrcRes, bankRes, openingLedgerRes] = await Promise.all([wagesQ, expensesQ, wagesSrcQ, expensesSrcQ, loanSrcQ, bankQ, openingLedgerQ]);
+  const [wagesRes, expensesRes, wagesSrcRes, expensesSrcRes, loanSrcRes, bankRes, openingLedgerRes, loanRepayRes] = await Promise.all([wagesQ, expensesQ, wagesSrcQ, expensesSrcQ, loanSrcQ, bankQ, openingLedgerQ, loanRepayQ]);
   if (wagesRes.error)    throw new Error(wagesRes.error.message);
   if (expensesRes.error) throw new Error(expensesRes.error.message);
   if (wagesSrcRes.error)    throw new Error(wagesSrcRes.error.message);
@@ -444,6 +452,20 @@ export async function fetchLedgerView(
       reference:    l.notes ?? null,
       inflow:       0,
       outflow:      Number(l.amount ?? 0),
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const l of ((loanRepayRes?.data ?? []) as any[])) {
+    all.push({
+      key:          `loan-repay-${l.id}`,
+      source:       'loan',
+      date:         l.repay_date,
+      voucher:      `LRP/${l.id}`,
+      counterparty: l.employee?.full_name ?? 'Employee loan',
+      mode:         'Loan repaid',
+      reference:    l.notes ?? null,
+      inflow:       Number(l.amount ?? 0),
+      outflow:      0,
     });
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
