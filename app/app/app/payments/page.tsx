@@ -91,7 +91,7 @@ interface UnpaidBill {
    *    agent   -> payment_agent_allocation (agent_commission_id)
    *    warp_beam -> payment_warp_beam_allocation (warp_beam_purchase_id)
    */
-  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'agent' | 'warp_beam';
+  kind: 'invoice' | 'opening' | 'sizing' | 'bobbin' | 'yarn' | 'fabric' | 'agent' | 'warp_beam' | 'general';
   id: number;
   invoice_no: string;
   invoice_date: string;
@@ -118,6 +118,7 @@ interface LedgerTxn {
     | 'sale_invoice' | 'jobwork_bill'
     | 'credit_note'  | 'debit_note'
     | 'sizing_bill'  | 'bobbin_purchase' | 'yarn_purchase' | 'fabric_purchase' | 'warp_beam_purchase'
+    | 'general_purchase'
     | 'opening_receivable' | 'opening_payable'
     | 'payment_in' | 'payment_out';
   date: string;
@@ -161,6 +162,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
   warp_beam_purchase: 'Warp Beam Purchase',
+  general_purchase:   'General Purchase',
   // Opening ledger entries (settings → Opening Ledger) — discriminated
   // by direction so the operator can see at a glance which way the
   // pre-ERP balance was sitting.
@@ -546,6 +548,7 @@ function NewPaymentTab(): React.ReactElement {
     const fabricAllocs:   { fabric_purchase_id: number; amount: number }[] = [];
     const agentAllocs:    { agent_commission_id: number; amount: number }[] = [];
     const warpBeamAllocs: { warp_beam_purchase_id: number; amount: number }[] = [];
+    const generalAllocs:  { general_purchase_id: number; amount: number }[] = [];
     // streamBills, not bills: a ticked row can never belong to another
     // of this party's accounts, even if the stream was switched mid-entry.
     for (const b of streamBills) {
@@ -572,12 +575,14 @@ function NewPaymentTab(): React.ReactElement {
         case 'fabric':  fabricAllocs .push({ fabric_purchase_id: b.id, amount: rounded }); break;
         case 'agent':   agentAllocs  .push({ agent_commission_id: b.id, amount: rounded }); break;
         case 'warp_beam': warpBeamAllocs.push({ warp_beam_purchase_id: b.id, amount: rounded }); break;
+        case 'general': generalAllocs.push({ general_purchase_id: b.id, amount: rounded }); break;
         default:        allocations  .push({ invoice_id:         b.id, amount: rounded });
       }
     }
     const totalAllocCount = allocations.length + openingAllocs.length
                           + sizingAllocs.length + bobbinAllocs.length + yarnAllocs.length
-                          + fabricAllocs.length + agentAllocs.length + warpBeamAllocs.length;
+                          + fabricAllocs.length + agentAllocs.length + warpBeamAllocs.length
+                          + generalAllocs.length;
     // Supplier-type parties (and customers): no save without either a
     // bill adjustment or an explicit "advance payment" confirmation.
     if (billAdjustRequired && totalAllocCount === 0 && !advanceOk && amt > 0.005) {
@@ -594,7 +599,8 @@ function NewPaymentTab(): React.ReactElement {
                     + yarnAllocs.reduce((s, a) => s + a.amount, 0)
                     + fabricAllocs.reduce((s, a) => s + a.amount, 0)
                     + agentAllocs.reduce((s, a) => s + a.amount, 0)
-                    + warpBeamAllocs.reduce((s, a) => s + a.amount, 0);
+                    + warpBeamAllocs.reduce((s, a) => s + a.amount, 0)
+                    + generalAllocs.reduce((s, a) => s + a.amount, 0);
     if (allocSum > amt + 0.005) {
       setError(`Adjusted total ₹${fmtINR(allocSum)} is more than the payment amount ₹${fmtINR(amt)}. Reduce the bill adjustments or raise the amount.`);
       return;
@@ -749,6 +755,19 @@ function NewPaymentTab(): React.ReactElement {
       if (wbErr) {
         setBusy(false);
         setError(`Payment ${data?.payment_no ?? ''} saved, but the warp-beam adjustment failed: ${wbErr.message}`);
+        await loadBills();
+        return;
+      }
+    }
+    // General purchases marked as payable (migration 335).
+    if (generalAllocs.length > 0 && data?.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: gErr } = await (supabase as any)
+        .from('payment_general_purchase_allocation')
+        .insert(generalAllocs.map((a) => ({ ...a, payment_id: data.id })));
+      if (gErr) {
+        setBusy(false);
+        setError(`Payment ${data?.payment_no ?? ''} saved, but the general-purchase adjustment failed: ${gErr.message}`);
         await loadBills();
         return;
       }
@@ -1381,8 +1400,15 @@ function StatusTab(): React.ReactElement {
       if (hasParty) wbQ = wbQ.eq('supplier_party_id', pid!);
       wbQ = wbQ.limit(LIMIT);
 
-      const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes] = await Promise.all([
-        invQ, invLegacyQ, openQ, sizQ, bobQ, yarnQ, fabQ, wbQ,
+      // General purchases marked as a payable (migration 335).
+      let gpQ = sb.from('general_purchase')
+        .select('id, bill_no, bill_date, total, supplier_party_id, description')
+        .eq('status', 'active').eq('track_payment', true);
+      if (hasParty) gpQ = gpQ.eq('supplier_party_id', pid!);
+      gpQ = gpQ.limit(LIMIT);
+
+      const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, wbRes, gpRes] = await Promise.all([
+        invQ, invLegacyQ, openQ, sizQ, bobQ, yarnQ, fabQ, wbQ, gpQ,
       ]);
 
       const txns: LedgerTxn[] = [];
@@ -1555,6 +1581,28 @@ function StatusTab(): React.ReactElement {
           debit:      0,
           credit:     total,
           href:       '/app/warp-beam',
+          party_label:  labelFor(r.supplier_party_id),
+          party_link_id: r.supplier_party_id,
+        });
+      }
+
+      // General purchases marked as payable — we owe the supplier.
+      for (const r of ((gpRes?.data ?? []) as Array<{
+        id: number; bill_no: string | null; bill_date: string | null;
+        total: number | string; supplier_party_id: number | null; description: string | null;
+      }>)) {
+        const total = Number(r.total ?? 0);
+        if (total <= 0) continue;
+        txns.push({
+          key:        `gp-${r.id}`,
+          source_id:  r.id,
+          kind:       'general_purchase',
+          date:       r.bill_date ?? '',
+          voucher_no: r.bill_no ?? `GP-${r.id}`,
+          description: r.description ? `General Purchase — ${r.description}` : 'General Purchase',
+          debit:      0,
+          credit:     total,
+          href:       `/app/general-purchases/${r.id}`,
           party_label:  labelFor(r.supplier_party_id),
           party_link_id: r.supplier_party_id,
         });

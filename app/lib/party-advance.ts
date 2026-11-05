@@ -47,6 +47,7 @@ const ALLOCATION_TABLES = [
   'payment_yarn_allocation',
   'payment_fabric_allocation',
   'payment_warp_beam_allocation',
+  'payment_general_purchase_allocation',
 ] as const;
 
 export type AdvanceAllocationTable = (typeof ALLOCATION_TABLES)[number];

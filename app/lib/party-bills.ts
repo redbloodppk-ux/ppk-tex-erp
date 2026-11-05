@@ -31,7 +31,7 @@ type Sb = any;
 /** Which allocation table settles this bill kind, and via which column. */
 export type BillKind =
   | 'invoice' | 'opening' | 'sizing' | 'bobbin'
-  | 'yarn' | 'fabric' | 'agent' | 'warp_beam';
+  | 'yarn' | 'fabric' | 'agent' | 'warp_beam' | 'general';
 
 export interface OpenBill {
   kind: BillKind;
@@ -61,6 +61,9 @@ export const ALLOC_TABLE: Record<BillKind, { table: string; col: string }> = {
   fabric:    { table: 'payment_fabric_allocation',    col: 'fabric_purchase_id' },
   agent:     { table: 'payment_agent_allocation',     col: 'agent_commission_id' },
   warp_beam: { table: 'payment_warp_beam_allocation', col: 'warp_beam_purchase_id' },
+  // General purchases ticked "track payment" (migration 335) — e.g. a
+  // party's own bill for returned towels instead of a debit note.
+  general:   { table: 'payment_general_purchase_allocation', col: 'general_purchase_id' },
 };
 
 export const DOC_TYPE_LABEL: Record<string, string> = {
@@ -78,6 +81,7 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
   warp_beam_purchase: 'Warp Beam Purchase',
+  general_purchase:   'General Purchase',
   agent_commission:   'Agent Commission',
 };
 
@@ -100,7 +104,7 @@ export async function loadPartyBills(
   partyId: number,
   partyName: string,
 ): Promise<{ bills: OpenBill[]; error: string | null }> {
-  const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, wbRes] = await Promise.all([
+  const [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, wbRes, gpRes] = await Promise.all([
     // Matched on party_id, not party_name. The old text match worked only
     // while every party name stayed unique and unchanged - a rename would
     // have silently detached a party's whole invoice history with no
@@ -144,6 +148,10 @@ export async function loadPartyBills(
     sb.from('inhouse_warp_beam_purchase')
       .select('id, code, invoice_no, purchase_date, total_amount, amount_paid')
       .eq('supplier_party_id', partyId).eq('status', 'active').gt('total_amount', 0),
+    // Only general purchases marked as a payable (track_payment).
+    sb.from('general_purchase')
+      .select('id, bill_no, bill_date, total, amount_paid')
+      .eq('supplier_party_id', partyId).eq('status', 'active').eq('track_payment', true).gt('total', 0),
   ]);
 
   // Only the invoice query is fatal — it is the one source every party
@@ -204,6 +212,8 @@ export async function loadPartyBills(
   pushPurchase(yarnRes?.data ?? [], 'yarn',      'yarn_purchase',      'invoice_no', 'received_date', 'YRN');
   pushPurchase(fabRes?.data  ?? [], 'fabric',    'fabric_purchase',    'invoice_no', 'received_date', 'FAB');
   pushPurchase(wbRes?.data   ?? [], 'warp_beam', 'warp_beam_purchase', 'invoice_no', 'purchase_date', 'WB');
+  pushPurchase(((gpRes?.data ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, total_amount: r.total })),
+    'general', 'general_purchase', 'bill_no', 'bill_date', 'GP');
 
   // Agent commission hangs off whichever document earned it.
   for (const raw of ((agentRes?.data ?? []) as unknown[])) {

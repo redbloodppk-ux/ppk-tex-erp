@@ -52,6 +52,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   bobbin_purchase:    'Bobbin Purchase',
   yarn_purchase:      'Yarn Purchase',
   fabric_purchase:    'Fabric Purchase',
+  general_purchase:   'General Purchase',
   opening_receivable: 'Opening (Receivable)',
   opening_payable:    'Opening (Payable)',
   bank_in:            'Bank Receipt',
@@ -143,7 +144,7 @@ export default async function PartyStatementPrintPage({
         .eq('other_ledger_id', partyLedgerId)
     : Promise.resolve({ data: [] as unknown[], error: null });
 
-  const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, bankRes] = await Promise.all([
+  const [invRes, invLegacyRes, openRes, sizRes, bobRes, yarnRes, fabRes, bankRes, gpRes] = await Promise.all([
     // Invoices linked by party_id (migration 262). party_name is the name
     // PRINTED on the document, no longer the link.
     sb.from('invoice')
@@ -186,6 +187,12 @@ export default async function PartyStatementPrintPage({
       .eq('source', 'supplier')
       .eq('status', 'active'),
     bankPromise,
+    // General purchases marked as a payable (migration 335).
+    sb.from('general_purchase')
+      .select('id, bill_no, bill_date, total, amount_paid')
+      .eq('supplier_party_id', partyId)
+      .eq('status', 'active')
+      .eq('track_payment', true),
   ]);
 
   const bills: Bill[] = [];
@@ -313,6 +320,22 @@ export default async function PartyStatementPrintPage({
       doc_date: r.received_date ?? '',
       doc_type: 'fabric_purchase',
       total: Number(r.total_amount ?? 0),
+      paid: Number(r.amount_paid ?? 0),
+      balance: bal,
+    });
+  }
+
+  for (const r of ((gpRes?.data ?? []) as Array<{
+    id: number; bill_no: string | null; bill_date: string | null;
+    total: number | string; amount_paid: number | string;
+  }>)) {
+    const bal = Number(r.total ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    bills.push({
+      doc_no: r.bill_no ?? `GP-${r.id}`,
+      doc_date: r.bill_date ?? '',
+      doc_type: 'general_purchase',
+      total: Number(r.total ?? 0),
       paid: Number(r.amount_paid ?? 0),
       balance: bal,
     });

@@ -137,7 +137,10 @@ export function UnpaidBillsPicker({
 
     // Keep only the account being settled — a receipt must never be able
     // to settle a payable.
-    setBills(all.filter((b) => b.stream === stream));
+    // General-purchase payables (migration 335) are settled on the Payments
+    // page / Contra only; the screens using this picker do not write that
+    // allocation table.
+    setBills(all.filter((b) => b.stream === stream && b.kind !== 'general'));
     setCheckedBills(new Set());
     setAlloc({});
     setLoading(false);
@@ -219,6 +222,7 @@ export function UnpaidBillsPicker({
     const out: SelectedBill[] = [];
     for (const b of bills) {
       if (!checkedBills.has(billKey(b))) continue;
+      if (b.kind === 'general') continue; // filtered out in loadBills
       out.push({ kind: b.kind, id: b.id, balance: Number(b.balance) });
     }
     return out;

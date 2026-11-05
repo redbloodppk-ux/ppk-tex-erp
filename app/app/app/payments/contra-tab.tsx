@@ -22,8 +22,8 @@
  * figure unchanged and the feature would look broken. Allocation is what
  * makes the offset real.
  *
- * general_purchase bills are excluded — they have no payment allocation
- * table, so they cannot be settled this way.
+ * general_purchase bills take part only when ticked "track payment"
+ * (migration 335, payment_general_purchase_allocation).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';

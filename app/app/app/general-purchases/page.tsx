@@ -31,6 +31,8 @@ interface GeneralPurchaseRow {
   gst_pct: number | string;
   total: number | string;
   status: string;
+  track_payment?: boolean | null;
+  amount_paid?: number | string | null;
   party: { name: string | null; code: string | null } | null;
 }
 
@@ -55,7 +57,7 @@ export default async function GeneralPurchasesListPage({
 
   const { data, count } = await sb
     .from('general_purchase')
-    .select('id, bill_no, bill_date, description, taxable, gst_pct, total, status, party:supplier_party_id ( name, code )', { count: 'exact' })
+    .select('id, bill_no, bill_date, description, taxable, gst_pct, total, status, track_payment, amount_paid, party:supplier_party_id ( name, code )', { count: 'exact' })
     .eq('status', 'active')
     .order('bill_date', { ascending: false })
     .order('id', { ascending: false })
@@ -73,7 +75,7 @@ export default async function GeneralPurchasesListPage({
     <div>
       <PageHeader
         title="General Purchases"
-        subtitle="Catch-all supplier GST bills (packing, spares, consumables, services). Appears in the Purchase Register — register only, no payment tracking."
+        subtitle="Catch-all supplier GST bills (packing, spares, consumables, services). Appears in the Purchase Register — register only, unless a bill is ticked as payable (then it shows in outstanding, Payments and Contra)."
         actions={
           <Link href="/app/general-purchases/new" className="btn-primary">
             <Plus className="w-4 h-4" /> New General Purchase
@@ -175,7 +177,17 @@ export default async function GeneralPurchasesListPage({
                 <td className="px-3 py-2 text-ink-soft">{r.description ?? '—'}</td>
                 <td className="px-3 py-2 text-right num">{formatRupee(Number(r.taxable))}</td>
                 <td className="px-3 py-2 text-right num">{Number(r.gst_pct)}%</td>
-                <td className="px-3 py-2 text-right num font-semibold">{formatRupee(Number(r.total))}</td>
+                <td className="px-3 py-2 text-right num font-semibold">
+                  {formatRupee(Number(r.total))}
+                  {r.track_payment && (() => {
+                    const bal = Number(r.total ?? 0) - Number(r.amount_paid ?? 0);
+                    return (
+                      <div className={`text-[10px] font-semibold ${bal > 0.005 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                        {bal > 0.005 ? `Payable · bal ${formatRupee(bal)}` : 'Payable · settled'}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td className="px-3 py-2 text-right">
                   <div className="inline-flex items-center gap-1">
                     <Link href={`/app/general-purchases/${r.id}`} className="btn-ghost text-xs inline-flex items-center gap-1">

@@ -219,6 +219,7 @@ export async function fetchLedgerView(
   let bobRes:  typeof invRes = { data: [], error: null };
   let yarnRes: typeof invRes = { data: [], error: null };
   let fabRes:  typeof invRes = { data: [], error: null };
+  let gpRes:   typeof invRes = { data: [], error: null };
   let agentRes: typeof invRes = { data: [], error: null };
   if (partyIds.length > 0) {
     // Pull every active invoice where party_name matches any of
@@ -280,8 +281,17 @@ export async function fetchLedgerView(
       .eq('status', 'active')
       .in('agent_party_id', partyIds);
 
-    const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ, agentCommQ]);
-    [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes] = billRes;
+    // General purchases marked as a payable (migration 335).
+    let gpQ = sb.from('general_purchase')
+      .select('id, bill_no, bill_date, total, gst_pct, supplier_party_id')
+      .eq('status', 'active')
+      .eq('track_payment', true)
+      .in('supplier_party_id', partyIds);
+    if (startDate) gpQ = gpQ.gte('bill_date', startDate);
+    if (endDate)   gpQ = gpQ.lte('bill_date', endDate);
+
+    const billRes = await Promise.all([invQ, openQ, sizQ, bobQ, yarnQ, fabQ, agentCommQ, gpQ]);
+    [invRes, openRes, sizRes, bobRes, yarnRes, fabRes, agentRes, gpRes] = billRes;
   }
 
   // Ledger opening balance (migration 203) — a single as-on-date figure
@@ -692,6 +702,25 @@ export async function fetchLedgerView(
       voucher:      r.invoice_no ?? r.code ?? `FP-${r.id}`,
       counterparty: '—',
       mode:         'Fabric Purchase',
+      reference:    null,
+      inflow:       0,
+      outflow:      amt,
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((gpRes.data ?? []) as any[])) {
+    const amt = Number(r.total ?? 0);
+    if (amt <= 0) continue;
+    all.push({
+      key:          `gp-${r.id}`,
+      source:       'bill',
+      bill_kind:    'general',
+      stream:       'supplier',
+      date:         r.bill_date,
+      voucher:      r.bill_no ?? `GP-${r.id}`,
+      counterparty: '—',
+      mode:         'General Purchase',
       reference:    null,
       inflow:       0,
       outflow:      amt,

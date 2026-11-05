@@ -49,6 +49,9 @@ export interface GeneralPurchaseInitial {
   gst_pct?: number | string;
   round_off?: number | string;
   status?: string;
+  /** Payable to the supplier (outstanding / payments / contra). Migration 335. */
+  track_payment?: boolean;
+  amount_paid?: number | string;
   items?: GeneralPurchaseItemInitial[];
 }
 
@@ -95,6 +98,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
     description: initial?.description ?? '',
     taxable: initial?.taxable != null ? String(initial.taxable) : '',
     gst_pct: initial?.gst_pct != null ? String(initial.gst_pct) : '0',
+    track_payment: initial?.track_payment === true,
   });
   // Optional line items. While any rows exist, Taxable auto-fills with
   // the item total; with no rows the operator types taxable directly.
@@ -238,6 +242,7 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
       // generated expression impossible): taxable + GST, pre-round-off.
       total: base,
       round_off: effectiveRoundOff,
+      track_payment: form.track_payment,
     };
 
     // Item rows to persist (amount & gst_amount are generated columns).
@@ -353,6 +358,22 @@ export function GeneralPurchaseForm({ initial, parties }: Props): React.ReactEle
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           className="input" placeholder="e.g. packing material, machine spares, transport" />
       </div>
+
+      {/* Payable or register-only (migration 335). */}
+      <label className="flex items-start gap-2 rounded-md border border-line bg-cloud/30 p-3 cursor-pointer">
+        <input type="checkbox" className="mt-0.5" checked={form.track_payment}
+          disabled={isEdit && form.track_payment && Number(initial?.amount_paid ?? 0) > 0}
+          onChange={(e) => setForm({ ...form, track_payment: e.target.checked })} />
+        <span className="text-sm">
+          <span className="font-semibold">Add to party outstanding (payable)</span>
+          <span className="block text-[11px] text-ink-mute">
+            Tick when this bill must be paid or adjusted later — e.g. a party sends their own bill for returned goods
+            instead of a debit note. It then shows in outstanding, Payments, the party statement and Contra / Set-off.
+            Leave unticked for spares or services already paid on the spot.
+            {isEdit && Number(initial?.amount_paid ?? 0) > 0 && ' (Already paid / adjusted partly, so it stays ticked.)'}
+          </span>
+        </span>
+      </label>
 
       {/* Optional line items — while rows exist, Taxable auto-fills with the item total. */}
       <div>

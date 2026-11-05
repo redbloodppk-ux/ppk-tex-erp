@@ -371,6 +371,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     { data: inPayments, error: inPaymentsErr },
     { data: invoicePaymentAllocs, error: invoicePaymentAllocsErr },
     { data: openingPaymentAllocs, error: openingPaymentAllocsErr },
+    { data: generalBills, error: generalBillsErr },
   ] = await Promise.all([
     supabase.from('v_customer_outstanding').select('outstanding').limit(500),
     // Every unpaid / part-paid JOB WORK bill, oldest first — the
@@ -489,6 +490,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     (supabase as any).from('payment_allocation').select('payment_id, amount'),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('payment_opening_allocation').select('payment_id, amount'),
+    // General purchases marked as a payable (migration 335) — e.g. a
+    // party's own bill for returned goods instead of a debit note.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('general_purchase')
+      .select('id, bill_no, bill_date, total, amount_paid, supplier_party_id')
+      .eq('status', 'active')
+      .eq('track_payment', true)
+      .gt('total', 0)
+      .order('bill_date', { ascending: true }),
   ]);
 
   // A failed query used to be invisible here. Every one of these sixteen
@@ -525,6 +535,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ['Yarn lots', yarnBillsErr],
     ['Fabric purchases', fabricBillsErr],
     ['Warp beam purchases', warpBeamBillsErr],
+    ['General purchases (payable)', generalBillsErr],
     ['Opening payables', openingPayablesErr],
     ['Agent commission', agentCommErr],
     ['Opening receivables', openingReceivablesErr],
@@ -756,6 +767,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       customer_id:      null,
       jobwork_party_id: r.supplier_party_id ?? null,
       total:            r.total_amount,
+      amount_paid:      r.amount_paid,
+      balance:          bal,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of ((generalBills ?? []) as any[])) {
+    const bal = Number(r.total ?? 0) - Number(r.amount_paid ?? 0);
+    if (bal <= 0.005) continue;
+    supplierBills.push({
+      id:               r.id,
+      invoice_no:       r.bill_no ?? `GP-${r.id}`,
+      party_name:       r.supplier_party_id ? (partyNameById.get(r.supplier_party_id) ?? null) : null,
+      invoice_date:     r.bill_date ?? '',
+      customer_id:      null,
+      jobwork_party_id: r.supplier_party_id ?? null,
+      total:            r.total,
       amount_paid:      r.amount_paid,
       balance:          bal,
     });

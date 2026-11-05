@@ -6,7 +6,7 @@ import {
 import { ALL_STREAMS } from './party-streams';
 
 const ALL_KINDS: BillKind[] = [
-  'invoice', 'opening', 'sizing', 'bobbin', 'yarn', 'fabric', 'agent', 'warp_beam',
+  'invoice', 'opening', 'sizing', 'bobbin', 'yarn', 'fabric', 'agent', 'warp_beam', 'general',
 ];
 
 describe('party-bills: allocation mapping', () => {
