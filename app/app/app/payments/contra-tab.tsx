@@ -131,9 +131,24 @@ export function ContraTab(): React.ReactElement {
   const overMax = amtValid && maxOffset > 0 && amt > maxOffset + 0.005;
   const canSave = partyId !== '' && fromStream !== '' && toStream !== '' && amtValid && !overMax && !busy;
 
+  // Pre-fill the offset with the most that can be set off (PPK, 2026-11-05:
+  // Save looked dead because the amount box was still empty).
+  useEffect(() => {
+    if (amount === '' && maxOffset > 0) setAmount(maxOffset.toFixed(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxOffset]);
+
   async function save(): Promise<void> {
     setError(null); setSavedMsg(null);
-    if (!canSave) return;
+    if (!canSave) {
+      // Never fail silently — say what is missing.
+      if (busy) return;
+      if (partyId === '') setError('Choose the party.');
+      else if (fromStream === '' || toStream === '') setError('Choose both accounts to offset.');
+      else if (!amtValid) setError('Enter the offset amount.');
+      else if (overMax) setError(`Offset can be at most ₹${fmtINR(maxOffset)} — the smaller of the two balances.`);
+      return;
+    }
     setBusy(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabase as any;
@@ -332,7 +347,7 @@ export function ContraTab(): React.ReactElement {
             )}
 
             <div className="flex justify-end">
-              <button type="button" className="btn-primary" disabled={!canSave} onClick={() => void save()}>
+              <button type="button" className="btn-primary" disabled={busy} onClick={() => void save()}>
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Record Contra
               </button>
