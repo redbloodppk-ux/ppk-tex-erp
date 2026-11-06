@@ -329,6 +329,72 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   const weekPaidCash = weekPaid.reduce((s, r) => s + Number(r.amount || 0) - Number(r.loan_deduction || 0), 0);
   const samePayDate = weekPaid.filter((r) => r.pay_date === payDate && r.kind === kind);
 
+  // Days worked this week (attendance) vs same-day payments, to point at a
+  // day that may not have been paid (PPK, 2026-11-06: "show also missing
+  // payment on the respective week"). A shift is "covered" by a same-day
+  // payment on that date or the next morning; a payment of about twice the
+  // usual day rate counts as two days.
+  interface PresentShift { date: string; shift: string }
+  const [presentShifts, setPresentShifts] = useState<PresentShift[]>([]);
+  const [dayRate, setDayRate] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPresent(): Promise<void> {
+      if (!employeeId || (kind !== 'same_day' && kind !== 'advance') || !periodStart || !periodEnd) {
+        setPresentShifts([]); setDayRate(0);
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = supabase as any;
+      const [{ data: att }, { data: recent }] = await Promise.all([
+        sb.from('v_attendance_detail')
+          .select('attendance_date, shift, status')
+          .eq('employee_id', Number(employeeId))
+          .gte('attendance_date', periodStart)
+          .lte('attendance_date', periodEnd)
+          .in('status', ['present', 'late', 'early_leave', 'half_day'])
+          .order('attendance_date')
+          .limit(50),
+        sb.from('wage_entry')
+          .select('amount')
+          .eq('employee_id', Number(employeeId))
+          .eq('kind', 'same_day')
+          .order('pay_date', { ascending: false })
+          .limit(30),
+      ]);
+      if (cancelled) return;
+      setPresentShifts(((att ?? []) as Array<{ attendance_date: string; shift: string }>)
+        .map((a) => ({ date: a.attendance_date, shift: a.shift })));
+      // Usual day rate = the most common same-day amount.
+      const counts = new Map<number, number>();
+      for (const r of (recent ?? []) as Array<{ amount: number }>) {
+        const a = Number(r.amount || 0);
+        if (a > 0) counts.set(a, (counts.get(a) ?? 0) + 1);
+      }
+      let best = 0; let bestN = 0;
+      for (const [a, n] of counts) if (n > bestN || (n === bestN && a > best)) { best = a; bestN = n; }
+      setDayRate(best);
+    }
+    void loadPresent();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, employeeId, kind, periodStart, periodEnd]);
+
+  /** Same-day payments of the week converted to "days paid". */
+  const weekDaysPaid = (() => {
+    if (dayRate <= 0) return weekPaid.filter((r) => r.kind === 'same_day').length;
+    return weekPaid.filter((r) => r.kind === 'same_day')
+      .reduce((t, r) => t + Math.max(1, Math.round(Number(r.amount || 0) / dayRate)), 0);
+  })();
+  const nextDay = (d: string): string => {
+    const [y, m, dd] = d.split('-').map(Number);
+    const x = new Date(y ?? 1970, (m ?? 1) - 1, (dd ?? 1) + 1);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  };
+  const paidDates = new Set(weekPaid.filter((r) => r.kind === 'same_day').map((r) => r.pay_date));
+  const shiftsWithoutPay = presentShifts.filter((p) => !paidDates.has(p.date) && !paidDates.has(nextDay(p.date)));
+  const missingDays = Math.max(0, presentShifts.length - weekDaysPaid);
+
   const [ctx, setCtx] = useState<WorkContext>({
     shifts: { morning: 0, night: 0 },
     sheds: [],
@@ -1245,6 +1311,22 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
                 <span className="num">₹{weekPaidTotal.toFixed(2)}{weekPaidCash !== weekPaidTotal ? ` · cash ₹${weekPaidCash.toFixed(2)}` : ''}</span>
               </div>
             </>
+          )}
+          {presentShifts.length > 0 && (
+            <div className={`mt-1 rounded border px-2 py-1.5 text-xs ${missingDays > 0 ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+              <div className="font-semibold">
+                Worked {presentShifts.length} shift{presentShifts.length === 1 ? '' : 's'} this week · same-day paid for {weekDaysPaid} day{weekDaysPaid === 1 ? '' : 's'}
+                {missingDays > 0
+                  ? ` → ${missingDays} day${missingDays === 1 ? '' : 's'} may be unpaid${dayRate > 0 ? ` (about ₹${(missingDays * dayRate).toFixed(0)})` : ''}`
+                  : ' → all paid'}
+              </div>
+              {missingDays > 0 && shiftsWithoutPay.length > 0 && (
+                <div className="mt-0.5">
+                  No payment on or the day after:{' '}
+                  {shiftsWithoutPay.map((p) => `${fmtShortDate(p.date)} ${p.shift === 'night' ? 'night' : 'day'}`).join(', ')}
+                </div>
+              )}
+            </div>
           )}
           {samePayDate.length > 0 && (
             <div className="text-[11px] font-semibold text-amber-800">
