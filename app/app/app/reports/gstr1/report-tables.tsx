@@ -38,13 +38,22 @@ export function ReportTables({ tables }: ReportTablesProps) {
     });
   };
 
+  // Liability = outward supplies (4A B2B + 5 B2CL + 7 B2CS) minus credit
+  // notes (9B). Table 12 (HSN) is a SUMMARY of those same invoices and
+  // Table 13 only counts documents, so neither is added — adding the HSN
+  // table counted every invoice twice (PPK, 2026-11-06: Taxable read
+  // Rs 9,98,609 for a month of about Rs 4.9 lakh).
   const grandTotal = tables.reduce(
-    (a, t) => ({
-      taxableValue: a.taxableValue + t.totals.taxableValue,
-      igst: a.igst + t.totals.igst,
-      cgst: a.cgst + t.totals.cgst,
-      sgst: a.sgst + t.totals.sgst,
-    }),
+    (a, t) => {
+      if (t.tableNo === '12' || t.tableNo === '13') return a;
+      const sign = t.tableNo === '9B' ? -1 : 1; // only credit notes reach 9B
+      return {
+        taxableValue: a.taxableValue + sign * t.totals.taxableValue,
+        igst: a.igst + sign * t.totals.igst,
+        cgst: a.cgst + sign * t.totals.cgst,
+        sgst: a.sgst + sign * t.totals.sgst,
+      };
+    },
     { taxableValue: 0, igst: 0, cgst: 0, sgst: 0 },
   );
 
@@ -165,7 +174,10 @@ export function ReportTables({ tables }: ReportTablesProps) {
         );
       })}
       <div className="card p-4 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-sm font-semibold">Total Liability</div>
+        <div>
+          <div className="text-sm font-semibold">Total Liability</div>
+          <div className="text-[11px] text-ink-mute">B2B + B2CL + B2CS − credit notes. HSN summary not added again.</div>
+        </div>
         <div className="text-sm font-semibold">
           Taxable {fmtRupees(grandTotal.taxableValue)} · IGST {fmtRupees(grandTotal.igst)} · CGST{' '}
           {fmtRupees(grandTotal.cgst)} · SGST {fmtRupees(grandTotal.sgst)} · Total tax{' '}
