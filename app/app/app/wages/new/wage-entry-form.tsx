@@ -295,6 +295,40 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
   }, [supabase, employeeId, kind, periodStart, periodEnd]);
   const weekAdvanceTotal = weekAdvances.reduce((s, a) => s + Number(a.amount || 0), 0);
 
+  // Same-day / Advance entries: everything already paid to this employee in
+  // the same wage week (PPK, 2026-11-06: "same day wages also show the
+  // advance payment details"), so a day is not paid twice. This entry itself
+  // is left out when editing.
+  interface WeekPaidRow { id: number; pay_date: string; kind: string; amount: number; loan_deduction: number | null; notes: string | null }
+  const [weekPaid, setWeekPaid] = useState<WeekPaidRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWeekPaid(): Promise<void> {
+      if (!employeeId || (kind !== 'same_day' && kind !== 'advance') || !periodStart || !periodEnd) {
+        setWeekPaid([]);
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from('wage_entry')
+        .select('id, pay_date, kind, amount, loan_deduction, notes')
+        .eq('employee_id', Number(employeeId))
+        .eq('period_start', periodStart)
+        .neq('kind', 'extra_work')
+        .order('pay_date')
+        .order('id')
+        .limit(100);
+      if (cancelled) return;
+      setWeekPaid(((data ?? []) as WeekPaidRow[]).filter((r) => !(isEdit && initial && r.id === initial.id)));
+    }
+    void loadWeekPaid();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, employeeId, kind, periodStart, periodEnd]);
+  const weekPaidTotal = weekPaid.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const weekPaidCash = weekPaid.reduce((s, r) => s + Number(r.amount || 0) - Number(r.loan_deduction || 0), 0);
+  const samePayDate = weekPaid.filter((r) => r.pay_date === payDate && r.kind === kind);
+
   const [ctx, setCtx] = useState<WorkContext>({
     shifts: { morning: 0, night: 0 },
     sheds: [],
@@ -823,6 +857,13 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
       setError('Period end cannot be before period start.');
       return;
     }
+    if (samePayDate.length > 0) {
+      const already = samePayDate.reduce((t, r) => t + Number(r.amount || 0), 0);
+      const ok = window.confirm(
+        `Already paid ₹${already.toFixed(2)} (${kind === 'advance' ? 'advance' : 'same-day'}) to this employee on ${fmtShortDate(payDate)}. Save another one anyway?`,
+      );
+      if (!ok) return;
+    }
     if (attendanceRequired && isWeaver && ctx.fetched && ctx.missingSheds > 0) {
       setError(
         `Pick a shed for every shift this weaver worked (${ctx.missingSheds} missing). Open Attendance → Mark and assign sheds for the period.`,
@@ -1178,6 +1219,40 @@ export function WageEntryForm({ employees, initial }: WageEntryFormProps): React
           this employee and period.
         </p>
       </div>
+
+      {(kind === 'same_day' || kind === 'advance') && employeeId && (
+        <div className={`rounded-md border p-2.5 space-y-1 ${samePayDate.length > 0 ? 'border-amber-300 bg-amber-50' : 'border-line bg-cloud/30'}`}>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+            {samePayDate.length > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />}
+            Already paid this week ({fmtShortDate(periodStart)} – {fmtShortDate(periodEnd)})
+          </div>
+          {weekPaid.length === 0 ? (
+            <div className="text-xs text-ink-mute">Nothing paid yet this week.</div>
+          ) : (
+            <>
+              {weekPaid.map((r) => (
+                <div key={r.id} className={`flex items-center justify-between text-xs ${r.pay_date === payDate && r.kind === kind ? 'text-amber-900 font-semibold' : 'text-ink-soft'}`}>
+                  <span>
+                    {fmtShortDate(r.pay_date)} · {r.kind === 'same_day' ? 'Same-day' : r.kind === 'advance' ? 'Advance' : r.kind === 'settlement' ? 'Settlement' : r.kind}
+                    {Number(r.loan_deduction || 0) > 0 ? <span className="text-ink-mute"> (loan ₹{Number(r.loan_deduction).toFixed(0)} kept)</span> : null}
+                    {r.notes ? <span className="text-ink-mute"> — {r.notes}</span> : null}
+                  </span>
+                  <span className="num">₹{Number(r.amount || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between border-t border-line/60 pt-1 text-xs font-bold text-ink">
+                <span>Paid so far this week ({weekPaid.length})</span>
+                <span className="num">₹{weekPaidTotal.toFixed(2)}{weekPaidCash !== weekPaidTotal ? ` · cash ₹${weekPaidCash.toFixed(2)}` : ''}</span>
+              </div>
+            </>
+          )}
+          {samePayDate.length > 0 && (
+            <div className="text-[11px] font-semibold text-amber-800">
+              A {kind === 'advance' ? 'advance' : 'same-day payment'} is already entered on {fmtShortDate(payDate)} — check it is not the same money.
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <label className="label" htmlFor="loanDeduction">Loan repayment (₹)</label>
