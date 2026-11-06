@@ -537,15 +537,49 @@ export default function BonusPage(): React.ReactElement {
     [company.city, company.state, company.pincode].filter(Boolean).join(' '),
   ].filter(Boolean).join('\n');
 
-  /** Browser print dialog → user picks "Save as PDF". Only the hidden
-   *  #bonus-print document stays visible while printing. */
+  /**
+   * Print / Save-as-PDF the bonus statement ONLY.
+   *
+   * The old way hid the rest of the page with `visibility: hidden`, but
+   * hidden elements still take up room, so the PDF carried the whole page's
+   * height: one page of statement followed by blank pages and the dark
+   * sidebar (PPK, 2026-11-06: "lot of empty pages"). Now the statement is
+   * copied into a hidden iframe with the page's styles and printed from
+   * there, so the PDF is exactly the statement.
+   */
   function exportPdf(): void {
-    const originalTitle = document.title;
-    document.title = `Bonus ${from} to ${to}`;
-    setTimeout(() => {
-      window.print();
-      document.title = originalTitle;
-    }, 50);
+    const src = document.getElementById('bonus-print');
+    if (!src) return;
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.position = 'fixed';
+    frame.style.right = '0';
+    frame.style.bottom = '0';
+    frame.style.width = '0';
+    frame.style.height = '0';
+    frame.style.border = '0';
+    document.body.appendChild(frame);
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) { frame.remove(); return; }
+    const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+      .map((n) => n.outerHTML).join('\n');
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Bonus ${from} to ${to}</title>${styles}
+      <style>
+        @page { size: A4; margin: 10mm; }
+        html, body { background: #fff !important; margin: 0; padding: 0; }
+        #bonus-print { display: block !important; max-width: none !important; }
+      </style></head><body>${src.outerHTML}</body></html>`);
+    doc.close();
+    const go = (): void => {
+      win.focus();
+      win.print();
+      setTimeout(() => frame.remove(), 1000);
+    };
+    // Give the copied stylesheets a moment to apply before printing.
+    if (doc.readyState === 'complete') setTimeout(go, 300);
+    else frame.onload = () => setTimeout(go, 300);
   }
 
   return (
@@ -945,20 +979,7 @@ export default function BonusPage(): React.ReactElement {
         </p>
       </div>
 
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          #bonus-print, #bonus-print * { visibility: visible !important; }
-          #bonus-print {
-            display: block !important;
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-          @page { size: A4; margin: 10mm; }
-        }
-      `}</style>
+      {/* Print styles live in exportPdf(): the statement prints from its own frame. */}
     </div>
   );
 }
